@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, CheckCircle2, Plus, Save, Trash2 } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Pencil, Plus, Save, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { formatDateInputValue, formatDisplayValue } from "@/lib/display-format";
+import { getPrepaymentContractEditState } from "@/lib/prepayment-contract-ui";
 import { Button, Input, Panel, Textarea } from "./ui";
 
 type Contract = {
@@ -57,8 +58,17 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
   const router = useRouter();
   const [contract, setContract] = useState<Contract | null>(null);
   const [lines, setLines] = useState<Line[]>([]);
+  const [editing, setEditing] = useState(false);
+  const [confirming, setConfirming] = useState(false);
   const [saving, setSaving] = useState(false);
-  const confirmed = contract?.status === "已确认";
+  const editState = getPrepaymentContractEditState({
+    isConfirming: confirming,
+    isEditing: editing,
+    isSaving: saving,
+    status: contract?.status,
+  });
+  const confirmed = editState.confirmed;
+  const canEdit = editState.canEdit;
 
   async function loadData() {
     const response = await fetch(`/api/prepayments/contracts/${encodeURIComponent(contractNo)}`);
@@ -84,6 +94,7 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
         writeOffStartMonth: formatDateInputValue(line.writeOffStartMonth ?? data.contract.effectiveDate),
       })),
     );
+    setEditing(false);
   }
 
   useEffect(() => {
@@ -150,7 +161,7 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
   }
 
   async function saveDraft() {
-    if (!contract) return;
+    if (!contract) return false;
     setSaving(true);
     const response = await fetch(`/api/prepayments/contracts/${encodeURIComponent(contract.contractNo)}`, {
       method: "PUT",
@@ -164,26 +175,43 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
     setSaving(false);
     if (!response.ok) {
       alert(data.error ?? "保存失败");
-      return;
+      return false;
     }
     await loadData();
+    setEditing(false);
+    return true;
   }
 
   async function confirmContract() {
     if (!contract) return;
     if (!confirm("确认后将生成24个月预付款每月核销明细，合同金额和起始月份将锁定。是否确认？")) return;
-    await saveDraft();
+    if (editing) {
+      const saved = await saveDraft();
+      if (!saved) return;
+    }
     setSaving(true);
+    setConfirming(true);
     const response = await fetch(`/api/prepayments/contracts/${encodeURIComponent(contract.contractNo)}/confirm`, {
       method: "POST",
     });
     const data = await response.json();
     setSaving(false);
     if (!response.ok) {
+      setConfirming(false);
       alert(data.error ?? "确认失败");
       return;
     }
+    setContract((current) => (current ? { ...current, status: "已确认" } : current));
+    setEditing(false);
     router.push("/finance/monthly-prepayment-writeoffs");
+  }
+
+  function handleEditButton() {
+    if (!editing) {
+      setEditing(true);
+      return;
+    }
+    void saveDraft();
   }
 
   if (!contract) {
@@ -202,13 +230,13 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
           <p className="mt-1 text-sm text-[#909399]">维护实例预付款金额、额外费用和每项明细起始核销月份。</p>
         </div>
         <div className="ml-auto flex gap-2">
-          <Button disabled={saving || confirmed} tone="primary" onClick={() => void saveDraft()}>
-            <Save size={15} />
-            保存草稿
+          <Button disabled={editState.editButtonDisabled} tone="primary" onClick={handleEditButton}>
+            {editing ? <Save size={15} /> : <Pencil size={15} />}
+            {editState.editButtonLabel}
           </Button>
-          <Button disabled={saving || confirmed} tone="success" onClick={() => void confirmContract()}>
+          <Button disabled={editState.confirmDisabled} tone="success" onClick={() => void confirmContract()}>
             <CheckCircle2 size={15} />
-            确认合同
+            {editState.confirmButtonLabel}
           </Button>
         </div>
       </div>
@@ -218,8 +246,8 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
         <div className="grid grid-cols-5 gap-4 p-4">
           <Field disabled label="预付款合同号" value={contract.contractNo} onChange={() => undefined} />
           <Field disabled label="状态" value={contract.status} onChange={() => undefined} />
-          <Field disabled={confirmed} label="币种" value={contract.currency ?? ""} onChange={(value) => updateContract({ currency: value })} />
-          <Field disabled={confirmed} label="生效日期" type="date" value={contract.effectiveDate} onChange={(value) => updateContract({ effectiveDate: value })} />
+          <Field disabled={!canEdit} label="币种" value={contract.currency ?? ""} onChange={(value) => updateContract({ currency: value })} />
+          <Field disabled={!canEdit} label="生效日期" type="date" value={contract.effectiveDate} onChange={(value) => updateContract({ effectiveDate: value })} />
           <Field disabled label="合同总金额" value={String(totalAmount)} onChange={() => undefined} />
         </div>
       </Panel>
@@ -250,16 +278,16 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
                     </td>
                   ))}
                   <td className="border-b border-r border-[#ebeef5] px-3 py-3">
-                    <Input className="w-24 min-w-0" disabled={confirmed} value={line.contractCurrency ?? ""} onChange={(event) => updateLine(line.id, { contractCurrency: event.target.value })} />
+                    <Input className="w-24 min-w-0" disabled={!canEdit} value={line.contractCurrency ?? ""} onChange={(event) => updateLine(line.id, { contractCurrency: event.target.value })} />
                   </td>
                   <td className="border-b border-r border-[#ebeef5] px-3 py-3">
-                    <Input className="w-28 min-w-0" disabled={confirmed} type="number" value={line.contractUnitPrice} onChange={(event) => updateLine(line.id, { contractUnitPrice: Number(event.target.value) })} />
+                    <Input className="w-28 min-w-0" disabled={!canEdit} type="number" value={line.contractUnitPrice} onChange={(event) => updateLine(line.id, { contractUnitPrice: Number(event.target.value) })} />
                   </td>
                   <td className="border-b border-r border-[#ebeef5] px-3 py-3">
-                    <Input className="w-32 min-w-0" disabled={confirmed} type="number" value={line.contractTotalAmount} onChange={(event) => updateLine(line.id, { contractTotalAmount: Number(event.target.value) })} />
+                    <Input className="w-32 min-w-0" disabled={!canEdit} type="number" value={line.contractTotalAmount} onChange={(event) => updateLine(line.id, { contractTotalAmount: Number(event.target.value) })} />
                   </td>
                   <td className="border-b border-r border-[#ebeef5] px-3 py-3">
-                    <Input className="w-40 min-w-0" disabled={confirmed} type="date" value={formatDateInputValue(line.writeOffStartMonth)} onChange={(event) => updateLine(line.id, { writeOffStartMonth: event.target.value })} />
+                    <Input className="w-40 min-w-0" disabled={!canEdit} type="date" value={formatDateInputValue(line.writeOffStartMonth)} onChange={(event) => updateLine(line.id, { writeOffStartMonth: event.target.value })} />
                   </td>
                 </tr>
               ))}
@@ -271,7 +299,7 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
       <Panel>
         <div className="flex items-center border-b border-[#ebeef5] px-4 py-3">
           <div className="font-medium text-[#303133]">费用明细</div>
-          <Button className="ml-auto" disabled={confirmed} onClick={addFeeLine}>
+          <Button className="ml-auto" disabled={!canEdit} onClick={addFeeLine}>
             <Plus size={15} />
             新增费用明细
           </Button>
@@ -293,25 +321,25 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
               {feeLines.map((line) => (
                 <tr key={line.id}>
                   <td className="border-b border-r border-[#ebeef5] px-3 py-3">
-                    <Input disabled={confirmed} value={line.feeName ?? ""} onChange={(event) => updateLine(line.id, { feeName: event.target.value, nameEn: event.target.value })} />
+                    <Input disabled={!canEdit} value={line.feeName ?? ""} onChange={(event) => updateLine(line.id, { feeName: event.target.value, nameEn: event.target.value })} />
                   </td>
                   <td className="border-b border-r border-[#ebeef5] px-3 py-3">
-                    <Input disabled={confirmed} value={line.batchName ?? ""} onChange={(event) => updateLine(line.id, { batchName: event.target.value })} />
+                    <Input disabled={!canEdit} value={line.batchName ?? ""} onChange={(event) => updateLine(line.id, { batchName: event.target.value })} />
                   </td>
                   <td className="border-b border-r border-[#ebeef5] px-3 py-3">
-                    <Textarea disabled={confirmed} value={line.feeDescription ?? ""} onChange={(event) => updateLine(line.id, { feeDescription: event.target.value })} />
+                    <Textarea disabled={!canEdit} value={line.feeDescription ?? ""} onChange={(event) => updateLine(line.id, { feeDescription: event.target.value })} />
                   </td>
                   <td className="border-b border-r border-[#ebeef5] px-3 py-3">
-                    <Input className="w-24 min-w-0" disabled={confirmed} value={line.contractCurrency ?? ""} onChange={(event) => updateLine(line.id, { contractCurrency: event.target.value })} />
+                    <Input className="w-24 min-w-0" disabled={!canEdit} value={line.contractCurrency ?? ""} onChange={(event) => updateLine(line.id, { contractCurrency: event.target.value })} />
                   </td>
                   <td className="border-b border-r border-[#ebeef5] px-3 py-3">
-                    <Input className="w-32 min-w-0" disabled={confirmed} type="number" value={line.contractTotalAmount} onChange={(event) => updateLine(line.id, { contractTotalAmount: Number(event.target.value), contractUnitPrice: Number(event.target.value) })} />
+                    <Input className="w-32 min-w-0" disabled={!canEdit} type="number" value={line.contractTotalAmount} onChange={(event) => updateLine(line.id, { contractTotalAmount: Number(event.target.value), contractUnitPrice: Number(event.target.value) })} />
                   </td>
                   <td className="border-b border-r border-[#ebeef5] px-3 py-3">
-                    <Input className="w-40 min-w-0" disabled={confirmed} type="date" value={formatDateInputValue(line.writeOffStartMonth)} onChange={(event) => updateLine(line.id, { writeOffStartMonth: event.target.value })} />
+                    <Input className="w-40 min-w-0" disabled={!canEdit} type="date" value={formatDateInputValue(line.writeOffStartMonth)} onChange={(event) => updateLine(line.id, { writeOffStartMonth: event.target.value })} />
                   </td>
                   <td className="border-b border-[#ebeef5] px-3 py-3">
-                    <Button disabled={confirmed} tone="danger" onClick={() => removeLine(line.id)}>
+                    <Button disabled={!canEdit} tone="danger" onClick={() => removeLine(line.id)}>
                       <Trash2 size={15} />
                       删除
                     </Button>
