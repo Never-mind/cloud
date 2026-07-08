@@ -3,6 +3,8 @@ type PurchaseOrderRow = {
   requestNo?: string | null;
   status?: string | null;
   currency?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
 };
 
 type PurchaseItemRow = {
@@ -98,21 +100,30 @@ export function buildPurchaseProductLines({
     const unitPrice = Number(item.unitPrice ?? 0);
 
     return {
-      id: item.id,
-      poNo: item.poNo,
-      requestNo,
-      batchName: request?.batchName ?? "",
-      status: order?.status ?? "",
-      currency: order?.currency ?? "",
-      requestItemId: item.requestItemId,
-      deviceCode: requestItem?.deviceCode ?? "",
-      nameZh: model?.nameZh ?? "",
-      nameEn: model?.nameEn ?? "",
-      quantity,
-      unitPrice,
-      totalAmount: quantity * unitPrice,
+      line: {
+        id: item.id,
+        poNo: item.poNo,
+        requestNo,
+        batchName: request?.batchName ?? "",
+        status: order?.status ?? "",
+        currency: order?.currency ?? "",
+        requestItemId: item.requestItemId,
+        deviceCode: requestItem?.deviceCode ?? "",
+        nameZh: model?.nameZh ?? "",
+        nameEn: model?.nameEn ?? "",
+        quantity,
+        unitPrice,
+        totalAmount: quantity * unitPrice,
+      },
+      sortTime: getTime(order?.updatedAt || order?.createdAt),
     };
-  });
+  })
+    .sort((left, right) => {
+      const timeDiff = right.sortTime - left.sortTime;
+      if (timeDiff !== 0) return timeDiff;
+      return right.line.poNo.localeCompare(left.line.poNo);
+    })
+    .map((item) => item.line);
 }
 
 export function calculatePurchaseTotalAmount(lines: PurchaseAmountLine[]) {
@@ -141,4 +152,10 @@ export function formatPurchaseProductLineForExport(row: PurchaseProductLine) {
 function isConfirmedStatus(status: unknown) {
   const value = String(status ?? "");
   return value === "已确认" || value.includes("确认") || value.includes("纭") || value.includes("茬");
+}
+
+function getTime(value: unknown) {
+  if (!value) return 0;
+  const time = new Date(String(value)).getTime();
+  return Number.isNaN(time) ? 0 : time;
 }

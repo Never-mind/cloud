@@ -64,4 +64,21 @@ describe("request product lines", () => {
 
     expect(rows.map((row) => row.requestNo)).toEqual(["REQ-CONFIRMED"]);
   });
+
+  it("shows the newest request detail lines first", () => {
+    const rows = buildRequestProductLines({
+      requests: [
+        { requestNo: "REQ-OLD", status: "已下单", batchName: "OLD", createdAt: "2026-07-01T00:00:00.000Z" },
+        { requestNo: "REQ-NEW", status: "已下单", batchName: "NEW", createdAt: "2026-07-08T00:00:00.000Z" },
+      ],
+      requestItems: [
+        { id: "RI-OLD", requestNo: "REQ-OLD", deviceCode: "DEV-1", supplierId: "SUP-1", quantity: 1 },
+        { id: "RI-NEW", requestNo: "REQ-NEW", deviceCode: "DEV-2", supplierId: "SUP-1", quantity: 1 },
+      ],
+      instanceModels: [],
+      suppliers: [],
+    });
+
+    expect(rows.map((row) => row.requestNo)).toEqual(["REQ-NEW", "REQ-OLD"]);
+  });
 });

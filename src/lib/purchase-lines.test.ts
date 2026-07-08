@@ -153,4 +153,24 @@ describe("purchase product lines", () => {
     expect(filterPurchaseProductLines(rows, "enhanced")).toHaveLength(1);
     expect(filterPurchaseProductLines(rows, "missing")).toHaveLength(0);
   });
+
+  it("shows the newest purchase detail lines first", () => {
+    const rows = buildPurchaseProductLines({
+      purchaseOrders: [
+        { poNo: "PO-OLD", requestNo: "REQ-OLD", status: "已确认", currency: "USD", createdAt: "2026-07-01T00:00:00.000Z" },
+        { poNo: "PO-NEW", requestNo: "REQ-NEW", status: "已确认", currency: "USD", createdAt: "2026-07-08T00:00:00.000Z" },
+      ],
+      purchaseItems: [
+        { id: "POI-OLD", poNo: "PO-OLD", requestItemId: "RI-OLD", unitPrice: 1 },
+        { id: "POI-NEW", poNo: "PO-NEW", requestItemId: "RI-NEW", unitPrice: 1 },
+      ],
+      requestItems: [
+        { id: "RI-OLD", requestNo: "REQ-OLD", deviceCode: "DEV-1", quantity: 1 },
+        { id: "RI-NEW", requestNo: "REQ-NEW", deviceCode: "DEV-2", quantity: 1 },
+      ],
+      instanceModels: [],
+    });
+
+    expect(rows.map((row) => row.poNo)).toEqual(["PO-NEW", "PO-OLD"]);
+  });
 });

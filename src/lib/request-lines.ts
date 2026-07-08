@@ -67,5 +67,20 @@ export function buildRequestProductLines({
       createdAt: request?.createdAt ?? "",
       updatedAt: request?.updatedAt ?? "",
     };
-  });
+  }).sort((left, right) => compareRequestLineTimeDesc(left, right));
+}
+
+function compareRequestLineTimeDesc(
+  left: { createdAt?: string | null; updatedAt?: string | null; requestNo?: string | null; id?: string | null },
+  right: { createdAt?: string | null; updatedAt?: string | null; requestNo?: string | null; id?: string | null },
+) {
+  const timeDiff = getTime(right.updatedAt || right.createdAt) - getTime(left.updatedAt || left.createdAt);
+  if (timeDiff !== 0) return timeDiff;
+  return String(right.requestNo ?? right.id ?? "").localeCompare(String(left.requestNo ?? left.id ?? ""));
+}
+
+function getTime(value: unknown) {
+  if (!value) return 0;
+  const time = new Date(String(value)).getTime();
+  return Number.isNaN(time) ? 0 : time;
 }

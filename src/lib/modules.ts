@@ -340,6 +340,7 @@ export const entityConfigs: EntityConfig[] = [
     navGroup: "物流管理",
     route: "/shipments",
     description: "管理 PO 发运、交付快照和物流时间线。",
+    defaultSort: "createdAt DESC",
     filters: [
       { key: "keyword", label: "物流", placeholder: "请输入物流ID、PO订单号或收件人" },
       { key: "transportMode", label: "运输方式", placeholder: "请选择运输方式" },

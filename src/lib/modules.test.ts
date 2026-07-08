@@ -98,4 +98,10 @@ describe("module configuration", () => {
       expect(config?.formFields.find((field) => field.key === "billingAmount")?.label).toBe("月账单核销总额");
     }
   });
+
+  it("shows newest shipment rows first", () => {
+    const config = getEntityConfig("shipments");
+
+    expect(config?.defaultSort).toBe("createdAt DESC");
+  });
 });
