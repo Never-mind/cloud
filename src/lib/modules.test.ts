@@ -39,13 +39,15 @@ describe("module configuration", () => {
     expect(contractGroup?.items.map((item) => item.key)).toContain("billing-adjustments");
   });
 
-  it("configures billing adjustment currency as fixed options", () => {
+  it("configures billing adjustments as master records", () => {
     const config = getEntityConfig("billing-adjustments");
-    const currencyField = config?.formFields.find((field) => field.key === "currency");
+    const listKeys = config?.listFields.map((field) => field.key);
+    const formKeys = config?.formFields.map((field) => field.key);
 
-    expect(config?.listFields.map((field) => field.key)).toContain("currency");
-    expect(currencyField?.type).toBe("select");
-    expect(currencyField?.options?.map((option) => option.value)).toEqual(["CNY", "MXN", "CLP", "USD", "BRL"]);
+    expect(listKeys).toContain("instanceContractNo");
+    expect(listKeys).toContain("itemCount");
+    expect(formKeys).toContain("instanceContractNo");
+    expect(formKeys).not.toContain("currency");
   });
 
   it("places finance management directly under home in sidebar order", () => {
@@ -64,6 +66,7 @@ describe("module configuration", () => {
       "billing-available",
       "billing-ledgers",
       "monthly-billing-writeoffs",
+      "billing-statements",
       "prepayment-available",
       "prepayment-contracts",
       "monthly-prepayment-writeoffs",

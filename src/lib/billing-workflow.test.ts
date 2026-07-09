@@ -260,6 +260,39 @@ describe("billing workflow", () => {
     });
   });
 
+  it("uses adjustment instance contract number on monthly rows generated from adjustment", () => {
+    const ledger = buildBillingLedgerDraft({
+      purchaseLine,
+      contract: contracts[1],
+      startMonth: "2026-07-01",
+    });
+    const rows = buildMonthlyBillingRows(ledger);
+    const adjusted = applyBillingAdjustment(rows, {
+      adjustmentNo: "ADJ-CONTRACT",
+      instanceContractNo: "IC-ADJ-001",
+      effectiveMonth: "2026-08-01",
+      currency: "CLP",
+      adjustedFirst24MonthPrice: 610,
+      adjustedNext36MonthPrice: 6.1,
+    });
+
+    expect(adjusted[0]).toMatchObject({
+      writeOffMonth: "2026-07-01",
+      instanceContractNo: "IC-NEW",
+      adjustmentNo: "",
+    });
+    expect(adjusted[1]).toMatchObject({
+      writeOffMonth: "2026-08-01",
+      instanceContractNo: "IC-ADJ-001",
+      adjustmentNo: "ADJ-CONTRACT",
+    });
+    expect(adjusted[24]).toMatchObject({
+      writeOffMonth: "2028-07-01",
+      instanceContractNo: "IC-ADJ-001",
+      monthlyAmount: 6.1,
+    });
+  });
+
   it("updates a billing ledger from the selected contract and new start month", () => {
     const currentLedger = buildBillingLedgerDraft({
       purchaseLine,

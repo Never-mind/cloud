@@ -474,7 +474,9 @@ async function main() {
     `
       CREATE TABLE \`billingadjustments\` (
         \`adjustmentNo\` VARCHAR(128) NOT NULL COMMENT 'adjustment no',
+        \`instanceContractNo\` VARCHAR(128) NULL COMMENT 'adjustment instance contract no',
         \`status\` VARCHAR(64) NOT NULL DEFAULT '草稿' COMMENT 'adjustment status',
+        \`itemCount\` INT NOT NULL DEFAULT 0 COMMENT 'item count',
         \`countryCode\` VARCHAR(32) NULL COMMENT 'country code',
         \`batchName\` VARCHAR(255) NULL COMMENT 'batch name',
         \`deviceCode\` VARCHAR(64) NULL COMMENT 'device code',
@@ -487,6 +489,7 @@ async function main() {
         \`createdAt\` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'created time',
         \`updatedAt\` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'updated time',
         PRIMARY KEY (\`adjustmentNo\`),
+        KEY \`idx_BillingAdjustments_instanceContractNo\` (\`instanceContractNo\`),
         KEY \`idx_BillingAdjustments_target\` (\`countryCode\`, \`batchName\`, \`deviceCode\`),
         KEY \`idx_BillingAdjustments_effectiveMonth\` (\`effectiveMonth\`)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='BillingAdjustments'
@@ -494,8 +497,126 @@ async function main() {
   );
   await addColumnIfMissing(
     "billingadjustments",
+    "instanceContractNo",
+    "`instanceContractNo` VARCHAR(128) NULL COMMENT 'adjustment instance contract no' AFTER `adjustmentNo`",
+  );
+  await addColumnIfMissing(
+    "billingadjustments",
+    "itemCount",
+    "`itemCount` INT NOT NULL DEFAULT 0 COMMENT 'item count' AFTER `status`",
+  );
+  await addColumnIfMissing(
+    "billingadjustments",
     "currency",
     "`currency` VARCHAR(16) NOT NULL DEFAULT 'USD' COMMENT 'currency' AFTER `deviceCode`",
+  );
+  await addIndexIfMissing(
+    "billingadjustments",
+    "idx_BillingAdjustments_instanceContractNo",
+    "KEY `idx_BillingAdjustments_instanceContractNo` (`instanceContractNo`)",
+  );
+  await createTableIfMissing(
+    "billingadjustmentitems",
+    `
+      CREATE TABLE \`billingadjustmentitems\` (
+        \`id\` VARCHAR(160) NOT NULL COMMENT 'adjustment item id',
+        \`adjustmentNo\` VARCHAR(128) NOT NULL COMMENT 'adjustment no',
+        \`countryCode\` VARCHAR(32) NULL COMMENT 'country code',
+        \`batchName\` VARCHAR(255) NULL COMMENT 'batch name',
+        \`requestNo\` VARCHAR(128) NULL COMMENT 'request no',
+        \`poNo\` VARCHAR(128) NULL COMMENT 'PO no',
+        \`deviceCode\` VARCHAR(64) NULL COMMENT 'device code',
+        \`modelCode\` VARCHAR(128) NULL COMMENT 'model code',
+        \`nameEn\` VARCHAR(255) NULL COMMENT 'instance english name',
+        \`quantity\` INT NULL COMMENT 'quantity',
+        \`currency\` VARCHAR(16) NOT NULL DEFAULT 'USD' COMMENT 'currency',
+        \`effectiveMonth\` DATE NULL COMMENT 'effective month',
+        \`adjustedFirst24MonthPrice\` DECIMAL(18, 4) NULL COMMENT 'adjusted first 24 month price',
+        \`adjustedNext36MonthPrice\` DECIMAL(18, 4) NULL COMMENT 'adjusted next 36 month price',
+        \`createdAt\` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'created time',
+        PRIMARY KEY (\`id\`),
+        KEY \`idx_BillingAdjustmentItems_adjustmentNo\` (\`adjustmentNo\`),
+        KEY \`idx_BillingAdjustmentItems_target\` (\`countryCode\`, \`batchName\`, \`deviceCode\`),
+        KEY \`idx_BillingAdjustmentItems_effectiveMonth\` (\`effectiveMonth\`)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='BillingAdjustmentItems'
+    `,
+  );
+  await execute(
+    `
+      INSERT IGNORE INTO billingadjustmentitems
+        (id, adjustmentNo, countryCode, batchName, deviceCode, currency, effectiveMonth,
+         adjustedFirst24MonthPrice, adjustedNext36MonthPrice)
+      SELECT
+        CONCAT('BAI-', adjustmentNo, '-001'),
+        adjustmentNo,
+        countryCode,
+        batchName,
+        deviceCode,
+        currency,
+        effectiveMonth,
+        adjustedFirst24MonthPrice,
+        adjustedNext36MonthPrice
+      FROM billingadjustments
+      WHERE COALESCE(countryCode, '') <> ''
+        AND COALESCE(batchName, '') <> ''
+        AND COALESCE(deviceCode, '') <> ''
+    `,
+  );
+  await execute(
+    `
+      UPDATE billingadjustments ba
+      LEFT JOIN (
+        SELECT adjustmentNo, COUNT(*) AS itemCount
+        FROM billingadjustmentitems
+        GROUP BY adjustmentNo
+      ) items ON items.adjustmentNo = ba.adjustmentNo
+      SET ba.itemCount = COALESCE(items.itemCount, 0)
+      WHERE ba.itemCount = 0
+    `,
+  );
+  await createTableIfMissing(
+    "billingstatementsnapshots",
+    `
+      CREATE TABLE \`billingstatementsnapshots\` (
+        \`snapshotNo\` VARCHAR(128) NOT NULL COMMENT 'billing statement snapshot no',
+        \`countryCode\` VARCHAR(32) NOT NULL COMMENT 'country code',
+        \`startDate\` DATE NOT NULL COMMENT 'statement start date',
+        \`endDate\` DATE NOT NULL COMMENT 'statement end date',
+        \`currencySummary\` VARCHAR(255) NULL COMMENT 'currency summary',
+        \`totalQuantity\` DECIMAL(18, 4) NULL COMMENT 'total quantity',
+        \`totalAmount\` DECIMAL(18, 4) NULL COMMENT 'total amount',
+        \`itemCount\` INT NOT NULL DEFAULT 0 COMMENT 'item count',
+        \`createdAt\` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'created time',
+        PRIMARY KEY (\`snapshotNo\`),
+        KEY \`idx_BillingStatementSnapshots_countryCode\` (\`countryCode\`),
+        KEY \`idx_BillingStatementSnapshots_dates\` (\`startDate\`, \`endDate\`)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='BillingStatementSnapshots'
+    `,
+  );
+  await createTableIfMissing(
+    "billingstatementsnapshotitems",
+    `
+      CREATE TABLE \`billingstatementsnapshotitems\` (
+        \`id\` VARCHAR(160) NOT NULL COMMENT 'billing statement snapshot item id',
+        \`snapshotNo\` VARCHAR(128) NOT NULL COMMENT 'billing statement snapshot no',
+        \`countryCode\` VARCHAR(32) NOT NULL COMMENT 'country code',
+        \`currency\` VARCHAR(16) NULL COMMENT 'currency',
+        \`instanceContractNo\` VARCHAR(128) NULL COMMENT 'instance contract no',
+        \`productType\` VARCHAR(255) NULL COMMENT 'computing service product type',
+        \`unitPriceVatExcluded\` DECIMAL(18, 4) NULL COMMENT 'unit price VAT excluded',
+        \`vatRate\` DECIMAL(10, 6) NULL COMMENT 'VAT rate',
+        \`unitPriceVatIncluded\` DECIMAL(18, 4) NULL COMMENT 'unit price VAT included',
+        \`quantity\` DECIMAL(18, 4) NULL COMMENT 'quantity',
+        \`amount\` DECIMAL(18, 4) NULL COMMENT 'amount VAT included',
+        \`startTime\` DATE NOT NULL COMMENT 'start time',
+        \`endTime\` DATE NOT NULL COMMENT 'end of charge time',
+        \`sourceIds\` TEXT NULL COMMENT 'monthly billing source ids',
+        \`createdAt\` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'created time',
+        PRIMARY KEY (\`id\`),
+        KEY \`idx_BillingStatementSnapshotItems_snapshotNo\` (\`snapshotNo\`),
+        KEY \`idx_BillingStatementSnapshotItems_currency\` (\`currency\`)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='BillingStatementSnapshotItems'
+    `,
   );
   await createTableIfMissing(
     "servicefeesnapshots",
@@ -586,6 +707,65 @@ async function main() {
     "shipments",
     "idx_Shipments_purchaseOrderItemId",
     "KEY `idx_Shipments_purchaseOrderItemId` (`purchaseOrderItemId`)",
+  );
+
+  await createTableIfMissing(
+    "documentfolders",
+    `
+      CREATE TABLE \`documentfolders\` (
+        \`folderId\` VARCHAR(80) NOT NULL COMMENT 'folder id',
+        \`parentId\` VARCHAR(80) NULL COMMENT 'parent folder id',
+        \`name\` VARCHAR(255) NOT NULL COMMENT 'folder name',
+        \`sortOrder\` INT NOT NULL DEFAULT 0 COMMENT 'sort order',
+        \`createdAt\` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'created time',
+        \`updatedAt\` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'updated time',
+        PRIMARY KEY (\`folderId\`),
+        UNIQUE KEY \`uk_DocumentFolders_parent_name\` (\`parentId\`, \`name\`),
+        KEY \`idx_DocumentFolders_parentId\` (\`parentId\`)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='DocumentFolders'
+    `,
+  );
+  await createTableIfMissing(
+    "documentfiles",
+    `
+      CREATE TABLE \`documentfiles\` (
+        \`fileId\` VARCHAR(80) NOT NULL COMMENT 'file id',
+        \`folderId\` VARCHAR(80) NOT NULL COMMENT 'folder id',
+        \`originalName\` VARCHAR(255) NOT NULL COMMENT 'original file name',
+        \`storedName\` VARCHAR(255) NOT NULL COMMENT 'stored file name',
+        \`filePath\` VARCHAR(1024) NOT NULL COMMENT 'server file path',
+        \`mimeType\` VARCHAR(255) NULL COMMENT 'mime type',
+        \`extension\` VARCHAR(32) NULL COMMENT 'file extension',
+        \`category\` VARCHAR(32) NOT NULL DEFAULT 'other' COMMENT 'file category',
+        \`fileSize\` BIGINT NOT NULL DEFAULT 0 COMMENT 'file size bytes',
+        \`uploadedBy\` VARCHAR(128) NULL COMMENT 'uploaded by',
+        \`createdAt\` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'created time',
+        \`updatedAt\` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'updated time',
+        PRIMARY KEY (\`fileId\`),
+        KEY \`idx_DocumentFiles_folderId\` (\`folderId\`),
+        KEY \`idx_DocumentFiles_originalName\` (\`originalName\`)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='DocumentFiles'
+    `,
+  );
+  await addIndexIfMissing(
+    "documentfolders",
+    "uk_DocumentFolders_parent_name",
+    "UNIQUE KEY `uk_DocumentFolders_parent_name` (`parentId`, `name`)",
+  );
+  await addIndexIfMissing(
+    "documentfiles",
+    "idx_DocumentFiles_folderId",
+    "KEY `idx_DocumentFiles_folderId` (`folderId`)",
+  );
+  await execute(
+    `
+      INSERT IGNORE INTO documentfolders (folderId, parentId, name, sortOrder)
+      VALUES
+        ('ROOT', NULL, '文档管理', 0),
+        ('ROOT-MX', 'ROOT', 'MX', 1),
+        ('ROOT-CL', 'ROOT', 'CL', 2),
+        ('ROOT-BR', 'ROOT', 'BR', 3)
+    `,
   );
 }
 

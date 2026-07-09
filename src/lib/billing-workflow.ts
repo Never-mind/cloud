@@ -57,7 +57,11 @@ export type MonthlyBillingRow = {
 
 export type BillingAdjustmentInput = {
   adjustmentNo: string;
+  instanceContractNo?: string;
   effectiveMonth: string;
+  countryCode?: string;
+  batchName?: string;
+  deviceCode?: string;
   currency?: string;
   adjustedFirst24MonthPrice: number;
   adjustedNext36MonthPrice: number;
@@ -181,6 +185,7 @@ export function applyBillingAdjustment(rows: MonthlyBillingRow[], adjustment: Bi
 
     return {
       ...row,
+      instanceContractNo: adjustment.instanceContractNo?.trim() || row.instanceContractNo,
       currency: adjustment.currency?.trim() || row.currency,
       monthlyAmount,
       monthlyTotalAmount: roundMoney(Number(row.quantity ?? 0) * monthlyAmount),

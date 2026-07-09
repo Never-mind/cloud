@@ -9,6 +9,8 @@ node_modules/
 dev-server*.log
 prod-server*.log
 start-test.log
+tsconfig.tsbuildinfo
+uploads/
 
 .DS_Store
 Thumbs.db

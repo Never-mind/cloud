@@ -29,6 +29,178 @@ export type AvailableBillingLine = BillingPurchaseLine & {
   startMonth: string;
 };
 
+export type BillingAdjustmentDetail = {
+  id?: string;
+  adjustmentNo?: string;
+  countryCode: string;
+  batchName: string;
+  requestNo?: string;
+  poNo?: string;
+  deviceCode: string;
+  modelCode?: string;
+  nameEn?: string;
+  quantity?: number;
+  currency: string;
+  effectiveMonth: string;
+  adjustedFirst24MonthPrice: number;
+  adjustedNext36MonthPrice: number;
+};
+
+export type BillingAdjustmentDraft = {
+  adjustmentNo: string;
+  instanceContractNo: string;
+  status?: string;
+  reason?: string;
+  items: BillingAdjustmentDetail[];
+};
+
+export async function listBillingAdjustments(searchParams: URLSearchParams) {
+  const keyword = searchParams.get("keyword")?.trim();
+  const whereParts: string[] = [];
+  const params: Row = {};
+
+  if (keyword) {
+    whereParts.push(
+      `(ba.adjustmentNo LIKE :keyword OR ba.instanceContractNo LIKE :keyword OR ba.reason LIKE :keyword OR bai.countryCode LIKE :keyword OR bai.batchName LIKE :keyword OR bai.deviceCode LIKE :keyword)`,
+    );
+    params.keyword = `%${keyword}%`;
+  }
+
+  const where = whereParts.length ? `WHERE ${whereParts.join(" AND ")}` : "";
+  const rows = await queryRows<Row>(
+    `
+      SELECT
+        ba.adjustmentNo,
+        ba.instanceContractNo,
+        ba.status,
+        COALESCE(COUNT(bai.id), ba.itemCount, 0) AS itemCount,
+        GROUP_CONCAT(DISTINCT bai.countryCode ORDER BY bai.countryCode SEPARATOR ', ') AS countryCode,
+        GROUP_CONCAT(DISTINCT bai.batchName ORDER BY bai.batchName SEPARATOR ', ') AS batchName,
+        GROUP_CONCAT(DISTINCT bai.deviceCode ORDER BY bai.deviceCode SEPARATOR ', ') AS deviceCode,
+        ba.reason,
+        DATE_FORMAT(ba.confirmedAt, '%Y-%m-%d') AS confirmedAt,
+        DATE_FORMAT(ba.createdAt, '%Y-%m-%d') AS createdAt,
+        DATE_FORMAT(ba.updatedAt, '%Y-%m-%d') AS updatedAt
+      FROM billingadjustments ba
+      LEFT JOIN billingadjustmentitems bai ON bai.adjustmentNo = ba.adjustmentNo
+      ${where}
+      GROUP BY ba.adjustmentNo, ba.instanceContractNo, ba.status, ba.itemCount, ba.reason, ba.confirmedAt, ba.createdAt, ba.updatedAt
+      ORDER BY ba.createdAt DESC
+    `,
+    params,
+  );
+
+  return { rows, total: rows.length };
+}
+
+export async function getBillingAdjustment(adjustmentNo: string) {
+  const adjustmentRows = await queryRows<Row>(
+    `
+      SELECT
+        adjustmentNo,
+        instanceContractNo,
+        status,
+        itemCount,
+        reason,
+        DATE_FORMAT(confirmedAt, '%Y-%m-%d') AS confirmedAt,
+        DATE_FORMAT(createdAt, '%Y-%m-%d') AS createdAt,
+        DATE_FORMAT(updatedAt, '%Y-%m-%d') AS updatedAt
+      FROM billingadjustments
+      WHERE adjustmentNo = :adjustmentNo
+      LIMIT 1
+    `,
+    { adjustmentNo },
+  );
+  const adjustment = adjustmentRows[0] ?? null;
+  const items = adjustment
+    ? await queryRows<Row>(
+        `
+          SELECT
+            id,
+            adjustmentNo,
+            countryCode,
+            batchName,
+            requestNo,
+            poNo,
+            deviceCode,
+            modelCode,
+            nameEn,
+            quantity,
+            currency,
+            DATE_FORMAT(effectiveMonth, '%Y-%m-%d') AS effectiveMonth,
+            adjustedFirst24MonthPrice,
+            adjustedNext36MonthPrice
+          FROM billingadjustmentitems
+          WHERE adjustmentNo = :adjustmentNo
+          ORDER BY countryCode, batchName, deviceCode, id
+        `,
+        { adjustmentNo },
+      )
+    : [];
+
+  return { adjustment, items };
+}
+
+export async function saveBillingAdjustmentDraft(payload: BillingAdjustmentDraft) {
+  const adjustmentNo = payload.adjustmentNo.trim();
+  const instanceContractNo = payload.instanceContractNo.trim();
+  if (!adjustmentNo) throw new Error("调整单号不能为空");
+  if (!instanceContractNo) throw new Error("实例合同单号不能为空");
+
+  const existing = await getBillingAdjustment(adjustmentNo);
+  if (existing.adjustment && String(existing.adjustment.status) === "已确认") {
+    throw new Error("已确认的调整单不可修改");
+  }
+
+  const items = payload.items.map((item, index) => normalizeBillingAdjustmentItem(adjustmentNo, item, index));
+  if (!items.length) throw new Error("调整单明细不能为空");
+
+  await execute(
+    `
+      INSERT INTO billingadjustments
+        (adjustmentNo, instanceContractNo, status, itemCount, reason)
+      VALUES
+        (:adjustmentNo, :instanceContractNo, '草稿', :itemCount, :reason)
+      ON DUPLICATE KEY UPDATE
+        instanceContractNo = VALUES(instanceContractNo),
+        itemCount = VALUES(itemCount),
+        reason = VALUES(reason),
+        updatedAt = CURRENT_TIMESTAMP
+    `,
+    {
+      adjustmentNo,
+      instanceContractNo,
+      itemCount: items.length,
+      reason: payload.reason ?? "",
+    },
+  );
+
+  await execute("DELETE FROM billingadjustmentitems WHERE adjustmentNo = :adjustmentNo", { adjustmentNo });
+  for (const item of items) {
+    await execute(
+      `
+        INSERT INTO billingadjustmentitems
+          (id, adjustmentNo, countryCode, batchName, requestNo, poNo, deviceCode, modelCode, nameEn,
+           quantity, currency, effectiveMonth, adjustedFirst24MonthPrice, adjustedNext36MonthPrice)
+        VALUES
+          (:id, :adjustmentNo, :countryCode, :batchName, :requestNo, :poNo, :deviceCode, :modelCode, :nameEn,
+           :quantity, :currency, :effectiveMonth, :adjustedFirst24MonthPrice, :adjustedNext36MonthPrice)
+      `,
+      item,
+    );
+  }
+
+  return getBillingAdjustment(adjustmentNo);
+}
+
+export async function deleteBillingAdjustmentDraft(adjustmentNo: string) {
+  const { adjustment } = await getBillingAdjustment(adjustmentNo);
+  if (!adjustment) return;
+  if (String(adjustment.status) === "已确认") throw new Error("已确认的调整单不可删除");
+  await execute("DELETE FROM billingadjustmentitems WHERE adjustmentNo = :adjustmentNo", { adjustmentNo });
+  await execute("DELETE FROM billingadjustments WHERE adjustmentNo = :adjustmentNo", { adjustmentNo });
+}
+
 export async function listAvailableBillingLines() {
   const [purchaseLines, ledgerRows, contractRows] = await Promise.all([
     queryRows<PurchaseLineRow>(
@@ -267,81 +439,72 @@ export async function listMonthlyBillingWriteOffs(searchParams: URLSearchParams)
 }
 
 export async function confirmBillingAdjustment(adjustmentNo: string) {
-  const rows = await queryRows<Row>(
-    `
-      SELECT
-        adjustmentNo,
-        status,
-        countryCode,
-        batchName,
-        deviceCode,
-        DATE_FORMAT(effectiveMonth, '%Y-%m-%d') AS effectiveMonth,
-        adjustedFirst24MonthPrice,
-        adjustedNext36MonthPrice,
-        currency
-      FROM billingadjustments
-      WHERE adjustmentNo = :adjustmentNo
-      LIMIT 1
-    `,
-    { adjustmentNo },
-  );
-  const adjustment = rows[0];
+  const { adjustment, items } = await getBillingAdjustment(adjustmentNo);
   if (!adjustment) throw new Error("调整单不存在");
   if (String(adjustment.status) === "已确认") return adjustment;
+  if (!items.length) throw new Error("调整单明细不能为空");
 
-  const ledgers = await queryRows<Row>(
-    `
-      SELECT *
-      FROM billinginstanceledgers
-      WHERE countryCode = :countryCode
-        AND batchName = :batchName
-        AND deviceCode = :deviceCode
-    `,
-    {
-      countryCode: adjustment.countryCode,
-      batchName: adjustment.batchName,
-      deviceCode: adjustment.deviceCode,
-    },
-  );
-  if (!ledgers.length) throw new Error("未找到匹配的月账单台账");
+  let updatedLedgers = 0;
 
-  for (const ledger of ledgers) {
-    const monthlyRows = await queryRows<MonthlyBillingRow>(
+  for (const item of items) {
+    const ledgers = await queryRows<Row>(
       `
-        SELECT
-          id,
-          ledgerId,
-          DATE_FORMAT(writeOffMonth, '%Y-%m-%d') AS writeOffMonth,
-          monthIndex,
-          stage,
-          countryCode,
-          batchName,
-          requestNo,
-          poNo,
-          deviceCode,
-          modelCode,
-          nameEn,
-          quantity,
-          instanceContractNo,
-          currency,
-          monthlyTotalAmount,
-          monthlyAmount,
-          sourceType,
-          adjustmentNo
-        FROM monthlybillingwriteoffs
-        WHERE ledgerId = :ledgerId
-        ORDER BY monthIndex
+        SELECT *
+        FROM billinginstanceledgers
+        WHERE countryCode = :countryCode
+          AND batchName = :batchName
+          AND deviceCode = :deviceCode
       `,
-      { ledgerId: ledger.ledgerId },
+      {
+        countryCode: item.countryCode,
+        batchName: item.batchName,
+        deviceCode: item.deviceCode,
+      },
     );
-    const adjustedRows = applyBillingAdjustment(monthlyRows, {
-      adjustmentNo,
-      effectiveMonth: String(adjustment.effectiveMonth),
-      currency: String(adjustment.currency ?? ""),
-      adjustedFirst24MonthPrice: Number(adjustment.adjustedFirst24MonthPrice ?? 0),
-      adjustedNext36MonthPrice: Number(adjustment.adjustedNext36MonthPrice ?? 0),
-    });
-    await replaceMonthlyBillingRows(String(ledger.ledgerId), adjustedRows);
+    if (!ledgers.length) {
+      throw new Error(`未找到匹配的月账单台账：${item.countryCode}/${item.batchName}/${item.deviceCode}`);
+    }
+
+    for (const ledger of ledgers) {
+      const monthlyRows = await queryRows<MonthlyBillingRow>(
+        `
+          SELECT
+            id,
+            ledgerId,
+            DATE_FORMAT(writeOffMonth, '%Y-%m-%d') AS writeOffMonth,
+            monthIndex,
+            stage,
+            countryCode,
+            batchName,
+            requestNo,
+            poNo,
+            deviceCode,
+            modelCode,
+            nameEn,
+            quantity,
+            instanceContractNo,
+            currency,
+            monthlyTotalAmount,
+            monthlyAmount,
+            sourceType,
+            adjustmentNo
+          FROM monthlybillingwriteoffs
+          WHERE ledgerId = :ledgerId
+          ORDER BY monthIndex
+        `,
+        { ledgerId: ledger.ledgerId },
+      );
+      const adjustedRows = applyBillingAdjustment(monthlyRows, {
+        adjustmentNo,
+        instanceContractNo: String(adjustment.instanceContractNo ?? ""),
+        effectiveMonth: String(item.effectiveMonth),
+        currency: String(item.currency ?? ""),
+        adjustedFirst24MonthPrice: Number(item.adjustedFirst24MonthPrice ?? 0),
+        adjustedNext36MonthPrice: Number(item.adjustedNext36MonthPrice ?? 0),
+      });
+      await replaceMonthlyBillingRows(String(ledger.ledgerId), adjustedRows);
+      updatedLedgers += 1;
+    }
   }
 
   await execute(
@@ -354,7 +517,7 @@ export async function confirmBillingAdjustment(adjustmentNo: string) {
     { adjustmentNo },
   );
 
-  return { adjustmentNo, updatedLedgers: ledgers.length };
+  return { adjustmentNo, updatedLedgers };
 }
 
 async function insertBillingLedger(ledger: BillingLedgerDraft) {
@@ -422,18 +585,20 @@ async function listConfirmedBillingAdjustmentsForLedger(ledger: BillingLedgerDra
   const rows = await queryRows<BillingAdjustmentInput>(
     `
       SELECT
-        adjustmentNo,
-        DATE_FORMAT(effectiveMonth, '%Y-%m-%d') AS effectiveMonth,
-        currency,
-        adjustedFirst24MonthPrice,
-        adjustedNext36MonthPrice,
-        confirmedAt
-      FROM billingadjustments
-      WHERE countryCode = :countryCode
-        AND batchName = :batchName
-        AND deviceCode = :deviceCode
-        AND confirmedAt IS NOT NULL
-      ORDER BY confirmedAt ASC, adjustmentNo ASC
+        ba.adjustmentNo,
+        ba.instanceContractNo,
+        DATE_FORMAT(bai.effectiveMonth, '%Y-%m-%d') AS effectiveMonth,
+        bai.currency,
+        bai.adjustedFirst24MonthPrice,
+        bai.adjustedNext36MonthPrice,
+        ba.confirmedAt
+      FROM billingadjustments ba
+      INNER JOIN billingadjustmentitems bai ON bai.adjustmentNo = ba.adjustmentNo
+      WHERE bai.countryCode = :countryCode
+        AND bai.batchName = :batchName
+        AND bai.deviceCode = :deviceCode
+        AND ba.confirmedAt IS NOT NULL
+      ORDER BY ba.confirmedAt ASC, ba.adjustmentNo ASC
     `,
     {
       countryCode: ledger.countryCode,
@@ -466,4 +631,41 @@ async function replaceMonthlyBillingRows(ledgerId: string, rows: MonthlyBillingR
       row,
     );
   }
+}
+
+function normalizeBillingAdjustmentItem(adjustmentNo: string, item: BillingAdjustmentDetail, index: number) {
+  const countryCode = String(item.countryCode ?? "").trim();
+  const batchName = String(item.batchName ?? "").trim();
+  const deviceCode = String(item.deviceCode ?? "").trim();
+  const currency = String(item.currency ?? "").trim();
+  const effectiveMonth = firstDayOfMonth(String(item.effectiveMonth ?? ""));
+  const adjustedFirst24MonthPrice = Number(item.adjustedFirst24MonthPrice ?? 0);
+  const adjustedNext36MonthPrice = Number(item.adjustedNext36MonthPrice ?? 0);
+
+  if (!countryCode) throw new Error(`第 ${index + 1} 条明细国家不能为空`);
+  if (!batchName) throw new Error(`第 ${index + 1} 条明细批次号不能为空`);
+  if (!deviceCode) throw new Error(`第 ${index + 1} 条明细实例编码不能为空`);
+  if (!currency) throw new Error(`第 ${index + 1} 条明细币种不能为空`);
+  if (!effectiveMonth || Number.isNaN(new Date(`${effectiveMonth}T00:00:00`).getTime())) {
+    throw new Error(`第 ${index + 1} 条明细生效月份不正确`);
+  }
+  if (!Number.isFinite(adjustedFirst24MonthPrice)) throw new Error(`第 ${index + 1} 条明细前24个月价格不正确`);
+  if (!Number.isFinite(adjustedNext36MonthPrice)) throw new Error(`第 ${index + 1} 条明细后36个月价格不正确`);
+
+  return {
+    id: item.id?.trim() || `BAI-${adjustmentNo}-${String(index + 1).padStart(3, "0")}`,
+    adjustmentNo,
+    countryCode,
+    batchName,
+    requestNo: String(item.requestNo ?? "").trim(),
+    poNo: String(item.poNo ?? "").trim(),
+    deviceCode,
+    modelCode: String(item.modelCode ?? "").trim(),
+    nameEn: String(item.nameEn ?? "").trim(),
+    quantity: Number(item.quantity ?? 0),
+    currency,
+    effectiveMonth,
+    adjustedFirst24MonthPrice,
+    adjustedNext36MonthPrice,
+  };
 }
