@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { usePathname } from "next/navigation";
 import {
   Boxes,
   ChevronDown,
@@ -8,6 +9,7 @@ import {
   FileText,
   FolderOpen,
   Home,
+  LogOut,
   Menu,
   ReceiptText,
   Ship,
@@ -38,6 +40,7 @@ const icons = {
 };
 
 export function AppShell({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
   const [openGroups, setOpenGroups] = useState<SidebarGroupState>({});
   const [workspace, setWorkspace] = useState<WorkspaceState>(() => createInitialWorkspace());
   const [embedded, setEmbedded] = useState(false);
@@ -46,6 +49,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     setEmbedded(isEmbeddedWindow());
   }, []);
+
+  if (pathname === "/login") {
+    return <>{children}</>;
+  }
 
   useEffect(() => {
     const raw = window.sessionStorage.getItem(WORKSPACE_STORAGE_KEY);
@@ -153,6 +160,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <div className="ml-auto flex items-center gap-4 text-[#606266]">
             <span>admin</span>
             <div className="h-8 w-8 rounded bg-[#eef1f5]" />
+            <button
+              className="inline-flex h-8 items-center gap-1 rounded border border-[#dcdfe6] px-2 text-xs hover:border-[#1890ff] hover:text-[#1890ff]"
+              onClick={logout}
+              type="button"
+            >
+              <LogOut size={14} />
+              退出
+            </button>
           </div>
         </header>
         <div className="flex h-[38px] items-center gap-1 overflow-x-auto border-b border-[#dcdfe6] bg-white px-3">
@@ -204,6 +219,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </main>
     </div>
   );
+}
+
+async function logout() {
+  await fetch("/api/auth/logout", { method: "POST" }).catch(() => undefined);
+  window.sessionStorage.removeItem(WORKSPACE_STORAGE_KEY);
+  window.location.href = "/login";
 }
 
 function isEmbeddedWindow() {
