@@ -35,19 +35,6 @@ export default function HomePage() {
           </div>
         ))}
       </div>
-      <div className="mt-5 border border-[#ebeef5] bg-white p-5 shadow-sm">
-        <h2 className="mb-3 text-lg font-medium text-[#303133]">第一版功能范围</h2>
-        <div className="grid grid-cols-2 gap-4 text-sm leading-7">
-          <div>
-            <p>客户需求和采购管理采用主从表单。</p>
-            <p>需求明细一览、采购明细一览支持跨批次集中查询。</p>
-          </div>
-          <div>
-            <p>物流字段支持显示/隐藏，并展示当前隐藏字段。</p>
-            <p>所有模块支持新建、导入模板、批量导入、导出 Excel。</p>
-          </div>
-        </div>
-      </div>
     </>
   );
 }
