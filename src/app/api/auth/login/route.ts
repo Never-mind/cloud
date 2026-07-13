@@ -6,7 +6,7 @@ export async function POST(request: NextRequest) {
   const email = String(body.email ?? "");
   const password = String(body.password ?? "");
 
-  if (!validateLogin(email, password)) {
+  if (!(await validateLogin(email, password))) {
     return NextResponse.json({ error: "账号或密码错误" }, { status: 401 });
   }
 

@@ -552,3 +552,19 @@ CREATE TABLE IF NOT EXISTS `ImportJobs` (
   KEY `idx_ImportJobs_targetKey` (`targetKey`),
   KEY `idx_ImportJobs_createdAt` (`createdAt`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='ImportJobs';
+
+CREATE TABLE IF NOT EXISTS `AppUsers` (
+  `userId` VARCHAR(80) NOT NULL COMMENT 'user id',
+  `email` VARCHAR(255) NOT NULL COMMENT 'login email',
+  `passwordHash` VARCHAR(128) NOT NULL COMMENT 'password hash',
+  `passwordSalt` VARCHAR(64) NOT NULL COMMENT 'password salt',
+  `displayName` VARCHAR(255) NULL COMMENT 'display name',
+  `role` VARCHAR(64) NOT NULL DEFAULT 'admin' COMMENT 'user role',
+  `status` VARCHAR(32) NOT NULL DEFAULT 'active' COMMENT 'active/disabled',
+  `lastLoginAt` DATETIME NULL COMMENT 'last login time',
+  `createdAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'created time',
+  `updatedAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'updated time',
+  PRIMARY KEY (`userId`),
+  UNIQUE KEY `uk_AppUsers_email` (`email`),
+  KEY `idx_AppUsers_status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='AppUsers';

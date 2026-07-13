@@ -1,15 +1,42 @@
 import { describe, expect, test } from "vitest";
-import { isAuthenticatedCookie, validateLogin, AUTH_SESSION_VALUE } from "./auth";
+import { AUTH_SESSION_VALUE, hashPassword, isAuthenticatedCookie, validateLogin } from "./auth";
 
 describe("auth", () => {
-  test("accepts the initial admin account", () => {
-    expect(validateLogin("admin@luzcorp.com", "Luz@#789789")).toBe(true);
-    expect(validateLogin(" ADMIN@LUZCORP.COM ", "Luz@#789789")).toBe(true);
+  test("accepts an active database user with a matching password", async () => {
+    const passwordSalt = "test-salt";
+    const passwordHash = hashPassword("Luz@#789789", passwordSalt);
+
+    expect(
+      await validateLogin(" ADMIN@LUZCORP.COM ", "Luz@#789789", async () => ({
+        email: "admin@luzcorp.com",
+        passwordHash,
+        passwordSalt,
+        status: "active",
+      })),
+    ).toBe(true);
   });
 
-  test("rejects wrong credentials", () => {
-    expect(validateLogin("admin@luzcorp.com", "wrong")).toBe(false);
-    expect(validateLogin("other@luzcorp.com", "Luz@#789789")).toBe(false);
+  test("rejects wrong, missing, or disabled database credentials", async () => {
+    const passwordSalt = "test-salt";
+    const passwordHash = hashPassword("Luz@#789789", passwordSalt);
+
+    expect(
+      await validateLogin("admin@luzcorp.com", "wrong", async () => ({
+        email: "admin@luzcorp.com",
+        passwordHash,
+        passwordSalt,
+        status: "active",
+      })),
+    ).toBe(false);
+    expect(await validateLogin("other@luzcorp.com", "Luz@#789789", async () => null)).toBe(false);
+    expect(
+      await validateLogin("admin@luzcorp.com", "Luz@#789789", async () => ({
+        email: "admin@luzcorp.com",
+        passwordHash,
+        passwordSalt,
+        status: "disabled",
+      })),
+    ).toBe(false);
   });
 
   test("recognizes the configured session cookie value", () => {

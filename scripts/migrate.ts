@@ -1,3 +1,4 @@
+import { createPasswordSalt, hashPassword, INITIAL_ADMIN_EMAIL, INITIAL_ADMIN_PASSWORD } from "../src/lib/auth";
 import { closeDb, execute, queryRows } from "../src/lib/db";
 
 async function columnExists(tableName: string, columnName: string) {
@@ -870,6 +871,26 @@ async function main() {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='ImportJobs'
     `,
   );
+  await createTableIfMissing(
+    "appusers",
+    `
+      CREATE TABLE \`appusers\` (
+        \`userId\` VARCHAR(80) NOT NULL COMMENT 'user id',
+        \`email\` VARCHAR(255) NOT NULL COMMENT 'login email',
+        \`passwordHash\` VARCHAR(128) NOT NULL COMMENT 'password hash',
+        \`passwordSalt\` VARCHAR(64) NOT NULL COMMENT 'password salt',
+        \`displayName\` VARCHAR(255) NULL COMMENT 'display name',
+        \`role\` VARCHAR(64) NOT NULL DEFAULT 'admin' COMMENT 'user role',
+        \`status\` VARCHAR(32) NOT NULL DEFAULT 'active' COMMENT 'active/disabled',
+        \`lastLoginAt\` DATETIME NULL COMMENT 'last login time',
+        \`createdAt\` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'created time',
+        \`updatedAt\` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'updated time',
+        PRIMARY KEY (\`userId\`),
+        UNIQUE KEY \`uk_AppUsers_email\` (\`email\`),
+        KEY \`idx_AppUsers_status\` (\`status\`)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='AppUsers'
+    `,
+  );
   await addIndexIfMissing(
     "documentfolders",
     "uk_DocumentFolders_parent_name",
@@ -889,6 +910,23 @@ async function main() {
         ('ROOT-CL', 'ROOT', 'CL', 2),
         ('ROOT-BR', 'ROOT', 'BR', 3)
     `,
+  );
+
+  const passwordSalt = createPasswordSalt();
+  await execute(
+    `
+      INSERT IGNORE INTO appusers
+        (userId, email, passwordHash, passwordSalt, displayName, role, status)
+      VALUES
+        (:userId, :email, :passwordHash, :passwordSalt, :displayName, 'admin', 'active')
+    `,
+    {
+      userId: "admin",
+      email: INITIAL_ADMIN_EMAIL.trim().toLowerCase(),
+      passwordHash: hashPassword(INITIAL_ADMIN_PASSWORD, passwordSalt),
+      passwordSalt,
+      displayName: "Admin",
+    },
   );
 }
 
