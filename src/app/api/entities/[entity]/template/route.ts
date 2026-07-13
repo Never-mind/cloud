@@ -10,7 +10,19 @@ export async function GET(_request: Request, context: { params: Promise<{ entity
     return NextResponse.json({ error: "Unknown entity" }, { status: 404 });
   }
 
-  const worksheet = XLSX.utils.json_to_sheet([Object.fromEntries(config.formFields.map((field) => [field.label, ""]))]);
+  const headers = Object.fromEntries(config.formFields.map((field) => [field.label, ""]));
+  const notes = Object.fromEntries(
+    config.formFields.map((field) => [
+      field.label,
+      field.required
+        ? `必填${field.type ? `：${getTypeLabel(field.type)}` : ""}`
+        : `可选${field.type ? `：${getTypeLabel(field.type)}` : ""}`,
+    ]),
+  );
+  const worksheet = XLSX.utils.json_to_sheet([headers, notes], { skipHeader: false });
+  worksheet["!cols"] = config.formFields.map((field) => ({
+    wch: Math.max(14, field.label.length + 8),
+  }));
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, worksheet, config.title);
   const buffer = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" });
@@ -21,4 +33,13 @@ export async function GET(_request: Request, context: { params: Promise<{ entity
       "Content-Disposition": `attachment; filename="${entity}-template.xlsx"`,
     },
   });
+}
+
+function getTypeLabel(type: string) {
+  if (type === "number") return "数字";
+  if (type === "date") return "日期";
+  if (type === "datetime") return "日期时间";
+  if (type === "boolean") return "是/否";
+  if (type === "textarea") return "文本";
+  return "文本";
 }

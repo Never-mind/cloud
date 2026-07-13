@@ -19,4 +19,8 @@ describe("order list view", () => {
   it("removes purchase source generator controls from purchase order list", () => {
     expect(shouldShowPurchaseSourceGenerator("purchase")).toBe(false);
   });
+
+  it("keeps both system purchase id and manual PO number in purchase order list", () => {
+    expect(getOrderListColumnKeys("purchase").slice(0, 2)).toEqual(["purchaseOrderId", "poNo"]);
+  });
 });

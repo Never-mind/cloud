@@ -1,8 +1,14 @@
 import { execute, queryRows, type Row } from "./db";
 import { getOrderDeleteBlockReason, type OrderDeleteUsageCounts } from "./order-delete-policy";
+import { normalizeRequestNos } from "./procurement-workflow";
 
 type IdRow = { id: string };
-type PoRow = { poNo: string; requestNo?: string | null };
+type PoRow = {
+  purchaseOrderId?: string | null;
+  poNo: string;
+  requestNo?: string | null;
+  sourceRequestNos?: string | null;
+};
 
 export async function deleteRequestOrder(requestNo: string) {
   const requestItems = await queryRows<IdRow>(
@@ -10,8 +16,8 @@ export async function deleteRequestOrder(requestNo: string) {
     { requestNo },
   );
   const purchaseOrders = await queryRows<PoRow>(
-    "SELECT poNo, requestNo FROM purchaseorders WHERE requestNo = :requestNo",
-    { requestNo },
+    "SELECT purchaseOrderId, poNo, requestNo, sourceRequestNos FROM purchaseorders WHERE requestNo = :requestNo OR sourceRequestNos LIKE :requestNoLike",
+    { requestNo, requestNoLike: `%${requestNo}%` },
   );
   const requestItemIds = requestItems.map((row) => String(row.id));
   const poNos = purchaseOrders.map((row) => String(row.poNo));
@@ -20,8 +26,8 @@ export async function deleteRequestOrder(requestNo: string) {
   const blockReason = getOrderDeleteBlockReason(counts);
   if (blockReason) throw new Error(blockReason);
 
-  for (const poNo of poNos) {
-    await deletePurchaseOrderRows(poNo);
+  for (const order of purchaseOrders) {
+    await deletePurchaseOrderRows(String(order.poNo), String(order.purchaseOrderId ?? ""));
   }
   await execute("DELETE FROM requestitems WHERE requestNo = :requestNo", { requestNo });
   await execute("DELETE FROM requests WHERE requestNo = :requestNo", { requestNo });
@@ -29,14 +35,16 @@ export async function deleteRequestOrder(requestNo: string) {
   return { ok: true };
 }
 
-export async function deletePurchaseOrder(poNo: string) {
+export async function deletePurchaseOrder(purchaseOrderIdOrPoNo: string) {
   const rows = await queryRows<PoRow>(
-    "SELECT poNo, requestNo FROM purchaseorders WHERE poNo = :poNo LIMIT 1",
-    { poNo },
+    "SELECT purchaseOrderId, poNo, requestNo, sourceRequestNos FROM purchaseorders WHERE purchaseOrderId = :id OR poNo = :id LIMIT 1",
+    { id: purchaseOrderIdOrPoNo },
   );
   const order = rows[0];
   if (!order) return { ok: true };
 
+  const poNo = String(order.poNo);
+  const purchaseOrderId = String(order.purchaseOrderId ?? "");
   const purchaseOrderItemIds = await listPurchaseOrderItemIdsByPoNos([poNo]);
   const counts = await getUsageCounts({
     requestNo: "",
@@ -47,10 +55,13 @@ export async function deletePurchaseOrder(poNo: string) {
   const blockReason = getOrderDeleteBlockReason(counts);
   if (blockReason) throw new Error(blockReason);
 
-  await deletePurchaseOrderRows(poNo);
-  if (order.requestNo) {
+  await deletePurchaseOrderRows(poNo, purchaseOrderId);
+  const requestNos = normalizeRequestNos([String(order.sourceRequestNos ?? order.requestNo ?? "")])
+    .split(",")
+    .filter(Boolean);
+  for (const requestNo of requestNos) {
     await execute("UPDATE requests SET status = :status WHERE requestNo = :requestNo", {
-      requestNo: order.requestNo,
+      requestNo,
       status: "待下单",
     });
   }
@@ -58,10 +69,15 @@ export async function deletePurchaseOrder(poNo: string) {
   return { ok: true };
 }
 
-async function deletePurchaseOrderRows(poNo: string) {
+async function deletePurchaseOrderRows(poNo: string, purchaseOrderId?: string) {
   await execute("DELETE FROM shipments WHERE poNo = :poNo", { poNo });
-  await execute("DELETE FROM purchaseorderitems WHERE poNo = :poNo", { poNo });
-  await execute("DELETE FROM purchaseorders WHERE poNo = :poNo", { poNo });
+  if (purchaseOrderId) {
+    await execute("DELETE FROM purchaseorderitems WHERE purchaseOrderId = :purchaseOrderId", { purchaseOrderId });
+    await execute("DELETE FROM purchaseorders WHERE purchaseOrderId = :purchaseOrderId", { purchaseOrderId });
+  } else {
+    await execute("DELETE FROM purchaseorderitems WHERE poNo = :poNo", { poNo });
+    await execute("DELETE FROM purchaseorders WHERE poNo = :poNo", { poNo });
+  }
 }
 
 async function listPurchaseOrderItemIdsByPoNos(poNos: string[]) {

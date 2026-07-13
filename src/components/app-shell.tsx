@@ -14,6 +14,7 @@ import {
   ReceiptText,
   Ship,
   ShoppingCart,
+  Upload,
   X,
 } from "lucide-react";
 import { navGroups } from "@/lib/modules";
@@ -37,6 +38,7 @@ const icons = {
   采购管理: ShoppingCart,
   物流管理: Ship,
   财务管理: ReceiptText,
+  数据工具: Upload,
 };
 
 export function AppShell({ children }: { children: React.ReactNode }) {

@@ -3,7 +3,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { FileDown, RefreshCw, Search } from "lucide-react";
 import { formatDisplayValue } from "@/lib/display-format";
+import { DEFAULT_PAGE_SIZE, paginateRows } from "@/lib/pagination";
 import { buildRequestProductLines } from "@/lib/request-lines";
+import { PaginationBar } from "./pagination-bar";
 import { Button, Input, Panel } from "./ui";
 
 type Row = Record<string, string | number | boolean | null>;
@@ -29,11 +31,24 @@ export function RequestProductLinesPage() {
   const [suppliers, setSuppliers] = useState<Row[]>([]);
   const [keyword, setKeyword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
 
   async function fetchEntity(entity: string) {
-    const response = await fetch(`/api/entities/${entity}?page=1&pageSize=100`);
-    const data = await response.json();
-    return (data.rows ?? []) as Row[];
+    const fetchPageSize = 100;
+    let fetchPage = 1;
+    let rows: Row[] = [];
+    let total = 0;
+
+    do {
+      const response = await fetch(`/api/entities/${entity}?page=${fetchPage}&pageSize=${fetchPageSize}`);
+      const data = await response.json();
+      rows = [...rows, ...((data.rows ?? []) as Row[])];
+      total = Number(data.total ?? rows.length);
+      fetchPage += 1;
+    } while (rows.length < total);
+
+    return rows;
   }
 
   async function loadData() {
@@ -55,6 +70,10 @@ export function RequestProductLinesPage() {
     void loadData();
   }, []);
 
+  useEffect(() => {
+    setPage(1);
+  }, [keyword, pageSize]);
+
   const rows = useMemo(() => {
     const merged = buildRequestProductLines({
       confirmedOnly: true,
@@ -71,6 +90,7 @@ export function RequestProductLinesPage() {
         .some((value) => String(value ?? "").toLowerCase().includes(normalizedKeyword)),
     );
   }, [instanceModels, keyword, requestItems, requests, suppliers]);
+  const pagedRows = useMemo(() => paginateRows(rows, page, pageSize), [page, pageSize, rows]);
 
   return (
     <div className="space-y-5">
@@ -116,7 +136,7 @@ export function RequestProductLinesPage() {
               </tr>
             </thead>
             <tbody>
-              {rows.map((row) => (
+              {pagedRows.map((row) => (
                 <tr className="hover:bg-[#fafafa]" key={row.id}>
                   {columns.map((column) => (
                     <td className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3" key={column.key}>
@@ -135,6 +155,13 @@ export function RequestProductLinesPage() {
             </tbody>
           </table>
         </div>
+        <PaginationBar
+          page={page}
+          pageSize={pageSize}
+          total={rows.length}
+          onPageChange={setPage}
+          onPageSizeChange={setPageSize}
+        />
       </Panel>
     </div>
   );

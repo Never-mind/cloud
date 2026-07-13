@@ -25,7 +25,7 @@ export async function listAvailablePrepaymentLines() {
       SELECT
         poi.id,
         poi.poNo,
-        po.requestNo,
+        COALESCE(poi.requestNo, po.requestNo, ri.requestNo) AS requestNo,
         req.countryCode,
         req.batchName,
         poi.requestItemId,
@@ -38,9 +38,9 @@ export async function listAvailablePrepaymentLines() {
         po.status AS purchaseStatus,
         req.status AS requestStatus
       FROM purchaseorderitems poi
-      LEFT JOIN purchaseorders po ON po.poNo = poi.poNo
+      LEFT JOIN purchaseorders po ON po.purchaseOrderId = poi.purchaseOrderId OR (poi.purchaseOrderId IS NULL AND po.poNo = poi.poNo)
       LEFT JOIN requestitems ri ON ri.id = poi.requestItemId
-      LEFT JOIN requests req ON req.requestNo = COALESCE(po.requestNo, ri.requestNo)
+      LEFT JOIN requests req ON req.requestNo = COALESCE(poi.requestNo, po.requestNo, ri.requestNo)
       LEFT JOIN instancemodels im ON im.deviceCode = ri.deviceCode
       ORDER BY req.batchName, po.poNo, poi.id
     `,

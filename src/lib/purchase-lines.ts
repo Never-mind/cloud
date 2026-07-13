@@ -1,4 +1,5 @@
 type PurchaseOrderRow = {
+  purchaseOrderId?: string | null;
   poNo: string;
   requestNo?: string | null;
   status?: string | null;
@@ -9,7 +10,9 @@ type PurchaseOrderRow = {
 
 type PurchaseItemRow = {
   id: string;
+  purchaseOrderId?: string | null;
   poNo: string;
+  requestNo?: string | null;
   requestItemId: string;
   unitPrice?: number | string | null;
 };
@@ -83,16 +86,21 @@ export function buildPurchaseProductLines({
   instanceModels: InstanceModelRow[];
 }): PurchaseProductLine[] {
   const orderByNo = new Map(purchaseOrders.map((order) => [order.poNo, order]));
+  const orderById = new Map(
+    purchaseOrders
+      .filter((order) => order.purchaseOrderId)
+      .map((order) => [String(order.purchaseOrderId), order]),
+  );
   const requestItemById = new Map(requestItems.map((item) => [item.id, item]));
   const requestByNo = new Map(requests.map((request) => [request.requestNo, request]));
   const modelByDeviceCode = new Map(instanceModels.map((model) => [model.deviceCode, model]));
 
   return purchaseItems.flatMap((item) => {
-    const order = orderByNo.get(item.poNo);
+    const order = (item.purchaseOrderId ? orderById.get(String(item.purchaseOrderId)) : undefined) ?? orderByNo.get(item.poNo);
     if (confirmedOnly && !isConfirmedStatus(order?.status)) return [];
 
     const requestItem = requestItemById.get(item.requestItemId);
-    const requestNo = order?.requestNo ?? requestItem?.requestNo ?? "";
+    const requestNo = item.requestNo ?? requestItem?.requestNo ?? order?.requestNo ?? "";
     const request = requestByNo.get(requestNo);
     const model = requestItem ? modelByDeviceCode.get(requestItem.deviceCode) : undefined;
 

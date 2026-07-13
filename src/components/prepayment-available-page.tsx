@@ -138,17 +138,28 @@ export function PrepaymentAvailablePage() {
             <RefreshCw size={15} />
             刷新
           </Button>
+          <div className="ml-auto flex max-w-[520px] flex-wrap items-end gap-3">
+            <label className="min-w-[220px] flex-1">
+              <span className="mb-1 block text-xs font-medium text-[#606266]">预付款合同号</span>
           <Input
-            className="ml-auto"
+            className="w-full"
             placeholder="预付款合同号"
             value={contractNo}
             onChange={(event) => setContractNo(event.target.value)}
           />
+            </label>
+            <label className="min-w-[160px]">
+              <span className="mb-1 block text-xs font-medium text-[#606266]">合同生效日期</span>
           <Input
             type="date"
             value={effectiveDate}
             onChange={(event) => setEffectiveDate(event.target.value)}
           />
+            </label>
+            <p className="w-full text-xs text-[#909399]">
+              勾选实例后，系统会按这里填写的合同号和生效日期生成预付款合同草稿。
+            </p>
+          </div>
         </div>
 
         <div className="table-scroll overflow-auto">

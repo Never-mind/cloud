@@ -63,9 +63,9 @@ async function listNewInstanceRows(countryCode: string) {
         po.status AS purchaseStatus,
         req.status AS requestStatus
       FROM purchaseorderitems poi
-      INNER JOIN purchaseorders po ON po.poNo = poi.poNo
+      INNER JOIN purchaseorders po ON po.purchaseOrderId = poi.purchaseOrderId OR (poi.purchaseOrderId IS NULL AND po.poNo = poi.poNo)
       LEFT JOIN requestitems ri ON ri.id = poi.requestItemId
-      LEFT JOIN requests req ON req.requestNo = COALESCE(po.requestNo, ri.requestNo)
+      LEFT JOIN requests req ON req.requestNo = COALESCE(poi.requestNo, po.requestNo, ri.requestNo)
       WHERE po.status IN (:confirmedStatus, :legacyConfirmedStatus)
         AND req.status IN (:orderedStatus, :legacyOrderedStatus)
         ${countryWhere}
@@ -90,9 +90,9 @@ async function listDashboardCountries() {
         UNION
         SELECT req.countryCode
         FROM purchaseorderitems poi
-        INNER JOIN purchaseorders po ON po.poNo = poi.poNo
+        INNER JOIN purchaseorders po ON po.purchaseOrderId = poi.purchaseOrderId OR (poi.purchaseOrderId IS NULL AND po.poNo = poi.poNo)
         LEFT JOIN requestitems ri ON ri.id = poi.requestItemId
-        LEFT JOIN requests req ON req.requestNo = COALESCE(po.requestNo, ri.requestNo)
+        LEFT JOIN requests req ON req.requestNo = COALESCE(poi.requestNo, po.requestNo, ri.requestNo)
         WHERE req.countryCode IS NOT NULL AND req.countryCode <> ''
       ) countries
       ORDER BY countryCode

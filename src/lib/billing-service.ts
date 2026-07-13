@@ -209,7 +209,7 @@ export async function listAvailableBillingLines() {
           poi.id AS purchaseOrderItemId,
           req.countryCode,
           req.batchName,
-          po.requestNo,
+          COALESCE(poi.requestNo, po.requestNo, ri.requestNo) AS requestNo,
           poi.poNo,
           ri.deviceCode,
           im.modelCode,
@@ -220,9 +220,9 @@ export async function listAvailableBillingLines() {
           po.status AS purchaseStatus,
           req.status AS requestStatus
         FROM purchaseorderitems poi
-        LEFT JOIN purchaseorders po ON po.poNo = poi.poNo
+        LEFT JOIN purchaseorders po ON po.purchaseOrderId = poi.purchaseOrderId OR (poi.purchaseOrderId IS NULL AND po.poNo = poi.poNo)
         LEFT JOIN requestitems ri ON ri.id = poi.requestItemId
-        LEFT JOIN requests req ON req.requestNo = COALESCE(po.requestNo, ri.requestNo)
+        LEFT JOIN requests req ON req.requestNo = COALESCE(poi.requestNo, po.requestNo, ri.requestNo)
         LEFT JOIN instancemodels im ON im.deviceCode = ri.deviceCode
         ORDER BY req.countryCode, req.batchName, poi.id
       `,

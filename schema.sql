@@ -122,8 +122,10 @@ CREATE TABLE IF NOT EXISTS `RequestItems` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='RequestItems';
 
 CREATE TABLE IF NOT EXISTS `PurchaseOrders` (
+  `purchaseOrderId` VARCHAR(128) NOT NULL COMMENT 'system purchase order id',
   `poNo` VARCHAR(128) NOT NULL COMMENT 'PO no PK',
   `requestNo` VARCHAR(128) NULL COMMENT 'source request no',
+  `sourceRequestNos` TEXT NULL COMMENT 'merged source request nos',
   `status` VARCHAR(64) NOT NULL DEFAULT '草稿' COMMENT 'purchase status',
   `currency` VARCHAR(16) NULL COMMENT 'currency',
   `usdRate` DECIMAL(18, 8) NULL COMMENT 'USD rate',
@@ -132,13 +134,16 @@ CREATE TABLE IF NOT EXISTS `PurchaseOrders` (
   `createdAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'created time',
   `updatedAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'updated time',
   PRIMARY KEY (`poNo`),
+  UNIQUE KEY `uk_PurchaseOrders_purchaseOrderId` (`purchaseOrderId`),
   KEY `idx_PurchaseOrders_requestNo` (`requestNo`),
   KEY `idx_PurchaseOrders_status` (`status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='PurchaseOrders';
 
 CREATE TABLE IF NOT EXISTS `PurchaseOrderItems` (
   `id` VARCHAR(64) NOT NULL COMMENT 'PK',
+  `purchaseOrderId` VARCHAR(128) NULL COMMENT 'system purchase order id',
   `poNo` VARCHAR(128) NOT NULL COMMENT 'PO no',
+  `requestNo` VARCHAR(128) NULL COMMENT 'source request no',
   `requestItemId` VARCHAR(64) NOT NULL COMMENT 'request item id',
   `unitPrice` DECIMAL(18, 4) NULL COMMENT 'unit price',
   `hardwareCoefficient` DECIMAL(18, 6) NULL COMMENT 'hardware coefficient',
@@ -146,6 +151,7 @@ CREATE TABLE IF NOT EXISTS `PurchaseOrderItems` (
   `totalCoefficient` DECIMAL(18, 6) NULL COMMENT 'total coefficient',
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_PurchaseOrderItems_requestItemId` (`requestItemId`),
+  KEY `idx_PurchaseOrderItems_purchaseOrderId` (`purchaseOrderId`),
   KEY `idx_PurchaseOrderItems_poNo` (`poNo`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='PurchaseOrderItems';
 
@@ -464,11 +470,14 @@ CREATE TABLE IF NOT EXISTS `WriteOffItems` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='WriteOffItems';
 
 CREATE TABLE IF NOT EXISTS `Shipments` (
-  `shipmentId` VARCHAR(64) NOT NULL COMMENT 'shipment id PK',
-  `poNo` VARCHAR(128) NOT NULL COMMENT 'PO no',
-  `purchaseOrderItemId` VARCHAR(64) NULL COMMENT 'purchase order item id',
-  `deviceCode` VARCHAR(64) NULL COMMENT 'instance device code',
-  `nameEn` VARCHAR(255) NULL COMMENT 'instance english name',
+    `shipmentId` VARCHAR(64) NOT NULL COMMENT 'shipment id PK',
+    `poNo` VARCHAR(128) NOT NULL COMMENT 'PO no',
+    `batchName` VARCHAR(255) NULL COMMENT 'batch name',
+    `purchaseOrderItemId` VARCHAR(64) NULL COMMENT 'purchase order item id',
+    `deviceCode` VARCHAR(64) NULL COMMENT 'instance device code',
+    `nameEn` VARCHAR(255) NULL COMMENT 'instance english name',
+  `dcCode` VARCHAR(64) NULL COMMENT 'datacenter code',
+  `dcNameZh` VARCHAR(255) NULL COMMENT 'datacenter Chinese name',
   `destinationLocationId` VARCHAR(64) NOT NULL COMMENT 'destination location id',
   `recipientContactId` VARCHAR(64) NOT NULL COMMENT 'recipient contact id',
   `snapshotDestinationAddress` TEXT NOT NULL COMMENT 'immutable delivery address snapshot',
@@ -487,7 +496,9 @@ CREATE TABLE IF NOT EXISTS `Shipments` (
   `updatedAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'updated time',
   PRIMARY KEY (`shipmentId`),
   KEY `idx_Shipments_poNo` (`poNo`),
+  KEY `idx_Shipments_batchName` (`batchName`),
   KEY `idx_Shipments_purchaseOrderItemId` (`purchaseOrderItemId`),
+  KEY `idx_Shipments_dcCode` (`dcCode`),
   KEY `idx_Shipments_destinationLocationId` (`destinationLocationId`),
   KEY `idx_Shipments_recipientContactId` (`recipientContactId`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Shipments';
@@ -521,3 +532,23 @@ CREATE TABLE IF NOT EXISTS `DocumentFiles` (
   KEY `idx_DocumentFiles_folderId` (`folderId`),
   KEY `idx_DocumentFiles_originalName` (`originalName`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='DocumentFiles';
+
+CREATE TABLE IF NOT EXISTS `ImportJobs` (
+  `jobId` VARCHAR(96) NOT NULL COMMENT 'import job id',
+  `targetKey` VARCHAR(64) NOT NULL COMMENT 'import target key',
+  `targetTitle` VARCHAR(255) NOT NULL COMMENT 'import target title',
+  `fileName` VARCHAR(255) NULL COMMENT 'uploaded file name',
+  `status` VARCHAR(64) NOT NULL COMMENT 'preview/import status',
+  `totalRows` INT NOT NULL DEFAULT 0 COMMENT 'total source rows',
+  `successRows` INT NOT NULL DEFAULT 0 COMMENT 'successful source rows',
+  `failedRows` INT NOT NULL DEFAULT 0 COMMENT 'failed source rows',
+  `masterCount` INT NOT NULL DEFAULT 0 COMMENT 'generated master rows',
+  `detailCount` INT NOT NULL DEFAULT 0 COMMENT 'generated detail rows',
+  `previewJson` LONGTEXT NULL COMMENT 'preview payload json',
+  `reportJson` LONGTEXT NULL COMMENT 'report json',
+  `createdAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'created time',
+  `confirmedAt` DATETIME NULL COMMENT 'confirmed time',
+  PRIMARY KEY (`jobId`),
+  KEY `idx_ImportJobs_targetKey` (`targetKey`),
+  KEY `idx_ImportJobs_createdAt` (`createdAt`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='ImportJobs';

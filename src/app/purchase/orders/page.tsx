@@ -7,7 +7,7 @@ export default function Page() {
       mode="purchase"
       masterConfig={getEntityConfig("purchase-orders")!}
       detailConfig={getEntityConfig("purchase-order-items")!}
-      relationKey="poNo"
+      relationKey="purchaseOrderId"
     />
   );
 }

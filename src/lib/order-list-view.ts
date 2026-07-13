@@ -16,7 +16,8 @@ export function getOrderListColumnKeys(mode: OrderRouteMode) {
   }
 
   return [
-    "id",
+    "purchaseOrderId",
+    "poNo",
     "requestNo",
     "batchName",
     "status",

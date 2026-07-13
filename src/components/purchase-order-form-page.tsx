@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
@@ -7,21 +7,26 @@ import { formatDateInputValue, formatDisplayValue } from "@/lib/display-format";
 import { formatNumericInputValue, parseNumericInputValue } from "@/lib/numeric-input";
 import { PURCHASE_CURRENCY_OPTIONS, buildPurchaseOrderItemRows, type PurchaseDetailDraft } from "@/lib/purchase-order-form";
 import { calculatePurchaseTotalAmount } from "@/lib/purchase-lines";
+import { buildAutoPurchaseOrderId, buildAutoPurchaseOrderNo, normalizeRequestNos } from "@/lib/procurement-workflow";
 import { Button, Input, Panel } from "./ui";
 
 type Row = Record<string, string | number | boolean | null>;
 
 type MasterDraft = {
+  purchaseOrderId: string;
   poNo: string;
   requestNo: string;
+  sourceRequestNos: string;
   status: string;
   currency: string;
   releasedAt: string;
 };
 
 const emptyMaster: MasterDraft = {
+  purchaseOrderId: "",
   poNo: "",
   requestNo: "",
+  sourceRequestNos: "",
   status: "草稿",
   currency: "USD",
   releasedAt: "",
@@ -50,6 +55,7 @@ export function PurchaseOrderFormPage() {
   }
 
   useEffect(() => {
+    setMaster((current) => (current.purchaseOrderId ? current : { ...current, purchaseOrderId: buildAutoPurchaseOrderId() }));
     void Promise.all([fetchEntity("request-items"), fetchEntity("instance-models"), fetchEntity("requests")]).then(
       ([itemRows, modelRows, requestRows]) => {
         setRequestItems(itemRows);
@@ -63,6 +69,15 @@ export function PurchaseOrderFormPage() {
     if (!master.requestNo) return requestItems;
     return requestItems.filter((item) => String(item.requestNo) === master.requestNo);
   }, [master.requestNo, requestItems]);
+  const selectedSourceRequestNos = useMemo(
+    () =>
+      normalizeRequestNos(
+        details
+          .map((detail) => String(getRequestItem(detail.requestItemId)?.requestNo ?? detail.requestNo ?? ""))
+          .filter(Boolean),
+      ),
+    [details, requestItems],
+  );
   const purchaseTotalAmount = useMemo(
     () =>
       calculatePurchaseTotalAmount(
@@ -94,17 +109,34 @@ export function PurchaseOrderFormPage() {
     return instanceModels.find((model) => String(model.deviceCode) === deviceCode);
   }
 
+  function generatePoNo() {
+    const source = selectedSourceRequestNos || master.requestNo || master.purchaseOrderId;
+    updateMaster("poNo", buildAutoPurchaseOrderNo(source));
+  }
+
   async function saveOrder() {
+    const sourceRequestNos = selectedSourceRequestNos || master.requestNo;
+    const masterPayload = {
+      ...master,
+      requestNo: sourceRequestNos,
+      sourceRequestNos,
+    };
     setSaving(true);
     await fetch("/api/entities/purchase-orders", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(master),
+      body: JSON.stringify(masterPayload),
     });
 
     const itemRows = buildPurchaseOrderItemRows({
+      purchaseOrderId: master.purchaseOrderId,
       poNo: master.poNo,
-      details: details.filter((detail) => detail.requestItemId),
+      details: details
+        .filter((detail) => detail.requestItemId)
+        .map((detail) => ({
+          ...detail,
+          requestNo: String(getRequestItem(detail.requestItemId)?.requestNo ?? detail.requestNo ?? ""),
+        })),
     });
 
     for (const item of itemRows) {
@@ -116,7 +148,7 @@ export function PurchaseOrderFormPage() {
     }
 
     setSaving(false);
-    router.push(`/purchase/orders/${encodeURIComponent(master.poNo)}`);
+    router.push(`/purchase/orders/${encodeURIComponent(master.purchaseOrderId)}`);
   }
 
   return (
@@ -124,26 +156,35 @@ export function PurchaseOrderFormPage() {
       <div className="flex items-start gap-3">
         <Button type="button" onClick={() => router.push("/purchase/orders")}>
           <ArrowLeft size={15} />
-          返回列表
+          杩斿洖鍒楄〃
         </Button>
         <div>
-          <h1 className="text-xl font-medium text-[#303133]">新建采购明细清单</h1>
+          <h1 className="text-xl font-medium text-[#303133]">鏂板缓閲囪喘鏄庣粏娓呭崟</h1>
           <p className="mt-1 text-sm text-[#909399]">
-            先填写采购主单，再选择需求明细生成采购明细；保存后进入采购清单明细页面继续修改或确认。
-          </p>
+            鍏堝～鍐欓噰璐富鍗曪紝鍐嶉€夋嫨闇€姹傛槑缁嗙敓鎴愰噰璐槑缁嗭紱淇濆瓨鍚庤繘鍏ラ噰璐竻鍗曟槑缁嗛〉闈㈢户缁慨鏀规垨纭銆?          </p>
         </div>
-        <Button className="ml-auto" disabled={saving || !master.poNo} tone="primary" onClick={() => void saveOrder()}>
+        <Button className="ml-auto" disabled={saving || !master.poNo || !master.purchaseOrderId} tone="primary" onClick={() => void saveOrder()}>
           <Save size={15} />
-          保存
+          淇濆瓨
         </Button>
       </div>
 
       <Panel>
-        <div className="border-b border-[#ebeef5] px-4 py-3 font-medium text-[#303133]">主单信息</div>
+        <div className="border-b border-[#ebeef5] px-4 py-3 font-medium text-[#303133]">涓诲崟淇℃伅</div>
         <div className="grid grid-cols-3 gap-4 p-4">
-          <Field label="PO订单号" required value={master.poNo} onChange={(value) => updateMaster("poNo", value)} />
+          <Info label="系统采购ID" value={master.purchaseOrderId} />
           <label>
-            <span className="mb-1 block text-sm font-medium text-[#606266]">来源需求单</span>
+            <span className="mb-1 block text-sm font-medium text-[#606266]">
+              <span className="text-[#f56c6c]">*</span>
+              PO订单号
+            </span>
+            <div className="flex gap-2">
+              <Input className="w-full" required value={master.poNo} onChange={(event) => updateMaster("poNo", event.target.value)} />
+              <Button type="button" onClick={generatePoNo}>自动生成</Button>
+            </div>
+          </label>
+          <label>
+            <span className="mb-1 block text-sm font-medium text-[#606266]">鏉ユ簮闇€姹傚崟</span>
             <select
               className="h-9 w-full rounded border border-[#dcdfe6] bg-white px-3 text-sm outline-none focus:border-[#1890ff]"
               value={master.requestNo}
@@ -161,7 +202,7 @@ export function PurchaseOrderFormPage() {
           <label>
             <span className="mb-1 block text-sm font-medium text-[#606266]">
               <span className="text-[#f56c6c]">*</span>
-              币种
+              甯佺
             </span>
             <select
               className="h-9 w-full rounded border border-[#dcdfe6] bg-white px-3 text-sm outline-none focus:border-[#1890ff]"
@@ -176,17 +217,17 @@ export function PurchaseOrderFormPage() {
               ))}
             </select>
           </label>
-          <Field label="下发日期" type="date" value={master.releasedAt} onChange={(value) => updateMaster("releasedAt", value)} />
+          <Field label="涓嬪彂鏃ユ湡" type="date" value={master.releasedAt} onChange={(value) => updateMaster("releasedAt", value)} />
           <Info label="采购总金额" value={purchaseTotalAmount} />
         </div>
       </Panel>
 
       <Panel>
         <div className="flex items-center gap-2 border-b border-[#ebeef5] px-4 py-3">
-          <div className="font-medium text-[#303133]">采购明细</div>
+          <div className="font-medium text-[#303133]">閲囪喘鏄庣粏</div>
           <Button className="ml-auto" onClick={() => setDetails((current) => [...current, { ...emptyDetail }])}>
             <Plus size={15} />
-            新增明细
+            鏂板鏄庣粏
           </Button>
         </div>
         <div className="table-scroll overflow-auto">
@@ -217,7 +258,7 @@ export function PurchaseOrderFormPage() {
                         value={detail.requestItemId}
                         onChange={(event) => updateDetail(index, { requestItemId: event.target.value })}
                       >
-                        <option value="">请选择</option>
+                        <option value="">璇烽€夋嫨</option>
                         {visibleRequestItems.map((item) => (
                           <option key={String(item.id)} value={String(item.id)}>
                             {String(item.id)} - {String(item.deviceCode)}

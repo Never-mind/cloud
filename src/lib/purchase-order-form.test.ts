@@ -9,15 +9,18 @@ describe("purchase order form", () => {
   it("fills purchase item rows from selected request details", () => {
     expect(
       buildPurchaseOrderItemRows({
+        purchaseOrderId: "PO-SYS-001",
         poNo: "PO-NEW-001",
         details: [
           {
+            requestNo: "REQ-001",
             requestItemId: "RI-001",
             unitPrice: 1200,
             hardwareCoefficient: 1,
             softwareCoefficient: 0.2,
           },
           {
+            requestNo: "REQ-002",
             requestItemId: "RI-002",
             unitPrice: 1800,
             hardwareCoefficient: 1.1,
@@ -27,8 +30,10 @@ describe("purchase order form", () => {
       }),
     ).toEqual([
       {
-        id: "POI-PO-NEW-001-001",
+        id: "POI-PO-SYS-001-001",
+        purchaseOrderId: "PO-SYS-001",
         poNo: "PO-NEW-001",
+        requestNo: "REQ-001",
         requestItemId: "RI-001",
         unitPrice: 1200,
         hardwareCoefficient: 1,
@@ -36,8 +41,10 @@ describe("purchase order form", () => {
         totalCoefficient: 1.2,
       },
       {
-        id: "POI-PO-NEW-001-002",
+        id: "POI-PO-SYS-001-002",
+        purchaseOrderId: "PO-SYS-001",
         poNo: "PO-NEW-001",
+        requestNo: "REQ-002",
         requestItemId: "RI-002",
         unitPrice: 1800,
         hardwareCoefficient: 1.1,

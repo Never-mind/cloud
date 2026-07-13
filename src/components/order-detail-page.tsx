@@ -13,6 +13,8 @@ import { Button, Input, Panel } from "./ui";
 
 type Row = Record<string, string | number | boolean | null>;
 
+const hiddenPurchaseMasterFieldKeys = new Set(["sourceRequestNos"]);
+
 export function OrderDetailPage({
   id,
   mode,
@@ -88,6 +90,20 @@ export function OrderDetailPage({
     () => calculatePurchaseTotalAmount(purchaseProductLines),
     [purchaseProductLines],
   );
+  const masterFormFields = useMemo(
+    () =>
+      mode === "purchase"
+        ? masterConfig.formFields.filter((field) => !hiddenPurchaseMasterFieldKeys.has(field.key))
+        : masterConfig.formFields,
+    [masterConfig.formFields, mode],
+  );
+  const masterListFields = useMemo(
+    () =>
+      mode === "purchase"
+        ? masterConfig.listFields.filter((field) => !hiddenPurchaseMasterFieldKeys.has(field.key))
+        : masterConfig.listFields,
+    [masterConfig.listFields, mode],
+  );
 
   const detailColumns =
     mode === "purchase"
@@ -159,10 +175,14 @@ export function OrderDetailPage({
 
     if (mode === "purchase") {
       for (const detail of detailDrafts) {
+        const detailPayload =
+          masterDraft.poNo && String(detail.poNo ?? "") !== String(masterDraft.poNo)
+            ? { ...detail, poNo: masterDraft.poNo }
+            : detail;
         await fetch(`/api/entities/${detailConfig.key}/${encodeURIComponent(String(detail.id))}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(detail),
+          body: JSON.stringify(detailPayload),
         });
       }
     }
@@ -190,7 +210,7 @@ export function OrderDetailPage({
         </Link>
         <div>
           <h1 className="text-xl font-medium text-[#303133]">
-            {mode === "requests" ? "需求单明细" : "采购清单明细"}：{id}
+            {mode === "requests" ? "需求单明细" : "采购清单明细"}：{mode === "purchase" ? String(master.poNo ?? id) : id}
           </h1>
           <p className="mt-1 text-sm text-[#909399]">
             {mode === "requests"
@@ -235,7 +255,7 @@ export function OrderDetailPage({
         <div className="border-b border-[#ebeef5] px-4 py-3 font-medium text-[#303133]">主单信息</div>
         {editing && mode === "purchase" ? (
           <div className="grid grid-cols-4 gap-3 p-4">
-            {masterConfig.formFields.map((field) => (
+            {masterFormFields.map((field) => (
               <label key={field.key}>
                 <span className="mb-1 block text-xs text-[#909399]">{field.label}</span>
                 {field.type === "select" ? (
@@ -274,7 +294,7 @@ export function OrderDetailPage({
           </div>
         ) : (
           <div className="grid grid-cols-4 gap-3 p-4">
-            {masterConfig.listFields.map((field) => (
+            {masterListFields.map((field) => (
               <Info key={field.key} label={field.label} value={master[field.key]} />
             ))}
             <Info label="总数量" value={totalQuantity} />

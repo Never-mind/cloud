@@ -1,12 +1,20 @@
 import { execute, queryRows, type Row } from "./db";
-import { buildAutoPurchaseOrderNo, buildPurchaseDraft, buildShipmentDraft } from "./procurement-workflow";
+import {
+  buildAutoPurchaseOrderId,
+  buildAutoPurchaseOrderNo,
+  buildPurchaseDraft,
+  buildShipmentDraft,
+  normalizeRequestNos,
+} from "./procurement-workflow";
 
 type RequestItemRow = {
   id: string;
+  requestNo?: string | null;
 };
 
 type ShipmentLineRow = {
   purchaseOrderItemId: string;
+  batchName: string | null;
   deviceCode: string | null;
   nameEn: string | null;
 };
@@ -21,28 +29,35 @@ export async function createPurchaseOrderFromRequest(requestNo: string, poNo?: s
   }
 
   const existing = await queryRows<Row>(
-    "SELECT poNo FROM purchaseorders WHERE requestNo = :requestNo LIMIT 1",
+    "SELECT purchaseOrderId, poNo FROM purchaseorders WHERE requestNo = :requestNo OR sourceRequestNos = :requestNo LIMIT 1",
     { requestNo },
   );
-  if (existing[0]?.poNo) {
+  if (existing[0]?.purchaseOrderId || existing[0]?.poNo) {
     await markRequestAsPendingOrder(requestNo);
     return existing[0];
   }
 
+  const purchaseOrderId = buildAutoPurchaseOrderId();
   const nextPoNo = poNo?.trim() || buildAutoPurchaseOrderNo(requestNo);
 
   const details = await queryRows<RequestItemRow>(
-    "SELECT id FROM requestitems WHERE requestNo = :requestNo ORDER BY id",
+    "SELECT id, requestNo FROM requestitems WHERE requestNo = :requestNo ORDER BY id",
     { requestNo },
   );
-  const draft = buildPurchaseDraft({ poNo: nextPoNo, requestNo, details });
+  const draft = buildPurchaseDraft({
+    purchaseOrderId,
+    poNo: nextPoNo,
+    requestNo,
+    requestNos: [requestNo],
+    details,
+  });
 
   await execute(
     `
       INSERT INTO purchaseorders
-        (poNo, requestNo, status, currency, usdRate, paymentDate, releasedAt)
+        (purchaseOrderId, poNo, requestNo, sourceRequestNos, status, currency, usdRate, paymentDate, releasedAt)
       VALUES
-        (:poNo, :requestNo, :status, :currency, :usdRate, NULL, NULL)
+        (:purchaseOrderId, :poNo, :requestNo, :sourceRequestNos, :status, :currency, :usdRate, NULL, NULL)
     `,
     draft.order,
   );
@@ -51,9 +66,9 @@ export async function createPurchaseOrderFromRequest(requestNo: string, poNo?: s
     await execute(
       `
         INSERT INTO purchaseorderitems
-          (id, poNo, requestItemId, unitPrice, hardwareCoefficient, softwareCoefficient, totalCoefficient)
+          (id, purchaseOrderId, poNo, requestNo, requestItemId, unitPrice, hardwareCoefficient, softwareCoefficient, totalCoefficient)
         VALUES
-          (:id, :poNo, :requestItemId, :unitPrice, :hardwareCoefficient, :softwareCoefficient, :totalCoefficient)
+          (:id, :purchaseOrderId, :poNo, :requestNo, :requestItemId, :unitPrice, :hardwareCoefficient, :softwareCoefficient, :totalCoefficient)
       `,
       item,
     );
@@ -63,24 +78,30 @@ export async function createPurchaseOrderFromRequest(requestNo: string, poNo?: s
   return draft.order;
 }
 
-export async function confirmPurchaseOrder(poNo: string) {
+export async function confirmPurchaseOrder(purchaseOrderIdOrPoNo: string) {
   const rows = await queryRows<Row>(
-    "SELECT poNo, requestNo, status FROM purchaseorders WHERE poNo = :poNo LIMIT 1",
-    { poNo },
+    "SELECT purchaseOrderId, poNo, requestNo, sourceRequestNos, status FROM purchaseorders WHERE purchaseOrderId = :id OR poNo = :id LIMIT 1",
+    { id: purchaseOrderIdOrPoNo },
   );
   const order = rows[0];
   if (!order) {
     throw new Error("采购单不存在");
   }
 
-  await execute("UPDATE purchaseorders SET status = :status WHERE poNo = :poNo", {
-    poNo,
+  const purchaseOrderId = String(order.purchaseOrderId ?? purchaseOrderIdOrPoNo);
+  const poNo = String(order.poNo ?? purchaseOrderIdOrPoNo);
+
+  await execute("UPDATE purchaseorders SET status = :status WHERE purchaseOrderId = :purchaseOrderId", {
+    purchaseOrderId,
     status: "已确认",
   });
 
-  if (order.requestNo) {
+  const requestNos = normalizeRequestNos([String(order.sourceRequestNos ?? order.requestNo ?? "")])
+    .split(",")
+    .filter(Boolean);
+  for (const requestNo of requestNos) {
     await execute("UPDATE requests SET status = :status WHERE requestNo = :requestNo", {
-      requestNo: order.requestNo,
+      requestNo,
       status: "已下单",
     });
   }
@@ -89,15 +110,17 @@ export async function confirmPurchaseOrder(poNo: string) {
     `
       SELECT
         poi.id AS purchaseOrderItemId,
+        req.batchName AS batchName,
         ri.deviceCode AS deviceCode,
         im.nameEn AS nameEn
       FROM purchaseorderitems poi
       LEFT JOIN requestitems ri ON ri.id = poi.requestItemId
+      LEFT JOIN requests req ON req.requestNo = ri.requestNo
       LEFT JOIN instancemodels im ON im.deviceCode = ri.deviceCode
-      WHERE poi.poNo = :poNo
+      WHERE poi.purchaseOrderId = :purchaseOrderId
       ORDER BY poi.id
     `,
-    { poNo },
+    { purchaseOrderId },
   );
   const shipments = buildShipmentDraft(poNo, shipmentLines);
 
@@ -105,15 +128,16 @@ export async function confirmPurchaseOrder(poNo: string) {
     await execute(
       `
         INSERT INTO shipments
-          (shipmentId, poNo, purchaseOrderItemId, deviceCode, nameEn, destinationLocationId,
+          (shipmentId, poNo, batchName, purchaseOrderItemId, deviceCode, nameEn, destinationLocationId,
            recipientContactId, snapshotDestinationAddress, snapshotRecipientName,
            snapshotRecipientPhone, transportMode, isReceived)
         VALUES
-          (:shipmentId, :poNo, :purchaseOrderItemId, :deviceCode, :nameEn, :destinationLocationId,
+          (:shipmentId, :poNo, :batchName, :purchaseOrderItemId, :deviceCode, :nameEn, :destinationLocationId,
            :recipientContactId, :snapshotDestinationAddress, :snapshotRecipientName,
            :snapshotRecipientPhone, :transportMode, :isReceived)
         ON DUPLICATE KEY UPDATE
           poNo = VALUES(poNo),
+          batchName = VALUES(batchName),
           purchaseOrderItemId = VALUES(purchaseOrderItemId),
           deviceCode = VALUES(deviceCode),
           nameEn = VALUES(nameEn)

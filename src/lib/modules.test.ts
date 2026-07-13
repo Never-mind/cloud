@@ -81,7 +81,12 @@ describe("module configuration", () => {
   it("removes purchase order exchange rate from list and form configuration", () => {
     const config = getEntityConfig("purchase-orders");
 
+    expect(config?.primaryKey).toBe("purchaseOrderId");
+    expect(config?.listFields.map((field) => field.key)).toContain("poNo");
+    expect(config?.listFields.map((field) => field.key)).toContain("requestNo");
+    expect(config?.listFields.map((field) => field.key)).not.toContain("sourceRequestNos");
     expect(config?.listFields.map((field) => field.key)).not.toContain("usdRate");
+    expect(config?.formFields.map((field) => field.key)).not.toContain("sourceRequestNos");
     expect(config?.formFields.map((field) => field.key)).not.toContain("usdRate");
   });
 
@@ -106,5 +111,7 @@ describe("module configuration", () => {
     const config = getEntityConfig("shipments");
 
     expect(config?.defaultSort).toBe("createdAt DESC");
+    expect(config?.listFields.map((field) => field.key)).toContain("batchName");
+    expect(config?.formFields.map((field) => field.key)).toContain("batchName");
   });
 });

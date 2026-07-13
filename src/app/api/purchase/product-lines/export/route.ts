@@ -10,8 +10,8 @@ import {
 export async function GET(request: NextRequest) {
   const keyword = request.nextUrl.searchParams.get("keyword") ?? "";
   const [purchaseOrders, purchaseItems, requestItems, requests, instanceModels] = await Promise.all([
-    queryRows("SELECT poNo, requestNo, status, currency FROM purchaseorders ORDER BY createdAt DESC"),
-    queryRows("SELECT id, poNo, requestItemId, unitPrice FROM purchaseorderitems ORDER BY id"),
+    queryRows("SELECT purchaseOrderId, poNo, requestNo, sourceRequestNos, status, currency FROM purchaseorders ORDER BY createdAt DESC"),
+    queryRows("SELECT id, purchaseOrderId, poNo, requestNo, requestItemId, unitPrice FROM purchaseorderitems ORDER BY id"),
     queryRows("SELECT id, requestNo, deviceCode, quantity FROM requestitems ORDER BY id"),
     queryRows("SELECT requestNo, batchName FROM requests ORDER BY createdAt DESC"),
     queryRows("SELECT deviceCode, nameZh, nameEn FROM instancemodels ORDER BY deviceCode"),

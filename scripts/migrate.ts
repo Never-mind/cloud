@@ -118,8 +118,39 @@ async function main() {
   );
   await addColumnIfMissing(
     "purchaseorders",
+    "purchaseOrderId",
+    "`purchaseOrderId` VARCHAR(128) NULL COMMENT 'system purchase order id' FIRST",
+  );
+  await execute(
+    `
+      UPDATE purchaseorders
+      SET purchaseOrderId = poNo
+      WHERE purchaseOrderId IS NULL OR purchaseOrderId = ''
+    `,
+  );
+  await addIndexIfMissing(
+    "purchaseorders",
+    "uk_PurchaseOrders_purchaseOrderId",
+    "UNIQUE KEY `uk_PurchaseOrders_purchaseOrderId` (`purchaseOrderId`)",
+  );
+  await addColumnIfMissing(
+    "purchaseorders",
     "requestNo",
     "`requestNo` VARCHAR(128) NULL COMMENT 'source request no' AFTER `poNo`",
+  );
+  await addColumnIfMissing(
+    "purchaseorders",
+    "sourceRequestNos",
+    "`sourceRequestNos` TEXT NULL COMMENT 'merged source request nos' AFTER `requestNo`",
+  );
+  await execute(
+    `
+      UPDATE purchaseorders
+      SET sourceRequestNos = requestNo
+      WHERE (sourceRequestNos IS NULL OR sourceRequestNos = '')
+        AND requestNo IS NOT NULL
+        AND requestNo <> ''
+    `,
   );
   await addColumnIfMissing(
     "purchaseorders",
@@ -135,6 +166,37 @@ async function main() {
     "purchaseorders",
     "idx_PurchaseOrders_status",
     "KEY `idx_PurchaseOrders_status` (`status`)",
+  );
+  await addColumnIfMissing(
+    "purchaseorderitems",
+    "purchaseOrderId",
+    "`purchaseOrderId` VARCHAR(128) NULL COMMENT 'system purchase order id' AFTER `id`",
+  );
+  await execute(
+    `
+      UPDATE purchaseorderitems poi
+      INNER JOIN purchaseorders po ON po.poNo = poi.poNo
+      SET poi.purchaseOrderId = po.purchaseOrderId
+      WHERE poi.purchaseOrderId IS NULL OR poi.purchaseOrderId = ''
+    `,
+  );
+  await addColumnIfMissing(
+    "purchaseorderitems",
+    "requestNo",
+    "`requestNo` VARCHAR(128) NULL COMMENT 'source request no' AFTER `poNo`",
+  );
+  await execute(
+    `
+      UPDATE purchaseorderitems poi
+      INNER JOIN requestitems ri ON ri.id = poi.requestItemId
+      SET poi.requestNo = ri.requestNo
+      WHERE poi.requestNo IS NULL OR poi.requestNo = ''
+    `,
+  );
+  await addIndexIfMissing(
+    "purchaseorderitems",
+    "idx_PurchaseOrderItems_purchaseOrderId",
+    "KEY `idx_PurchaseOrderItems_purchaseOrderId` (`purchaseOrderId`)",
   );
 
   await addColumnIfMissing(
@@ -695,6 +757,11 @@ async function main() {
   );
   await addColumnIfMissing(
     "shipments",
+    "batchName",
+    "`batchName` VARCHAR(255) NULL COMMENT 'batch name' AFTER `poNo`",
+  );
+  await addColumnIfMissing(
+    "shipments",
     "deviceCode",
     "`deviceCode` VARCHAR(64) NULL COMMENT 'instance device code' AFTER `purchaseOrderItemId`",
   );
@@ -703,10 +770,41 @@ async function main() {
     "nameEn",
     "`nameEn` VARCHAR(255) NULL COMMENT 'instance english name' AFTER `deviceCode`",
   );
+  await addColumnIfMissing(
+    "shipments",
+    "dcCode",
+    "`dcCode` VARCHAR(64) NULL COMMENT 'datacenter code' AFTER `nameEn`",
+  );
+  await addColumnIfMissing(
+    "shipments",
+    "dcNameZh",
+    "`dcNameZh` VARCHAR(255) NULL COMMENT 'datacenter Chinese name' AFTER `dcCode`",
+  );
+  await addIndexIfMissing(
+    "shipments",
+    "idx_Shipments_batchName",
+    "KEY `idx_Shipments_batchName` (`batchName`)",
+  );
   await addIndexIfMissing(
     "shipments",
     "idx_Shipments_purchaseOrderItemId",
     "KEY `idx_Shipments_purchaseOrderItemId` (`purchaseOrderItemId`)",
+  );
+  await addIndexIfMissing(
+    "shipments",
+    "idx_Shipments_dcCode",
+    "KEY `idx_Shipments_dcCode` (`dcCode`)",
+  );
+  await execute(
+    `
+      UPDATE shipments s
+      LEFT JOIN purchaseorderitems poi ON poi.id = s.purchaseOrderItemId
+      LEFT JOIN requestitems ri ON ri.id = poi.requestItemId
+      LEFT JOIN requests req ON req.requestNo = ri.requestNo
+      SET s.batchName = req.batchName
+      WHERE (s.batchName IS NULL OR s.batchName = '')
+        AND req.batchName IS NOT NULL
+    `,
   );
 
   await createTableIfMissing(
@@ -745,6 +843,31 @@ async function main() {
         KEY \`idx_DocumentFiles_folderId\` (\`folderId\`),
         KEY \`idx_DocumentFiles_originalName\` (\`originalName\`)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='DocumentFiles'
+    `,
+  );
+
+  await createTableIfMissing(
+    "importjobs",
+    `
+      CREATE TABLE \`importjobs\` (
+        \`jobId\` VARCHAR(96) NOT NULL COMMENT 'import job id',
+        \`targetKey\` VARCHAR(64) NOT NULL COMMENT 'import target key',
+        \`targetTitle\` VARCHAR(255) NOT NULL COMMENT 'import target title',
+        \`fileName\` VARCHAR(255) NULL COMMENT 'uploaded file name',
+        \`status\` VARCHAR(64) NOT NULL COMMENT 'preview/import status',
+        \`totalRows\` INT NOT NULL DEFAULT 0 COMMENT 'total source rows',
+        \`successRows\` INT NOT NULL DEFAULT 0 COMMENT 'successful source rows',
+        \`failedRows\` INT NOT NULL DEFAULT 0 COMMENT 'failed source rows',
+        \`masterCount\` INT NOT NULL DEFAULT 0 COMMENT 'generated master rows',
+        \`detailCount\` INT NOT NULL DEFAULT 0 COMMENT 'generated detail rows',
+        \`previewJson\` LONGTEXT NULL COMMENT 'preview payload json',
+        \`reportJson\` LONGTEXT NULL COMMENT 'report json',
+        \`createdAt\` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'created time',
+        \`confirmedAt\` DATETIME NULL COMMENT 'confirmed time',
+        PRIMARY KEY (\`jobId\`),
+        KEY \`idx_ImportJobs_targetKey\` (\`targetKey\`),
+        KEY \`idx_ImportJobs_createdAt\` (\`createdAt\`)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='ImportJobs'
     `,
   );
   await addIndexIfMissing(

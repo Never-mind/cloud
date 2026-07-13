@@ -4,25 +4,31 @@ type QuantityRow = {
 
 type RequestDetail = {
   id: string;
+  requestNo?: string | null;
 };
 
 type ShipmentLine = {
   purchaseOrderItemId: string;
+  batchName?: string | null;
   deviceCode: string | null;
   nameEn: string | null;
 };
 
 export type PurchaseDraft = {
   order: {
+    purchaseOrderId: string;
     poNo: string;
     requestNo: string;
+    sourceRequestNos: string;
     status: string;
     currency: string;
     usdRate: number;
   };
   items: Array<{
     id: string;
+    purchaseOrderId: string;
     poNo: string;
+    requestNo: string;
     requestItemId: string;
     unitPrice: number;
     hardwareCoefficient: number;
@@ -40,26 +46,46 @@ export function buildAutoPurchaseOrderNo(requestNo: string) {
   return `PO-${normalizedRequestNo}`;
 }
 
+export function buildAutoPurchaseOrderId(seed = new Date()) {
+  const year = seed.getFullYear();
+  const month = String(seed.getMonth() + 1).padStart(2, "0");
+  const day = String(seed.getDate()).padStart(2, "0");
+  const time = `${String(seed.getHours()).padStart(2, "0")}${String(seed.getMinutes()).padStart(2, "0")}${String(seed.getSeconds()).padStart(2, "0")}`;
+  const suffix = Math.random().toString(36).slice(2, 6).toUpperCase();
+  return `PO-SYS-${year}${month}${day}-${time}-${suffix}`;
+}
+
 export function buildPurchaseDraft({
+  purchaseOrderId,
   poNo,
   requestNo,
+  requestNos,
   details,
 }: {
+  purchaseOrderId?: string;
   poNo: string;
   requestNo: string;
+  requestNos?: string[];
   details: RequestDetail[];
 }): PurchaseDraft {
+  const internalId = purchaseOrderId?.trim() || buildAutoPurchaseOrderId();
+  const sourceRequestNos = normalizeRequestNos(requestNos?.length ? requestNos : [requestNo]);
+
   return {
     order: {
+      purchaseOrderId: internalId,
       poNo,
       requestNo,
+      sourceRequestNos,
       status: "草稿",
       currency: "USD",
       usdRate: 1,
     },
     items: details.map((detail, index) => ({
-      id: `POI-${poNo}-${String(index + 1).padStart(3, "0")}`,
+      id: `POI-${internalId}-${String(index + 1).padStart(3, "0")}`,
+      purchaseOrderId: internalId,
       poNo,
+      requestNo: detail.requestNo ?? requestNo,
       requestItemId: detail.id,
       unitPrice: 0,
       hardwareCoefficient: 1,
@@ -69,6 +95,10 @@ export function buildPurchaseDraft({
   };
 }
 
+export function normalizeRequestNos(requestNos: string[]) {
+  return Array.from(new Set(requestNos.flatMap((value) => value.split(",")).map((value) => value.trim()).filter(Boolean))).join(",");
+}
+
 export function buildShipmentDraft(poNo: string): ShipmentDraft;
 export function buildShipmentDraft(poNo: string, lines: ShipmentLine[]): ShipmentDraft[];
 export function buildShipmentDraft(poNo: string, lines?: ShipmentLine[]): ShipmentDraft | ShipmentDraft[] {
@@ -76,6 +106,7 @@ export function buildShipmentDraft(poNo: string, lines?: ShipmentLine[]): Shipme
     return lines.map((line, index) => ({
       ...buildBaseShipmentDraft(`SHP-${poNo}-${String(index + 1).padStart(3, "0")}`, poNo),
       purchaseOrderItemId: line.purchaseOrderItemId,
+      batchName: line.batchName ?? "",
       deviceCode: line.deviceCode ?? "",
       nameEn: line.nameEn ?? "",
     }));
@@ -86,6 +117,7 @@ export function buildShipmentDraft(poNo: string, lines?: ShipmentLine[]): Shipme
 
 type ShipmentDraft = ReturnType<typeof buildBaseShipmentDraft> & {
   purchaseOrderItemId?: string;
+  batchName?: string;
   deviceCode?: string;
   nameEn?: string;
 };

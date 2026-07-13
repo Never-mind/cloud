@@ -8,7 +8,9 @@ import type { EntityConfig } from "@/lib/modules";
 import { countOrderStatusTabs, isConfirmedOrderStatus, type OrderStatusTab } from "@/lib/order-status";
 import { getOrderListColumnKeys, shouldShowPurchaseSourceGenerator } from "@/lib/order-list-view";
 import { getOrderCreateRoute, getOrderDetailRoute, type OrderRouteMode } from "@/lib/order-routes";
+import { DEFAULT_PAGE_SIZE, paginateRows } from "@/lib/pagination";
 import { calculatePurchaseTotalAmount } from "@/lib/purchase-lines";
+import { PaginationBar } from "./pagination-bar";
 import { Button, Input, Panel } from "./ui";
 
 type Row = Record<string, string | number | boolean | null>;
@@ -33,12 +35,25 @@ export function OrderListPage({
   const [loading, setLoading] = useState(false);
   const [confirmingId, setConfirmingId] = useState("");
   const [deletingId, setDeletingId] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const columnKeys = getOrderListColumnKeys(mode);
 
   async function fetchEntity(entity: string) {
-    const response = await fetch(`/api/entities/${entity}?page=1&pageSize=100`);
-    const data = await response.json();
-    return (data.rows ?? []) as Row[];
+    const fetchPageSize = 100;
+    let fetchPage = 1;
+    let rows: Row[] = [];
+    let total = 0;
+
+    do {
+      const response = await fetch(`/api/entities/${entity}?page=${fetchPage}&pageSize=${fetchPageSize}`);
+      const data = await response.json();
+      rows = [...rows, ...((data.rows ?? []) as Row[])];
+      total = Number(data.total ?? rows.length);
+      fetchPage += 1;
+    } while (rows.length < total);
+
+    return rows;
   }
 
   async function loadData() {
@@ -60,6 +75,10 @@ export function OrderListPage({
     void loadData();
   }, [masterConfig.key, detailConfig.key]);
 
+  useEffect(() => {
+    setPage(1);
+  }, [keyword, statusTab, pageSize]);
+
   const rowsWithTotals = useMemo<Row[]>(() => {
     const requestByNo = new Map(requests.map((request) => [String(request.requestNo), request]));
 
@@ -67,7 +86,7 @@ export function OrderListPage({
       ...master,
       batchName:
         mode === "purchase"
-          ? requestByNo.get(String(master.requestNo ?? ""))?.batchName ?? ""
+          ? getBatchNamesForPurchaseOrder(master, requestByNo)
           : master.batchName,
       totalQuantity: getTotalQuantity(mode, master, details, requestItems),
       purchaseTotalAmount:
@@ -89,11 +108,12 @@ export function OrderListPage({
 
     if (!normalizedKeyword) return statusRows;
     return statusRows.filter((row) =>
-      [masterConfig.primaryKey, "requestNo", "status", "batchName", "currency"].some((key) =>
+      [masterConfig.primaryKey, "poNo", "requestNo", "sourceRequestNos", "status", "batchName", "currency"].some((key) =>
         String(row[key] ?? "").toLowerCase().includes(normalizedKeyword),
       ),
     );
   }, [keyword, masterConfig.primaryKey, mode, rowsWithTotals, statusTab]);
+  const pagedRows = useMemo(() => paginateRows(rows, page, pageSize), [page, pageSize, rows]);
 
   async function confirmRequestOrder(requestNo: string) {
     setConfirmingId(requestNo);
@@ -195,8 +215,13 @@ export function OrderListPage({
             <thead className="bg-[#f5f7fa] text-[#303133]">
               <tr>
                 <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium">
-                  {mode === "requests" ? "需求单号" : "采购单号"}
+                  {mode === "requests" ? "需求单号" : "系统采购ID"}
                 </th>
+                {mode === "purchase" ? (
+                  <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium">
+                    PO订单号
+                  </th>
+                ) : null}
                 {mode === "requests" ? (
                   <>
                     <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium">国家</th>
@@ -240,7 +265,7 @@ export function OrderListPage({
               </tr>
             </thead>
             <tbody>
-              {rows.map((row) => {
+              {pagedRows.map((row) => {
                 const id = String(row[masterConfig.primaryKey]);
                 const confirmed = isConfirmedOrderStatus(mode, row.status);
                 return (
@@ -253,6 +278,16 @@ export function OrderListPage({
                         {id}
                       </Link>
                     </td>
+                    {mode === "purchase" ? (
+                      <td className="border-b border-r border-[#ebeef5] px-3 py-3">
+                        <Link
+                          className="font-medium text-[#1890ff] hover:underline"
+                          href={getOrderDetailRoute(mode, id)}
+                        >
+                          {formatValue(row.poNo)}
+                        </Link>
+                      </td>
+                    ) : null}
                     {mode === "requests" ? (
                       <>
                         <td className="border-b border-r border-[#ebeef5] px-3 py-3">
@@ -356,6 +391,13 @@ export function OrderListPage({
             </tbody>
           </table>
         </div>
+        <PaginationBar
+          page={page}
+          pageSize={pageSize}
+          total={rows.length}
+          onPageChange={setPage}
+          onPageSizeChange={setPageSize}
+        />
       </Panel>
     </div>
   );
@@ -384,10 +426,15 @@ function getTotalQuantity(
       .reduce((total, detail) => total + Number(detail.quantity ?? 0), 0);
   }
 
+  const purchaseOrderId = String(master.purchaseOrderId ?? "");
   const poNo = String(master.poNo ?? "");
   const itemIds = new Set(
     details
-      .filter((detail) => String(detail.poNo) === poNo)
+      .filter((detail) =>
+        purchaseOrderId
+          ? String(detail.purchaseOrderId ?? "") === purchaseOrderId
+          : String(detail.poNo) === poNo,
+      )
       .map((detail) => String(detail.requestItemId)),
   );
   return requestItems
@@ -396,17 +443,32 @@ function getTotalQuantity(
 }
 
 function getPurchaseTotalAmount(master: Row, details: Row[], requestItems: Row[]) {
+  const purchaseOrderId = String(master.purchaseOrderId ?? "");
   const poNo = String(master.poNo ?? "");
   const requestItemById = new Map(requestItems.map((item) => [String(item.id), item]));
 
   return calculatePurchaseTotalAmount(
     details
-      .filter((detail) => String(detail.poNo) === poNo)
+      .filter((detail) =>
+        purchaseOrderId
+          ? String(detail.purchaseOrderId ?? "") === purchaseOrderId
+          : String(detail.poNo) === poNo,
+      )
       .map((detail) => ({
         quantity: Number(requestItemById.get(String(detail.requestItemId))?.quantity ?? 0),
         unitPrice: Number(detail.unitPrice ?? 0),
       })),
   );
+}
+
+function getBatchNamesForPurchaseOrder(master: Row, requestByNo: Map<string, Row>) {
+  const requestNos = String(master.sourceRequestNos ?? master.requestNo ?? "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  return Array.from(
+    new Set(requestNos.map((requestNo) => String(requestByNo.get(requestNo)?.batchName ?? "")).filter(Boolean)),
+  ).join(",");
 }
 
 function formatValue(value: unknown, type?: string) {

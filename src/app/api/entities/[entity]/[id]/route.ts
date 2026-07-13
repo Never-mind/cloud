@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { deleteBillingLedger, updateBillingLedger } from "@/lib/billing-service";
 import { deleteEntityRow, getEntityRow, updateEntityRow } from "@/lib/crud";
+import { execute } from "@/lib/db";
 import { getEntityConfig } from "@/lib/modules";
 import { deletePurchaseOrder, deleteRequestOrder } from "@/lib/order-delete-service";
 
@@ -41,7 +42,18 @@ export async function PUT(request: NextRequest, context: { params: Promise<{ ent
     }
   }
 
+  const before = entity === "purchase-orders" ? await getEntityRow(config, id) : null;
   const row = await updateEntityRow(config, id, body);
+  if (entity === "purchase-orders" && before && body.poNo && String(before.poNo ?? "") !== String(body.poNo)) {
+    await execute("UPDATE purchaseorderitems SET poNo = :poNo WHERE purchaseOrderId = :purchaseOrderId", {
+      poNo: body.poNo,
+      purchaseOrderId: id,
+    });
+    await execute("UPDATE shipments SET poNo = :poNo WHERE poNo = :oldPoNo", {
+      poNo: body.poNo,
+      oldPoNo: before.poNo,
+    });
+  }
   return NextResponse.json(row);
 }
 

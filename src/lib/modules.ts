@@ -282,7 +282,7 @@ export const entityConfigs: EntityConfig[] = [
     key: "purchase-orders",
     title: "采购订单",
     table: "purchaseorders",
-    primaryKey: "poNo",
+    primaryKey: "purchaseOrderId",
     navGroup: "采购管理",
     route: "/purchase/orders",
     description: "以主从表单维护 PO 主单和采购明细。",
@@ -348,9 +348,12 @@ export const entityConfigs: EntityConfig[] = [
     listFields: [
       { key: "shipmentId", label: "物流ID" },
       { key: "poNo", label: "PO订单号" },
+      { key: "batchName", label: "批次号" },
       { key: "purchaseOrderItemId", label: "采购明细ID" },
       { key: "deviceCode", label: "实例编码" },
       { key: "nameEn", label: "实例名称（英文）" },
+      { key: "dcCode", label: "机房ID" },
+      { key: "dcNameZh", label: "机房中文名称" },
       { key: "destinationLocationId", label: "目的地点" },
       { key: "recipientContactId", label: "收件人" },
       { key: "snapshotDestinationAddress", label: "交付地址快照", defaultVisible: false },
@@ -371,14 +374,17 @@ export const entityConfigs: EntityConfig[] = [
     formFields: [
       { key: "shipmentId", label: "物流ID", required: true },
       { key: "poNo", label: "PO订单号", required: true },
+      { key: "batchName", label: "批次号" },
       { key: "purchaseOrderItemId", label: "采购明细ID" },
       { key: "deviceCode", label: "实例编码" },
       { key: "nameEn", label: "实例名称（英文）" },
-      { key: "destinationLocationId", label: "目的地点ID", required: true },
-      { key: "recipientContactId", label: "收件联系人ID", required: true },
-      { key: "snapshotDestinationAddress", label: "交付地址快照", type: "textarea", required: true },
-      { key: "snapshotRecipientName", label: "收件人快照", required: true },
-      { key: "snapshotRecipientPhone", label: "收件电话快照", required: true },
+      { key: "dcCode", label: "机房ID" },
+      { key: "dcNameZh", label: "机房中文名称" },
+      { key: "destinationLocationId", label: "目的地点ID" },
+      { key: "recipientContactId", label: "收件联系人ID" },
+      { key: "snapshotDestinationAddress", label: "交付地址快照", type: "textarea" },
+      { key: "snapshotRecipientName", label: "收件人快照" },
+      { key: "snapshotRecipientPhone", label: "收件电话快照" },
       { key: "transportMode", label: "运输方式" },
       { key: "isReceived", label: "是否签收", type: "boolean" },
       { key: "crd", label: "CRD", type: "date" },
@@ -928,6 +934,56 @@ export const entityConfigs: EntityConfig[] = [
   },
 ];
 
+const purchaseOrderConfig = entityConfigs.find((entity) => entity.key === "purchase-orders");
+if (purchaseOrderConfig) {
+  purchaseOrderConfig.primaryKey = "purchaseOrderId";
+  purchaseOrderConfig.listFields = [
+    { key: "purchaseOrderId", label: "系统采购ID", defaultVisible: false },
+    { key: "poNo", label: "PO订单号" },
+    { key: "requestNo", label: "来源需求单号" },
+    { key: "status", label: "采购状态" },
+    { key: "currency", label: "币种", type: "select", options: PURCHASE_CURRENCY_OPTIONS.map((currency) => ({ label: currency, value: currency })) },
+    { key: "releasedAt", label: "下发日期", type: "date" },
+    { key: "createdAt", label: "创建时间", type: "datetime" },
+    { key: "updatedAt", label: "更新时间", type: "datetime" },
+  ];
+  purchaseOrderConfig.formFields = [
+    { key: "purchaseOrderId", label: "系统采购ID", required: true },
+    { key: "poNo", label: "PO订单号", required: true },
+    { key: "requestNo", label: "来源需求单号" },
+    { key: "status", label: "采购状态", required: true },
+    { key: "currency", label: "币种", type: "select", required: true, options: PURCHASE_CURRENCY_OPTIONS.map((currency) => ({ label: currency, value: currency })) },
+    { key: "releasedAt", label: "下发日期", type: "date" },
+  ];
+  purchaseOrderConfig.defaultSort = "updatedAt DESC";
+}
+
+const purchaseOrderItemConfig = entityConfigs.find((entity) => entity.key === "purchase-order-items");
+if (purchaseOrderItemConfig) {
+  purchaseOrderItemConfig.listFields = [
+    { key: "id", label: "明细ID" },
+    { key: "purchaseOrderId", label: "系统采购ID", defaultVisible: false },
+    { key: "poNo", label: "PO订单号" },
+    { key: "requestNo", label: "来源需求单号" },
+    { key: "requestItemId", label: "需求明细" },
+    { key: "unitPrice", label: "单价", type: "number" },
+    { key: "hardwareCoefficient", label: "硬件系数", type: "number" },
+    { key: "softwareCoefficient", label: "软件系数", type: "number" },
+    { key: "totalCoefficient", label: "总系数", type: "number" },
+  ];
+  purchaseOrderItemConfig.formFields = [
+    { key: "id", label: "明细ID", required: true },
+    { key: "purchaseOrderId", label: "系统采购ID" },
+    { key: "poNo", label: "PO订单号", required: true },
+    { key: "requestNo", label: "来源需求单号" },
+    { key: "requestItemId", label: "需求明细ID", required: true },
+    { key: "unitPrice", label: "单价", type: "number" },
+    { key: "hardwareCoefficient", label: "硬件系数", type: "number" },
+    { key: "softwareCoefficient", label: "软件系数", type: "number" },
+    { key: "totalCoefficient", label: "总系数", type: "number" },
+  ];
+}
+
 function getEntitiesByKeys(keys: string[]) {
   const keySet = new Set(keys);
   return entityConfigs.filter((entity) => keySet.has(entity.key));
@@ -990,6 +1046,23 @@ export const navGroups: NavGroup[] = [
         navGroup: "文档管理",
         route: "/documents",
         description: "管理合同、发票等业务文件，支持文件夹、批量上传和下载。",
+        filters: [],
+        listFields: [],
+        formFields: [],
+      },
+    ],
+  },
+  {
+    title: "数据工具",
+    items: [
+      {
+        key: "data-imports",
+        title: "数据导入中心",
+        table: "importjobs",
+        primaryKey: "jobId",
+        navGroup: "数据工具",
+        route: "/data-imports",
+        description: "统一管理模板下载、文件上传、导入预览、错误报告和导入历史。",
         filters: [],
         listFields: [],
         formFields: [],
