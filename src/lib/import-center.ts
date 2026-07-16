@@ -13,6 +13,8 @@ export type ImportTargetKey =
   | "billing-ledgers"
   | "prepayment-contracts";
 
+export type ImportStrategy = "create-only" | "overwrite-drafts" | "overwrite-all";
+
 export type ImportTemplateColumn = {
   key: string;
   label: string;
@@ -42,10 +44,17 @@ export type ImportReport = {
 
 export type ImportPreview = {
   targetKey: ImportTargetKey;
+  strategy?: ImportStrategy;
   report: ImportReport;
   summary: {
     masterCount: number;
     detailCount: number;
+  };
+  execution?: {
+    create: number;
+    updateDraft: number;
+    updateConfirmed: number;
+    skip: number;
   };
   operations: {
     requests: Row[];

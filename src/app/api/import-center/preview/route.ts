@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import * as XLSX from "xlsx";
-import { getImportTarget, isImportTemplateNoteRow, type ImportTargetKey } from "@/lib/import-center";
+import { getImportTarget, isImportTemplateNoteRow, type ImportStrategy, type ImportTargetKey } from "@/lib/import-center";
 import { createImportPreviewJob } from "@/lib/import-center-service";
 
 export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData();
     const targetKey = String(formData.get("targetKey") ?? "") as ImportTargetKey;
+    const strategy = String(formData.get("strategy") ?? "overwrite-drafts") as ImportStrategy;
     const file = formData.get("file");
     const target = getImportTarget(targetKey);
 
@@ -24,6 +25,7 @@ export async function POST(request: NextRequest) {
     const dataRows = rows.filter((row) => !isImportTemplateNoteRow(row));
     const preview = await createImportPreviewJob({
       targetKey,
+      strategy,
       rows: dataRows,
       fileName: file.name,
     });

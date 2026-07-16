@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { CheckCircle2, Download, FileSpreadsheet, RefreshCw, Upload } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Download, FileSpreadsheet, RefreshCw, Upload } from "lucide-react";
 import { formatDisplayValue } from "@/lib/display-format";
 import { DEFAULT_PAGE_SIZE } from "@/lib/pagination";
 import { PaginationBar } from "./pagination-bar";
@@ -38,7 +38,17 @@ type ImportPreview = {
     failed: Array<{ rowNumber: number; primaryKey: string; error: string }>;
   };
   summary: { masterCount: number; detailCount: number };
+  strategy?: ImportStrategy;
+  execution?: { create: number; updateDraft: number; updateConfirmed: number; skip: number };
 };
+
+type ImportStrategy = "create-only" | "overwrite-drafts" | "overwrite-all";
+
+const strategyOptions: Array<{ value: ImportStrategy; label: string; description: string }> = [
+  { value: "create-only", label: "仅新增", description: "已存在的数据跳过" },
+  { value: "overwrite-drafts", label: "覆盖草稿", description: "仅更新草稿，已确认数据跳过" },
+  { value: "overwrite-all", label: "覆盖全部", description: "更新草稿及已确认数据，需二次确认" },
+];
 
 export function ImportCenterPage() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -48,6 +58,7 @@ export function ImportCenterPage() {
   const [jobPage, setJobPage] = useState(1);
   const [jobPageSize, setJobPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [targetKey, setTargetKey] = useState("");
+  const [strategy, setStrategy] = useState<ImportStrategy>("overwrite-drafts");
   const [preview, setPreview] = useState<ImportPreview | null>(null);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -86,6 +97,7 @@ export function ImportCenterPage() {
     setUploading(true);
     const formData = new FormData();
     formData.set("targetKey", currentTarget.key);
+    formData.set("strategy", strategy);
     formData.set("file", file);
     const response = await fetch("/api/import-center/preview", { method: "POST", body: formData });
     const data = await response.json();
@@ -101,11 +113,13 @@ export function ImportCenterPage() {
 
   async function confirmImport() {
     if (!preview) return;
+    const allowConfirmed = preview.strategy === "overwrite-all";
+    if (allowConfirmed && !window.confirm("将覆盖已确认单据及其明细。此操作会直接刷新已确认数据，是否继续？")) return;
     setConfirming(true);
     const response = await fetch("/api/import-center/confirm", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ jobId: preview.jobId }),
+      body: JSON.stringify({ jobId: preview.jobId, allowConfirmed }),
     });
     const data = await response.json();
     setConfirming(false);
@@ -192,6 +206,21 @@ export function ImportCenterPage() {
               ) : null}
             </div>
 
+            <div className="flex flex-wrap items-center gap-3 border-b border-[#ebeef5] bg-[#fafafa] px-4 py-3">
+              <span className="text-sm font-medium text-[#303133]">导入策略</span>
+              <select
+                className="h-9 min-w-[180px] border border-[#dcdfe6] bg-white px-2 text-sm text-[#303133] outline-none focus:border-[#1890ff]"
+                value={strategy}
+                onChange={(event) => {
+                  setStrategy(event.target.value as ImportStrategy);
+                  setPreview(null);
+                }}
+              >
+                {strategyOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+              </select>
+              <span className="text-xs text-[#909399]">{strategyOptions.find((option) => option.value === strategy)?.description}</span>
+            </div>
+
             <div className="grid gap-4 p-4 lg:grid-cols-[1fr_320px]">
               <div className="overflow-auto">
                 <table className="min-w-full border-collapse text-sm">
@@ -229,6 +258,16 @@ export function ImportCenterPage() {
                     <Metric label="失败行数" value={preview.report.failed.length} />
                     <Metric label="生成主单" value={preview.summary.masterCount} />
                     <Metric label="生成明细" value={preview.summary.detailCount} />
+                    <Metric label="新增记录" value={preview.execution?.create ?? 0} />
+                    <Metric label="覆盖草稿" value={preview.execution?.updateDraft ?? 0} />
+                    <Metric label="覆盖已确认" value={preview.execution?.updateConfirmed ?? 0} />
+                    <Metric label="跳过记录" value={preview.execution?.skip ?? 0} />
+                    {preview.strategy === "overwrite-all" && (preview.execution?.updateConfirmed ?? 0) > 0 ? (
+                      <div className="flex gap-2 border border-[#fde2e2] bg-[#fef0f0] p-2 text-xs text-[#f56c6c]">
+                        <AlertTriangle size={15} className="shrink-0" />
+                        已确认单据将按导入文件覆盖，确认导入时需再次确认。
+                      </div>
+                    ) : null}
                     {preview.report.failed.length ? (
                       <a href={`/api/import-center/jobs/${encodeURIComponent(preview.jobId)}/errors`}>
                         <Button className="w-full" type="button">下载错误报告</Button>

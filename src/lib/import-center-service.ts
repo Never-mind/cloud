@@ -4,6 +4,7 @@ import {
   buildImportPreview,
   getImportTarget,
   type ImportPreview,
+  type ImportStrategy,
   type ImportTargetKey,
 } from "./import-center";
 import { DEFAULT_PAGE_SIZE, normalizePageSize } from "./pagination";
@@ -189,10 +190,12 @@ const EXECUTION_PLAN: Array<{
 
 export async function createImportPreviewJob({
   targetKey,
+  strategy = "overwrite-drafts",
   rows,
   fileName = "",
 }: {
   targetKey: ImportTargetKey;
+  strategy?: ImportStrategy;
   rows: Row[];
   fileName?: string;
 }) {
@@ -258,6 +261,8 @@ export async function createImportPreviewJob({
     billingPurchaseLines,
     prepaymentPurchaseLines,
   });
+  preview.strategy = normalizeImportStrategy(strategy);
+  preview.execution = await summarizeExecution(preview, preview.strategy);
   const jobId = `IMP-${new Date().toISOString().slice(0, 10).replaceAll("-", "")}-${randomUUID().slice(0, 8)}`;
   const status = preview.report.failed.length ? "预览有错误" : "待确认";
 
@@ -289,7 +294,7 @@ export async function createImportPreviewJob({
   return { jobId, status, ...preview };
 }
 
-export async function confirmImportJob(jobId: string) {
+export async function confirmImportJob(jobId: string, options: { allowConfirmed?: boolean } = {}) {
   const job = await getImportJob(jobId);
   if (!job) throw new Error("导入任务不存在");
   if (job.status === "已导入") return job;
@@ -302,11 +307,23 @@ export async function confirmImportJob(jobId: string) {
 
   const failed: Array<{ rowNumber: number; primaryKey: string; error: string }> = [];
   let success = 0;
+  let skipped = 0;
+  const strategy = normalizeImportStrategy(preview.strategy);
+  if (strategy === "overwrite-all" && !options.allowConfirmed) {
+    throw new Error("覆盖已确认数据需要再次确认");
+  }
 
   for (const plan of EXECUTION_PLAN) {
     for (const row of preview.operations[plan.key]) {
       try {
-        await upsertRow(plan.table, plan.primaryKey, plan.fields, row);
+        const existing = await findExistingRow(plan, row);
+        const action = resolveExecutionAction(existing, strategy);
+        if (action === "skip") {
+          skipped += 1;
+          continue;
+        }
+        if (existing) await updateRow(plan, existing, row);
+        else await insertRow(plan, row);
         success += 1;
       } catch (error) {
         failed.push({
@@ -318,10 +335,10 @@ export async function confirmImportJob(jobId: string) {
     }
   }
 
-  const status = failed.length ? "导入部分失败" : "已导入";
+  const status = failed.length ? "导入部分失败" : skipped ? "已导入（部分跳过）" : "已导入";
   const report = {
     total: preview.report.total,
-    success: failed.length ? 0 : preview.report.success,
+    success: failed.length ? 0 : success,
     failed,
   };
 
@@ -398,22 +415,104 @@ function updateImportJobStatus(jobId: string, status: string) {
   return execute("UPDATE importjobs SET status = :status WHERE jobId = :jobId", { jobId, status });
 }
 
-async function upsertRow(table: string, primaryKey: string, fields: string[], row: Row) {
+type ExecutionPlan = (typeof EXECUTION_PLAN)[number];
+type ExistingImportRow = { primaryKey: string; status: string | null };
+
+function normalizeImportStrategy(strategy: ImportStrategy | undefined): ImportStrategy {
+  return strategy === "create-only" || strategy === "overwrite-all" ? strategy : "overwrite-drafts";
+}
+
+async function summarizeExecution(preview: ImportPreview, strategy: ImportStrategy) {
+  const summary = { create: 0, updateDraft: 0, updateConfirmed: 0, skip: 0 };
+  for (const plan of EXECUTION_PLAN) {
+    for (const row of preview.operations[plan.key]) {
+      const existing = await findExistingRow(plan, row);
+      if (!existing) {
+        summary.create += 1;
+        continue;
+      }
+      if (isDraftStatus(existing.status)) {
+        if (strategy === "create-only") summary.skip += 1;
+        else summary.updateDraft += 1;
+      } else if (strategy === "overwrite-all") {
+        summary.updateConfirmed += 1;
+      } else {
+        summary.skip += 1;
+      }
+    }
+  }
+  return summary;
+}
+
+function resolveExecutionAction(existing: ExistingImportRow | null, strategy: ImportStrategy) {
+  if (!existing) return "create";
+  if (strategy === "create-only") return "skip";
+  if (strategy === "overwrite-all" || isDraftStatus(existing.status)) return "update";
+  return "skip";
+}
+
+function isDraftStatus(status: string | null) {
+  return !status || status === "草稿";
+}
+
+async function findExistingRow(plan: ExecutionPlan, row: Row): Promise<ExistingImportRow | null> {
+  if (plan.key === "instanceContracts") {
+    const rows = await queryRows<Row>(
+      `SELECT id, NULL AS status FROM instancecontracts WHERE contractNo = :contractNo AND countryCode = :countryCode AND deviceCode = :deviceCode LIMIT 1`,
+      { contractNo: row.contractNo, countryCode: row.countryCode, deviceCode: row.deviceCode },
+    );
+    if (rows[0]) return { primaryKey: String(rows[0].id), status: null };
+    return null;
+  }
+
+  const statusLookup = getStatusLookup(plan, row);
+  const rows = await queryRows<Row>(
+    `SELECT ${quoteIdentifier(plan.primaryKey)} AS primaryKey FROM ${quoteIdentifier(plan.table)} WHERE ${quoteIdentifier(plan.primaryKey)} = :id LIMIT 1`,
+    { id: row[plan.primaryKey] },
+  );
+  if (!rows[0]) return null;
+  if (!statusLookup) return { primaryKey: String(rows[0].primaryKey), status: null };
+  const statusRows = await queryRows<Row>(statusLookup.sql, statusLookup.params);
+  return { primaryKey: String(rows[0].primaryKey), status: statusRows[0] ? String(statusRows[0].status ?? "") : null };
+}
+
+function getStatusLookup(plan: ExecutionPlan, row: Row): { sql: string; params: Row } | null {
+  if (["requests", "purchaseOrders", "billingLedgers", "prepaymentContracts"].includes(String(plan.key))) {
+    return {
+      sql: `SELECT status FROM ${quoteIdentifier(plan.table)} WHERE ${quoteIdentifier(plan.primaryKey)} = :id LIMIT 1`,
+      params: { id: row[plan.primaryKey] },
+    };
+  }
+  if (plan.key === "requestItems") return { sql: "SELECT status FROM requests WHERE requestNo = :requestNo LIMIT 1", params: { requestNo: row.requestNo } };
+  if (plan.key === "purchaseOrderItems") return { sql: "SELECT status FROM purchaseorders WHERE purchaseOrderId = :purchaseOrderId LIMIT 1", params: { purchaseOrderId: row.purchaseOrderId } };
+  if (plan.key === "prepaymentContractItems" || plan.key === "monthlyPrepaymentWriteOffs") return { sql: "SELECT status FROM prepaymentcontracts WHERE contractNo = :contractNo LIMIT 1", params: { contractNo: row.contractNo } };
+  if (plan.key === "monthlyBillingWriteOffs") return { sql: "SELECT status FROM billinginstanceledgers WHERE ledgerId = :ledgerId LIMIT 1", params: { ledgerId: row.ledgerId } };
+  return null;
+}
+
+async function insertRow(plan: ExecutionPlan, row: Row) {
+  const { table, fields } = plan;
   const columns = fields.map(quoteIdentifier).join(", ");
   const values = fields.map((field) => `:${field}`).join(", ");
-  const assignments = fields
-    .filter((field) => field !== primaryKey)
-    .map((field) => `${quoteIdentifier(field)} = VALUES(${quoteIdentifier(field)})`)
-    .join(", ");
   const params = Object.fromEntries(fields.map((field) => [field, normalizeDbValue(row[field])]));
 
   await execute(
     `
       INSERT INTO ${quoteIdentifier(table)} (${columns})
       VALUES (${values})
-      ON DUPLICATE KEY UPDATE ${assignments}
     `,
     params,
+  );
+}
+
+async function updateRow(plan: ExecutionPlan, existing: ExistingImportRow, row: Row) {
+  const fields = plan.fields.filter((field) => field !== plan.primaryKey && row[field] !== undefined && row[field] !== "");
+  if (!fields.length) return;
+  const assignments = fields.map((field) => `${quoteIdentifier(field)} = :${field}`).join(", ");
+  const params = Object.fromEntries(fields.map((field) => [field, normalizeDbValue(row[field])]));
+  await execute(
+    `UPDATE ${quoteIdentifier(plan.table)} SET ${assignments} WHERE ${quoteIdentifier(plan.primaryKey)} = :id`,
+    { ...params, id: existing.primaryKey },
   );
 }
 

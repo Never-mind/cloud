@@ -5,9 +5,10 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const jobId = String(body.jobId ?? "");
+    const allowConfirmed = Boolean(body.allowConfirmed);
     if (!jobId) return NextResponse.json({ error: "导入任务ID不能为空" }, { status: 400 });
 
-    const job = await confirmImportJob(jobId);
+    const job = await confirmImportJob(jobId, { allowConfirmed });
     return NextResponse.json({ job });
   } catch (error) {
     return NextResponse.json(
