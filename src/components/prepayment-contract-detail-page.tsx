@@ -353,13 +353,13 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
                   <td className="border-b border-r border-[#ebeef5] px-3 py-3">
                     <select className="h-9 min-w-[160px] rounded border border-[#dcdfe6] bg-white px-2" disabled={!canEdit} value={line.undertakingUnitId ?? ""} onChange={(event) => updateLine(line.id, { undertakingUnitId: event.target.value })}>
                       <option value="">请选择</option>
-                      {undertakingUnits.map((unit) => <option key={String(unit.undertakingUnitId)} value={String(unit.undertakingUnitId)}>{String(unit.name ?? unit.undertakingUnitCode ?? unit.undertakingUnitId)}</option>)}
+                      {undertakingUnits.map((unit) => <option key={String(unit.undertakingUnitId)} value={String(unit.undertakingUnitId)}>{String(unit.undertakingUnitCode ?? unit.undertakingUnitId)}</option>)}
                     </select>
                   </td>
                   <td className="border-b border-r border-[#ebeef5] px-3 py-3">
                     <select className="h-9 min-w-[160px] rounded border border-[#dcdfe6] bg-white px-2" disabled={!canEdit} value={line.supplierId ?? ""} onChange={(event) => updateLine(line.id, { supplierId: event.target.value })}>
                       <option value="">请选择</option>
-                      {suppliers.map((supplier) => <option key={String(supplier.supplierId)} value={String(supplier.supplierId)}>{String(supplier.name ?? supplier.supplierId)}</option>)}
+                      {suppliers.map((supplier) => <option key={String(supplier.supplierId)} value={String(supplier.supplierId)}>{String(supplier.supplierCode ?? supplier.supplierId)}</option>)}
                     </select>
                   </td>
                   <td className="border-b border-r border-[#ebeef5] px-3 py-3">

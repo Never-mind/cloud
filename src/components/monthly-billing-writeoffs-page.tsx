@@ -30,7 +30,7 @@ const columns: Array<{ key: string; label: string; type?: string }> = [
 
 const displayColumns = columns.flatMap((column) =>
   column.key === "countryCode"
-    ? [column, { key: "undertakingUnitId", label: "承接单位" }, { key: "supplierId", label: "供应商" }]
+    ? [column, { key: "undertakingUnitCode", label: "承接单位" }, { key: "supplierCode", label: "供应商" }]
     : [column],
 );
 

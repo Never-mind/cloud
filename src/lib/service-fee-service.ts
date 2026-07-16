@@ -1,4 +1,5 @@
 import { execute, queryRows, type Row } from "./db";
+import { attachPartyCodes } from "./party-display";
 import { firstDayOfMonth } from "./billing-workflow";
 import {
   buildServiceFeeRows,
@@ -24,7 +25,7 @@ export async function calculateServiceFees(searchParams: URLSearchParams) {
     listPrepaymentRows(filters),
   ]);
   const rows = filterCalculatedRows(buildServiceFeeRows({ billingRows, prepaymentRows }), filters);
-  return { rows, summary: summarizeServiceFeeRows(rows), total: rows.length };
+  return { rows: await attachPartyCodes(rows), summary: summarizeServiceFeeRows(rows), total: rows.length };
 }
 
 export async function confirmServiceFeeSnapshot({

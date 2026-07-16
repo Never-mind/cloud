@@ -239,7 +239,7 @@ export function OrderListPage({
         </div>
 
         <div className="table-scroll overflow-auto">
-          <table className="min-w-full border-collapse text-sm">
+          <table className="min-w-[1180px] border-collapse text-sm">
             <thead className="bg-[#f5f7fa] text-[#303133]">
               <tr>
                 <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium">
@@ -252,7 +252,7 @@ export function OrderListPage({
                   </>
                 ) : null}
                 {mode === "purchase" ? (
-                  <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium">
+                  <th className="w-[260px] min-w-[260px] border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium">
                     来源需求单
                   </th>
                 ) : null}
@@ -313,8 +313,8 @@ export function OrderListPage({
                       </>
                     ) : null}
                     {mode === "purchase" ? (
-                      <td className="border-b border-r border-[#ebeef5] px-3 py-3">
-                        {formatValue(row.requestNo)}
+                      <td className="w-[260px] max-w-[260px] border-b border-r border-[#ebeef5] px-3 py-3">
+                        <span className="block truncate" title={String(row.requestNo ?? "")}>{formatValue(row.requestNo)}</span>
                       </td>
                     ) : null}
                     {mode === "purchase" ? (

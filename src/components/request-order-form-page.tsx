@@ -362,7 +362,7 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
                     <td className="border-b border-r border-[#ebeef5] px-3 py-3">{formatValue(model?.nameEn)}</td>
                     <td className="border-b border-r border-[#ebeef5] px-3 py-3">
                       <SearchPicker
-                        options={suppliers.map((supplier) => ({ value: String(supplier.supplierId ?? ""), label: String(supplier.name ?? supplier.supplierCode ?? supplier.supplierId ?? ""), keywords: `${String(supplier.supplierCode ?? "")} ${String(supplier.supplierId ?? "")}` }))}
+                        options={suppliers.map((supplier) => ({ value: String(supplier.supplierId ?? ""), label: String(supplier.supplierCode ?? supplier.supplierId ?? ""), keywords: `${String(supplier.supplierCode ?? "")} ${String(supplier.name ?? "")} ${String(supplier.supplierId ?? "")}` }))}
                         placeholder="搜索供应商"
                         className="h-9 min-w-[160px] rounded border border-[#dcdfe6] bg-white px-2"
                         value={detail.supplierId}
@@ -372,14 +372,14 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
                         <option value="">请选择</option>
                         {suppliers.map((supplier) => (
                           <option key={String(supplier.supplierId)} value={String(supplier.supplierId)}>
-                            {String(supplier.name ?? supplier.supplierId)}
+                            {String(supplier.supplierCode ?? supplier.supplierId)}
                           </option>
                         ))}
                       </SearchPicker>
                     </td>
                     <td className="border-b border-r border-[#ebeef5] px-3 py-3">
                       <SearchPicker
-                        options={undertakingUnits.map((unit) => ({ value: String(unit.undertakingUnitId ?? ""), label: String(unit.name ?? unit.undertakingUnitCode ?? unit.undertakingUnitId ?? ""), keywords: `${String(unit.undertakingUnitCode ?? "")} ${String(unit.undertakingUnitId ?? "")}` }))}
+                        options={undertakingUnits.map((unit) => ({ value: String(unit.undertakingUnitId ?? ""), label: String(unit.undertakingUnitCode ?? unit.undertakingUnitId ?? ""), keywords: `${String(unit.undertakingUnitCode ?? "")} ${String(unit.name ?? "")} ${String(unit.undertakingUnitId ?? "")}` }))}
                         placeholder="搜索承接单位"
                         value={detail.undertakingUnitId}
                         disabled={!canEdit}
@@ -434,12 +434,25 @@ function SearchPicker({
   value: string;
 }) {
   const selected = options.find((option) => option.value === value);
+  const inputWrapRef = useRef<HTMLDivElement | null>(null);
   const [query, setQuery] = useState(selected?.label ?? value);
   const [focused, setFocused] = useState(false);
+  const [menuPosition, setMenuPosition] = useState({ left: 0, top: 0, width: 0 });
 
   useEffect(() => {
     if (!focused) setQuery(selected?.label ?? value);
   }, [focused, selected?.label, value]);
+
+  useEffect(() => {
+    if (!focused) return;
+    const closeMenu = () => setFocused(false);
+    window.addEventListener("resize", closeMenu);
+    window.addEventListener("scroll", closeMenu, true);
+    return () => {
+      window.removeEventListener("resize", closeMenu);
+      window.removeEventListener("scroll", closeMenu, true);
+    };
+  }, [focused]);
 
   const normalizedQuery = query.trim().toLowerCase();
   const matches = (normalizedQuery
@@ -455,19 +468,25 @@ function SearchPicker({
     else onChange("");
   }
 
+  function openMenu() {
+    const rect = inputWrapRef.current?.getBoundingClientRect();
+    if (rect) setMenuPosition({ left: rect.left, top: rect.bottom + 4, width: Math.max(rect.width, 300) });
+    setFocused(true);
+  }
+
   return (
-    <div className="relative min-w-[180px]">
+    <div className="min-w-[180px]" ref={inputWrapRef}>
       <Input
         className={className}
         disabled={disabled}
         placeholder={placeholder}
         value={query}
-        onFocus={() => setFocused(true)}
+        onFocus={openMenu}
         onBlur={() => window.setTimeout(() => setFocused(false), 120)}
         onChange={(event) => handleInput(event.target.value)}
       />
       {focused && !disabled && matches.length ? (
-        <div className="absolute left-0 top-10 z-30 max-h-56 w-full overflow-auto border border-[#dcdfe6] bg-white py-1 shadow-lg">
+        <div className="fixed z-[100] max-h-64 overflow-auto border border-[#dcdfe6] bg-white py-1 shadow-xl" style={{ left: menuPosition.left, top: menuPosition.top, width: menuPosition.width }}>
           {matches.map((option) => (
             <button
               className="block w-full px-3 py-2 text-left text-sm text-[#606266] hover:bg-[#f5f7fa]"

@@ -1,4 +1,5 @@
 import { execute, queryRows, type Row } from "./db";
+import { attachPartyCodes } from "./party-display";
 import { isConfirmedOrderStatus } from "./order-status";
 import {
   applyBillingAdjustments,
@@ -252,7 +253,7 @@ export async function listAvailableBillingLines() {
   ]);
   const occupied = new Set(ledgerRows.map((row) => String(row.purchaseOrderItemId)));
 
-  return purchaseLines
+  const availableLines = purchaseLines
     .filter(
       (line) =>
         isConfirmedOrderStatus("purchase", line.purchaseStatus) &&
@@ -275,6 +276,7 @@ export async function listAvailableBillingLines() {
         startMonth: new Date().toISOString().slice(0, 10),
       };
     });
+  return attachPartyCodes(availableLines);
 }
 
 export async function confirmBillingLedgers({
@@ -466,7 +468,7 @@ export async function listMonthlyBillingWriteOffs(searchParams: URLSearchParams)
     params,
   );
 
-  return { rows, total: rows.length };
+  return { rows: await attachPartyCodes(rows), total: rows.length };
 }
 
 export async function confirmBillingAdjustment(adjustmentNo: string) {

@@ -1,4 +1,5 @@
 import { execute, queryRows, type Row } from "./db";
+import { attachPartyCodes } from "./party-display";
 import { isConfirmedOrderStatus } from "./order-status";
 import {
   buildMonthlyWriteOffRows,
@@ -333,7 +334,7 @@ export async function listMonthlyPrepaymentWriteOffs(searchParams: URLSearchPara
     params,
   );
 
-  return { rows, total: rows.length };
+  return { rows: await attachPartyCodes(rows), total: rows.length };
 }
 
 async function insertPrepaymentLine(line: PrepaymentContractLineDraft) {

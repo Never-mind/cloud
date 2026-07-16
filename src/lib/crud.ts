@@ -1,5 +1,6 @@
 import { randomUUID } from "crypto";
 import { execute, queryRows, type Row } from "./db";
+import { attachPartyCodes } from "./party-display";
 import type { EntityConfig } from "./modules";
 
 function quoteIdentifier(identifier: string) {
@@ -14,7 +15,8 @@ function getInsertFields(config: EntityConfig) {
   return Array.from(new Set([config.primaryKey, ...getWritableFields(config)]));
 }
 
-const shipmentDisplayFields = new Set(["destinationAddress", "recipientName"]);
+const shipmentDisplayFields = new Set(["destinationAddress", "recipientName", "supplierCode", "undertakingUnitCode"]);
+const partyCodeDisplayFields = new Set(["supplierCode", "undertakingUnitCode"]);
 
 function isShipmentDelivered(value: unknown) {
   return value !== null && value !== undefined && String(value).trim() !== "";
@@ -52,8 +54,12 @@ export async function listEntityRows(config: EntityConfig, searchParams: URLSear
   const pageSize = Math.min(100, Math.max(1, Number(searchParams.get("pageSize") ?? 20)));
   const keyword = searchParams.get("keyword")?.trim();
   const fields = Array.from(new Set([...config.listFields, ...config.formFields].map((field) => field.key)));
-  const storageFields =
-    config.key === "shipments" ? fields.filter((field) => !shipmentDisplayFields.has(field)) : fields;
+  const displayOnlyFields = config.key === "shipments"
+    ? shipmentDisplayFields
+    : financePartyEntityKeys.has(config.key)
+      ? partyCodeDisplayFields
+      : new Set<string>();
+  const storageFields = fields.filter((field) => !displayOnlyFields.has(field));
   const selectedFields = storageFields.map(quoteIdentifier).join(", ");
   const whereParts: string[] = [];
   const params: Row = { limit: pageSize, offset: (page - 1) * pageSize };
@@ -116,23 +122,24 @@ const financePartyEntityKeys = new Set(["billing-ledgers", "prepayment-contract-
 async function enrichFinancialPartyRows(entityKey: string, rows: Row[]) {
   if (!financePartyEntityKeys.has(entityKey) || !rows.length) return rows;
   const requestNos = uniqueValues(rows, "requestNo");
-  if (!requestNos.length) return rows;
-  const requestItems = await queryRows<Row>(
-    "SELECT requestNo, deviceCode, supplierId, undertakingUnitId FROM requestitems WHERE requestNo IN (:requestNos)",
-    { requestNos },
-  );
+  const requestItems = requestNos.length
+    ? await queryRows<Row>(
+      "SELECT requestNo, deviceCode, supplierId, undertakingUnitId FROM requestitems WHERE requestNo IN (:requestNos)",
+      { requestNos },
+    )
+    : [];
   const partyByRequestDevice = new Map(
     requestItems.map((item) => [`${String(item.requestNo ?? "")}::${String(item.deviceCode ?? "")}`, item]),
   );
-  return rows.map((row) => {
+  const enrichedRows = rows.map((row) => {
     const party = partyByRequestDevice.get(`${String(row.requestNo ?? "")}::${String(row.deviceCode ?? "")}`);
-    if (!party) return row;
     return {
       ...row,
-      supplierId: row.supplierId || party.supplierId || "",
-      undertakingUnitId: row.undertakingUnitId || party.undertakingUnitId || "",
+      supplierId: row.supplierId || party?.supplierId || "",
+      undertakingUnitId: row.undertakingUnitId || party?.undertakingUnitId || "",
     };
   });
+  return attachPartyCodes(enrichedRows);
 }
 
 export async function getEntityRow(config: EntityConfig, id: string) {
@@ -195,32 +202,50 @@ async function enrichShipmentRows(rows: Row[]): Promise<Row[]> {
   const locationIds = uniqueValues(rows, "destinationLocationId");
   const contactIds = uniqueValues(rows, "recipientContactId");
   const poNos = uniqueValues(rows, "poNo");
-  const [datacenters, locations, contacts, purchaseOrders] = await Promise.all([
+  const [datacenters, locations, contacts, purchaseOrders, purchaseLines] = await Promise.all([
     dcCodes.length ? queryRows("SELECT dcCode, nameZh FROM datacenters WHERE dcCode IN (:dcCodes)", { dcCodes }) : [],
     locationIds.length
       ? queryRows("SELECT locationId, fullAddress FROM deliverylocations WHERE locationId IN (:locationIds)", { locationIds })
       : [],
     contactIds.length ? queryRows("SELECT contactId, name FROM deliverycontacts WHERE contactId IN (:contactIds)", { contactIds }) : [],
     poNos.length ? queryRows("SELECT purchaseOrderId, poNo FROM purchaseorders WHERE poNo IN (:poNos)", { poNos }) : [],
+    poNos.length
+      ? queryRows("SELECT poi.id AS purchaseOrderItemId, poi.poNo, ri.deviceCode, ri.supplierId, ri.undertakingUnitId FROM purchaseorderitems poi LEFT JOIN requestitems ri ON ri.id = poi.requestItemId WHERE poi.poNo IN (:poNos)", { poNos })
+      : [],
   ]);
   const datacenterByCode = new Map(datacenters.map((row) => [String(row.dcCode), row]));
   const locationById = new Map(locations.map((row) => [String(row.locationId), row]));
   const contactById = new Map(contacts.map((row) => [String(row.contactId), row]));
   const purchaseOrderByPoNo = new Map(purchaseOrders.map((row) => [String(row.poNo), row]));
+  const purchaseLineById = new Map(purchaseLines.map((row) => [String(row.purchaseOrderItemId), row]));
+  const purchaseLineByPoDevice = new Map(purchaseLines.map((row) => [`${String(row.poNo)}::${String(row.deviceCode ?? "")}`, row]));
+  const purchaseLinesByPoNo = new Map<string, Row[]>();
+  for (const line of purchaseLines) {
+    const poNo = String(line.poNo ?? "");
+    purchaseLinesByPoNo.set(poNo, [...(purchaseLinesByPoNo.get(poNo) ?? []), line]);
+  }
 
-  return rows.map((row): Row => {
+  const enriched = rows.map((row): Row => {
     const datacenter = datacenterByCode.get(String(row.dcCode ?? ""));
     const location = locationById.get(String(row.destinationLocationId ?? ""));
     const contact = contactById.get(String(row.recipientContactId ?? ""));
+    const poNo = String(row.poNo ?? "");
+    const matchingPoLines = purchaseLinesByPoNo.get(poNo) ?? [];
+    const purchaseLine = purchaseLineById.get(String(row.purchaseOrderItemId ?? ""))
+      ?? purchaseLineByPoDevice.get(`${poNo}::${String(row.deviceCode ?? "")}`)
+      ?? (matchingPoLines.length === 1 ? matchingPoLines[0] : undefined);
     return {
       ...row,
       dcNameZh: datacenter?.nameZh ?? row.dcNameZh ?? row.dcCode,
       destinationAddress: location?.fullAddress ?? row.snapshotDestinationAddress ?? row.destinationLocationId,
       recipientName: contact?.name ?? row.snapshotRecipientName ?? row.recipientContactId,
       purchaseOrderId: purchaseOrderByPoNo.get(String(row.poNo ?? ""))?.purchaseOrderId ?? null,
+      supplierId: purchaseLine?.supplierId ?? row.supplierId ?? "",
+      undertakingUnitId: purchaseLine?.undertakingUnitId ?? row.undertakingUnitId ?? "",
       isReceived: isShipmentDelivered(row.deliveredAt),
     };
   });
+  return attachPartyCodes(enriched);
 }
 
 function uniqueValues(rows: Row[], key: string) {

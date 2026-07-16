@@ -190,9 +190,9 @@ export function PurchaseOrderFormPage() {
               <span className="text-[#f56c6c]">*</span>
               PO订单号
             </span>
-            <div className="flex gap-2">
-              <Input className="w-full" required value={master.poNo} onChange={(event) => updateMaster("poNo", event.target.value)} />
-              <Button type="button" onClick={generatePoNo}>自动生成</Button>
+            <div className="flex min-w-0 flex-wrap gap-2">
+              <Input className="min-w-[180px] flex-1" required value={master.poNo} onChange={(event) => updateMaster("poNo", event.target.value)} />
+              <Button className="shrink-0 whitespace-nowrap" type="button" onClick={generatePoNo}>自动生成</Button>
             </div>
           </label>
           <label>

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import * as XLSX from "xlsx";
 import { listEntityRows } from "@/lib/crud";
+import type { Row } from "@/lib/db";
 import { getEntityConfig } from "@/lib/modules";
 
 export async function GET(request: NextRequest, context: { params: Promise<{ entity: string }> }) {
@@ -14,13 +15,13 @@ export async function GET(request: NextRequest, context: { params: Promise<{ ent
   const params = new URLSearchParams(request.nextUrl.searchParams);
   params.set("page", "1");
   params.set("pageSize", "100");
-  const rows = [];
+  const rows: Row[] = [];
   let page = 1;
   let total = 0;
   do {
     params.set("page", String(page));
     const result = await listEntityRows(config, params);
-    rows.push(...result.rows);
+    rows.push(...(result.rows as Row[]));
     total = result.total;
     page += 1;
   } while (rows.length < total);
