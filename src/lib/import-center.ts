@@ -118,8 +118,8 @@ export const IMPORT_TARGETS: ImportTarget[] = [
       { key: "contractNo", label: "合同号", required: true },
       { key: "countryCode", label: "国家", required: true },
       { key: "deviceCode", label: "设备编码", required: true },
-      { key: "modelCode", label: "机型", required: true },
-      { key: "instanceModelEn", label: "实例型号英文", required: true },
+      { key: "modelCode", label: "机型", note: "为空时按设备编码自动带出" },
+      { key: "instanceModelEn", label: "实例型号英文", note: "为空时按设备编码自动带出" },
       { key: "currency", label: "币种", required: true, note: PURCHASE_CURRENCY_OPTIONS.join("/") },
       { key: "first24MonthPriceUSD", label: "前24个月含税单价", required: true, type: "number" },
       { key: "next36MonthPriceUSD", label: "后36个月含税单价", required: true, type: "number" },
@@ -217,7 +217,13 @@ export function isImportTemplateNoteRow(row: Record<string, unknown>) {
 export function buildImportPreview(
   targetKey: ImportTargetKey,
   inputRows: Row[],
-  options: { requestItems?: Row[]; purchaseOrders?: Row[]; billingPurchaseLines?: Row[]; prepaymentPurchaseLines?: Row[] } = {},
+  options: {
+    requestItems?: Row[];
+    purchaseOrders?: Row[];
+    instanceModels?: Row[];
+    billingPurchaseLines?: Row[];
+    prepaymentPurchaseLines?: Row[];
+  } = {},
 ): ImportPreview {
   const target = getRequiredTarget(targetKey);
   const validRows: Array<{ row: Row; rowNumber: number }> = [];
@@ -228,6 +234,7 @@ export function buildImportPreview(
     const normalized = normalizeRow(target, row);
     const error =
       validateRow(target, normalized) ||
+      normalizeInstanceContractModel(targetKey, normalized, options.instanceModels ?? []) ||
       normalizePurchaseRequestItemId(targetKey, normalized, options.requestItems ?? []) ||
       normalizeBillingPurchaseLine(targetKey, normalized, options.billingPurchaseLines ?? []) ||
       normalizePrepaymentPurchaseLine(targetKey, normalized, options.prepaymentPurchaseLines ?? []);
@@ -532,6 +539,22 @@ function normalizePurchaseRequestItemId(targetKey: ImportTargetKey, row: Row, re
   }
 
   return `产品编码 ${deviceCode} 在需求单 ${requestNo} 下未找到对应需求明细`;
+}
+
+function normalizeInstanceContractModel(targetKey: ImportTargetKey, row: Row, instanceModels: Row[]) {
+  if (targetKey !== "instance-contracts") return "";
+  if (!isBlank(row.modelCode) && !isBlank(row.instanceModelEn)) return "";
+
+  const deviceCode = String(row.deviceCode ?? "").trim();
+  const model = instanceModels.find((item) => String(item.deviceCode ?? "").trim() === deviceCode);
+  if (!model) return `设备编码 ${deviceCode} 未匹配到实例型号，请先维护实例型号主数据或补充机型和实例型号英文`;
+
+  if (isBlank(row.modelCode)) row.modelCode = String(model.modelCode ?? "");
+  if (isBlank(row.instanceModelEn)) row.instanceModelEn = String(model.nameEn ?? "");
+  if (isBlank(row.modelCode) || isBlank(row.instanceModelEn)) {
+    return `设备编码 ${deviceCode} 对应的实例型号资料不完整`;
+  }
+  return "";
 }
 
 function normalizeBillingPurchaseLine(targetKey: ImportTargetKey, row: Row, purchaseLines: Row[]) {

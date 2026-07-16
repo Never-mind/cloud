@@ -98,6 +98,30 @@ describe("import center workflow", () => {
     });
   });
 
+  it("fills instance contract model fields from the device code", () => {
+    const preview = buildImportPreview(
+      "instance-contracts",
+      [
+        {
+          contractNo: "IC-IMPORT-001",
+          countryCode: "BR",
+          deviceCode: "DEV-A",
+          currency: "USD",
+          first24MonthPriceUSD: 500,
+          next36MonthPriceUSD: 5,
+        },
+      ],
+      { instanceModels: [{ deviceCode: "DEV-A", modelCode: "M-A", nameEn: "Compute Enhanced" }] },
+    );
+
+    expect(preview.report.failed).toEqual([]);
+    expect(preview.operations.instanceContracts[0]).toMatchObject({
+      deviceCode: "DEV-A",
+      modelCode: "M-A",
+      instanceModelEn: "Compute Enhanced",
+    });
+  });
+
   it("auto-generates billing ledger id and resolves purchase item by request number, PO number, and product code", () => {
     const preview = buildImportPreview(
       "billing-ledgers",

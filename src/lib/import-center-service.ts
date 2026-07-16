@@ -209,6 +209,10 @@ export async function createImportPreviewJob({
     targetKey === "purchase-orders"
       ? await queryRows("SELECT purchaseOrderId, poNo FROM purchaseorders")
       : [];
+  const instanceModels =
+    targetKey === "instance-contracts"
+      ? await queryRows("SELECT deviceCode, modelCode, nameEn FROM instancemodels")
+      : [];
   const billingPurchaseLines =
     targetKey === "billing-ledgers"
       ? await queryRows(`
@@ -258,6 +262,7 @@ export async function createImportPreviewJob({
   const preview = buildImportPreview(targetKey, rows, {
     requestItems,
     purchaseOrders,
+    instanceModels,
     billingPurchaseLines,
     prepaymentPurchaseLines,
   });
