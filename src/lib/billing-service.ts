@@ -1,7 +1,6 @@
 import { execute, queryRows, type Row } from "./db";
 import { isConfirmedOrderStatus } from "./order-status";
 import {
-  applyBillingAdjustment,
   applyBillingAdjustments,
   buildBillingLedgerDraft,
   buildMonthlyBillingRows,
@@ -476,74 +475,6 @@ export async function confirmBillingAdjustment(adjustmentNo: string) {
   if (String(adjustment.status) === "已确认") return adjustment;
   if (!items.length) throw new Error("调整单明细不能为空");
 
-  let updatedLedgers = 0;
-
-  for (const item of items) {
-    const ledgers = await queryRows<Row>(
-      `
-        SELECT *
-        FROM billinginstanceledgers
-        WHERE countryCode = :countryCode
-          AND batchName = :batchName
-          AND deviceCode = :deviceCode
-      `,
-      {
-        countryCode: item.countryCode,
-        batchName: item.batchName,
-        deviceCode: item.deviceCode,
-      },
-    );
-    if (!ledgers.length) {
-      throw new Error(`未找到匹配的月账单台账：${item.countryCode}/${item.batchName}/${item.deviceCode}`);
-    }
-
-    for (const ledger of ledgers) {
-      const monthlyRows = await queryRows<MonthlyBillingRow>(
-        `
-          SELECT
-            id,
-            ledgerId,
-            DATE_FORMAT(writeOffMonth, '%Y-%m-%d') AS writeOffMonth,
-            monthIndex,
-            stage,
-            countryCode,
-            batchName,
-            requestNo,
-            poNo,
-            deviceCode,
-            modelCode,
-            nameEn,
-            supplierId,
-            undertakingUnitId,
-            quantity,
-            instanceContractNo,
-            currency,
-            monthlyTotalAmount,
-            monthlyAmount,
-            selfCalculatedUnitPrice,
-            differenceUnitPrice,
-            differenceTotalPrice,
-            sourceType,
-            adjustmentNo
-          FROM monthlybillingwriteoffs
-          WHERE ledgerId = :ledgerId
-          ORDER BY monthIndex
-        `,
-        { ledgerId: ledger.ledgerId },
-      );
-      const adjustedRows = applyBillingAdjustment(monthlyRows, {
-        adjustmentNo,
-        instanceContractNo: String(adjustment.instanceContractNo ?? ""),
-        effectiveMonth: String(item.effectiveMonth),
-        currency: String(item.currency ?? ""),
-        adjustedFirst24MonthPrice: Number(item.adjustedFirst24MonthPrice ?? 0),
-        adjustedNext36MonthPrice: Number(item.adjustedNext36MonthPrice ?? 0),
-      });
-      await replaceMonthlyBillingRows(String(ledger.ledgerId), adjustedRows);
-      updatedLedgers += 1;
-    }
-  }
-
   await execute(
     `
       UPDATE billingadjustments
@@ -554,7 +485,36 @@ export async function confirmBillingAdjustment(adjustmentNo: string) {
     { adjustmentNo },
   );
 
-  return { adjustmentNo, updatedLedgers };
+  const ledgerIds = new Set<string>();
+  for (const item of items) {
+    const ledgers = await queryRows<Row>(
+      `
+        SELECT *
+        FROM billinginstanceledgers
+        WHERE countryCode = :countryCode
+          AND batchName = :batchName
+          AND requestNo = :requestNo
+          AND deviceCode = :deviceCode
+      `,
+      {
+        countryCode: item.countryCode,
+        batchName: item.batchName,
+        requestNo: item.requestNo,
+        deviceCode: item.deviceCode,
+      },
+    );
+    if (!ledgers.length) {
+      throw new Error(`未找到匹配的月账单台账：${item.countryCode}/${item.batchName}/${item.deviceCode}`);
+    }
+    ledgers.forEach((ledger) => ledgerIds.add(String(ledger.ledgerId)));
+  }
+
+  for (const ledgerId of ledgerIds) {
+    const ledger = await getBillingLedgerDraft(ledgerId);
+    if (ledger) await replaceMonthlyBillingRows(ledgerId, await buildMonthlyBillingRowsWithConfirmedAdjustments(ledger));
+  }
+
+  return { adjustmentNo, updatedLedgers: ledgerIds.size };
 }
 
 async function insertBillingLedger(ledger: BillingLedgerDraft) {
@@ -647,7 +607,6 @@ async function listConfirmedBillingAdjustmentsForLedger(ledger: BillingLedgerDra
         AND bai.batchName = :batchName
         AND (bai.requestNo = :requestNo OR bai.requestNo = '')
         AND bai.deviceCode = :deviceCode
-        AND ba.instanceContractNo = :instanceContractNo
         AND ba.confirmedAt IS NOT NULL
       ORDER BY ba.confirmedAt ASC, ba.adjustmentNo ASC
     `,
@@ -656,7 +615,6 @@ async function listConfirmedBillingAdjustmentsForLedger(ledger: BillingLedgerDra
       batchName: ledger.batchName,
       requestNo: ledger.requestNo,
       deviceCode: ledger.deviceCode,
-      instanceContractNo: ledger.instanceContractNo,
     },
   );
 
