@@ -73,7 +73,9 @@ describe("import center workflow", () => {
         startMonth: "2026-07-15",
         status: "",
       },
-    ]);
+    ], {
+      instanceContracts: [{ contractNo: "IC-001", countryCode: "BR", deviceCode: "DEV-A", currency: "USD", first24MonthPriceUSD: 500, next36MonthPriceUSD: 5 }],
+    });
 
     expect(preview.report).toMatchObject({ total: 1, success: 1, failed: [] });
     expect(preview.summary).toMatchObject({ masterCount: 1, detailCount: 60 });
@@ -133,13 +135,14 @@ describe("import center workflow", () => {
           poNo: "PO-001",
           deviceCode: "DEV-A",
           instanceContractNo: "IC-001",
-          contractCurrency: "USD",
-          first24MonthPrice: 500,
-          next36MonthPrice: 5,
+        contractCurrency: "CNY",
+        first24MonthPrice: 1,
+        next36MonthPrice: 2,
           startMonth: "2026-07-15",
         },
       ],
       {
+        instanceContracts: [{ contractNo: "IC-001", countryCode: "BR", deviceCode: "DEV-A", currency: "USD", first24MonthPriceUSD: 500, next36MonthPriceUSD: 5 }],
         billingPurchaseLines: [
           {
             purchaseOrderItemId: "POI-001",
@@ -172,6 +175,9 @@ describe("import center workflow", () => {
       quantity: 2,
       actualCurrency: "USD",
       actualUnitPrice: 10,
+      contractCurrency: "USD",
+      first24MonthPrice: 500,
+      next36MonthPrice: 5,
     });
     expect(preview.operations.monthlyBillingWriteOffs).toHaveLength(60);
   });

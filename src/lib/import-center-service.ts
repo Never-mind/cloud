@@ -235,6 +235,12 @@ export async function createImportPreviewJob({
           LEFT JOIN instancemodels im ON im.deviceCode = ri.deviceCode
         `)
       : [];
+  const billingInstanceContracts =
+    targetKey === "billing-ledgers"
+      ? await queryRows(
+          "SELECT contractNo, countryCode, deviceCode, currency, first24MonthPriceUSD, next36MonthPriceUSD FROM instancecontracts",
+        )
+      : [];
   const prepaymentPurchaseLines =
     targetKey === "prepayment-contracts"
       ? await queryRows(`
@@ -263,6 +269,7 @@ export async function createImportPreviewJob({
     requestItems,
     purchaseOrders,
     instanceModels,
+    instanceContracts: billingInstanceContracts,
     billingPurchaseLines,
     prepaymentPurchaseLines,
   });

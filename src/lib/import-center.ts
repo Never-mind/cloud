@@ -143,9 +143,9 @@ export const IMPORT_TARGETS: ImportTarget[] = [
       { key: "actualCurrency", label: "实际币种", note: PURCHASE_CURRENCY_OPTIONS.join("/") },
       { key: "actualUnitPrice", label: "实际单价", type: "number" },
       { key: "instanceContractNo", label: "实例合同号", required: true },
-      { key: "contractCurrency", label: "合同币种", required: true, note: PURCHASE_CURRENCY_OPTIONS.join("/") },
-      { key: "first24MonthPrice", label: "前24个月合同价", required: true, type: "number" },
-      { key: "next36MonthPrice", label: "后36个月合同价", required: true, type: "number" },
+      { key: "contractCurrency", label: "合同币种", note: "按实例合同号、国家和实例编码自动带出" },
+      { key: "first24MonthPrice", label: "前24个月合同价", type: "number", note: "按实例合同自动带出并覆盖不一致值" },
+      { key: "next36MonthPrice", label: "后36个月合同价", type: "number", note: "按实例合同自动带出并覆盖不一致值" },
       { key: "startMonth", label: "起始核销月份", required: true, type: "date" },
       { key: "status", label: "台账状态", note: "为空默认核销中" },
     ],
@@ -164,9 +164,9 @@ export const IMPORT_TARGETS: ImportTarget[] = [
       { key: "requestItemId", label: "需求明细ID" },
       { key: "countryCode", label: "国家" },
       { key: "batchName", label: "批次号" },
-      { key: "requestNo", label: "需求单号" },
-      { key: "poNo", label: "PO订单号" },
-      { key: "deviceCode", label: "实例编码" },
+      { key: "requestNo", label: "需求单号", required: true },
+      { key: "poNo", label: "PO订单号", required: true },
+      { key: "deviceCode", label: "实例编码", required: true },
       { key: "modelCode", label: "机型" },
       { key: "nameEn", label: "实例名称（英文）" },
       { key: "quantity", label: "数量", type: "number" },
@@ -221,6 +221,7 @@ export function buildImportPreview(
     requestItems?: Row[];
     purchaseOrders?: Row[];
     instanceModels?: Row[];
+    instanceContracts?: Row[];
     billingPurchaseLines?: Row[];
     prepaymentPurchaseLines?: Row[];
   } = {},
@@ -237,6 +238,7 @@ export function buildImportPreview(
       normalizeInstanceContractModel(targetKey, normalized, options.instanceModels ?? []) ||
       normalizePurchaseRequestItemId(targetKey, normalized, options.requestItems ?? []) ||
       normalizeBillingPurchaseLine(targetKey, normalized, options.billingPurchaseLines ?? []) ||
+      normalizeBillingInstanceContract(targetKey, normalized, options.instanceContracts ?? []) ||
       normalizePrepaymentPurchaseLine(targetKey, normalized, options.prepaymentPurchaseLines ?? []);
     if (error) {
       failed.push({
@@ -613,6 +615,32 @@ function applyBillingPurchaseLine(row: Row, line: Row) {
       row[field] = line[field];
     }
   }
+}
+
+function normalizeBillingInstanceContract(targetKey: ImportTargetKey, row: Row, instanceContracts: Row[]) {
+  if (targetKey !== "billing-ledgers") return "";
+
+  const contractNo = String(row.instanceContractNo ?? "").trim();
+  const countryCode = String(row.countryCode ?? "").trim();
+  const deviceCode = String(row.deviceCode ?? "").trim();
+  const matches = instanceContracts.filter(
+    (contract) =>
+      String(contract.contractNo ?? "").trim() === contractNo &&
+      String(contract.countryCode ?? "").trim() === countryCode &&
+      String(contract.deviceCode ?? "").trim() === deviceCode,
+  );
+
+  if (matches.length !== 1) {
+    return matches.length
+      ? `实例合同 ${contractNo} 在国家 ${countryCode}、实例编码 ${deviceCode} 下匹配到多条记录`
+      : `未找到实例合同 ${contractNo} 对应的国家 ${countryCode}、实例编码 ${deviceCode} 价格`;
+  }
+
+  const contract = matches[0];
+  row.contractCurrency = contract.currency;
+  row.first24MonthPrice = contract.first24MonthPriceUSD;
+  row.next36MonthPrice = contract.next36MonthPriceUSD;
+  return "";
 }
 
 function normalizePrepaymentPurchaseLine(targetKey: ImportTargetKey, row: Row, purchaseLines: Row[]) {
