@@ -305,13 +305,15 @@ export async function listMonthlyPrepaymentWriteOffs(searchParams: URLSearchPara
         deviceCode,
         modelCode,
         nameEn,
-        supplierId,
-        undertakingUnitId,
+        COALESCE(NULLIF(monthlyprepaymentwriteoffs.supplierId, ''), ri.supplierId) AS supplierId,
+        COALESCE(NULLIF(monthlyprepaymentwriteoffs.undertakingUnitId, ''), ri.undertakingUnitId) AS undertakingUnitId,
         quantity,
         sourceType,
         adjustmentNo,
         createdAt
       FROM monthlyprepaymentwriteoffs
+      LEFT JOIN prepaymentcontractitems AS contractItem ON contractItem.id = monthlyprepaymentwriteoffs.contractLineId
+      LEFT JOIN requestitems AS ri ON ri.id = contractItem.requestItemId
       ${where}
       ORDER BY writeOffMonth DESC, contractNo, contractLineId
     `,

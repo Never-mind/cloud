@@ -433,8 +433,8 @@ export async function listMonthlyBillingWriteOffs(searchParams: URLSearchParams)
         deviceCode,
         modelCode,
         nameEn,
-        supplierId,
-        undertakingUnitId,
+        COALESCE(NULLIF(monthlybillingwriteoffs.supplierId, ''), ri.supplierId) AS supplierId,
+        COALESCE(NULLIF(monthlybillingwriteoffs.undertakingUnitId, ''), ri.undertakingUnitId) AS undertakingUnitId,
         quantity,
         instanceContractNo,
         currency,
@@ -447,6 +447,8 @@ export async function listMonthlyBillingWriteOffs(searchParams: URLSearchParams)
         adjustmentNo,
         createdAt
       FROM monthlybillingwriteoffs
+      LEFT JOIN billinginstanceledgers AS ledger ON ledger.ledgerId = monthlybillingwriteoffs.ledgerId
+      LEFT JOIN requestitems AS ri ON ri.id = ledger.purchaseOrderItemId
       ${where}
       ORDER BY writeOffMonth DESC, ledgerId
     `,

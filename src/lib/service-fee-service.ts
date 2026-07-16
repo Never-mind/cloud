@@ -114,14 +114,16 @@ async function listBillingRows(filters: ServiceFeeFilters) {
         deviceCode,
         modelCode,
         monthlybillingwriteoffs.nameEn AS nameEn,
-        supplierId,
-        undertakingUnitId,
+        COALESCE(NULLIF(monthlybillingwriteoffs.supplierId, ''), ri.supplierId) AS supplierId,
+        COALESCE(NULLIF(monthlybillingwriteoffs.undertakingUnitId, ''), ri.undertakingUnitId) AS undertakingUnitId,
         quantity,
         currency,
         COALESCE(country.vatRate, 0) AS vatRate,
         monthlyTotalAmount,
         monthlyAmount
       FROM monthlybillingwriteoffs
+      LEFT JOIN billinginstanceledgers AS ledger ON ledger.ledgerId = monthlybillingwriteoffs.ledgerId
+      LEFT JOIN requestitems AS ri ON ri.id = ledger.purchaseOrderItemId
       LEFT JOIN countries AS country ON country.code = monthlybillingwriteoffs.countryCode
       ${where}
       ORDER BY writeOffMonth, countryCode, batchName, requestNo, poNo, deviceCode
@@ -150,14 +152,16 @@ async function listPrepaymentRows(filters: ServiceFeeFilters) {
         deviceCode,
         modelCode,
         monthlyprepaymentwriteoffs.nameEn AS nameEn,
-        supplierId,
-        undertakingUnitId,
+        COALESCE(NULLIF(monthlyprepaymentwriteoffs.supplierId, ''), ri.supplierId) AS supplierId,
+        COALESCE(NULLIF(monthlyprepaymentwriteoffs.undertakingUnitId, ''), ri.undertakingUnitId) AS undertakingUnitId,
         quantity,
         currency,
         COALESCE(country.vatRate, 0) AS vatRate,
         monthlyAmount,
         lineType
       FROM monthlyprepaymentwriteoffs
+      LEFT JOIN prepaymentcontractitems AS contractItem ON contractItem.id = monthlyprepaymentwriteoffs.contractLineId
+      LEFT JOIN requestitems AS ri ON ri.id = contractItem.requestItemId
       LEFT JOIN countries AS country ON country.code = monthlyprepaymentwriteoffs.countryCode
       ${where}
       ORDER BY writeOffMonth, countryCode, batchName, requestNo, poNo, deviceCode, contractLineId

@@ -225,6 +225,8 @@ export async function createImportPreviewJob({
             ri.deviceCode,
             im.modelCode,
             im.nameEn,
+            ri.supplierId,
+            ri.undertakingUnitId,
             ri.quantity,
             po.currency AS actualCurrency,
             poi.unitPrice AS actualUnitPrice
@@ -254,6 +256,8 @@ export async function createImportPreviewJob({
             ri.deviceCode,
             im.modelCode,
             im.nameEn,
+            ri.supplierId,
+            ri.undertakingUnitId,
             ri.quantity,
             po.currency AS actualCurrency,
             poi.unitPrice AS actualUnitPrice,
