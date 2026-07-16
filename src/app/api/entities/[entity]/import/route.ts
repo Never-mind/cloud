@@ -6,6 +6,7 @@ import { importRowsWithReport, isEntityTemplateNoteRow, normalizeEntityImportRow
 import { getEntityConfig } from "@/lib/modules";
 import { isBlankImportValue, mergeShipmentImportRow, normalizeText } from "@/lib/shipment-import";
 import { resolveDemandPlanImportRow } from "@/lib/purchase-order-demand-plan";
+import { autofillInstanceContractImportRow } from "@/lib/instance-contract-import";
 
 export async function POST(request: NextRequest, context: { params: Promise<{ entity: string }> }) {
   const { entity } = await context.params;
@@ -51,6 +52,9 @@ export async function POST(request: NextRequest, context: { params: Promise<{ en
   if (config.key === "shipments") {
     await enrichShipmentImportRows(normalizedRows);
   }
+  if (config.key === "instance-contracts") {
+    await enrichInstanceContractImportRows(normalizedRows);
+  }
   if (config.key === "purchase-order-sn-items" || config.key === "purchase-order-plan-items") {
     await enrichDemandPlanImportRows(normalizedRows);
   }
@@ -61,6 +65,20 @@ export async function POST(request: NextRequest, context: { params: Promise<{ en
     await upsertEntityRow(config, row);
   });
   return NextResponse.json(report);
+}
+
+async function enrichInstanceContractImportRows(rows: Row[]) {
+  const deviceCodes = Array.from(new Set(rows.map((row) => normalizeText(row.deviceCode)).filter(Boolean)));
+  const instanceModels = deviceCodes.length
+    ? await queryRows<Row>(
+        "SELECT deviceCode, modelCode, nameEn FROM instancemodels WHERE deviceCode IN (:deviceCodes)",
+        { deviceCodes },
+      )
+    : [];
+
+  for (const [index, row] of rows.entries()) {
+    rows[index] = autofillInstanceContractImportRow(row, instanceModels);
+  }
 }
 
 async function enrichDemandPlanImportRows(rows: Row[]) {
