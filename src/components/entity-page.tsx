@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Columns3, Eye, EyeOff, FileDown, FileSpreadsheet, Plus, Search, Trash2, Upload } from "lucide-react";
 import { formatDateInputValue, formatDisplayValue } from "@/lib/display-format";
@@ -19,12 +20,23 @@ import { Button, Input, Panel, Textarea } from "./ui";
 
 type Row = Record<string, string | number | boolean | null>;
 
+const EMPTY_FILTERS: Record<string, string> = {};
+const EMPTY_VALUES: Row = {};
+
 export function EntityPage({
   config,
   hideCreateImportTemplate = false,
+  fixedFilters = EMPTY_FILTERS,
+  fixedValues = EMPTY_VALUES,
+  hideHeading = false,
+  enableFieldSettings = false,
 }: {
   config: EntityConfig;
   hideCreateImportTemplate?: boolean;
+  fixedFilters?: Record<string, string>;
+  fixedValues?: Row;
+  hideHeading?: boolean;
+  enableFieldSettings?: boolean;
 }) {
   const [rows, setRows] = useState<Row[]>([]);
   const [total, setTotal] = useState(0);
@@ -38,6 +50,7 @@ export function EntityPage({
   const [showFieldSettings, setShowFieldSettings] = useState(false);
   const [instanceModels, setInstanceModels] = useState<Row[]>([]);
   const [instanceContracts, setInstanceContracts] = useState<Row[]>([]);
+  const [shipmentLookups, setShipmentLookups] = useState<Record<string, Row[]>>({});
   const [instanceContractDeviceCode, setInstanceContractDeviceCode] = useState("");
   const [billingContractNo, setBillingContractNo] = useState("");
   const [visibility, setVisibility] = useState<ColumnVisibility>(() =>
@@ -56,6 +69,16 @@ export function EntityPage({
     () => getColumnSettingGroups(config.listFields, visibility),
     [config.listFields, visibility],
   );
+  const exportQuery = useMemo(() => {
+    const params = new URLSearchParams({ keyword });
+    for (const [key, value] of Object.entries(filterValues)) {
+      if (value.trim()) params.set(key, value.trim());
+    }
+    for (const [key, value] of Object.entries(fixedFilters)) {
+      if (value.trim()) params.set(key, value.trim());
+    }
+    return params.toString();
+  }, [filterValues, fixedFilters, keyword]);
 
   async function loadRows(next?: { page?: number; pageSize?: number; keyword?: string; filterValues?: Record<string, string> }) {
     setLoading(true);
@@ -71,16 +94,27 @@ export function EntityPage({
     for (const [key, value] of Object.entries(nextFilterValues)) {
       if (value.trim()) params.set(key, value.trim());
     }
-    const response = await fetch(`/api/entities/${config.key}?${params.toString()}`);
-    const data = await response.json();
-    setRows(data.rows ?? []);
-    setTotal(data.total ?? 0);
-    setLoading(false);
+    for (const [key, value] of Object.entries(fixedFilters)) {
+      if (value.trim()) params.set(key, value.trim());
+    }
+    try {
+      const response = await fetch(`/api/entities/${config.key}?${params.toString()}`);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error ?? "数据加载失败");
+      setRows(data.rows ?? []);
+      setTotal(data.total ?? 0);
+    } catch (error) {
+      setRows([]);
+      setTotal(0);
+      alert(error instanceof Error ? error.message : "数据加载失败");
+    } finally {
+      setLoading(false);
+    }
   }
 
   useEffect(() => {
     void loadRows();
-  }, [config.key, page, pageSize]);
+  }, [config.key, fixedFilters, page, pageSize]);
 
   useEffect(() => {
     if (config.key !== "instance-contracts") return;
@@ -96,6 +130,22 @@ export function EntityPage({
     void fetch("/api/entities/instance-contracts?page=1&pageSize=100")
       .then((response) => response.json())
       .then((data) => setInstanceContracts(data.rows ?? []));
+  }, [config.key]);
+
+  useEffect(() => {
+    if (config.key !== "shipments") return;
+
+    void Promise.all([
+      fetchAllEntityRows("datacenters"),
+      fetchAllEntityRows("delivery-locations"),
+      fetchAllEntityRows("delivery-contacts"),
+    ]).then(([datacenters, locations, contacts]) => {
+      setShipmentLookups({
+        datacenters,
+        "delivery-locations": locations,
+        "delivery-contacts": contacts,
+      });
+    });
   }, [config.key]);
 
   const instanceContractAutofill = useMemo(
@@ -119,14 +169,20 @@ export function EntityPage({
     if (config.key === "billing-ledgers" && !confirm("确认调整该月账单台账吗？调整后会重新生成对应的每月核销明细。")) {
       return;
     }
-    const body = Object.fromEntries(
+    const body = {
+      ...Object.fromEntries(
       config.formFields.map((field) => {
+        if (field.hidden) return [field.key, editing?.[field.key] ?? fixedValues[field.key] ?? null];
         const value = formData.get(field.key);
         if (field.type === "boolean") return [field.key, value === "on"];
-        if (field.type === "number") return [field.key, value === "" ? null : Number(value)];
+        if (field.type === "number" || field.type === "money") return [field.key, value === "" ? null : Number(value)];
+        if (field.type === "percentage") return [field.key, value === "" ? null : Number(value) / 100];
+        if (field.type === "datetime") return [field.key, value === "" ? null : String(value).replace("T", " ") + ":00"];
         return [field.key, value === "" ? null : value];
       }),
-    );
+      ),
+      ...fixedValues,
+    };
     const id = editing?.[config.primaryKey];
     const response = await fetch(`/api/entities/${config.key}${id ? `/${id}` : ""}`, {
       method: id ? "PUT" : "POST",
@@ -174,10 +230,10 @@ export function EntityPage({
 
   return (
     <div>
-      <div className="mb-4">
+      {!hideHeading ? <div className="mb-4">
         <h1 className="text-xl font-medium text-[#303133]">{config.title}</h1>
         <p className="mt-1 text-sm text-[#909399]">{config.description}</p>
-      </div>
+      </div> : null}
 
       <Panel>
         <div className="flex flex-wrap items-center gap-2 border-b border-[#ebeef5] p-4">
@@ -195,21 +251,39 @@ export function EntityPage({
           {config.filters
             .filter((filter) => filter.key !== "keyword")
             .map((filter) => (
-              <Input
-                key={filter.key}
-                placeholder={filter.placeholder ?? filter.label}
-                type={filter.type === "date" ? "date" : "text"}
-                value={filterValues[filter.key] ?? ""}
-                onChange={(event) => {
-                  setFilterValues((current) => ({ ...current, [filter.key]: event.target.value }));
-                }}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    setPage(1);
-                    void loadRows({ page: 1 });
-                  }
-                }}
-              />
+              filter.type === "select" ? (
+                <select
+                  className="h-9 min-w-36 rounded border border-[#dcdfe6] bg-white px-3 text-sm outline-none focus:border-[#1890ff]"
+                  key={filter.key}
+                  value={filterValues[filter.key] ?? ""}
+                  onChange={(event) => {
+                    setFilterValues((current) => ({ ...current, [filter.key]: event.target.value }));
+                  }}
+                >
+                  <option value="">{filter.label}</option>
+                  {filter.options?.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <Input
+                  key={filter.key}
+                  placeholder={filter.placeholder ?? filter.label}
+                  type={filter.type === "date" ? "date" : "text"}
+                  value={filterValues[filter.key] ?? ""}
+                  onChange={(event) => {
+                    setFilterValues((current) => ({ ...current, [filter.key]: event.target.value }));
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      setPage(1);
+                      void loadRows({ page: 1 });
+                    }
+                  }}
+                />
+              )
             ))}
           <Button
             tone="primary"
@@ -257,13 +331,13 @@ export function EntityPage({
               </a>
             </>
           ) : null}
-          <a href={`/api/entities/${config.key}/export?keyword=${encodeURIComponent(keyword)}`}>
+          <a href={`/api/entities/${config.key}/export?${exportQuery}`}>
             <Button tone="warning">
               <FileDown size={15} />
               导出 Excel
             </Button>
           </a>
-          {config.key === "shipments" ? (
+          {config.key === "shipments" || enableFieldSettings ? (
             <Button className="ml-auto" onClick={() => setShowFieldSettings(true)}>
               <Columns3 size={15} />
               字段设置
@@ -294,6 +368,9 @@ export function EntityPage({
           <table className="min-w-full border-collapse text-sm">
             <thead className="bg-[#f5f7fa] text-[#303133]">
               <tr>
+                {config.showSequence ? (
+                  <th className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium">序号</th>
+                ) : null}
                 {visibleColumns.map((column) => (
                   <th className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium" key={column.key}>
                     {column.label}
@@ -305,11 +382,20 @@ export function EntityPage({
               </tr>
             </thead>
             <tbody>
-              {rows.map((row) => (
+              {rows.map((row, index) => (
                 <tr className="hover:bg-[#fafafa]" key={String(row[config.primaryKey])}>
+                  {config.showSequence ? (
+                    <td className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3">{(page - 1) * pageSize + index + 1}</td>
+                  ) : null}
                   {visibleColumns.map((column) => (
                     <td className="max-w-[260px] truncate border-b border-r border-[#ebeef5] px-3 py-3" key={column.key}>
-                      {formatValue(row[column.key], column.type)}
+                      {config.key === "shipments" && column.key === "poNo" && row.purchaseOrderId ? (
+                        <Link className="text-[#1890ff] hover:underline" href={`/purchase/orders/${encodeURIComponent(String(row.purchaseOrderId))}`}>
+                          {formatValue(row[column.key], column.type)}
+                        </Link>
+                      ) : (
+                        formatValue(row[column.key], column.type)
+                      )}
                     </td>
                   ))}
                   <td className="sticky right-0 whitespace-nowrap border-b border-[#ebeef5] bg-white px-3 py-3">
@@ -332,7 +418,7 @@ export function EntityPage({
               ))}
               {!rows.length && (
                 <tr>
-                  <td className="py-12 text-center text-[#909399]" colSpan={visibleColumns.length + 1}>
+                  <td className="py-12 text-center text-[#909399]" colSpan={visibleColumns.length + 1 + (config.showSequence ? 1 : 0)}>
                     {loading ? "加载中..." : "暂无数据"}
                   </td>
                 </tr>
@@ -372,7 +458,7 @@ export function EntityPage({
               </button>
             </div>
             <div className="grid grid-cols-2 gap-x-8 gap-y-4">
-              {config.formFields.map((field) => (
+              {config.formFields.filter((field) => !field.hidden).map((field) => (
                 <label className={field.type === "textarea" ? "col-span-2" : ""} key={field.key}>
                   <span className="mb-1 block text-sm font-medium text-[#606266]">
                     {field.required ? <span className="text-[#f56c6c]">*</span> : null}
@@ -382,12 +468,12 @@ export function EntityPage({
                     <Textarea
                       className="w-full"
                       name={field.key}
-                      defaultValue={String(editing?.[field.key] ?? "")}
+                      defaultValue={String(editing?.[field.key] ?? fixedValues[field.key] ?? "")}
                     />
                   ) : field.type === "select" ? (
                     <select
                       className="h-9 w-full rounded border border-[#dcdfe6] bg-white px-3 text-sm outline-none focus:border-[#1890ff]"
-                      defaultValue={String(editing?.[field.key] ?? field.options?.[0]?.value ?? "")}
+                      defaultValue={String(editing?.[field.key] ?? fixedValues[field.key] ?? field.options?.[0]?.value ?? "")}
                       name={field.key}
                       required={field.required}
                     >
@@ -416,9 +502,16 @@ export function EntityPage({
                     <Input
                       className="w-full"
                       name={field.key}
-                      type={field.type === "number" ? "number" : field.type === "date" ? "date" : "text"}
-                      step={field.type === "number" ? "0.0001" : undefined}
-                      list={config.key === "instance-contracts" && field.key === "deviceCode" ? "instance-contract-device-codes" : undefined}
+                      type={field.type === "number" || field.type === "money" || field.type === "percentage" ? "number" : field.type === "date" ? "date" : field.type === "datetime" ? "datetime-local" : "text"}
+                      step={field.type === "money" ? "0.01" : field.type === "number" || field.type === "percentage" ? "0.0001" : undefined}
+                      list={
+                        config.key === "instance-contracts" && field.key === "deviceCode"
+                          ? "instance-contract-device-codes"
+                          : config.key === "shipments"
+                            ? getShipmentLookupListId(field.lookupSource)
+                            : undefined
+                      }
+                      placeholder={field.placeholder}
                       value={
                         config.key === "instance-contracts" && field.key === "modelCode"
                           ? instanceContractAutofill.modelCode
@@ -438,10 +531,15 @@ export function EntityPage({
                           ? undefined
                           : field.type === "date"
                             ? formatDateInputValue(editing?.[field.key])
-                            : String(editing?.[field.key] ?? "")
+                          : field.type === "datetime"
+                              ? formatDateTimeInputValue(editing?.[field.key])
+                              : field.type === "percentage"
+                                ? editing?.[field.key] === null || editing?.[field.key] === undefined || editing?.[field.key] === "" ? "" : String(Number(editing[field.key]) * 100)
+                            : String(editing?.[field.key] ?? fixedValues[field.key] ?? "")
                       }
                       required={field.required}
                       readOnly={
+                        field.readonly ||
                         (config.key === "instance-contracts" && ["modelCode", "instanceModelEn"].includes(field.key)) ||
                         (config.key === "billing-ledgers" && ["ledgerId", "purchaseOrderItemId", "countryCode", "batchName", "requestNo", "poNo", "deviceCode", "modelCode", "nameEn", "quantity", "actualCurrency", "actualUnitPrice", "contractCurrency", "first24MonthPrice", "next36MonthPrice", "status"].includes(field.key))
                       }
@@ -463,6 +561,13 @@ export function EntityPage({
                   </option>
                 ))}
               </datalist>
+            ) : null}
+            {config.key === "shipments" ? (
+              <>
+                <ShipmentLookupDatalist id="shipment-datacenters" rows={shipmentLookups.datacenters ?? []} source="datacenters" />
+                <ShipmentLookupDatalist id="shipment-delivery-locations" rows={shipmentLookups["delivery-locations"] ?? []} source="delivery-locations" />
+                <ShipmentLookupDatalist id="shipment-delivery-contacts" rows={shipmentLookups["delivery-contacts"] ?? []} source="delivery-contacts" />
+              </>
             ) : null}
             {config.key === "billing-ledgers" ? (
               <datalist id="billing-ledger-contract-nos">
@@ -621,6 +726,77 @@ function formatValue(value: Row[string], type?: string) {
   if (type === "boolean") return value ? "是" : "否";
   if (type === "number") return Number(value).toLocaleString("en-US", { maximumFractionDigits: 4 });
   return String(value);
+}
+
+function formatDateTimeInputValue(value: unknown) {
+  if (value === null || value === undefined || value === "") return "";
+  if (value instanceof Date) {
+    return `${formatDateInputValue(value)}T${String(value.getHours()).padStart(2, "0")}:${String(value.getMinutes()).padStart(2, "0")}`;
+  }
+
+  const text = String(value).trim().replace(" ", "T");
+  const match = text.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/);
+  return match ? `${match[1]}T${match[2]}` : "";
+}
+
+async function fetchAllEntityRows(entity: string) {
+  const rows: Row[] = [];
+  let page = 1;
+  let total = 0;
+
+  do {
+    const response = await fetch(`/api/entities/${entity}?page=${page}&pageSize=100`);
+    const data = await response.json();
+    rows.push(...((data.rows ?? []) as Row[]));
+    total = Number(data.total ?? rows.length);
+    page += 1;
+  } while (rows.length < total);
+
+  return rows;
+}
+
+function getShipmentLookupListId(source: EntityConfig["formFields"][number]["lookupSource"]) {
+  if (!source) return undefined;
+  return `shipment-${source}`;
+}
+
+function ShipmentLookupDatalist({
+  id,
+  rows,
+  source,
+}: {
+  id: string;
+  rows: Row[];
+  source: NonNullable<EntityConfig["formFields"][number]["lookupSource"]>;
+}) {
+  return (
+    <datalist id={id}>
+      {rows.map((row) => {
+        const option = getShipmentLookupOption(source, row);
+        return (
+          <option key={option.value} label={option.label} value={option.value}>
+            {option.label}
+          </option>
+        );
+      })}
+    </datalist>
+  );
+}
+
+function getShipmentLookupOption(
+  source: NonNullable<EntityConfig["formFields"][number]["lookupSource"]>,
+  row: Row,
+) {
+  if (source === "datacenters") {
+    const value = String(row.dcCode ?? "");
+    return { value, label: `${value} - ${String(row.nameZh ?? "")}` };
+  }
+  if (source === "delivery-locations") {
+    const value = String(row.locationId ?? "");
+    return { value, label: `${value} - ${String(row.nameZh ?? "")} ${String(row.fullAddress ?? "")}`.trim() };
+  }
+  const value = String(row.contactId ?? "");
+  return { value, label: `${value} - ${String(row.name ?? "")} ${String(row.phone ?? "")}`.trim() };
 }
 
 function findBillingContract(contracts: Row[], ledger: Row | null, contractNo: string) {

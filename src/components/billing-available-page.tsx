@@ -15,13 +15,21 @@ type Row = {
   deviceCode: string;
   modelCode: string;
   nameEn: string;
+  supplierId: string;
+  undertakingUnitId: string;
   quantity: number;
   actualCurrency: string;
   actualUnitPrice: number;
+  taxExcludedUnitPrice: number;
+  taxSurcharge: number;
+  vatRate: number;
   instanceContractNo: string;
   contractCurrency: string;
   first24MonthPrice: number;
   next36MonthPrice: number;
+  selfCalculatedUnitPrice: number;
+  differenceUnitPrice: number;
+  differenceTotalPrice: number;
   startMonth: string;
 };
 
@@ -41,13 +49,20 @@ const columns = [
   { key: "deviceCode", label: "实例编码" },
   { key: "modelCode", label: "机型" },
   { key: "nameEn", label: "英文名称" },
+  { key: "undertakingUnitId", label: "承接单位" },
+  { key: "supplierId", label: "供应商" },
   { key: "quantity", label: "数量" },
   { key: "actualCurrency", label: "币种" },
   { key: "actualUnitPrice", label: "实际单价" },
+  { key: "taxExcludedUnitPrice", label: "不含税单价" },
+  { key: "taxSurcharge", label: "税费加成" },
   { key: "instanceContractNo", label: "实例合同号" },
   { key: "contractCurrency", label: "合同币种" },
   { key: "first24MonthPrice", label: "24个月实例合同价" },
   { key: "next36MonthPrice", label: "36个月实例合同价" },
+  { key: "selfCalculatedUnitPrice", label: "24个月实例单价（含税自算）" },
+  { key: "differenceUnitPrice", label: "结差差额单价" },
+  { key: "differenceTotalPrice", label: "结差差额总价" },
 ] as const;
 
 export function BillingAvailablePage() {
@@ -118,6 +133,9 @@ export function BillingAvailablePage() {
           contractCurrency: contract?.currency ?? "",
           first24MonthPrice: Number(contract?.first24MonthPriceUSD ?? 0),
           next36MonthPrice: Number(contract?.next36MonthPriceUSD ?? 0),
+          selfCalculatedUnitPrice: calculateSelfPrice(row),
+          differenceUnitPrice: Number(contract?.first24MonthPriceUSD ?? 0) - calculateSelfPrice(row),
+          differenceTotalPrice: Number(row.quantity ?? 0) * (Number(contract?.first24MonthPriceUSD ?? 0) - calculateSelfPrice(row)),
         };
       }),
     );
@@ -207,7 +225,15 @@ export function BillingAvailablePage() {
                           {!row.contractCurrency ? <div className="mt-1 text-xs text-[#f56c6c]">未匹配</div> : null}
                         </>
                       ) : (
-                        formatValue(row[column.key])
+                        <span
+                          className={
+                            (column.key === "differenceUnitPrice" || column.key === "differenceTotalPrice") && Number(row[column.key] ?? 0) < 0
+                              ? "text-[#f56c6c]"
+                              : undefined
+                          }
+                        >
+                          {formatValue(row[column.key])}
+                        </span>
                       )}
                     </td>
                   ))}
@@ -256,5 +282,12 @@ function findMatchingContract(contracts: InstanceContract[], row: Row, contractN
         contract.countryCode === row.countryCode &&
         contract.deviceCode === row.deviceCode,
     ) ?? null
+  );
+}
+
+function calculateSelfPrice(row: Row) {
+  return (
+    (Number(row.taxExcludedUnitPrice ?? 0) / 88495.58 * 3978.4 + Number(row.taxSurcharge ?? 0) / 24) *
+    (1 + Number(row.vatRate ?? 0))
   );
 }

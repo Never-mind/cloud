@@ -9,11 +9,12 @@ import { formatNumericInputValue, parseNumericInputValue } from "@/lib/numeric-i
 import { getPurchaseOrderForDetailLines } from "@/lib/order-detail-view";
 import type { OrderRouteMode } from "@/lib/order-routes";
 import { buildPurchaseProductLines, calculatePurchaseTotalAmount } from "@/lib/purchase-lines";
+import { PurchaseOrderDemandPlanTabs } from "./purchase-order-demand-plan-tabs";
 import { Button, Input, Panel } from "./ui";
 
 type Row = Record<string, string | number | boolean | null>;
 
-const hiddenPurchaseMasterFieldKeys = new Set(["sourceRequestNos"]);
+const hiddenPurchaseMasterFieldKeys = new Set(["purchaseOrderId", "sourceRequestNos"]);
 
 export function OrderDetailPage({
   id,
@@ -113,8 +114,10 @@ export function OrderDetailPage({
           { key: "nameEn", label: "英文名称" },
           { key: "quantity", label: "数量" },
           { key: "currency", label: "币种" },
-          { key: "unitPrice", label: "单价" },
-          { key: "totalAmount", label: "采购金额" },
+          { key: "taxExcludedUnitPrice", label: "不含税单价" },
+          { key: "taxSurcharge", label: "税费加成" },
+          { key: "unitPrice", label: "含税单价" },
+          { key: "totalAmount", label: "含税总价" },
           { key: "hardwareCoefficient", label: "硬件系数" },
           { key: "softwareCoefficient", label: "软件系数" },
           { key: "totalCoefficient", label: "总系数" },
@@ -159,6 +162,9 @@ export function OrderDetailPage({
         if (key === "hardwareCoefficient" || key === "softwareCoefficient") {
           next.totalCoefficient =
             Number(next.hardwareCoefficient ?? 0) + Number(next.softwareCoefficient ?? 0);
+        }
+        if (key === "taxExcludedUnitPrice" || key === "taxSurcharge") {
+          next.unitPrice = Number(next.taxExcludedUnitPrice ?? 0) + Number(next.taxSurcharge ?? 0);
         }
         return next;
       }),
@@ -322,7 +328,7 @@ export function OrderDetailPage({
                 <tr className="hover:bg-[#fafafa]" key={String(row.id ?? row[detailConfig.primaryKey])}>
                   {detailColumns.map((field) => (
                     <td className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3" key={field.key}>
-                      {editing && mode === "purchase" && ["unitPrice", "hardwareCoefficient", "softwareCoefficient"].includes(field.key) ? (
+                      {editing && mode === "purchase" && ["taxExcludedUnitPrice", "taxSurcharge", "hardwareCoefficient", "softwareCoefficient"].includes(field.key) ? (
                         <NumberInput
                           value={Number(row[field.key] ?? 0)}
                           onChange={(value) => updateDetailDraft(String(row.id), field.key, value)}
@@ -345,6 +351,12 @@ export function OrderDetailPage({
           </table>
         </div>
       </Panel>
+      {mode === "purchase" ? (
+        <PurchaseOrderDemandPlanTabs
+          poNo={String(master.poNo ?? "")}
+          purchaseOrderId={String(master.purchaseOrderId ?? id)}
+        />
+      ) : null}
     </div>
   );
 }

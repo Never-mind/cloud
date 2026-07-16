@@ -41,20 +41,22 @@ const icons = {
   数据工具: Upload,
 };
 
-export function AppShell({ children }: { children: React.ReactNode }) {
+export function AppShell({ children, embedded }: { children: React.ReactNode; embedded: boolean }) {
   const pathname = usePathname();
   const [openGroups, setOpenGroups] = useState<SidebarGroupState>({});
   const [workspace, setWorkspace] = useState<WorkspaceState>(() => createInitialWorkspace());
-  const [embedded, setEmbedded] = useState(false);
+  const [clientEmbedded, setClientEmbedded] = useState(false);
+  const [loadedFrames, setLoadedFrames] = useState<Record<string, boolean>>({});
   const moduleItems = useMemo(() => navGroups.flatMap((group) => group.children?.flatMap((child) => child.items) ?? group.items), []);
-
-  useEffect(() => {
-    setEmbedded(isEmbeddedWindow());
-  }, []);
+  const isEmbedded = embedded || clientEmbedded;
 
   if (pathname === "/login") {
     return <>{children}</>;
   }
+
+  useEffect(() => {
+    setClientEmbedded(new URLSearchParams(window.location.search).get("embed") === "1");
+  }, []);
 
   useEffect(() => {
     const raw = window.sessionStorage.getItem(WORKSPACE_STORAGE_KEY);
@@ -70,13 +72,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    if (!embedded) {
+    if (!isEmbedded) {
       window.sessionStorage.setItem(WORKSPACE_STORAGE_KEY, JSON.stringify(workspace));
     }
-  }, [embedded, workspace]);
+  }, [isEmbedded, workspace]);
 
-  if (embedded) {
-    return <main className="min-h-screen bg-[var(--color-page-bg)] p-5">{children}</main>;
+  if (isEmbedded) {
+    return <main className="min-h-screen bg-[var(--color-page-bg)] p-5" data-app-shell="inner">{children}</main>;
   }
 
   const openTab = (tab: WorkspaceTab) => {
@@ -88,7 +90,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen" data-app-shell="outer">
       <aside className="fixed inset-y-0 left-0 z-20 flex w-[210px] flex-col bg-[var(--color-sidebar)] text-[#bfcbd9]">
         <div className="flex h-[54px] min-w-0 shrink-0 items-center gap-2 px-5 text-white">
           <Boxes className="shrink-0" size={19} />
@@ -210,8 +212,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             .filter((tab) => tab.route !== "/")
             .map((tab) => (
               <iframe
-                className={tab.route === workspace.activeRoute ? "block h-full w-full border-0" : "hidden"}
+                className={tab.route === workspace.activeRoute ? `block h-full w-full border-0 transition-opacity ${loadedFrames[tab.route] ? "opacity-100" : "opacity-0"}` : "hidden"}
                 key={tab.route}
+                onLoad={() => window.setTimeout(() => setLoadedFrames((current) => ({ ...current, [tab.route]: true })), 120)}
                 src={getEmbeddedRoute(tab.route)}
                 title={tab.title}
               />
@@ -227,14 +230,6 @@ async function logout() {
   await fetch("/api/auth/logout", { method: "POST" }).catch(() => undefined);
   window.sessionStorage.removeItem(WORKSPACE_STORAGE_KEY);
   window.location.href = "/login";
-}
-
-function isEmbeddedWindow() {
-  try {
-    return new URLSearchParams(window.location.search).get("embed") === "1" || window.self !== window.top;
-  } catch {
-    return true;
-  }
 }
 
 function ChildNavGroup({

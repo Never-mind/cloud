@@ -12,6 +12,8 @@ type ShipmentLine = {
   batchName?: string | null;
   deviceCode: string | null;
   nameEn: string | null;
+  supplierId?: string | null;
+  undertakingUnitId?: string | null;
 };
 
 export type PurchaseDraft = {
@@ -109,6 +111,8 @@ export function buildShipmentDraft(poNo: string, lines?: ShipmentLine[]): Shipme
       batchName: line.batchName ?? "",
       deviceCode: line.deviceCode ?? "",
       nameEn: line.nameEn ?? "",
+      supplierId: line.supplierId ?? "",
+      undertakingUnitId: line.undertakingUnitId ?? "",
     }));
   }
 
@@ -120,6 +124,8 @@ type ShipmentDraft = ReturnType<typeof buildBaseShipmentDraft> & {
   batchName?: string;
   deviceCode?: string;
   nameEn?: string;
+  supplierId?: string;
+  undertakingUnitId?: string;
 };
 
 function buildBaseShipmentDraft(shipmentId: string, poNo: string) {

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { AUTH_COOKIE_NAME, AUTH_SESSION_VALUE } from "@/lib/auth";
+import { AUTH_COOKIE_NAME, AUTH_SESSION_VALUE } from "@/lib/auth-session";
 
 const publicPaths = ["/login", "/api/auth/login"];
 

@@ -81,4 +81,15 @@ describe("entity import", () => {
     expect(normalizeEntityImportRow(shipmentConfig, { isReceived: "是" })).toEqual({ isReceived: true });
     expect(normalizeEntityImportRow(shipmentConfig, { isReceived: "否" })).toEqual({ isReceived: false });
   });
+
+  it("preserves time-of-day for datetime import fields", () => {
+    const demandPlanConfig = {
+      ...config,
+      formFields: [{ key: "timestamp", label: "timestamp", type: "datetime" }],
+    } satisfies EntityConfig;
+
+    expect(normalizeEntityImportRow(demandPlanConfig, { timestamp: "2026/06/09 14:30:45" })).toEqual({
+      timestamp: "2026-06-09 14:30:45",
+    });
+  });
 });

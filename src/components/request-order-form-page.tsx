@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ArrowLeft, CheckCircle2, Pencil, Plus, Save, Upload, X } from "lucide-react";
 import { formatDateInputValue, formatDisplayValue } from "@/lib/display-format";
 import { formatNumericInputValue, parseNumericInputValue } from "@/lib/numeric-input";
@@ -24,6 +24,12 @@ type MasterDraft = {
 type DetailDraft = RequestDetailDraft;
 type SaveMode = "draft" | "confirm";
 
+type SearchOption = {
+  value: string;
+  label: string;
+  keywords?: string;
+};
+
 const emptyMaster: MasterDraft = {
   requestNo: "",
   countryCode: "",
@@ -37,6 +43,7 @@ const emptyMaster: MasterDraft = {
 const emptyDetail: DetailDraft = {
   deviceCode: "",
   supplierId: "",
+  undertakingUnitId: "",
   quantity: 0,
 };
 
@@ -47,6 +54,7 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
   const [details, setDetails] = useState<DetailDraft[]>([{ ...emptyDetail }]);
   const [instanceModels, setInstanceModels] = useState<Row[]>([]);
   const [suppliers, setSuppliers] = useState<Row[]>([]);
+  const [undertakingUnits, setUndertakingUnits] = useState<Row[]>([]);
   const [countries, setCountries] = useState<Row[]>([]);
   const [saving, setSaving] = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -64,10 +72,12 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
     void Promise.all([
       fetchEntity("instance-models"),
       fetchEntity("suppliers"),
+      fetchEntity("undertaking-units"),
       fetchEntity("countries"),
-    ]).then(([models, supplierRows, countryRows]) => {
+    ]).then(([models, supplierRows, undertakingRows, countryRows]) => {
       setInstanceModels(models);
       setSuppliers(supplierRows);
+      setUndertakingUnits(undertakingRows);
       setCountries(countryRows);
     });
   }, []);
@@ -98,6 +108,7 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
         .map((item) => ({
           deviceCode: String(item.deviceCode ?? ""),
           supplierId: String(item.supplierId ?? ""),
+          undertakingUnitId: String(item.undertakingUnitId ?? ""),
           quantity: Number(item.quantity ?? 0),
         }));
 
@@ -133,9 +144,10 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
       .map((row) => ({
         deviceCode: String(row.deviceCode ?? row["设备编码"] ?? ""),
         supplierId: String(row.supplierId ?? row["供应商"] ?? row["供应商ID"] ?? ""),
+        undertakingUnitId: String(row.undertakingUnitId ?? ""),
         quantity: Number(row.quantity ?? row["节点数量"] ?? 0),
       }))
-      .filter((row) => row.deviceCode || row.supplierId || row.quantity);
+      .filter((row) => row.deviceCode || row.supplierId || row.undertakingUnitId || row.quantity);
 
     if (imported.length) setDetails(imported);
   }
@@ -144,7 +156,7 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
     const requestItems = buildRequestItemRows({
       requestNo: master.requestNo,
       requestedAt: master.plannedDeliveryDate || formatDateInputValue(new Date()),
-      details: details.filter((detail) => detail.deviceCode && detail.supplierId),
+      details: details.filter((detail) => detail.deviceCode && detail.supplierId && detail.undertakingUnitId),
     });
 
     for (const item of requestItems) {
@@ -319,6 +331,7 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
                 <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">机型</th>
                 <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">英文名称</th>
                 <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">供应商</th>
+                <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">承接单位</th>
                 <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">节点数量</th>
               </tr>
             </thead>
@@ -328,22 +341,33 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
                 return (
                   <tr key={index}>
                     <td className="border-b border-r border-[#ebeef5] px-3 py-3">
-                      <Input
+                      <SearchPicker
+                        allowFreeText
+                        options={instanceModels.map((item) => ({ value: String(item.deviceCode ?? ""), label: String(item.deviceCode ?? ""), keywords: `${String(item.modelCode ?? "")} ${String(item.nameEn ?? "")}` }))}
+                        placeholder="搜索或输入设备编码"
                         className="h-9 min-w-[180px] rounded border border-[#dcdfe6] bg-white px-2"
-                        list="request-device-codes"
                         value={detail.deviceCode}
                         disabled={!canEdit}
-                        onChange={(event) => updateDetail(index, { deviceCode: event.target.value })}
-                      />
+                        onChange={(value) => updateDetail(index, { deviceCode: value })}
+                      >
+                        <option value="">请选择</option>
+                        {undertakingUnits.map((unit) => (
+                          <option key={String(unit.undertakingUnitId)} value={String(unit.undertakingUnitId)}>
+                            {String(unit.name ?? unit.undertakingUnitCode ?? unit.undertakingUnitId)}
+                          </option>
+                        ))}
+                      </SearchPicker>
                     </td>
                     <td className="border-b border-r border-[#ebeef5] px-3 py-3">{formatValue(model?.modelCode)}</td>
                     <td className="border-b border-r border-[#ebeef5] px-3 py-3">{formatValue(model?.nameEn)}</td>
                     <td className="border-b border-r border-[#ebeef5] px-3 py-3">
-                      <select
+                      <SearchPicker
+                        options={suppliers.map((supplier) => ({ value: String(supplier.supplierId ?? ""), label: String(supplier.name ?? supplier.supplierCode ?? supplier.supplierId ?? ""), keywords: `${String(supplier.supplierCode ?? "")} ${String(supplier.supplierId ?? "")}` }))}
+                        placeholder="搜索供应商"
                         className="h-9 min-w-[160px] rounded border border-[#dcdfe6] bg-white px-2"
                         value={detail.supplierId}
                         disabled={!canEdit}
-                        onChange={(event) => updateDetail(index, { supplierId: event.target.value })}
+                        onChange={(value) => updateDetail(index, { supplierId: value })}
                       >
                         <option value="">请选择</option>
                         {suppliers.map((supplier) => (
@@ -351,7 +375,16 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
                             {String(supplier.name ?? supplier.supplierId)}
                           </option>
                         ))}
-                      </select>
+                      </SearchPicker>
+                    </td>
+                    <td className="border-b border-r border-[#ebeef5] px-3 py-3">
+                      <SearchPicker
+                        options={undertakingUnits.map((unit) => ({ value: String(unit.undertakingUnitId ?? ""), label: String(unit.name ?? unit.undertakingUnitCode ?? unit.undertakingUnitId ?? ""), keywords: `${String(unit.undertakingUnitCode ?? "")} ${String(unit.undertakingUnitId ?? "")}` }))}
+                        placeholder="搜索承接单位"
+                        value={detail.undertakingUnitId}
+                        disabled={!canEdit}
+                        onChange={(value) => updateDetail(index, { undertakingUnitId: value })}
+                      />
                     </td>
                     <td className="border-b border-r border-[#ebeef5] px-3 py-3">
                       <Input
@@ -377,6 +410,83 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
           </datalist>
         </div>
       </Panel>
+    </div>
+  );
+}
+
+function SearchPicker({
+  allowFreeText = false,
+  children,
+  className,
+  disabled,
+  onChange,
+  options,
+  placeholder,
+  value,
+}: {
+  allowFreeText?: boolean;
+  children?: ReactNode;
+  className?: string;
+  disabled?: boolean;
+  onChange: (value: string) => void;
+  options: SearchOption[];
+  placeholder: string;
+  value: string;
+}) {
+  const selected = options.find((option) => option.value === value);
+  const [query, setQuery] = useState(selected?.label ?? value);
+  const [focused, setFocused] = useState(false);
+
+  useEffect(() => {
+    if (!focused) setQuery(selected?.label ?? value);
+  }, [focused, selected?.label, value]);
+
+  const normalizedQuery = query.trim().toLowerCase();
+  const matches = (normalizedQuery
+    ? options.filter((option) => `${option.value} ${option.label} ${option.keywords ?? ""}`.toLowerCase().includes(normalizedQuery))
+    : options
+  ).slice(0, 8);
+
+  function handleInput(nextQuery: string) {
+    setQuery(nextQuery);
+    const exact = options.find((option) => [option.value, option.label].some((candidate) => candidate.toLowerCase() === nextQuery.trim().toLowerCase()));
+    if (exact) onChange(exact.value);
+    else if (allowFreeText) onChange(nextQuery);
+    else onChange("");
+  }
+
+  return (
+    <div className="relative min-w-[180px]">
+      <Input
+        className={className}
+        disabled={disabled}
+        placeholder={placeholder}
+        value={query}
+        onFocus={() => setFocused(true)}
+        onBlur={() => window.setTimeout(() => setFocused(false), 120)}
+        onChange={(event) => handleInput(event.target.value)}
+      />
+      {focused && !disabled && matches.length ? (
+        <div className="absolute left-0 top-10 z-30 max-h-56 w-full overflow-auto border border-[#dcdfe6] bg-white py-1 shadow-lg">
+          {matches.map((option) => (
+            <button
+              className="block w-full px-3 py-2 text-left text-sm text-[#606266] hover:bg-[#f5f7fa]"
+              key={option.value}
+              type="button"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => {
+                setQuery(option.label);
+                setFocused(false);
+                onChange(option.value);
+              }}
+            >
+              <span className="block text-[#303133]">{option.label}</span>
+              <span className="block text-xs text-[#909399]">{option.value}</span>
+            </button>
+          ))}
+        </div>
+      ) : null}
+      {children ? null : null}
     </div>
   );
 }

@@ -7,6 +7,7 @@ export type BillingStatementSourceRow = {
   currency?: string | null;
   monthlyAmount?: number | string | null;
   writeOffMonth?: string | null;
+  vatRate?: number | string | null;
 };
 
 export type BillingStatementRow = {
@@ -62,7 +63,9 @@ export function buildBillingStatementRows({
     const instanceContractNo = normalizeText(source.instanceContractNo);
     const productType = normalizeText(source.nameEn);
     const unitPriceVatIncluded = roundMoney(toNumber(source.monthlyAmount));
-    const vatRate = getVatRate(countryCode);
+    const vatRate = source.vatRate === null || source.vatRate === undefined || source.vatRate === ""
+      ? getVatRate(countryCode)
+      : toNumber(source.vatRate);
     const key = [countryCode, currency, instanceContractNo, productType, unitPriceVatIncluded].join("::");
     const quantity = toNumber(source.quantity);
     const sourceId = normalizeText(source.id);

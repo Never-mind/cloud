@@ -5,6 +5,7 @@ import { queryRows, type Row } from "@/lib/db";
 import { importRowsWithReport, isEntityTemplateNoteRow, normalizeEntityImportRow } from "@/lib/entity-import";
 import { getEntityConfig } from "@/lib/modules";
 import { isBlankImportValue, mergeShipmentImportRow, normalizeText } from "@/lib/shipment-import";
+import { resolveDemandPlanImportRow } from "@/lib/purchase-order-demand-plan";
 
 export async function POST(request: NextRequest, context: { params: Promise<{ entity: string }> }) {
   const { entity } = await context.params;
@@ -50,8 +51,50 @@ export async function POST(request: NextRequest, context: { params: Promise<{ en
   if (config.key === "shipments") {
     await enrichShipmentImportRows(normalizedRows);
   }
-  const report = await importRowsWithReport(config, normalizedRows, (row) => upsertEntityRow(config, row));
+  if (config.key === "purchase-order-sn-items" || config.key === "purchase-order-plan-items") {
+    await enrichDemandPlanImportRows(normalizedRows);
+  }
+  const report = await importRowsWithReport(config, normalizedRows, async (row) => {
+    if ((config.key === "purchase-order-sn-items" || config.key === "purchase-order-plan-items") && !normalizeText(row.purchaseOrderId)) {
+      throw new Error("未找到对应的PO订单号，请检查PO订单号是否存在");
+    }
+    await upsertEntityRow(config, row);
+  });
   return NextResponse.json(report);
+}
+
+async function enrichDemandPlanImportRows(rows: Row[]) {
+  const poNos = Array.from(
+    new Set(rows.map((row) => normalizeText(row.poNo ?? row.purchaseOrderNo)).filter(Boolean)),
+  );
+  const requestNos = Array.from(new Set(rows.map((row) => normalizeText(row.requestNo)).filter(Boolean)));
+  const requestMatchedItems = requestNos.length
+    ? await queryRows<{ id: string; purchaseOrderId: string; requestNo: string | null }>(
+        "SELECT id, purchaseOrderId, requestNo FROM purchaseorderitems WHERE requestNo IN (:requestNos)",
+        { requestNos },
+      )
+    : [];
+  const purchaseOrderIdsFromRequest = Array.from(new Set(requestMatchedItems.map((row) => row.purchaseOrderId)));
+  const purchaseOrders = poNos.length || purchaseOrderIdsFromRequest.length
+    ? await queryRows<{ purchaseOrderId: string; poNo: string }>(
+        "SELECT purchaseOrderId, poNo FROM purchaseorders WHERE poNo IN (:poNos) OR purchaseOrderId IN (:purchaseOrderIds)",
+        {
+          poNos: poNos.length ? poNos : ["__none__"],
+          purchaseOrderIds: purchaseOrderIdsFromRequest.length ? purchaseOrderIdsFromRequest : ["__none__"],
+        },
+      )
+    : [];
+  const purchaseOrderIds = purchaseOrders.map((row) => row.purchaseOrderId);
+  const purchaseOrderItems = purchaseOrderIds.length
+    ? await queryRows<{ id: string; purchaseOrderId: string; requestNo: string | null }>(
+        "SELECT id, purchaseOrderId, requestNo FROM purchaseorderitems WHERE purchaseOrderId IN (:purchaseOrderIds)",
+        { purchaseOrderIds },
+      )
+    : requestMatchedItems;
+
+  for (const [index, row] of rows.entries()) {
+    rows[index] = resolveDemandPlanImportRow(row, purchaseOrders, purchaseOrderItems) as Row;
+  }
 }
 
 async function enrichShipmentImportRows(rows: Row[]) {

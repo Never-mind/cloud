@@ -14,6 +14,8 @@ type PurchaseItemRow = {
   poNo: string;
   requestNo?: string | null;
   requestItemId: string;
+  taxExcludedUnitPrice?: number | string | null;
+  taxSurcharge?: number | string | null;
   unitPrice?: number | string | null;
 };
 
@@ -50,8 +52,10 @@ export const PURCHASE_PRODUCT_LINE_COLUMNS = [
   { key: "nameEn", label: "英文名称" },
   { key: "quantity", label: "数量" },
   { key: "currency", label: "币种" },
-  { key: "unitPrice", label: "单价" },
-  { key: "totalAmount", label: "总价" },
+  { key: "taxExcludedUnitPrice", label: "不含税单价" },
+  { key: "taxSurcharge", label: "税费加成" },
+  { key: "unitPrice", label: "含税单价" },
+  { key: "totalAmount", label: "含税总价" },
 ] as const;
 
 export type PurchaseProductLine = {
@@ -66,6 +70,8 @@ export type PurchaseProductLine = {
   nameZh: string;
   nameEn: string;
   quantity: number;
+  taxExcludedUnitPrice: number;
+  taxSurcharge: number;
   unitPrice: number;
   totalAmount: number;
 };
@@ -105,7 +111,9 @@ export function buildPurchaseProductLines({
     const model = requestItem ? modelByDeviceCode.get(requestItem.deviceCode) : undefined;
 
     const quantity = Number(requestItem?.quantity ?? 0);
-    const unitPrice = Number(item.unitPrice ?? 0);
+    const taxExcludedUnitPrice = Number(item.taxExcludedUnitPrice ?? item.unitPrice ?? 0);
+    const taxSurcharge = Number(item.taxSurcharge ?? 0);
+    const unitPrice = Number(item.unitPrice ?? taxExcludedUnitPrice + taxSurcharge);
 
     return {
       line: {
@@ -120,6 +128,8 @@ export function buildPurchaseProductLines({
         nameZh: model?.nameZh ?? "",
         nameEn: model?.nameEn ?? "",
         quantity,
+        taxExcludedUnitPrice,
+        taxSurcharge,
         unitPrice,
         totalAmount: quantity * unitPrice,
       },

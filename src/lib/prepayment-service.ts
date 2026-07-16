@@ -32,6 +32,8 @@ export async function listAvailablePrepaymentLines() {
         ri.deviceCode,
         im.modelCode,
         im.nameEn,
+        ri.supplierId,
+        ri.undertakingUnitId,
         ri.quantity,
         po.currency,
         poi.unitPrice,
@@ -138,6 +140,8 @@ export async function getPrepaymentContract(contractNo: string) {
             deviceCode,
             modelCode,
             nameEn,
+            supplierId,
+            undertakingUnitId,
             quantity,
             actualCurrency,
             actualUnitPrice,
@@ -226,11 +230,11 @@ export async function confirmPrepaymentContract(contractNo: string) {
         INSERT INTO monthlyprepaymentwriteoffs
           (id, contractNo, contractLineId, writeOffMonth, monthIndex, totalMonths, currency,
            originalAmount, monthlyAmount, lineType, countryCode, batchName, requestNo, poNo, deviceCode,
-           modelCode, nameEn, quantity)
+           modelCode, nameEn, supplierId, undertakingUnitId, quantity)
         VALUES
           (:id, :contractNo, :contractLineId, :writeOffMonth, :monthIndex, :totalMonths, :currency,
            :originalAmount, :monthlyAmount, :lineType, :countryCode, :batchName, :requestNo, :poNo, :deviceCode,
-           :modelCode, :nameEn, :quantity)
+           :modelCode, :nameEn, :supplierId, :undertakingUnitId, :quantity)
       `,
       row,
     );
@@ -301,6 +305,8 @@ export async function listMonthlyPrepaymentWriteOffs(searchParams: URLSearchPara
         deviceCode,
         modelCode,
         nameEn,
+        supplierId,
+        undertakingUnitId,
         quantity,
         sourceType,
         adjustmentNo,
@@ -320,12 +326,12 @@ async function insertPrepaymentLine(line: PrepaymentContractLineDraft) {
     `
       INSERT INTO prepaymentcontractitems
         (id, contractNo, lineType, purchaseOrderItemId, requestItemId, countryCode, batchName, requestNo, poNo,
-         deviceCode, modelCode, nameEn, quantity, actualCurrency, actualUnitPrice, actualTotalAmount,
+         deviceCode, modelCode, nameEn, supplierId, undertakingUnitId, quantity, actualCurrency, actualUnitPrice, actualTotalAmount,
          contractCurrency, contractUnitPrice, contractTotalAmount, writeOffStartMonth, feeName, feeDescription,
          prepaymentAmount, currency)
       VALUES
         (:id, :contractNo, :lineType, :purchaseOrderItemId, :requestItemId, :countryCode, :batchName, :requestNo, :poNo,
-         :deviceCode, :modelCode, :nameEn, :quantity, :actualCurrency, :actualUnitPrice, :actualTotalAmount,
+        :deviceCode, :modelCode, :nameEn, :supplierId, :undertakingUnitId, :quantity, :actualCurrency, :actualUnitPrice, :actualTotalAmount,
          :contractCurrency, :contractUnitPrice, :contractTotalAmount, :writeOffStartMonth, :feeName, :feeDescription,
          :contractTotalAmount, :contractCurrency)
     `,

@@ -26,13 +26,16 @@ const columns: Array<{ key: string; label: string; type?: string }> = [
   { key: "deviceCode", label: "实例编码" },
   { key: "modelCode", label: "机型" },
   { key: "nameEn", label: "英文名称" },
+  { key: "undertakingUnitId", label: "承接单位" },
+  { key: "supplierId", label: "供应商" },
   { key: "quantity", label: "数量", type: "number" },
   { key: "lineType", label: "明细类型", type: "lineType" },
   { key: "billingCurrency", label: "月账单币种" },
-  { key: "billingAmount", label: "月账单核销总额", type: "number" },
+  { key: "billingAmount", label: "月账单总额（含税）", type: "money" },
   { key: "prepaymentCurrency", label: "预付款币种" },
-  { key: "prepaymentAmount", label: "预付款核销金额", type: "number" },
-  { key: "serviceFeeAmount", label: "月度服务费", type: "number" },
+  { key: "prepaymentAmount", label: "预付款核销金额（含税）", type: "money" },
+  { key: "serviceFeeAmount", label: "月度服务费（含税）", type: "money" },
+  { key: "serviceFeeAmountExcludingTax", label: "月度服务费（未税）", type: "money" },
   { key: "prepaymentContractNos", label: "预付款合同号" },
   { key: "sourceNote", label: "来源说明" },
 ];
@@ -72,11 +75,19 @@ export function ServiceFeesPage() {
   async function loadData() {
     setLoading(true);
     setPage(1);
-    const response = await fetch(`/api/service-fees/calculate?${params.toString()}`);
-    const data = await response.json();
-    setRows(data.rows ?? []);
-    setSummary(data.summary ?? emptySummary);
-    setLoading(false);
+    try {
+      const response = await fetch(`/api/service-fees/calculate?${params.toString()}`);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error ?? "服务费数据加载失败");
+      setRows(data.rows ?? []);
+      setSummary(data.summary ?? emptySummary);
+    } catch (error) {
+      setRows([]);
+      setSummary(emptySummary);
+      alert(error instanceof Error ? error.message : "服务费数据加载失败");
+    } finally {
+      setLoading(false);
+    }
   }
 
   useEffect(() => {
@@ -218,7 +229,7 @@ function SummaryItem({ label, value }: { label: string; value: number }) {
   return (
     <div className="border border-[#ebeef5] bg-white px-4 py-3">
       <div className="text-xs text-[#909399]">{label}</div>
-      <div className="mt-1 text-lg font-medium text-[#303133]">{formatValue(value, "number")}</div>
+      <div className="mt-1 text-lg font-medium text-[#303133]">{formatValue(value, "money")}</div>
     </div>
   );
 }

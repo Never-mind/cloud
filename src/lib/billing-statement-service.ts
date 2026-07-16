@@ -241,8 +241,10 @@ async function listMonthlyBillingRowsForStatement(filters: Required<BillingState
         quantity,
         currency,
         monthlyAmount,
+        country.vatRate,
         DATE_FORMAT(writeOffMonth, '%Y-%m-%d') AS writeOffMonth
       FROM monthlybillingwriteoffs
+      LEFT JOIN countries country ON country.code = monthlybillingwriteoffs.countryCode
       WHERE ${whereParts.join(" AND ")}
       ORDER BY countryCode, currency, instanceContractNo, nameEn, monthlyAmount
     `,

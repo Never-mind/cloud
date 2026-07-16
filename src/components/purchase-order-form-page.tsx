@@ -34,6 +34,8 @@ const emptyMaster: MasterDraft = {
 
 const emptyDetail: PurchaseDetailDraft = {
   requestItemId: "",
+  taxExcludedUnitPrice: 0,
+  taxSurcharge: 0,
   unitPrice: 0,
   hardwareCoefficient: 1,
   softwareCoefficient: 0,
@@ -96,7 +98,17 @@ export function PurchaseOrderFormPage() {
   function updateDetail(index: number, patch: Partial<PurchaseDetailDraft>) {
     setDetails((current) =>
       current.map((detail, detailIndex) =>
-        detailIndex === index ? { ...detail, ...patch } : detail,
+        detailIndex === index
+          ? {
+              ...detail,
+              ...patch,
+              unitPrice:
+                patch.taxExcludedUnitPrice !== undefined || patch.taxSurcharge !== undefined
+                  ? Number(patch.taxExcludedUnitPrice ?? detail.taxExcludedUnitPrice ?? detail.unitPrice ?? 0) +
+                    Number(patch.taxSurcharge ?? detail.taxSurcharge ?? 0)
+                  : patch.unitPrice ?? detail.unitPrice,
+            }
+          : detail,
       ),
     );
   }
@@ -156,23 +168,23 @@ export function PurchaseOrderFormPage() {
       <div className="flex items-start gap-3">
         <Button type="button" onClick={() => router.push("/purchase/orders")}>
           <ArrowLeft size={15} />
-          杩斿洖鍒楄〃
+          返回采购订单
         </Button>
         <div>
-          <h1 className="text-xl font-medium text-[#303133]">鏂板缓閲囪喘鏄庣粏娓呭崟</h1>
+          <h1 className="text-xl font-medium text-[#303133]">新建采购订单</h1>
           <p className="mt-1 text-sm text-[#909399]">
-            鍏堝～鍐欓噰璐富鍗曪紝鍐嶉€夋嫨闇€姹傛槑缁嗙敓鎴愰噰璐槑缁嗭紱淇濆瓨鍚庤繘鍏ラ噰璐竻鍗曟槑缁嗛〉闈㈢户缁慨鏀规垨纭銆?          </p>
+            填写采购订单主单信息，选择需求明细后生成采购明细；保存后可在详情页继续修改或确认采购订单。
+          </p>
         </div>
         <Button className="ml-auto" disabled={saving || !master.poNo || !master.purchaseOrderId} tone="primary" onClick={() => void saveOrder()}>
           <Save size={15} />
-          淇濆瓨
+          保存
         </Button>
       </div>
 
       <Panel>
-        <div className="border-b border-[#ebeef5] px-4 py-3 font-medium text-[#303133]">涓诲崟淇℃伅</div>
+        <div className="border-b border-[#ebeef5] px-4 py-3 font-medium text-[#303133]">主单信息</div>
         <div className="grid grid-cols-3 gap-4 p-4">
-          <Info label="系统采购ID" value={master.purchaseOrderId} />
           <label>
             <span className="mb-1 block text-sm font-medium text-[#606266]">
               <span className="text-[#f56c6c]">*</span>
@@ -184,7 +196,7 @@ export function PurchaseOrderFormPage() {
             </div>
           </label>
           <label>
-            <span className="mb-1 block text-sm font-medium text-[#606266]">鏉ユ簮闇€姹傚崟</span>
+            <span className="mb-1 block text-sm font-medium text-[#606266]">来源需求单</span>
             <select
               className="h-9 w-full rounded border border-[#dcdfe6] bg-white px-3 text-sm outline-none focus:border-[#1890ff]"
               value={master.requestNo}
@@ -202,7 +214,7 @@ export function PurchaseOrderFormPage() {
           <label>
             <span className="mb-1 block text-sm font-medium text-[#606266]">
               <span className="text-[#f56c6c]">*</span>
-              甯佺
+              币种
             </span>
             <select
               className="h-9 w-full rounded border border-[#dcdfe6] bg-white px-3 text-sm outline-none focus:border-[#1890ff]"
@@ -217,17 +229,17 @@ export function PurchaseOrderFormPage() {
               ))}
             </select>
           </label>
-          <Field label="涓嬪彂鏃ユ湡" type="date" value={master.releasedAt} onChange={(value) => updateMaster("releasedAt", value)} />
+          <Field label="下发日期" type="date" value={master.releasedAt} onChange={(value) => updateMaster("releasedAt", value)} />
           <Info label="采购总金额" value={purchaseTotalAmount} />
         </div>
       </Panel>
 
       <Panel>
         <div className="flex items-center gap-2 border-b border-[#ebeef5] px-4 py-3">
-          <div className="font-medium text-[#303133]">閲囪喘鏄庣粏</div>
+          <div className="font-medium text-[#303133]">采购订单明细</div>
           <Button className="ml-auto" onClick={() => setDetails((current) => [...current, { ...emptyDetail }])}>
             <Plus size={15} />
-            鏂板鏄庣粏
+            新增明细
           </Button>
         </div>
         <div className="table-scroll overflow-auto">
@@ -239,8 +251,10 @@ export function PurchaseOrderFormPage() {
                 <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">机型</th>
                 <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">英文名称</th>
                 <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">数量</th>
-                <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">单价</th>
-                <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">采购金额</th>
+                <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">不含税单价</th>
+                <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">税费加成</th>
+                <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">含税单价</th>
+                <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">含税总价</th>
                 <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">硬件系数</th>
                 <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">软件系数</th>
               </tr>
@@ -258,7 +272,7 @@ export function PurchaseOrderFormPage() {
                         value={detail.requestItemId}
                         onChange={(event) => updateDetail(index, { requestItemId: event.target.value })}
                       >
-                        <option value="">璇烽€夋嫨</option>
+                        <option value="">请选择</option>
                         {visibleRequestItems.map((item) => (
                           <option key={String(item.id)} value={String(item.id)}>
                             {String(item.id)} - {String(item.deviceCode)}
@@ -271,8 +285,12 @@ export function PurchaseOrderFormPage() {
                     <td className="border-b border-r border-[#ebeef5] px-3 py-3">{formatValue(model?.nameEn)}</td>
                     <td className="border-b border-r border-[#ebeef5] px-3 py-3">{formatValue(requestItem?.quantity)}</td>
                     <td className="border-b border-r border-[#ebeef5] px-3 py-3">
-                      <NumberInput value={detail.unitPrice} onChange={(value) => updateDetail(index, { unitPrice: value })} />
+                      <NumberInput value={detail.taxExcludedUnitPrice ?? 0} onChange={(value) => updateDetail(index, { taxExcludedUnitPrice: value })} />
                     </td>
+                    <td className="border-b border-r border-[#ebeef5] px-3 py-3">
+                      <NumberInput value={detail.taxSurcharge ?? 0} onChange={(value) => updateDetail(index, { taxSurcharge: value })} />
+                    </td>
+                    <td className="border-b border-r border-[#ebeef5] px-3 py-3">{formatValue(detail.unitPrice)}</td>
                     <td className="border-b border-r border-[#ebeef5] px-3 py-3">
                       {formatValue(Number(requestItem?.quantity ?? 0) * Number(detail.unitPrice ?? 0))}
                     </td>

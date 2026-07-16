@@ -14,6 +14,11 @@ describe("display format", () => {
     expect(formatDisplayValue(1234.56789, "number")).toBe("1,234.5679");
   });
 
+  it("formats financial amounts with exactly two decimal places", () => {
+    expect(formatDisplayValue(100, "money")).toBe("100.00");
+    expect(formatDisplayValue(1234.567, "money")).toBe("1,234.57");
+  });
+
   it("formats line type values in Chinese", () => {
     expect(formatDisplayValue("instance", "lineType")).toBe("实例");
     expect(formatDisplayValue("fee", "lineType")).toBe("非实例费用");

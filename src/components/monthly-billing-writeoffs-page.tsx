@@ -21,12 +21,18 @@ const columns: Array<{ key: string; label: string; type?: string }> = [
   { key: "quantity", label: "数量" },
   { key: "instanceContractNo", label: "实例合同号" },
   { key: "currency", label: "币种" },
-  { key: "monthlyAmount", label: "月核销金额" },
-  { key: "monthlyTotalAmount", label: "月账单核销总金额" },
+  { key: "monthlyAmount", label: "月账单实例价格（含税）", type: "money" },
+  { key: "monthlyTotalAmount", label: "月账单金额（含税）", type: "money" },
   { key: "stage", label: "阶段" },
   { key: "sourceType", label: "来源" },
   { key: "adjustmentNo", label: "调整单号" },
 ];
+
+const displayColumns = columns.flatMap((column) =>
+  column.key === "countryCode"
+    ? [column, { key: "undertakingUnitId", label: "承接单位" }]
+    : [column],
+);
 
 export function MonthlyBillingWriteOffsPage() {
   const [rows, setRows] = useState<Row[]>([]);
@@ -48,10 +54,17 @@ export function MonthlyBillingWriteOffsPage() {
     if (batchName.trim()) params.set("batchName", batchName.trim());
     if (startMonth) params.set("startMonth", startMonth);
     if (endMonth) params.set("endMonth", endMonth);
-    const response = await fetch(`/api/billing/monthly-writeoffs?${params.toString()}`);
-    const data = await response.json();
-    setRows(data.rows ?? []);
-    setLoading(false);
+    try {
+      const response = await fetch(`/api/billing/monthly-writeoffs?${params.toString()}`);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error ?? "月账单明细加载失败");
+      setRows(data.rows ?? []);
+    } catch (error) {
+      setRows([]);
+      alert(error instanceof Error ? error.message : "月账单明细加载失败");
+    } finally {
+      setLoading(false);
+    }
   }
 
   useEffect(() => {
@@ -65,9 +78,9 @@ export function MonthlyBillingWriteOffsPage() {
   const pagedRows = useMemo(() => paginateRows(rows, page, pageSize), [page, pageSize, rows]);
 
   function exportCsv() {
-    const header = columns.map((column) => column.label);
+    const header = displayColumns.map((column) => column.label);
     const body = rows.map((row) =>
-      columns.map((column) => `"${String(formatValue(row[column.key], column.type)).replaceAll('"', '""')}"`).join(","),
+      displayColumns.map((column) => `"${String(formatValue(row[column.key], column.type)).replaceAll('"', '""')}"`).join(","),
     );
     const blob = new Blob([`\uFEFF${[header.join(","), ...body].join("\n")}`], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
@@ -105,13 +118,13 @@ export function MonthlyBillingWriteOffsPage() {
           </Button>
         </div>
         <div className="border-b border-[#ebeef5] bg-[#fafafa] px-4 py-3 text-sm text-[#606266]">
-          当前筛选共 {rows.length} 条，月账单核销总金额合计 {formatValue(totalAmount)}
+          当前筛选共 {rows.length} 条，月账单核销总金额合计 {formatValue(totalAmount, "money")}
         </div>
         <div className="table-scroll overflow-auto">
           <table className="min-w-full border-collapse text-sm">
             <thead className="bg-[#f5f7fa] text-[#303133]">
               <tr>
-                {columns.map((column) => (
+                {displayColumns.map((column) => (
                   <th className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium" key={column.key}>
                     {column.label}
                   </th>
@@ -121,7 +134,7 @@ export function MonthlyBillingWriteOffsPage() {
             <tbody>
               {pagedRows.map((row) => (
                 <tr className="hover:bg-[#fafafa]" key={String(row.id)}>
-                  {columns.map((column) => (
+                  {displayColumns.map((column) => (
                     <td className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3" key={column.key}>
                       {formatValue(row[column.key], column.type)}
                     </td>
@@ -130,7 +143,7 @@ export function MonthlyBillingWriteOffsPage() {
               ))}
               {!rows.length ? (
                 <tr>
-                  <td className="py-12 text-center text-[#909399]" colSpan={columns.length}>
+                  <td className="py-12 text-center text-[#909399]" colSpan={displayColumns.length}>
                     {loading ? "加载中..." : "暂无月账单核销明细"}
                   </td>
                 </tr>

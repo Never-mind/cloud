@@ -21,8 +21,8 @@ const columns: Array<{ key: string; label: string; type?: string }> = [
   { key: "nameEn", label: "英文名称" },
   { key: "quantity", label: "数量" },
   { key: "currency", label: "币种" },
-  { key: "originalAmount", label: "合同总价" },
-  { key: "monthlyAmount", label: "月核销金额" },
+  { key: "originalAmount", label: "合同总价", type: "money" },
+  { key: "monthlyAmount", label: "月核销金额", type: "money" },
   { key: "lineType", label: "明细类型", type: "lineType" },
   { key: "sourceType", label: "来源" },
   { key: "adjustmentNo", label: "调整单号" },
@@ -48,10 +48,17 @@ export function MonthlyPrepaymentWriteOffsPage() {
     if (batchName.trim()) params.set("batchName", batchName.trim());
     if (startMonth) params.set("startMonth", startMonth);
     if (endMonth) params.set("endMonth", endMonth);
-    const response = await fetch(`/api/prepayments/monthly-writeoffs?${params.toString()}`);
-    const data = await response.json();
-    setRows(data.rows ?? []);
-    setLoading(false);
+    try {
+      const response = await fetch(`/api/prepayments/monthly-writeoffs?${params.toString()}`);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error ?? "预付款核销明细加载失败");
+      setRows(data.rows ?? []);
+    } catch (error) {
+      setRows([]);
+      alert(error instanceof Error ? error.message : "预付款核销明细加载失败");
+    } finally {
+      setLoading(false);
+    }
   }
 
   useEffect(() => {
@@ -107,7 +114,7 @@ export function MonthlyPrepaymentWriteOffsPage() {
           </Button>
         </div>
         <div className="border-b border-[#ebeef5] bg-[#fafafa] px-4 py-3 text-sm text-[#606266]">
-          当前筛选共 {rows.length} 条，月核销金额合计 {formatValue(totalAmount)}
+          当前筛选共 {rows.length} 条，月核销金额合计 {formatValue(totalAmount, "money")}
         </div>
 
         <div className="table-scroll overflow-auto">

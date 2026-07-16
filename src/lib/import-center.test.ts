@@ -43,6 +43,7 @@ describe("import center workflow", () => {
       "requestedAt",
       "deviceCode",
       "supplierId",
+      "undertakingUnitId",
       "quantity",
     ]);
     expect(getImportTemplateColumns("purchase-orders").map((column) => column.key)).toContain("deviceCode");
@@ -82,6 +83,19 @@ describe("import center workflow", () => {
       startMonth: "2026-07-01",
     });
     expect(preview.operations.monthlyBillingWriteOffs).toHaveLength(60);
+  });
+
+  it("derives a missing purchase tax surcharge from the included and excluded prices", () => {
+    const preview = buildImportPreview(
+      "purchase-orders",
+      [{ poNo: "PO-TAX", requestNo: "REQ-TAX", requestItemId: "RI-TAX", currency: "USD", taxExcludedUnitPrice: 100, taxSurcharge: 0, unitPrice: 116 }],
+    );
+
+    expect(preview.operations.purchaseOrderItems[0]).toMatchObject({
+      taxExcludedUnitPrice: 100,
+      taxSurcharge: 16,
+      unitPrice: 116,
+    });
   });
 
   it("auto-generates billing ledger id and resolves purchase item by request number, PO number, and product code", () => {
@@ -259,6 +273,7 @@ describe("import center workflow", () => {
         requestedAt: "2026-07-10",
         deviceCode: "DEV-A",
         supplierId: "SUP-A",
+        undertakingUnitId: "UNIT-A",
         quantity: 2,
       },
       {
@@ -272,6 +287,7 @@ describe("import center workflow", () => {
         requestedAt: "2026-07-10",
         deviceCode: "DEV-B",
         supplierId: "SUP-A",
+        undertakingUnitId: "UNIT-A",
         quantity: 3,
       },
     ]);
@@ -481,6 +497,7 @@ describe("import center workflow", () => {
         requestedAt: "2026/7/1",
         deviceCode: "DEV-A",
         supplierId: "SUP-A",
+        undertakingUnitId: "UNIT-A",
         quantity: 1,
       },
     ]);

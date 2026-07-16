@@ -1,8 +1,20 @@
 import { createPasswordSalt, hashPassword, INITIAL_ADMIN_EMAIL, INITIAL_ADMIN_PASSWORD } from "../src/lib/auth";
-import { closeDb, execute, queryRows } from "../src/lib/db";
+import {
+  purchaseOrderPlanFieldSpecs,
+  purchaseOrderSnFieldSpecs,
+  sqlTypeForDemandPlanField,
+} from "../src/lib/purchase-order-demand-plan-fields";
+import {
+  closeDb,
+  execute,
+  executeRaw,
+  LOGICAL_TABLE_NAMES,
+  physicalTableName,
+  queryRowsRaw,
+} from "../src/lib/db";
 
 async function columnExists(tableName: string, columnName: string) {
-  const rows = await queryRows<{ count: number }>(
+  const rows = await queryRowsRaw<{ count: number }>(
     `
       SELECT COUNT(*) AS count
       FROM information_schema.COLUMNS
@@ -10,7 +22,7 @@ async function columnExists(tableName: string, columnName: string) {
         AND TABLE_NAME = :tableName
         AND COLUMN_NAME = :columnName
     `,
-    { tableName, columnName },
+    { tableName: physicalTableName(tableName), columnName },
   );
 
   return Number(rows[0]?.count ?? 0) > 0;
@@ -22,8 +34,14 @@ async function addColumnIfMissing(tableName: string, columnName: string, ddl: st
   }
 }
 
+async function modifyColumnIfPresent(tableName: string, columnName: string, ddl: string) {
+  if (await columnExists(tableName, columnName)) {
+    await execute(`ALTER TABLE \`${tableName}\` MODIFY COLUMN ${ddl}`);
+  }
+}
+
 async function addIndexIfMissing(tableName: string, indexName: string, ddl: string) {
-  const rows = await queryRows<{ count: number }>(
+  const rows = await queryRowsRaw<{ count: number }>(
     `
       SELECT COUNT(*) AS count
       FROM information_schema.STATISTICS
@@ -31,7 +49,7 @@ async function addIndexIfMissing(tableName: string, indexName: string, ddl: stri
         AND TABLE_NAME = :tableName
         AND INDEX_NAME = :indexName
     `,
-    { tableName, indexName },
+    { tableName: physicalTableName(tableName), indexName },
   );
 
   if (Number(rows[0]?.count ?? 0) === 0) {
@@ -39,8 +57,41 @@ async function addIndexIfMissing(tableName: string, indexName: string, ddl: stri
   }
 }
 
+async function dropIndexIfExists(tableName: string, indexName: string) {
+  const rows = await queryRowsRaw<{ count: number }>(
+    `
+      SELECT COUNT(*) AS count
+      FROM information_schema.STATISTICS
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = :tableName
+        AND INDEX_NAME = :indexName
+    `,
+    { tableName: physicalTableName(tableName), indexName },
+  );
+
+  if (Number(rows[0]?.count ?? 0) > 0) {
+    await execute(`ALTER TABLE \`${tableName}\` DROP INDEX \`${indexName}\``);
+  }
+}
+
 async function createTableIfMissing(tableName: string, ddl: string) {
-  const rows = await queryRows<{ count: number }>(
+  const rows = await queryRowsRaw<{ count: number }>(
+    `
+      SELECT COUNT(*) AS count
+      FROM information_schema.TABLES
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = :tableName
+    `,
+    { tableName: physicalTableName(tableName) },
+  );
+
+  if (Number(rows[0]?.count ?? 0) === 0) {
+    await execute(ddl);
+  }
+}
+
+async function tableExists(tableName: string) {
+  const rows = await queryRowsRaw<{ count: number }>(
     `
       SELECT COUNT(*) AS count
       FROM information_schema.TABLES
@@ -50,12 +101,274 @@ async function createTableIfMissing(tableName: string, ddl: string) {
     { tableName },
   );
 
-  if (Number(rows[0]?.count ?? 0) === 0) {
-    await execute(ddl);
+  return Number(rows[0]?.count ?? 0) > 0;
+}
+
+async function renameLegacyTables() {
+  for (const tableName of LOGICAL_TABLE_NAMES) {
+    const physicalName = physicalTableName(tableName);
+    if (physicalName === tableName) continue;
+
+    const [legacyExists, physicalExists] = await Promise.all([tableExists(tableName), tableExists(physicalName)]);
+    if (legacyExists && !physicalExists) {
+      await executeRaw(`RENAME TABLE \`${tableName}\` TO \`${physicalName}\``);
+    }
   }
 }
 
 async function main() {
+  await renameLegacyTables();
+  await dropIndexIfExists("instancemodels", "uk_InstanceModels_modelCode");
+
+  await addColumnIfMissing(
+    "countries",
+    "vatRate",
+    "`vatRate` DECIMAL(10, 6) NULL COMMENT 'VAT rate as decimal' AFTER `nameLocal`",
+  );
+  await createTableIfMissing(
+    "undertakingunits",
+    `
+      CREATE TABLE \`undertakingunits\` (
+        \`undertakingUnitId\` VARCHAR(64) NOT NULL COMMENT 'undertaking unit id PK',
+        \`undertakingUnitCode\` VARCHAR(128) NOT NULL COMMENT 'undertaking unit code UK',
+        \`name\` VARCHAR(255) NULL COMMENT 'name',
+        PRIMARY KEY (\`undertakingUnitId\`),
+        UNIQUE KEY \`uk_UndertakingUnits_code\` (\`undertakingUnitCode\`)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='UndertakingUnits'
+    `,
+  );
+  await addColumnIfMissing(
+    "requestitems",
+    "undertakingUnitId",
+    "`undertakingUnitId` VARCHAR(64) NULL COMMENT 'undertaking unit id' AFTER `supplierId`",
+  );
+  await addIndexIfMissing(
+    "requestitems",
+    "idx_RequestItems_undertakingUnitId",
+    "KEY `idx_RequestItems_undertakingUnitId` (`undertakingUnitId`)",
+  );
+  await addColumnIfMissing(
+    "purchaseorderitems",
+    "taxExcludedUnitPrice",
+    "`taxExcludedUnitPrice` DECIMAL(18, 4) NULL COMMENT 'tax excluded unit price' AFTER `requestItemId`",
+  );
+  await addColumnIfMissing(
+    "purchaseorderitems",
+    "taxSurcharge",
+    "`taxSurcharge` DECIMAL(18, 4) NOT NULL DEFAULT 0 COMMENT 'tax surcharge' AFTER `taxExcludedUnitPrice`",
+  );
+  await execute(
+    "UPDATE purchaseorderitems SET taxExcludedUnitPrice = COALESCE(taxExcludedUnitPrice, unitPrice), taxSurcharge = COALESCE(taxSurcharge, 0) WHERE taxExcludedUnitPrice IS NULL OR taxSurcharge IS NULL",
+  );
+  await createTableIfMissing(
+    "purchaseordersnitems",
+    `
+      CREATE TABLE \`purchaseordersnitems\` (
+        \`id\` VARCHAR(64) NOT NULL COMMENT 'PK',
+        \`purchaseOrderId\` VARCHAR(128) NOT NULL COMMENT 'system purchase order id',
+        \`poNo\` VARCHAR(128) NOT NULL COMMENT 'PO no',
+        \`purchaseOrderItemId\` VARCHAR(64) NULL COMMENT 'purchase order item id',
+        \`requestNo\` VARCHAR(128) NULL COMMENT 'source request no',
+        \`deviceVendor\` VARCHAR(255) NULL COMMENT 'device vendor',
+        \`finalParentSn\` VARCHAR(255) NULL COMMENT 'final parent SN',
+        \`finalParentPn\` VARCHAR(255) NULL COMMENT 'customer final parent PN',
+        \`finalParentPnDescription\` VARCHAR(500) NULL COMMENT 'final parent PN description',
+        \`supplierFinalParentCode\` VARCHAR(255) NULL COMMENT 'supplier final parent code',
+        \`supplierParentCode\` VARCHAR(255) NULL COMMENT 'supplier parent code',
+        \`supplierParentSn\` VARCHAR(255) NULL COMMENT 'supplier parent SN',
+        \`sn\` VARCHAR(255) NOT NULL COMMENT 'serial number',
+        \`fixedAssetCode\` VARCHAR(255) NULL COMMENT 'fixed asset code',
+        \`materialDescription\` VARCHAR(500) NULL COMMENT 'material description',
+        \`shippingBatch\` VARCHAR(255) NULL COMMENT 'shipping batch',
+        \`parentAssetNo\` VARCHAR(255) NULL COMMENT 'customer parent asset no',
+        \`componentCategory\` VARCHAR(255) NULL COMMENT 'component category',
+        \`packingListNo\` VARCHAR(255) NULL COMMENT 'packing list no',
+        \`parentCode\` VARCHAR(255) NULL COMMENT 'customer parent code',
+        \`finalParentCode\` VARCHAR(255) NULL COMMENT 'customer final parent code',
+        \`supplierChildComponentCode\` VARCHAR(255) NULL COMMENT 'supplier child component code',
+        \`customerChildComponentCode\` VARCHAR(255) NULL COMMENT 'customer child component code',
+        \`supplierChildComponentDescription\` VARCHAR(500) NULL COMMENT 'supplier child component description',
+        \`childComponentOriginalPn\` VARCHAR(255) NULL COMMENT 'child component original PN',
+        \`childComponentOriginalSn\` VARCHAR(255) NULL COMMENT 'child component original SN',
+        \`rackUnit\` VARCHAR(255) NULL COMMENT 'rack unit',
+        \`site\` VARCHAR(500) NULL COMMENT 'site',
+        \`contactPhone\` VARCHAR(500) NULL COMMENT 'contact and phone',
+        \`level\` VARCHAR(64) NULL COMMENT 'asset hierarchy level',
+        \`createdAt\` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'created time',
+        \`updatedAt\` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'updated time',
+        PRIMARY KEY (\`id\`),
+        KEY \`idx_PurchaseOrderSnItems_purchaseOrderId\` (\`purchaseOrderId\`),
+        KEY \`idx_PurchaseOrderSnItems_purchaseOrderItemId\` (\`purchaseOrderItemId\`),
+        KEY \`idx_PurchaseOrderSnItems_poNo\` (\`poNo\`),
+        KEY \`idx_PurchaseOrderSnItems_sn\` (\`sn\`)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='PurchaseOrderSnItems'
+    `,
+  );
+  await createTableIfMissing(
+    "purchaseorderplanitems",
+    `
+      CREATE TABLE \`purchaseorderplanitems\` (
+        \`id\` VARCHAR(64) NOT NULL COMMENT 'PK',
+        \`purchaseOrderId\` VARCHAR(128) NOT NULL COMMENT 'system purchase order id',
+        \`poNo\` VARCHAR(128) NOT NULL COMMENT 'PO no',
+        \`purchaseOrderItemId\` VARCHAR(64) NULL COMMENT 'purchase order item id',
+        \`requestNo\` VARCHAR(128) NULL COMMENT 'source request no',
+        \`sourcePlanId\` VARCHAR(128) NULL COMMENT 'source demand plan item id',
+        \`quoteReceivedAt\` DATE NULL COMMENT 'CEG quotation received date',
+        \`poIssuedAt\` DATE NULL COMMENT 'supplier PO issued date',
+        \`receiptProofUploadedAt\` DATE NULL COMMENT 'receipt proof uploaded date',
+        \`logisticsReceivedAt\` DATE NULL COMMENT 'logistics receipt date',
+        \`ataAt\` DATE NULL COMMENT 'ATA date',
+        \`ata\` VARCHAR(255) NULL COMMENT 'ATA',
+        \`supplierCpd\` DATE NULL COMMENT 'supplier CPD',
+        \`material\` VARCHAR(500) NULL COMMENT 'material',
+        \`createdAt\` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'created time',
+        \`updatedAt\` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'updated time',
+        PRIMARY KEY (\`id\`),
+        KEY \`idx_PurchaseOrderPlanItems_purchaseOrderId\` (\`purchaseOrderId\`),
+        KEY \`idx_PurchaseOrderPlanItems_purchaseOrderItemId\` (\`purchaseOrderItemId\`),
+        KEY \`idx_PurchaseOrderPlanItems_poNo\` (\`poNo\`)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='PurchaseOrderPlanItems'
+    `,
+  );
+  for (const field of purchaseOrderSnFieldSpecs) {
+    await addColumnIfMissing(
+      "purchaseordersnitems",
+      field.key,
+      `\`${field.key}\` ${sqlTypeForDemandPlanField(field)} COMMENT '${field.label}'`,
+    );
+  }
+  for (const field of purchaseOrderPlanFieldSpecs) {
+    await addColumnIfMissing(
+      "purchaseorderplanitems",
+      field.key,
+      `\`${field.key}\` ${sqlTypeForDemandPlanField(field)} COMMENT '${field.label}'`,
+    );
+  }
+  for (const columnName of [
+    "quoteReceivedAt",
+    "poIssuedAt",
+    "receiptProofUploadedAt",
+    "logisticsReceivedAt",
+    "ataAt",
+    "ata",
+    "supplierCpd",
+  ]) {
+    await modifyColumnIfPresent(
+      "purchaseorderplanitems",
+      columnName,
+      `\`${columnName}\` DATETIME NULL COMMENT '${columnName}'`,
+    );
+  }
+  for (const [columnName, ddl] of [
+    ["deviceVendor", "`deviceVendor` VARCHAR(255) NULL COMMENT 'device vendor' AFTER `requestNo`"],
+    ["finalParentSn", "`finalParentSn` VARCHAR(255) NULL COMMENT 'final parent SN' AFTER `deviceVendor`"],
+    ["finalParentPn", "`finalParentPn` VARCHAR(255) NULL COMMENT 'customer final parent PN' AFTER `finalParentSn`"],
+    ["finalParentPnDescription", "`finalParentPnDescription` VARCHAR(500) NULL COMMENT 'final parent PN description' AFTER `finalParentPn`"],
+    ["supplierFinalParentCode", "`supplierFinalParentCode` VARCHAR(255) NULL COMMENT 'supplier final parent code' AFTER `finalParentPnDescription`"],
+    ["supplierParentCode", "`supplierParentCode` VARCHAR(255) NULL COMMENT 'supplier parent code' AFTER `supplierFinalParentCode`"],
+    ["supplierParentSn", "`supplierParentSn` VARCHAR(255) NULL COMMENT 'supplier parent SN' AFTER `supplierParentCode`"],
+    ["supplierChildComponentCode", "`supplierChildComponentCode` VARCHAR(255) NULL COMMENT 'supplier child component code' AFTER `finalParentCode`"],
+    ["customerChildComponentCode", "`customerChildComponentCode` VARCHAR(255) NULL COMMENT 'customer child component code' AFTER `supplierChildComponentCode`"],
+    ["supplierChildComponentDescription", "`supplierChildComponentDescription` VARCHAR(500) NULL COMMENT 'supplier child component description' AFTER `customerChildComponentCode`"],
+    ["childComponentOriginalPn", "`childComponentOriginalPn` VARCHAR(255) NULL COMMENT 'child component original PN' AFTER `supplierChildComponentDescription`"],
+    ["childComponentOriginalSn", "`childComponentOriginalSn` VARCHAR(255) NULL COMMENT 'child component original SN' AFTER `childComponentOriginalPn`"],
+    ["rackUnit", "`rackUnit` VARCHAR(255) NULL COMMENT 'rack unit' AFTER `childComponentOriginalSn`"],
+    ["site", "`site` VARCHAR(500) NULL COMMENT 'site' AFTER `rackUnit`"],
+    ["contactPhone", "`contactPhone` VARCHAR(500) NULL COMMENT 'contact and phone' AFTER `site`"],
+  ] as const) {
+    await addColumnIfMissing("purchaseordersnitems", columnName, ddl);
+  }
+  await addColumnIfMissing(
+    "prepaymentcontractitems",
+    "supplierId",
+    "`supplierId` VARCHAR(64) NULL COMMENT 'supplier id' AFTER `nameEn`",
+  );
+  await addColumnIfMissing(
+    "prepaymentcontractitems",
+    "undertakingUnitId",
+    "`undertakingUnitId` VARCHAR(64) NULL COMMENT 'undertaking unit id' AFTER `supplierId`",
+  );
+  await addColumnIfMissing(
+    "billinginstanceledgers",
+    "supplierId",
+    "`supplierId` VARCHAR(64) NULL COMMENT 'supplier id' AFTER `nameEn`",
+  );
+  await addColumnIfMissing(
+    "billinginstanceledgers",
+    "undertakingUnitId",
+    "`undertakingUnitId` VARCHAR(64) NULL COMMENT 'undertaking unit id' AFTER `supplierId`",
+  );
+  await addColumnIfMissing(
+    "billinginstanceledgers",
+    "taxExcludedUnitPrice",
+    "`taxExcludedUnitPrice` DECIMAL(18, 4) NULL COMMENT 'tax excluded unit price' AFTER `actualUnitPrice`",
+  );
+  await addColumnIfMissing(
+    "billinginstanceledgers",
+    "taxSurcharge",
+    "`taxSurcharge` DECIMAL(18, 4) NOT NULL DEFAULT 0 COMMENT 'tax surcharge' AFTER `taxExcludedUnitPrice`",
+  );
+  await addColumnIfMissing(
+    "billinginstanceledgers",
+    "vatRate",
+    "`vatRate` DECIMAL(10, 6) NULL COMMENT 'VAT rate' AFTER `taxSurcharge`",
+  );
+  await addColumnIfMissing(
+    "billinginstanceledgers",
+    "selfCalculatedUnitPrice",
+    "`selfCalculatedUnitPrice` DECIMAL(18, 4) NULL COMMENT 'self calculated VAT included unit price' AFTER `vatRate`",
+  );
+  await addColumnIfMissing(
+    "billinginstanceledgers",
+    "differenceUnitPrice",
+    "`differenceUnitPrice` DECIMAL(18, 4) NULL COMMENT 'settlement difference unit price' AFTER `next36MonthPrice`",
+  );
+  await addColumnIfMissing(
+    "billinginstanceledgers",
+    "differenceTotalPrice",
+    "`differenceTotalPrice` DECIMAL(18, 4) NULL COMMENT 'settlement difference total price' AFTER `differenceUnitPrice`",
+  );
+  for (const [column, ddl] of [
+    ["supplierId", "`supplierId` VARCHAR(64) NULL COMMENT 'supplier id' AFTER `nameEn`"],
+    ["undertakingUnitId", "`undertakingUnitId` VARCHAR(64) NULL COMMENT 'undertaking unit id' AFTER `supplierId`"],
+    ["selfCalculatedUnitPrice", "`selfCalculatedUnitPrice` DECIMAL(18, 4) NULL COMMENT 'self calculated VAT included unit price' AFTER `monthlyTotalAmount`"],
+    ["differenceUnitPrice", "`differenceUnitPrice` DECIMAL(18, 4) NULL COMMENT 'settlement difference unit price' AFTER `selfCalculatedUnitPrice`"],
+    ["differenceTotalPrice", "`differenceTotalPrice` DECIMAL(18, 4) NULL COMMENT 'settlement difference total price' AFTER `differenceUnitPrice`"],
+  ] as const) {
+    await addColumnIfMissing("monthlybillingwriteoffs", column, ddl);
+  }
+  await addColumnIfMissing(
+    "monthlyprepaymentwriteoffs",
+    "supplierId",
+    "`supplierId` VARCHAR(64) NULL COMMENT 'supplier id' AFTER `nameEn`",
+  );
+  await addColumnIfMissing(
+    "monthlyprepaymentwriteoffs",
+    "undertakingUnitId",
+    "`undertakingUnitId` VARCHAR(64) NULL COMMENT 'undertaking unit id' AFTER `supplierId`",
+  );
+  await addColumnIfMissing(
+    "servicefeesnapshotitems",
+    "supplierId",
+    "`supplierId` VARCHAR(64) NULL COMMENT 'supplier id' AFTER `nameEn`",
+  );
+  await addColumnIfMissing(
+    "servicefeesnapshotitems",
+    "undertakingUnitId",
+    "`undertakingUnitId` VARCHAR(64) NULL COMMENT 'undertaking unit id' AFTER `supplierId`",
+  );
+  await addColumnIfMissing(
+    "shipments",
+    "supplierId",
+    "`supplierId` VARCHAR(64) NULL COMMENT 'supplier id' AFTER `nameEn`",
+  );
+  await addColumnIfMissing(
+    "shipments",
+    "undertakingUnitId",
+    "`undertakingUnitId` VARCHAR(64) NULL COMMENT 'undertaking unit id' AFTER `supplierId`",
+  );
+
   await addColumnIfMissing(
     "instancecontracts",
     "deviceCode",
@@ -749,6 +1062,11 @@ async function main() {
     "servicefeesnapshotitems",
     "prepaymentCurrency",
     "`prepaymentCurrency` VARCHAR(16) NULL COMMENT 'monthly prepayment currency' AFTER `billingCurrency`",
+  );
+  await addColumnIfMissing(
+    "servicefeesnapshotitems",
+    "serviceFeeAmountExcludingTax",
+    "`serviceFeeAmountExcludingTax` DECIMAL(18, 4) NULL COMMENT 'monthly service fee amount VAT excluded' AFTER `serviceFeeAmount`",
   );
 
   await addColumnIfMissing(

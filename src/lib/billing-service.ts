@@ -9,6 +9,7 @@ import {
   findLatestInstanceContract,
   findSelectedInstanceContract,
   firstDayOfMonth,
+  calculateSelfCalculatedUnitPrice,
   type BillingInstanceContract,
   type BillingAdjustmentInput,
   type BillingLedgerDraft,
@@ -214,9 +215,14 @@ export async function listAvailableBillingLines() {
           ri.deviceCode,
           im.modelCode,
           im.nameEn,
+          ri.supplierId,
+          ri.undertakingUnitId,
           ri.quantity,
           po.currency AS actualCurrency,
           poi.unitPrice AS actualUnitPrice,
+          COALESCE(poi.taxExcludedUnitPrice, poi.unitPrice, 0) AS taxExcludedUnitPrice,
+          COALESCE(poi.taxSurcharge, 0) AS taxSurcharge,
+          COALESCE(country.vatRate, 0) AS vatRate,
           po.status AS purchaseStatus,
           req.status AS requestStatus
         FROM purchaseorderitems poi
@@ -224,6 +230,7 @@ export async function listAvailableBillingLines() {
         LEFT JOIN requestitems ri ON ri.id = poi.requestItemId
         LEFT JOIN requests req ON req.requestNo = COALESCE(poi.requestNo, po.requestNo, ri.requestNo)
         LEFT JOIN instancemodels im ON im.deviceCode = ri.deviceCode
+        LEFT JOIN countries country ON country.code = req.countryCode
         ORDER BY req.countryCode, req.batchName, poi.id
       `,
     ),
@@ -263,6 +270,9 @@ export async function listAvailableBillingLines() {
         contractCurrency: contract?.currency ?? "",
         first24MonthPrice: Number(contract?.first24MonthPrice ?? 0),
         next36MonthPrice: Number(contract?.next36MonthPrice ?? 0),
+        selfCalculatedUnitPrice: calculateSelfCalculatedUnitPrice(line),
+        differenceUnitPrice: Number(contract?.first24MonthPrice ?? 0) - calculateSelfCalculatedUnitPrice(line),
+        differenceTotalPrice: Number(line.quantity ?? 0) * (Number(contract?.first24MonthPrice ?? 0) - calculateSelfCalculatedUnitPrice(line)),
         startMonth: new Date().toISOString().slice(0, 10),
       };
     });
@@ -356,6 +366,9 @@ export async function updateBillingLedger(
           contractCurrency = :contractCurrency,
           first24MonthPrice = :first24MonthPrice,
           next36MonthPrice = :next36MonthPrice,
+          selfCalculatedUnitPrice = :selfCalculatedUnitPrice,
+          differenceUnitPrice = :differenceUnitPrice,
+          differenceTotalPrice = :differenceTotalPrice,
           startMonth = :startMonth,
           confirmedAt = CURRENT_TIMESTAMP
       WHERE ledgerId = :ledgerId
@@ -420,11 +433,16 @@ export async function listMonthlyBillingWriteOffs(searchParams: URLSearchParams)
         deviceCode,
         modelCode,
         nameEn,
+        supplierId,
+        undertakingUnitId,
         quantity,
         instanceContractNo,
         currency,
         monthlyTotalAmount,
         monthlyAmount,
+        selfCalculatedUnitPrice,
+        differenceUnitPrice,
+        differenceTotalPrice,
         sourceType,
         adjustmentNo,
         createdAt
@@ -481,11 +499,16 @@ export async function confirmBillingAdjustment(adjustmentNo: string) {
             deviceCode,
             modelCode,
             nameEn,
+            supplierId,
+            undertakingUnitId,
             quantity,
             instanceContractNo,
             currency,
             monthlyTotalAmount,
             monthlyAmount,
+            selfCalculatedUnitPrice,
+            differenceUnitPrice,
+            differenceTotalPrice,
             sourceType,
             adjustmentNo
           FROM monthlybillingwriteoffs
@@ -525,12 +548,16 @@ async function insertBillingLedger(ledger: BillingLedgerDraft) {
     `
       INSERT INTO billinginstanceledgers
         (ledgerId, purchaseOrderItemId, countryCode, batchName, requestNo, poNo, deviceCode,
-         modelCode, nameEn, quantity, actualCurrency, actualUnitPrice, instanceContractNo,
-         contractCurrency, first24MonthPrice, next36MonthPrice, startMonth, status, confirmedAt)
+         modelCode, nameEn, supplierId, undertakingUnitId, quantity, actualCurrency, actualUnitPrice,
+         taxExcludedUnitPrice, taxSurcharge, vatRate, selfCalculatedUnitPrice, instanceContractNo,
+         contractCurrency, first24MonthPrice, next36MonthPrice, differenceUnitPrice, differenceTotalPrice,
+         startMonth, status, confirmedAt)
       VALUES
         (:ledgerId, :purchaseOrderItemId, :countryCode, :batchName, :requestNo, :poNo, :deviceCode,
-         :modelCode, :nameEn, :quantity, :actualCurrency, :actualUnitPrice, :instanceContractNo,
-         :contractCurrency, :first24MonthPrice, :next36MonthPrice, :startMonth, :status, CURRENT_TIMESTAMP)
+         :modelCode, :nameEn, :supplierId, :undertakingUnitId, :quantity, :actualCurrency, :actualUnitPrice,
+         :taxExcludedUnitPrice, :taxSurcharge, :vatRate, :selfCalculatedUnitPrice, :instanceContractNo,
+         :contractCurrency, :first24MonthPrice, :next36MonthPrice, :differenceUnitPrice, :differenceTotalPrice,
+         :startMonth, :status, CURRENT_TIMESTAMP)
     `,
     ledger,
   );
@@ -549,13 +576,21 @@ async function getBillingLedgerDraft(ledgerId: string) {
         deviceCode,
         modelCode,
         nameEn,
+        supplierId,
+        undertakingUnitId,
         quantity,
         actualCurrency,
         actualUnitPrice,
+        taxExcludedUnitPrice,
+        taxSurcharge,
+        vatRate,
+        selfCalculatedUnitPrice,
         instanceContractNo,
         contractCurrency,
         first24MonthPrice,
         next36MonthPrice,
+        differenceUnitPrice,
+        differenceTotalPrice,
         DATE_FORMAT(startMonth, '%Y-%m-%d') AS startMonth,
         status
       FROM billinginstanceledgers
@@ -621,12 +656,14 @@ async function replaceMonthlyBillingRows(ledgerId: string, rows: MonthlyBillingR
       `
         INSERT INTO monthlybillingwriteoffs
           (id, ledgerId, writeOffMonth, monthIndex, stage, countryCode, batchName, requestNo,
-           poNo, deviceCode, modelCode, nameEn, quantity, instanceContractNo, currency,
-           monthlyAmount, monthlyTotalAmount, sourceType, adjustmentNo)
+           poNo, deviceCode, modelCode, nameEn, supplierId, undertakingUnitId, quantity,
+           instanceContractNo, currency, monthlyAmount, monthlyTotalAmount, selfCalculatedUnitPrice,
+           differenceUnitPrice, differenceTotalPrice, sourceType, adjustmentNo)
         VALUES
           (:id, :ledgerId, :writeOffMonth, :monthIndex, :stage, :countryCode, :batchName, :requestNo,
-           :poNo, :deviceCode, :modelCode, :nameEn, :quantity, :instanceContractNo, :currency,
-           :monthlyAmount, :monthlyTotalAmount, :sourceType, :adjustmentNo)
+           :poNo, :deviceCode, :modelCode, :nameEn, :supplierId, :undertakingUnitId, :quantity,
+           :instanceContractNo, :currency, :monthlyAmount, :monthlyTotalAmount, :selfCalculatedUnitPrice,
+           :differenceUnitPrice, :differenceTotalPrice, :sourceType, :adjustmentNo)
       `,
       row,
     );

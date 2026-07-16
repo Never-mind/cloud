@@ -77,6 +77,7 @@ export const IMPORT_TARGETS: ImportTarget[] = [
       { key: "requestedAt", label: "需求时间", type: "date" },
       { key: "deviceCode", label: "设备编码", required: true },
       { key: "supplierId", label: "供应商ID", required: true },
+      { key: "undertakingUnitId", label: "承接单位ID", required: true },
       { key: "quantity", label: "节点数量", required: true, type: "number" },
     ],
   },
@@ -93,7 +94,9 @@ export const IMPORT_TARGETS: ImportTarget[] = [
       { key: "currency", label: "币种", required: true, note: PURCHASE_CURRENCY_OPTIONS.join("/") },
       { key: "releasedAt", label: "下发日期", type: "date" },
       { key: "requestItemId", label: "需求明细ID", note: "与产品编码二选一" },
-      { key: "unitPrice", label: "单价", required: true, type: "number" },
+      { key: "taxExcludedUnitPrice", label: "不含税单价", type: "number" },
+      { key: "taxSurcharge", label: "税费加成", type: "number" },
+      { key: "unitPrice", label: "含税单价", required: true, type: "number" },
       { key: "hardwareCoefficient", label: "硬件系数", type: "number" },
       { key: "softwareCoefficient", label: "软件系数", type: "number" },
     ],
@@ -298,6 +301,7 @@ function buildRequestOperations(rows: Row[], operations: ImportPreview["operatio
         details: groupRows.map((row) => ({
           deviceCode: String(row.deviceCode),
           supplierId: String(row.supplierId),
+          undertakingUnitId: String(row.undertakingUnitId ?? ""),
           quantity: Number(row.quantity),
         })),
       }),
@@ -337,13 +341,21 @@ function buildPurchaseOperations(rows: Row[], operations: ImportPreview["operati
       ...buildPurchaseOrderItemRows({
         purchaseOrderId,
         poNo: String(first.poNo),
-        details: groupRows.map((row) => ({
-          requestNo: String(row.requestNo),
-          requestItemId: String(row.requestItemId),
-          unitPrice: Number(row.unitPrice),
-          hardwareCoefficient: Number(row.hardwareCoefficient || 1),
-          softwareCoefficient: Number(row.softwareCoefficient || 0),
-        })),
+        details: groupRows.map((row) => {
+          const taxExcludedUnitPrice = Number(row.taxExcludedUnitPrice ?? row.unitPrice ?? 0);
+          const importedUnitPrice = Number(row.unitPrice ?? 0);
+          const importedTaxSurcharge = Number(row.taxSurcharge ?? 0);
+          const taxSurcharge = importedTaxSurcharge || Math.max(0, importedUnitPrice - taxExcludedUnitPrice);
+          return {
+            requestNo: String(row.requestNo),
+            requestItemId: String(row.requestItemId),
+            taxExcludedUnitPrice,
+            taxSurcharge,
+            unitPrice: importedUnitPrice || taxExcludedUnitPrice + taxSurcharge,
+            hardwareCoefficient: Number(row.hardwareCoefficient || 1),
+            softwareCoefficient: Number(row.softwareCoefficient || 0),
+          };
+        }),
       }),
     );
   }

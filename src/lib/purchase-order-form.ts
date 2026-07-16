@@ -1,6 +1,8 @@
 export type PurchaseDetailDraft = {
   requestNo?: string;
   requestItemId: string;
+  taxExcludedUnitPrice?: number;
+  taxSurcharge?: number;
   unitPrice: number;
   hardwareCoefficient: number;
   softwareCoefficient: number;
@@ -19,6 +21,14 @@ export function buildPurchaseOrderItemRows({
 }) {
   return details.map((detail, index) => {
     const totalCoefficient = Number(detail.hardwareCoefficient || 0) + Number(detail.softwareCoefficient || 0);
+    const taxSurcharge = Number(detail.taxSurcharge ?? 0);
+    const hasTaxExcludedUnitPrice = detail.taxExcludedUnitPrice !== undefined && detail.taxExcludedUnitPrice !== null;
+    const taxExcludedUnitPrice = hasTaxExcludedUnitPrice
+      ? Number(detail.taxExcludedUnitPrice)
+      : Number(detail.unitPrice ?? 0) - taxSurcharge;
+    const unitPrice = hasTaxExcludedUnitPrice
+      ? taxExcludedUnitPrice + taxSurcharge
+      : Number(detail.unitPrice ?? 0);
 
     return {
       id: `POI-${purchaseOrderId}-${String(index + 1).padStart(3, "0")}`,
@@ -26,7 +36,9 @@ export function buildPurchaseOrderItemRows({
       poNo,
       requestNo: detail.requestNo ?? "",
       requestItemId: detail.requestItemId,
-      unitPrice: detail.unitPrice,
+      taxExcludedUnitPrice,
+      taxSurcharge,
+      unitPrice,
       hardwareCoefficient: detail.hardwareCoefficient,
       softwareCoefficient: detail.softwareCoefficient,
       totalCoefficient,

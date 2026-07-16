@@ -17,6 +17,7 @@ describe("service fee workflow", () => {
           nameEn: "Compute Node",
           quantity: 2,
           currency: "CLP",
+          vatRate: 0.16,
           monthlyAmount: 500,
           monthlyTotalAmount: 1000,
           ledgerId: "BIL-001",
@@ -56,10 +57,30 @@ describe("service fee workflow", () => {
         prepaymentCurrency: "USD",
         prepaymentAmount: 120,
         serviceFeeAmount: 880,
+        serviceFeeAmountExcludingTax: 758.6207,
         billingSourceIds: "MBW-001",
         prepaymentSourceIds: "MPW-001",
       }),
     ]);
+  });
+
+  it("calculates service fee excluding VAT from the country tax rate", () => {
+    const rows = buildServiceFeeRows({
+      billingRows: [
+        {
+          id: "MBW-VAT",
+          writeOffMonth: "2026-07-01",
+          countryCode: "MX",
+          quantity: 1,
+          currency: "MXN",
+          vatRate: 0.16,
+          monthlyTotalAmount: 116,
+        },
+      ],
+      prepaymentRows: [{ id: "MPW-VAT", writeOffMonth: "2026-07-01", countryCode: "MX", monthlyAmount: 16, lineType: "instance" }],
+    });
+
+    expect(rows[0]).toMatchObject({ serviceFeeAmount: 100, serviceFeeAmountExcludingTax: 86.2069 });
   });
 
   it("keeps rows that only exist in billing or prepayment and treats the missing side as zero", () => {

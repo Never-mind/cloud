@@ -8,6 +8,8 @@ export type PrepaymentPurchaseLine = {
   deviceCode: string;
   modelCode?: string | null;
   nameEn?: string | null;
+  supplierId?: string | null;
+  undertakingUnitId?: string | null;
   quantity: number;
   currency?: string | null;
   unitPrice: number;
@@ -42,6 +44,8 @@ export type PrepaymentContractLineDraft = {
   deviceCode: string;
   modelCode: string;
   nameEn: string;
+  supplierId?: string;
+  undertakingUnitId?: string;
   quantity: number;
   actualCurrency: string;
   actualUnitPrice: number;
@@ -65,6 +69,8 @@ export type MonthlyWriteOffSourceLine = {
   deviceCode?: string | null;
   modelCode?: string | null;
   nameEn?: string | null;
+  supplierId?: string | null;
+  undertakingUnitId?: string | null;
   quantity?: number | string | null;
   contractCurrency?: string | null;
   contractTotalAmount?: number | string | null;
@@ -89,6 +95,8 @@ export type MonthlyWriteOffRow = {
   deviceCode: string;
   modelCode: string;
   nameEn: string;
+  supplierId: string;
+  undertakingUnitId: string;
   quantity: number;
 };
 
@@ -145,6 +153,8 @@ export function buildPrepaymentDraft({
       deviceCode: available.deviceCode,
       modelCode: available.modelCode ?? "",
       nameEn: available.nameEn ?? "",
+      supplierId: available.supplierId ?? "",
+      undertakingUnitId: available.undertakingUnitId ?? "",
       quantity: Number(available.quantity ?? 0),
       actualCurrency: available.currency ?? "",
       actualUnitPrice: available.actualUnitPrice,
@@ -203,6 +213,8 @@ export function buildMonthlyWriteOffRows(lines: MonthlyWriteOffSourceLine[]): Mo
         deviceCode: line.deviceCode ?? "",
         modelCode: line.modelCode ?? "",
         nameEn: line.nameEn ?? "",
+        supplierId: line.supplierId ?? "",
+        undertakingUnitId: line.undertakingUnitId ?? "",
         quantity: Number(line.quantity ?? 0),
       };
     });

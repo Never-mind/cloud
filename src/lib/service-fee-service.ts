@@ -113,12 +113,16 @@ async function listBillingRows(filters: ServiceFeeFilters) {
         poNo,
         deviceCode,
         modelCode,
-        nameEn,
+        monthlybillingwriteoffs.nameEn AS nameEn,
+        supplierId,
+        undertakingUnitId,
         quantity,
         currency,
+        COALESCE(country.vatRate, 0) AS vatRate,
         monthlyTotalAmount,
         monthlyAmount
       FROM monthlybillingwriteoffs
+      LEFT JOIN countries AS country ON country.code = monthlybillingwriteoffs.countryCode
       ${where}
       ORDER BY writeOffMonth, countryCode, batchName, requestNo, poNo, deviceCode
     `,
@@ -145,12 +149,16 @@ async function listPrepaymentRows(filters: ServiceFeeFilters) {
         poNo,
         deviceCode,
         modelCode,
-        nameEn,
+        monthlyprepaymentwriteoffs.nameEn AS nameEn,
+        supplierId,
+        undertakingUnitId,
         quantity,
         currency,
+        COALESCE(country.vatRate, 0) AS vatRate,
         monthlyAmount,
         lineType
       FROM monthlyprepaymentwriteoffs
+      LEFT JOIN countries AS country ON country.code = monthlyprepaymentwriteoffs.countryCode
       ${where}
       ORDER BY writeOffMonth, countryCode, batchName, requestNo, poNo, deviceCode, contractLineId
     `,
@@ -208,12 +216,12 @@ async function insertSnapshotItem(snapshotNo: string, index: number, row: Servic
     `
       INSERT INTO servicefeesnapshotitems
         (id, snapshotNo, writeOffMonth, countryCode, batchName, requestNo, poNo, deviceCode,
-         modelCode, nameEn, quantity, currency, billingCurrency, prepaymentCurrency, lineType, billingAmount, prepaymentAmount,
-         serviceFeeAmount, billingSourceIds, prepaymentSourceIds, prepaymentContractNos, sourceNote)
+         modelCode, nameEn, supplierId, undertakingUnitId, quantity, currency, billingCurrency, prepaymentCurrency, lineType, billingAmount, prepaymentAmount,
+         serviceFeeAmount, serviceFeeAmountExcludingTax, billingSourceIds, prepaymentSourceIds, prepaymentContractNos, sourceNote)
       VALUES
         (:id, :snapshotNo, :writeOffMonth, :countryCode, :batchName, :requestNo, :poNo, :deviceCode,
-         :modelCode, :nameEn, :quantity, :currency, :billingCurrency, :prepaymentCurrency, :lineType, :billingAmount, :prepaymentAmount,
-         :serviceFeeAmount, :billingSourceIds, :prepaymentSourceIds, :prepaymentContractNos, :sourceNote)
+         :modelCode, :nameEn, :supplierId, :undertakingUnitId, :quantity, :currency, :billingCurrency, :prepaymentCurrency, :lineType, :billingAmount, :prepaymentAmount,
+         :serviceFeeAmount, :serviceFeeAmountExcludingTax, :billingSourceIds, :prepaymentSourceIds, :prepaymentContractNos, :sourceNote)
     `,
     {
       ...row,

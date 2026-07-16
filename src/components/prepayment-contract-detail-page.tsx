@@ -15,6 +15,8 @@ type Contract = {
   totalAmount: number;
 };
 
+type Row = Record<string, string | number | boolean | null>;
+
 type Line = {
   id: string;
   contractNo: string;
@@ -28,6 +30,8 @@ type Line = {
   deviceCode: string;
   modelCode: string;
   nameEn: string;
+  supplierId?: string;
+  undertakingUnitId?: string;
   quantity: number;
   actualCurrency: string;
   actualUnitPrice: number;
@@ -61,6 +65,8 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
   const [editing, setEditing] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [suppliers, setSuppliers] = useState<Row[]>([]);
+  const [undertakingUnits, setUndertakingUnits] = useState<Row[]>([]);
   const editState = getPrepaymentContractEditState({
     isConfirming: confirming,
     isEditing: editing,
@@ -96,6 +102,17 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
     );
     setEditing(false);
   }
+
+  useEffect(() => {
+    void Promise.all([
+      fetch("/api/entities/suppliers?page=1&pageSize=100"),
+      fetch("/api/entities/undertaking-units?page=1&pageSize=100"),
+    ]).then(async ([supplierResponse, unitResponse]) => {
+      const [supplierData, unitData] = await Promise.all([supplierResponse.json(), unitResponse.json()]);
+      setSuppliers(supplierData.rows ?? []);
+      setUndertakingUnits(unitData.rows ?? []);
+    });
+  }, []);
 
   useEffect(() => {
     void loadData();
@@ -142,6 +159,8 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
         deviceCode: "",
         modelCode: "",
         nameEn: "",
+        supplierId: "",
+        undertakingUnitId: "",
         quantity: 1,
         actualCurrency: contract.currency || "USD",
         actualUnitPrice: 0,
@@ -311,6 +330,8 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
                 <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">费用名称</th>
                 <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">批次号</th>
                 <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">说明</th>
+                <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">承接单位</th>
+                <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">供应商</th>
                 <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">币种</th>
                 <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">金额</th>
                 <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">起始核销月份</th>
@@ -328,6 +349,18 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
                   </td>
                   <td className="border-b border-r border-[#ebeef5] px-3 py-3">
                     <Textarea disabled={!canEdit} value={line.feeDescription ?? ""} onChange={(event) => updateLine(line.id, { feeDescription: event.target.value })} />
+                  </td>
+                  <td className="border-b border-r border-[#ebeef5] px-3 py-3">
+                    <select className="h-9 min-w-[160px] rounded border border-[#dcdfe6] bg-white px-2" disabled={!canEdit} value={line.undertakingUnitId ?? ""} onChange={(event) => updateLine(line.id, { undertakingUnitId: event.target.value })}>
+                      <option value="">请选择</option>
+                      {undertakingUnits.map((unit) => <option key={String(unit.undertakingUnitId)} value={String(unit.undertakingUnitId)}>{String(unit.name ?? unit.undertakingUnitCode ?? unit.undertakingUnitId)}</option>)}
+                    </select>
+                  </td>
+                  <td className="border-b border-r border-[#ebeef5] px-3 py-3">
+                    <select className="h-9 min-w-[160px] rounded border border-[#dcdfe6] bg-white px-2" disabled={!canEdit} value={line.supplierId ?? ""} onChange={(event) => updateLine(line.id, { supplierId: event.target.value })}>
+                      <option value="">请选择</option>
+                      {suppliers.map((supplier) => <option key={String(supplier.supplierId)} value={String(supplier.supplierId)}>{String(supplier.name ?? supplier.supplierId)}</option>)}
+                    </select>
                   </td>
                   <td className="border-b border-r border-[#ebeef5] px-3 py-3">
                     <Input className="w-24 min-w-0" disabled={!canEdit} value={line.contractCurrency ?? ""} onChange={(event) => updateLine(line.id, { contractCurrency: event.target.value })} />
@@ -348,7 +381,7 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
               ))}
               {!feeLines.length ? (
                 <tr>
-                  <td className="py-8 text-center text-[#909399]" colSpan={7}>暂无费用明细</td>
+                  <td className="py-8 text-center text-[#909399]" colSpan={9}>暂无费用明细</td>
                 </tr>
               ) : null}
             </tbody>

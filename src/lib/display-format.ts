@@ -10,6 +10,8 @@ export function formatDisplayValue(value: DisplayValue, type?: string) {
   if (value === null || value === undefined || value === "") return "-";
   if (type === "boolean") return value ? "是" : "否";
   if (type === "number") return Number(value).toLocaleString("en-US", { maximumFractionDigits: 4 });
+  if (type === "money") return Number(value).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  if (type === "percentage") return `${(Number(value) * 100).toLocaleString("en-US", { maximumFractionDigits: 4 })}%`;
   if (type === "lineType") return formatLineType(value);
   if (value instanceof Date) return formatLocalDate(value);
   if (isDateLikeValue(value, type)) return formatDateLikeString(String(value));

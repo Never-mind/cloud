@@ -8,8 +8,11 @@ export type ServiceFeeBillingRow = {
   deviceCode?: string | null;
   modelCode?: string | null;
   nameEn?: string | null;
+  supplierId?: string | null;
+  undertakingUnitId?: string | null;
   quantity?: number | string | null;
   currency?: string | null;
+  vatRate?: number | string | null;
   monthlyAmount?: number | string | null;
   monthlyTotalAmount?: number | string | null;
   ledgerId?: string | null;
@@ -25,8 +28,11 @@ export type ServiceFeePrepaymentRow = {
   deviceCode?: string | null;
   modelCode?: string | null;
   nameEn?: string | null;
+  supplierId?: string | null;
+  undertakingUnitId?: string | null;
   quantity?: number | string | null;
   currency?: string | null;
+  vatRate?: number | string | null;
   monthlyAmount?: number | string | null;
   contractNo?: string | null;
   contractLineId?: string | null;
@@ -43,6 +49,8 @@ export type ServiceFeeRow = {
   deviceCode: string;
   modelCode: string;
   nameEn: string;
+  supplierId: string;
+  undertakingUnitId: string;
   quantity: number;
   currency: string;
   billingCurrency: string;
@@ -51,6 +59,7 @@ export type ServiceFeeRow = {
   billingAmount: number;
   prepaymentAmount: number;
   serviceFeeAmount: number;
+  serviceFeeAmountExcludingTax: number;
   billingSourceIds: string;
   prepaymentSourceIds: string;
   prepaymentContractNos: string;
@@ -136,6 +145,8 @@ function buildServiceFeeRow(bucket: Bucket): ServiceFeeRow {
   const billingAmount = roundMoney(bucket.billingRows.reduce((sum, row) => sum + getBillingTotalAmount(row), 0));
   const prepaymentAmount = roundMoney(bucket.prepaymentRows.reduce((sum, row) => sum + toNumber(row.monthlyAmount), 0));
   const serviceFeeAmount = roundMoney(billingAmount - prepaymentAmount);
+  const vatRate = toNumber(billing?.vatRate ?? prepayment?.vatRate);
+  const serviceFeeAmountExcludingTax = roundMoney(serviceFeeAmount / (1 + vatRate));
 
   return {
     id: `SFC-${bucket.key}`,
@@ -147,6 +158,8 @@ function buildServiceFeeRow(bucket: Bucket): ServiceFeeRow {
     deviceCode: normalizeText(source?.deviceCode),
     modelCode: normalizeText(source?.modelCode),
     nameEn: normalizeText(source?.nameEn),
+    supplierId: normalizeText(billing?.supplierId ?? prepayment?.supplierId),
+    undertakingUnitId: normalizeText(billing?.undertakingUnitId ?? prepayment?.undertakingUnitId),
     quantity: toNumber(source?.quantity),
     currency: normalizeText(source?.currency),
     billingCurrency: normalizeText(billing?.currency),
@@ -155,6 +168,7 @@ function buildServiceFeeRow(bucket: Bucket): ServiceFeeRow {
     billingAmount,
     prepaymentAmount,
     serviceFeeAmount,
+    serviceFeeAmountExcludingTax,
     billingSourceIds: bucket.billingRows.map((row) => normalizeText(row.id)).filter(Boolean).join(","),
     prepaymentSourceIds: bucket.prepaymentRows.map((row) => normalizeText(row.id)).filter(Boolean).join(","),
     prepaymentContractNos: Array.from(new Set(bucket.prepaymentRows.map((row) => normalizeText(row.contractNo)).filter(Boolean))).join(","),

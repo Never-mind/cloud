@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { getEntityConfig, navGroups } from "./modules";
+import { purchaseOrderPlanFieldSpecs, purchaseOrderSnFieldSpecs } from "./purchase-order-demand-plan-fields";
 
 describe("module configuration", () => {
   it("registers instance contracts under contract management", () => {
@@ -102,8 +103,8 @@ describe("module configuration", () => {
     for (const key of ["service-fees", "service-fee-snapshot-items"]) {
       const config = getEntityConfig(key);
 
-      expect(config?.listFields.find((field) => field.key === "billingAmount")?.label).toBe("月账单核销总额");
-      expect(config?.formFields.find((field) => field.key === "billingAmount")?.label).toBe("月账单核销总额");
+      expect(config?.listFields.find((field) => field.key === "billingAmount")?.label).toBe("月账单总额（含税）");
+      expect(config?.formFields.find((field) => field.key === "billingAmount")?.label).toBe("月账单总额（含税）");
     }
   });
 
@@ -113,5 +114,86 @@ describe("module configuration", () => {
     expect(config?.defaultSort).toBe("createdAt DESC");
     expect(config?.listFields.map((field) => field.key)).toContain("batchName");
     expect(config?.formFields.map((field) => field.key)).toContain("batchName");
+  });
+
+  it("configures shipment display fields and a receipt status filter", () => {
+    const config = getEntityConfig("shipments");
+
+    expect(config?.listFields.map((field) => field.key)).toEqual(
+      expect.arrayContaining(["dcNameZh", "destinationAddress", "recipientName"]),
+    );
+    expect(config?.listFields.map((field) => field.key)).not.toContain("destinationLocationId");
+    expect(config?.listFields.map((field) => field.key)).not.toContain("recipientContactId");
+    expect(config?.filters.find((field) => field.key === "receiptStatus")).toMatchObject({
+      type: "select",
+      options: [
+        { label: "已签收", value: "received" },
+        { label: "未签收", value: "unreceived" },
+      ],
+    });
+  });
+
+  it("keeps shipment reference fields available for searchable selection in the edit form", () => {
+    const config = getEntityConfig("shipments");
+
+    expect(config?.formFields.filter((field) => field.lookupSource)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ key: "dcCode", lookupSource: "datacenters" }),
+        expect.objectContaining({ key: "destinationLocationId", lookupSource: "delivery-locations" }),
+        expect.objectContaining({ key: "recipientContactId", lookupSource: "delivery-contacts" }),
+      ]),
+    );
+  });
+
+  it("registers full purchase order demand plan child entities", () => {
+    const snConfig = getEntityConfig("purchase-order-sn-items");
+    const planConfig = getEntityConfig("purchase-order-plan-items");
+
+    expect(snConfig?.table).toBe("purchaseordersnitems");
+    expect(snConfig?.primaryKey).toBe("id");
+    expect(snConfig?.showSequence).toBe(true);
+    expect(planConfig?.showSequence).toBe(true);
+    expect(snConfig?.listFields).toEqual(purchaseOrderSnFieldSpecs);
+    expect(planConfig?.listFields).toEqual(purchaseOrderPlanFieldSpecs);
+    expect(snConfig?.formFields.map((field) => field.key)).toEqual(
+      expect.arrayContaining([
+        "purchaseOrderId",
+        "poNo",
+        "purchaseOrderItemId",
+        "sn",
+        "fixedAssetCode",
+        "materialDescription",
+        "shippingBatch",
+        "parentAssetNo",
+        "componentCategory",
+        "packingListNo",
+        "parentCode",
+        "finalParentCode",
+        "level",
+      ]),
+    );
+    expect(planConfig?.table).toBe("purchaseorderplanitems");
+    expect(planConfig?.formFields.map((field) => field.key)).toEqual(
+      expect.arrayContaining([
+        "purchaseOrderId",
+        "poNo",
+        "purchaseOrderItemId",
+        "sourcePlanId",
+        "quoteReceivedAt",
+        "poIssuedAt",
+        "receiptProofUploadedAt",
+        "logisticsReceivedAt",
+        "ataAt",
+        "ata",
+        "supplierCpd",
+        "material",
+      ]),
+    );
+    expect(snConfig?.formFields.filter((field) => field.hidden).map((field) => field.key)).toEqual([
+      "id",
+      "purchaseOrderId",
+      "purchaseOrderItemId",
+      "requestNo",
+    ]);
   });
 });

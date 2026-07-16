@@ -46,7 +46,8 @@ export function normalizeEntityImportRow(config: EntityConfig, row: Row): Row {
       const value = row[field.key];
       if (field.type === "boolean") return [field.key, normalizeBooleanValue(value)];
       if (field.type === "number") return [field.key, normalizeNumberValue(value)];
-      if (field.type === "date" || field.type === "datetime") return [field.key, normalizeDateValue(value)];
+      if (field.type === "date") return [field.key, normalizeDateValue(value)];
+      if (field.type === "datetime") return [field.key, normalizeDateTimeValue(value)];
       return [field.key, value === "" || value === undefined ? null : value];
     }),
   );
@@ -124,8 +125,44 @@ function normalizeDateValue(value: unknown) {
   return text;
 }
 
+function normalizeDateTimeValue(value: unknown) {
+  if (value === "" || value === undefined || value === null) return null;
+
+  if (value instanceof Date) {
+    return `${formatDateParts(value.getFullYear(), value.getMonth() + 1, value.getDate())} ${formatTimeParts(
+      value.getHours(),
+      value.getMinutes(),
+      value.getSeconds(),
+    )}`;
+  }
+
+  const text = String(value).trim();
+  const match = text.match(
+    /^(\d{4})[\/.-](\d{1,2})[\/.-](\d{1,2})(?:[T\s]+(\d{1,2}):(\d{2})(?::(\d{2}))?)?$/,
+  );
+  if (match) {
+    const date = formatDateParts(Number(match[1]), Number(match[2]), Number(match[3]));
+    return `${date} ${formatTimeParts(Number(match[4] ?? 0), Number(match[5] ?? 0), Number(match[6] ?? 0))}`;
+  }
+
+  const parsed = new Date(text);
+  if (!Number.isNaN(parsed.getTime())) {
+    return `${formatDateParts(parsed.getFullYear(), parsed.getMonth() + 1, parsed.getDate())} ${formatTimeParts(
+      parsed.getHours(),
+      parsed.getMinutes(),
+      parsed.getSeconds(),
+    )}`;
+  }
+
+  return text;
+}
+
 function formatDateParts(year: number, month: number, day: number) {
   return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+function formatTimeParts(hour: number, minute: number, second: number) {
+  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}:${String(second).padStart(2, "0")}`;
 }
 
 export function buildImportMessage(report: ImportReport) {

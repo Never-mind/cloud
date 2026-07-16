@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { FileDown, RefreshCw, Search } from "lucide-react";
 import { formatDisplayValue } from "@/lib/display-format";
+import { exportRowsToXlsx } from "@/lib/client-xlsx-export";
 import { DEFAULT_PAGE_SIZE, paginateRows } from "@/lib/pagination";
 import {
   PURCHASE_PRODUCT_LINE_COLUMNS,
@@ -28,9 +29,17 @@ export function PurchaseProductLinesPage() {
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
 
   async function fetchEntity(entity: string) {
-    const response = await fetch(`/api/entities/${entity}?page=1&pageSize=100`);
-    const data = await response.json();
-    return (data.rows ?? []) as Row[];
+    const rows: Row[] = [];
+    let page = 1;
+    let total = 0;
+    do {
+      const response = await fetch(`/api/entities/${entity}?page=${page}&pageSize=100`);
+      const data = await response.json();
+      rows.push(...((data.rows ?? []) as Row[]));
+      total = Number(data.total ?? rows.length);
+      page += 1;
+    } while (rows.length < total);
+    return rows;
   }
 
   async function loadData() {
@@ -67,6 +76,15 @@ export function PurchaseProductLinesPage() {
   }, [instanceModels, keyword, purchaseItems, purchaseOrders, requestItems, requests]);
   const pagedRows = useMemo(() => paginateRows(rows, page, pageSize), [page, pageSize, rows]);
 
+  function exportRows() {
+    exportRowsToXlsx({
+      columns: columns.map((column) => ({ ...column, format: (value) => formatValue(value) })),
+      rows,
+      sheetName: "采购明细一览",
+      fileName: "采购明细一览.xlsx",
+    });
+  }
+
   return (
     <div className="space-y-5">
       <div>
@@ -94,12 +112,12 @@ export function PurchaseProductLinesPage() {
             <RefreshCw size={15} />
             刷新
           </Button>
-          <a href={`/api/purchase/product-lines/export?keyword=${encodeURIComponent(keyword)}`}>
-            <Button tone="warning">
+          <div>
+            <Button tone="warning" onClick={exportRows}>
               <FileDown size={15} />
               导出 Excel
             </Button>
-          </a>
+          </div>
         </div>
 
         <div className="table-scroll overflow-auto">

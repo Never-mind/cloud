@@ -39,6 +39,8 @@ describe("purchase product lines", () => {
         nameZh: "计算增强型",
         nameEn: "Compute Enhanced",
         quantity: 3,
+        taxExcludedUnitPrice: 88,
+        taxSurcharge: 0,
         unitPrice: 88,
         totalAmount: 264,
       },
@@ -99,6 +101,17 @@ describe("purchase product lines", () => {
     ).toBe(289);
   });
 
+  it("keeps imported tax surcharge fields while calculating VAT-included amounts", () => {
+    const [row] = buildPurchaseProductLines({
+      purchaseOrders: [{ poNo: "PO-TAX", requestNo: "REQ-TAX", status: "草稿", currency: "USD" }],
+      purchaseItems: [{ id: "POI-TAX", poNo: "PO-TAX", requestItemId: "RI-TAX", taxExcludedUnitPrice: 100, taxSurcharge: 16, unitPrice: 116 }],
+      requestItems: [{ id: "RI-TAX", requestNo: "REQ-TAX", deviceCode: "DEV-TAX", quantity: 2 }],
+      instanceModels: [],
+    });
+
+    expect(row).toMatchObject({ taxExcludedUnitPrice: 100, taxSurcharge: 16, unitPrice: 116, totalAmount: 232 });
+  });
+
   it("exports purchase product lines with total amount", () => {
     expect(
       formatPurchaseProductLineForExport({
@@ -113,6 +126,8 @@ describe("purchase product lines", () => {
         nameZh: "计算增强型",
         nameEn: "Compute Enhanced",
         quantity: 3,
+        taxExcludedUnitPrice: 88,
+        taxSurcharge: 0,
         unitPrice: 88,
         totalAmount: 264,
       }),
@@ -126,8 +141,10 @@ describe("purchase product lines", () => {
       英文名称: "Compute Enhanced",
       数量: 3,
       币种: "USD",
-      单价: 88,
-      总价: 264,
+      不含税单价: 88,
+      税费加成: 0,
+      含税单价: 88,
+      含税总价: 264,
     });
   });
 

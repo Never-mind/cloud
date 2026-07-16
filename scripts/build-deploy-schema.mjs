@@ -18,6 +18,8 @@ const tableNames = [
   "RequestItems",
   "PurchaseOrders",
   "PurchaseOrderItems",
+  "PurchaseOrderSnItems",
+  "PurchaseOrderPlanItems",
   "PrepaymentContracts",
   "PrepaymentContractItems",
   "MonthlyPrepaymentWriteOffs",
@@ -39,14 +41,17 @@ const tableNames = [
   "AppUsers",
 ];
 
-let sql = readFileSync(sourcePath, "utf8");
+let sql = readFileSync(sourcePath, "utf8").replace(/^\uFEFF/, "");
 
 sql = sql.replaceAll("`suanli`", "`cloud_power`");
 
 for (const tableName of tableNames) {
-  sql = sql.replaceAll(`\`${tableName}\``, `\`${tableName.toLowerCase()}\``);
+  const logicalName = tableName.toLowerCase();
+  const physicalName = logicalName.startsWith("power_") ? logicalName : `power_${logicalName}`;
+  sql = sql.replaceAll(`\`${tableName}\``, `\`${physicalName}\``);
+  sql = sql.replaceAll(`\`${logicalName}\``, `\`${physicalName}\``);
 }
 
-writeFileSync(outputPath, sql, "utf8");
+writeFileSync(outputPath, sql.replace(/^\uFEFF/, ""), "utf8");
 
 console.log(`Generated ${outputPath}`);

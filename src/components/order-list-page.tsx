@@ -1,12 +1,17 @@
 "use client";
 
 import Link from "next/link";
+import * as XLSX from "xlsx";
 import { useEffect, useMemo, useState } from "react";
 import { CheckCircle2, FileDown, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { formatDisplayValue } from "@/lib/display-format";
 import type { EntityConfig } from "@/lib/modules";
 import { countOrderStatusTabs, isConfirmedOrderStatus, type OrderStatusTab } from "@/lib/order-status";
-import { getOrderListColumnKeys, shouldShowPurchaseSourceGenerator } from "@/lib/order-list-view";
+import {
+  getOrderListColumnKeys,
+  getOrderListPrimaryDisplayValue,
+  shouldShowPurchaseSourceGenerator,
+} from "@/lib/order-list-view";
 import { getOrderCreateRoute, getOrderDetailRoute, type OrderRouteMode } from "@/lib/order-routes";
 import { DEFAULT_PAGE_SIZE, paginateRows } from "@/lib/pagination";
 import { calculatePurchaseTotalAmount } from "@/lib/purchase-lines";
@@ -155,6 +160,29 @@ export function OrderListPage({
     await loadData();
   }
 
+  function exportOrders() {
+    const columns: Array<[string, string, string?]> =
+      mode === "requests"
+        ? [
+            ["requestNo", "需求单号"], ["countryCode", "国家"], ["batchName", "批次号"], ["status", "状态"],
+            ["totalQuantity", "总数量"], ["plannedDeliveryDate", "计划交付日期", "date"],
+            ["createdAt", "创建日期", "datetime"], ["updatedAt", "更新日期", "datetime"],
+          ]
+        : [
+            ["poNo", "PO订单号"], ["requestNo", "来源需求单"], ["batchName", "批次号"], ["status", "状态"],
+            ["currency", "币种"], ["totalQuantity", "总数量"], ["purchaseTotalAmount", "采购总金额", "money"],
+            ["createdAt", "创建日期", "datetime"], ["updatedAt", "更新日期", "datetime"],
+          ];
+    const worksheet = XLSX.utils.aoa_to_sheet([
+      columns.map(([, label]) => label),
+      ...rows.map((row) => columns.map(([key, , type]) => formatValue(row[key], type))),
+    ]);
+    worksheet["!cols"] = columns.map(([, label]) => ({ wch: Math.max(12, label.length * 2 + 4) }));
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, mode === "requests" ? "需求单列表" : "采购订单列表");
+    XLSX.writeFile(workbook, `${mode === "requests" ? "需求单列表" : "采购订单列表"}-${statusTab}.xlsx`);
+  }
+
   const hasActionColumn = mode === "purchase" || mode === "requests";
 
   return (
@@ -201,12 +229,12 @@ export function OrderListPage({
               新建
             </Button>
           </Link>
-          <a href={`/api/entities/${masterConfig.key}/export?keyword=${encodeURIComponent(keyword)}`}>
-            <Button tone="warning">
+          <div>
+            <Button tone="warning" onClick={exportOrders}>
               <FileDown size={15} />
               导出 Excel
             </Button>
-          </a>
+          </div>
           {shouldShowPurchaseSourceGenerator(mode) ? <div className="ml-auto" /> : null}
         </div>
 
@@ -215,13 +243,8 @@ export function OrderListPage({
             <thead className="bg-[#f5f7fa] text-[#303133]">
               <tr>
                 <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium">
-                  {mode === "requests" ? "需求单号" : "系统采购ID"}
+                  {mode === "requests" ? "需求单号" : "PO订单号"}
                 </th>
-                {mode === "purchase" ? (
-                  <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium">
-                    PO订单号
-                  </th>
-                ) : null}
                 {mode === "requests" ? (
                   <>
                     <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium">国家</th>
@@ -267,6 +290,7 @@ export function OrderListPage({
             <tbody>
               {pagedRows.map((row) => {
                 const id = String(row[masterConfig.primaryKey]);
+                const primaryDisplayValue = getOrderListPrimaryDisplayValue(mode, row);
                 const confirmed = isConfirmedOrderStatus(mode, row.status);
                 return (
                   <tr className="hover:bg-[#fafafa]" key={id}>
@@ -275,19 +299,9 @@ export function OrderListPage({
                         className="font-medium text-[#1890ff] hover:underline"
                         href={getOrderDetailRoute(mode, id)}
                       >
-                        {id}
+                        {primaryDisplayValue}
                       </Link>
                     </td>
-                    {mode === "purchase" ? (
-                      <td className="border-b border-r border-[#ebeef5] px-3 py-3">
-                        <Link
-                          className="font-medium text-[#1890ff] hover:underline"
-                          href={getOrderDetailRoute(mode, id)}
-                        >
-                          {formatValue(row.poNo)}
-                        </Link>
-                      </td>
-                    ) : null}
                     {mode === "requests" ? (
                       <>
                         <td className="border-b border-r border-[#ebeef5] px-3 py-3">

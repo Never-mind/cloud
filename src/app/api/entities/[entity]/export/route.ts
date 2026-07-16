@@ -14,7 +14,16 @@ export async function GET(request: NextRequest, context: { params: Promise<{ ent
   const params = new URLSearchParams(request.nextUrl.searchParams);
   params.set("page", "1");
   params.set("pageSize", "100");
-  const { rows } = await listEntityRows(config, params);
+  const rows = [];
+  let page = 1;
+  let total = 0;
+  do {
+    params.set("page", String(page));
+    const result = await listEntityRows(config, params);
+    rows.push(...result.rows);
+    total = result.total;
+    page += 1;
+  } while (rows.length < total);
   const worksheet = XLSX.utils.json_to_sheet(
     rows.map((row) =>
       Object.fromEntries(config.listFields.map((field) => [field.label, row[field.key] ?? ""])),

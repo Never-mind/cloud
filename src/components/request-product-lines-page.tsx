@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { FileDown, RefreshCw, Search } from "lucide-react";
 import { formatDisplayValue } from "@/lib/display-format";
+import { exportRowsToXlsx } from "@/lib/client-xlsx-export";
 import { DEFAULT_PAGE_SIZE, paginateRows } from "@/lib/pagination";
 import { buildRequestProductLines } from "@/lib/request-lines";
 import { PaginationBar } from "./pagination-bar";
@@ -92,6 +93,15 @@ export function RequestProductLinesPage() {
   }, [instanceModels, keyword, requestItems, requests, suppliers]);
   const pagedRows = useMemo(() => paginateRows(rows, page, pageSize), [page, pageSize, rows]);
 
+  function exportRows() {
+    exportRowsToXlsx({
+      columns: columns.map((column) => ({ ...column, format: (value) => formatValue(value) })),
+      rows,
+      sheetName: "需求明细一览",
+      fileName: "需求明细一览.xlsx",
+    });
+  }
+
   return (
     <div className="space-y-5">
       <div>
@@ -116,12 +126,12 @@ export function RequestProductLinesPage() {
             <RefreshCw size={15} />
             刷新
           </Button>
-          <a href={`/api/entities/request-items/export?keyword=${encodeURIComponent(keyword)}`}>
-            <Button tone="warning">
+          <div>
+            <Button tone="warning" onClick={exportRows}>
               <FileDown size={15} />
               导出 Excel
             </Button>
-          </a>
+          </div>
         </div>
 
         <div className="table-scroll overflow-auto">

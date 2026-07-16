@@ -14,6 +14,31 @@ function getInsertFields(config: EntityConfig) {
   return Array.from(new Set([config.primaryKey, ...getWritableFields(config)]));
 }
 
+const shipmentDisplayFields = new Set(["destinationAddress", "recipientName"]);
+
+function isShipmentDelivered(value: unknown) {
+  return value !== null && value !== undefined && String(value).trim() !== "";
+}
+
+function withShipmentReceiptStatus(config: EntityConfig, body: Row) {
+  if (config.key !== "shipments") return body;
+  return { ...body, isReceived: isShipmentDelivered(body.deliveredAt) };
+}
+
+function normalizeEntityBody(config: EntityConfig, body: Row) {
+  const nextBody = withShipmentReceiptStatus(config, body);
+  if (config.key !== "purchase-order-items") return nextBody;
+
+  const taxExcludedUnitPrice = Number(nextBody.taxExcludedUnitPrice ?? nextBody.unitPrice ?? 0);
+  const taxSurcharge = Number(nextBody.taxSurcharge ?? 0);
+  return {
+    ...nextBody,
+    taxExcludedUnitPrice,
+    taxSurcharge,
+    unitPrice: taxExcludedUnitPrice + taxSurcharge,
+  };
+}
+
 function withPrimaryKey(config: EntityConfig, body: Row) {
   if (body[config.primaryKey]) return body;
   return {
@@ -27,12 +52,14 @@ export async function listEntityRows(config: EntityConfig, searchParams: URLSear
   const pageSize = Math.min(100, Math.max(1, Number(searchParams.get("pageSize") ?? 20)));
   const keyword = searchParams.get("keyword")?.trim();
   const fields = Array.from(new Set([...config.listFields, ...config.formFields].map((field) => field.key)));
-  const selectedFields = fields.map(quoteIdentifier).join(", ");
+  const storageFields =
+    config.key === "shipments" ? fields.filter((field) => !shipmentDisplayFields.has(field)) : fields;
+  const selectedFields = storageFields.map(quoteIdentifier).join(", ");
   const whereParts: string[] = [];
   const params: Row = { limit: pageSize, offset: (page - 1) * pageSize };
 
   if (keyword) {
-    const keywordFields = fields.slice(0, 5);
+    const keywordFields = storageFields.slice(0, 5);
     whereParts.push(
       `(${keywordFields.map((field) => `${quoteIdentifier(field)} LIKE :keyword`).join(" OR ")})`,
     );
@@ -43,9 +70,22 @@ export async function listEntityRows(config: EntityConfig, searchParams: URLSear
     if (filter.key === "keyword") continue;
     const value = searchParams.get(filter.key)?.trim();
     if (value) {
+      if (config.key === "shipments" && filter.key === "receiptStatus") {
+        if (value === "received") whereParts.push("`deliveredAt` IS NOT NULL");
+        if (value === "unreceived") whereParts.push("`deliveredAt` IS NULL");
+        continue;
+      }
       whereParts.push(`${quoteIdentifier(filter.key)} = :${filter.key}`);
       params[filter.key] = value;
     }
+  }
+
+  if (
+    (config.key === "purchase-order-sn-items" || config.key === "purchase-order-plan-items") &&
+    searchParams.get("purchaseOrderId")?.trim()
+  ) {
+    whereParts.push("`purchaseOrderId` = :purchaseOrderId");
+    params.purchaseOrderId = searchParams.get("purchaseOrderId")!.trim();
   }
 
   const where = whereParts.length ? `WHERE ${whereParts.join(" AND ")}` : "";
@@ -60,7 +100,12 @@ export async function listEntityRows(config: EntityConfig, searchParams: URLSear
     params,
   );
 
-  return { rows, total, page, pageSize };
+  return {
+    rows: config.key === "shipments" ? await enrichShipmentRows(rows) : rows,
+    total,
+    page,
+    pageSize,
+  };
 }
 
 export async function getEntityRow(config: EntityConfig, id: string) {
@@ -71,7 +116,7 @@ export async function getEntityRow(config: EntityConfig, id: string) {
 }
 
 export async function createEntityRow(config: EntityConfig, body: Row) {
-  const nextBody = withPrimaryKey(config, body);
+  const nextBody = normalizeEntityBody(config, withPrimaryKey(config, body));
   const fields = getInsertFields(config);
   const table = quoteIdentifier(config.table);
   const columns = fields.map(quoteIdentifier).join(", ");
@@ -87,7 +132,8 @@ export async function updateEntityRow(config: EntityConfig, id: string, body: Ro
   const table = quoteIdentifier(config.table);
   const primaryKey = quoteIdentifier(config.primaryKey);
   const assignments = fields.map((field) => `${quoteIdentifier(field)} = :${field}`).join(", ");
-  const params = Object.fromEntries(fields.map((field) => [field, body[field] ?? null]));
+  const nextBody = normalizeEntityBody(config, body);
+  const params = Object.fromEntries(fields.map((field) => [field, nextBody[field] ?? null]));
 
   await execute(`UPDATE ${table} SET ${assignments} WHERE ${primaryKey} = :id`, {
     ...params,
@@ -115,4 +161,41 @@ export async function upsertEntityRow(config: EntityConfig, row: Row) {
   } else {
     await createEntityRow(config, row);
   }
+}
+
+async function enrichShipmentRows(rows: Row[]): Promise<Row[]> {
+  const dcCodes = uniqueValues(rows, "dcCode");
+  const locationIds = uniqueValues(rows, "destinationLocationId");
+  const contactIds = uniqueValues(rows, "recipientContactId");
+  const poNos = uniqueValues(rows, "poNo");
+  const [datacenters, locations, contacts, purchaseOrders] = await Promise.all([
+    dcCodes.length ? queryRows("SELECT dcCode, nameZh FROM datacenters WHERE dcCode IN (:dcCodes)", { dcCodes }) : [],
+    locationIds.length
+      ? queryRows("SELECT locationId, fullAddress FROM deliverylocations WHERE locationId IN (:locationIds)", { locationIds })
+      : [],
+    contactIds.length ? queryRows("SELECT contactId, name FROM deliverycontacts WHERE contactId IN (:contactIds)", { contactIds }) : [],
+    poNos.length ? queryRows("SELECT purchaseOrderId, poNo FROM purchaseorders WHERE poNo IN (:poNos)", { poNos }) : [],
+  ]);
+  const datacenterByCode = new Map(datacenters.map((row) => [String(row.dcCode), row]));
+  const locationById = new Map(locations.map((row) => [String(row.locationId), row]));
+  const contactById = new Map(contacts.map((row) => [String(row.contactId), row]));
+  const purchaseOrderByPoNo = new Map(purchaseOrders.map((row) => [String(row.poNo), row]));
+
+  return rows.map((row): Row => {
+    const datacenter = datacenterByCode.get(String(row.dcCode ?? ""));
+    const location = locationById.get(String(row.destinationLocationId ?? ""));
+    const contact = contactById.get(String(row.recipientContactId ?? ""));
+    return {
+      ...row,
+      dcNameZh: datacenter?.nameZh ?? row.dcNameZh ?? row.dcCode,
+      destinationAddress: location?.fullAddress ?? row.snapshotDestinationAddress ?? row.destinationLocationId,
+      recipientName: contact?.name ?? row.snapshotRecipientName ?? row.recipientContactId,
+      purchaseOrderId: purchaseOrderByPoNo.get(String(row.poNo ?? ""))?.purchaseOrderId ?? null,
+      isReceived: isShipmentDelivered(row.deliveredAt),
+    };
+  });
+}
+
+function uniqueValues(rows: Row[], key: string) {
+  return Array.from(new Set(rows.map((row) => String(row[key] ?? "").trim()).filter(Boolean)));
 }

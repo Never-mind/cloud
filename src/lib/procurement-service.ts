@@ -17,6 +17,8 @@ type ShipmentLineRow = {
   batchName: string | null;
   deviceCode: string | null;
   nameEn: string | null;
+  supplierId: string | null;
+  undertakingUnitId: string | null;
 };
 
 export async function createPurchaseOrderFromRequest(requestNo: string, poNo?: string) {
@@ -112,7 +114,9 @@ export async function confirmPurchaseOrder(purchaseOrderIdOrPoNo: string) {
         poi.id AS purchaseOrderItemId,
         req.batchName AS batchName,
         ri.deviceCode AS deviceCode,
-        im.nameEn AS nameEn
+        im.nameEn AS nameEn,
+        ri.supplierId AS supplierId,
+        ri.undertakingUnitId AS undertakingUnitId
       FROM purchaseorderitems poi
       LEFT JOIN requestitems ri ON ri.id = poi.requestItemId
       LEFT JOIN requests req ON req.requestNo = ri.requestNo
@@ -128,11 +132,11 @@ export async function confirmPurchaseOrder(purchaseOrderIdOrPoNo: string) {
     await execute(
       `
         INSERT INTO shipments
-          (shipmentId, poNo, batchName, purchaseOrderItemId, deviceCode, nameEn, destinationLocationId,
+          (shipmentId, poNo, batchName, purchaseOrderItemId, deviceCode, nameEn, supplierId, undertakingUnitId, destinationLocationId,
            recipientContactId, snapshotDestinationAddress, snapshotRecipientName,
            snapshotRecipientPhone, transportMode, isReceived)
         VALUES
-          (:shipmentId, :poNo, :batchName, :purchaseOrderItemId, :deviceCode, :nameEn, :destinationLocationId,
+          (:shipmentId, :poNo, :batchName, :purchaseOrderItemId, :deviceCode, :nameEn, :supplierId, :undertakingUnitId, :destinationLocationId,
            :recipientContactId, :snapshotDestinationAddress, :snapshotRecipientName,
            :snapshotRecipientPhone, :transportMode, :isReceived)
         ON DUPLICATE KEY UPDATE
@@ -140,7 +144,9 @@ export async function confirmPurchaseOrder(purchaseOrderIdOrPoNo: string) {
           batchName = VALUES(batchName),
           purchaseOrderItemId = VALUES(purchaseOrderItemId),
           deviceCode = VALUES(deviceCode),
-          nameEn = VALUES(nameEn)
+          nameEn = VALUES(nameEn),
+          supplierId = VALUES(supplierId),
+          undertakingUnitId = VALUES(undertakingUnitId)
       `,
       shipment,
     );

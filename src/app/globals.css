@@ -30,6 +30,14 @@ body {
   font-size: 14px;
 }
 
+html[data-embedded-page="1"] [data-app-shell="outer"] {
+  visibility: hidden;
+}
+
+html[data-embedded-page="1"] [data-app-shell="inner"] {
+  visibility: visible;
+}
+
 a {
   color: inherit;
   text-decoration: none;

@@ -4,15 +4,16 @@ CREATE DATABASE IF NOT EXISTS `suanli`
 
 USE `suanli`;
 
-CREATE TABLE IF NOT EXISTS `Countries` (
+CREATE TABLE IF NOT EXISTS `power_countries` (
   `code` VARCHAR(32) NOT NULL COMMENT 'country code PK',
   `nameZh` VARCHAR(255) NULL COMMENT 'country name zh',
   `nameEn` VARCHAR(255) NULL COMMENT 'country name en',
   `nameLocal` VARCHAR(255) NULL COMMENT 'country name local',
+  `vatRate` DECIMAL(10, 6) NULL COMMENT 'VAT rate as decimal',
   PRIMARY KEY (`code`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Countries';
 
-CREATE TABLE IF NOT EXISTS `DeliveryLocations` (
+CREATE TABLE IF NOT EXISTS `power_deliverylocations` (
   `locationId` VARCHAR(64) NOT NULL COMMENT 'location id PK',
   `countryCode` VARCHAR(32) NOT NULL COMMENT 'country code',
   `locationType` VARCHAR(64) NULL COMMENT 'Datacenter/Warehouse/Office/Broker',
@@ -23,7 +24,7 @@ CREATE TABLE IF NOT EXISTS `DeliveryLocations` (
   KEY `idx_DeliveryLocations_countryCode` (`countryCode`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='DeliveryLocations';
 
-CREATE TABLE IF NOT EXISTS `DeliveryContacts` (
+CREATE TABLE IF NOT EXISTS `power_deliverycontacts` (
   `contactId` VARCHAR(64) NOT NULL COMMENT 'contact id PK',
   `locationId` VARCHAR(64) NOT NULL COMMENT 'default location id',
   `name` VARCHAR(255) NULL COMMENT 'name',
@@ -33,7 +34,7 @@ CREATE TABLE IF NOT EXISTS `DeliveryContacts` (
   KEY `idx_DeliveryContacts_locationId` (`locationId`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='DeliveryContacts';
 
-CREATE TABLE IF NOT EXISTS `Datacenters` (
+CREATE TABLE IF NOT EXISTS `power_datacenters` (
   `dcCode` VARCHAR(64) NOT NULL COMMENT 'datacenter code PK',
   `locationId` VARCHAR(64) NOT NULL COMMENT 'physical location id',
   `nameZh` VARCHAR(255) NULL COMMENT 'datacenter name zh',
@@ -42,17 +43,16 @@ CREATE TABLE IF NOT EXISTS `Datacenters` (
   UNIQUE KEY `uk_Datacenters_locationId` (`locationId`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Datacenters';
 
-CREATE TABLE IF NOT EXISTS `InstanceModels` (
+CREATE TABLE IF NOT EXISTS `power_instancemodels` (
   `deviceCode` VARCHAR(64) NOT NULL COMMENT 'device code PK',
   `modelCode` VARCHAR(128) NOT NULL COMMENT 'model code UK',
   `xxllCode` VARCHAR(128) NULL COMMENT 'xxll code',
   `nameZh` VARCHAR(255) NULL COMMENT 'instance model name zh',
   `nameEn` VARCHAR(255) NULL COMMENT 'instance model name en',
-  PRIMARY KEY (`deviceCode`),
-  UNIQUE KEY `uk_InstanceModels_modelCode` (`modelCode`)
+  PRIMARY KEY (`deviceCode`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='InstanceModels';
 
-CREATE TABLE IF NOT EXISTS `Suppliers` (
+CREATE TABLE IF NOT EXISTS `power_suppliers` (
   `supplierId` VARCHAR(64) NOT NULL COMMENT 'supplier id PK',
   `supplierCode` VARCHAR(128) NOT NULL COMMENT 'ODM supplier code UK',
   `name` VARCHAR(255) NULL COMMENT 'name',
@@ -60,7 +60,15 @@ CREATE TABLE IF NOT EXISTS `Suppliers` (
   UNIQUE KEY `uk_Suppliers_supplierCode` (`supplierCode`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Suppliers';
 
-CREATE TABLE IF NOT EXISTS `InstanceContracts` (
+CREATE TABLE IF NOT EXISTS `power_undertakingunits` (
+  `undertakingUnitId` VARCHAR(64) NOT NULL COMMENT 'undertaking unit id PK',
+  `undertakingUnitCode` VARCHAR(128) NOT NULL COMMENT 'undertaking unit code UK',
+  `name` VARCHAR(255) NULL COMMENT 'name',
+  PRIMARY KEY (`undertakingUnitId`),
+  UNIQUE KEY `uk_UndertakingUnits_code` (`undertakingUnitCode`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='UndertakingUnits';
+
+CREATE TABLE IF NOT EXISTS `power_instancecontracts` (
   `id` VARCHAR(128) NOT NULL COMMENT 'PK',
   `contractNo` VARCHAR(128) NOT NULL COMMENT 'contract no',
   `countryCode` VARCHAR(32) NOT NULL COMMENT 'country code',
@@ -81,7 +89,7 @@ CREATE TABLE IF NOT EXISTS `InstanceContracts` (
   KEY `idx_InstanceContracts_deviceCode` (`deviceCode`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='InstanceContracts';
 
-CREATE TABLE IF NOT EXISTS `ContractItems` (
+CREATE TABLE IF NOT EXISTS `power_contractitems` (
   `id` VARCHAR(64) NOT NULL COMMENT 'PK',
   `contractNo` VARCHAR(128) NOT NULL COMMENT 'contract no',
   `deviceCode` VARCHAR(64) NOT NULL COMMENT 'device code',
@@ -92,7 +100,7 @@ CREATE TABLE IF NOT EXISTS `ContractItems` (
   KEY `idx_ContractItems_deviceCode` (`deviceCode`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='ContractItems';
 
-CREATE TABLE IF NOT EXISTS `Requests` (
+CREATE TABLE IF NOT EXISTS `power_requests` (
   `requestNo` VARCHAR(128) NOT NULL COMMENT 'request no PK',
   `countryCode` VARCHAR(32) NULL COMMENT 'country code',
   `contractNo` VARCHAR(128) NOT NULL COMMENT 'instance contract no',
@@ -107,21 +115,23 @@ CREATE TABLE IF NOT EXISTS `Requests` (
   KEY `idx_Requests_countryCode` (`countryCode`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Requests';
 
-CREATE TABLE IF NOT EXISTS `RequestItems` (
+CREATE TABLE IF NOT EXISTS `power_requestitems` (
   `id` VARCHAR(64) NOT NULL COMMENT 'PK',
   `requestNo` VARCHAR(128) NOT NULL COMMENT 'request no',
   `deviceCode` VARCHAR(64) NOT NULL COMMENT 'device code',
   `supplierId` VARCHAR(64) NOT NULL COMMENT 'supplier id',
+  `undertakingUnitId` VARCHAR(64) NULL COMMENT 'undertaking unit id',
   `requestedAt` DATE NULL COMMENT 'requested date',
   `quantity` INT NOT NULL DEFAULT 0 COMMENT 'device node quantity',
   PRIMARY KEY (`id`),
   KEY `idx_RequestItems_requestNo` (`requestNo`),
   KEY `idx_RequestItems_deviceCode` (`deviceCode`),
   KEY `idx_RequestItems_supplierId` (`supplierId`),
+  KEY `idx_RequestItems_undertakingUnitId` (`undertakingUnitId`),
   CONSTRAINT `chk_RequestItems_quantity_nonnegative` CHECK (`quantity` >= 0)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='RequestItems';
 
-CREATE TABLE IF NOT EXISTS `PurchaseOrders` (
+CREATE TABLE IF NOT EXISTS `power_purchaseorders` (
   `purchaseOrderId` VARCHAR(128) NOT NULL COMMENT 'system purchase order id',
   `poNo` VARCHAR(128) NOT NULL COMMENT 'PO no PK',
   `requestNo` VARCHAR(128) NULL COMMENT 'source request no',
@@ -139,13 +149,15 @@ CREATE TABLE IF NOT EXISTS `PurchaseOrders` (
   KEY `idx_PurchaseOrders_status` (`status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='PurchaseOrders';
 
-CREATE TABLE IF NOT EXISTS `PurchaseOrderItems` (
+CREATE TABLE IF NOT EXISTS `power_purchaseorderitems` (
   `id` VARCHAR(64) NOT NULL COMMENT 'PK',
   `purchaseOrderId` VARCHAR(128) NULL COMMENT 'system purchase order id',
   `poNo` VARCHAR(128) NOT NULL COMMENT 'PO no',
   `requestNo` VARCHAR(128) NULL COMMENT 'source request no',
   `requestItemId` VARCHAR(64) NOT NULL COMMENT 'request item id',
-  `unitPrice` DECIMAL(18, 4) NULL COMMENT 'unit price',
+  `taxExcludedUnitPrice` DECIMAL(18, 4) NULL COMMENT 'tax excluded unit price',
+  `taxSurcharge` DECIMAL(18, 4) NOT NULL DEFAULT 0 COMMENT 'tax surcharge',
+  `unitPrice` DECIMAL(18, 4) NULL COMMENT 'tax included unit price',
   `hardwareCoefficient` DECIMAL(18, 6) NULL COMMENT 'hardware coefficient',
   `softwareCoefficient` DECIMAL(18, 6) NULL COMMENT 'software coefficient',
   `totalCoefficient` DECIMAL(18, 6) NULL COMMENT 'total coefficient',
@@ -155,7 +167,70 @@ CREATE TABLE IF NOT EXISTS `PurchaseOrderItems` (
   KEY `idx_PurchaseOrderItems_poNo` (`poNo`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='PurchaseOrderItems';
 
-CREATE TABLE IF NOT EXISTS `PrepaymentContracts` (
+CREATE TABLE IF NOT EXISTS `power_purchaseordersnitems` (
+  `id` VARCHAR(64) NOT NULL COMMENT 'PK',
+  `purchaseOrderId` VARCHAR(128) NOT NULL COMMENT 'system purchase order id',
+  `poNo` VARCHAR(128) NOT NULL COMMENT 'PO no',
+  `purchaseOrderItemId` VARCHAR(64) NULL COMMENT 'purchase order item id',
+  `requestNo` VARCHAR(128) NULL COMMENT 'source request no',
+  `deviceVendor` VARCHAR(255) NULL COMMENT 'device vendor',
+  `finalParentSn` VARCHAR(255) NULL COMMENT 'final parent SN',
+  `finalParentPn` VARCHAR(255) NULL COMMENT 'customer final parent PN',
+  `finalParentPnDescription` VARCHAR(500) NULL COMMENT 'final parent PN description',
+  `supplierFinalParentCode` VARCHAR(255) NULL COMMENT 'supplier final parent code',
+  `supplierParentCode` VARCHAR(255) NULL COMMENT 'supplier parent code',
+  `supplierParentSn` VARCHAR(255) NULL COMMENT 'supplier parent SN',
+  `sn` VARCHAR(255) NOT NULL COMMENT 'serial number',
+  `fixedAssetCode` VARCHAR(255) NULL COMMENT 'fixed asset code',
+  `materialDescription` VARCHAR(500) NULL COMMENT 'material description',
+  `shippingBatch` VARCHAR(255) NULL COMMENT 'shipping batch',
+  `parentAssetNo` VARCHAR(255) NULL COMMENT 'customer parent asset no',
+  `componentCategory` VARCHAR(255) NULL COMMENT 'component category',
+  `packingListNo` VARCHAR(255) NULL COMMENT 'packing list no',
+  `parentCode` VARCHAR(255) NULL COMMENT 'customer parent code',
+  `finalParentCode` VARCHAR(255) NULL COMMENT 'customer final parent code',
+  `supplierChildComponentCode` VARCHAR(255) NULL COMMENT 'supplier child component code',
+  `customerChildComponentCode` VARCHAR(255) NULL COMMENT 'customer child component code',
+  `supplierChildComponentDescription` VARCHAR(500) NULL COMMENT 'supplier child component description',
+  `childComponentOriginalPn` VARCHAR(255) NULL COMMENT 'child component original PN',
+  `childComponentOriginalSn` VARCHAR(255) NULL COMMENT 'child component original SN',
+  `rackUnit` VARCHAR(255) NULL COMMENT 'rack unit',
+  `site` VARCHAR(500) NULL COMMENT 'site',
+  `contactPhone` VARCHAR(500) NULL COMMENT 'contact and phone',
+  `level` VARCHAR(64) NULL COMMENT 'asset hierarchy level',
+  `createdAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'created time',
+  `updatedAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'updated time',
+  PRIMARY KEY (`id`),
+  KEY `idx_PurchaseOrderSnItems_purchaseOrderId` (`purchaseOrderId`),
+  KEY `idx_PurchaseOrderSnItems_purchaseOrderItemId` (`purchaseOrderItemId`),
+  KEY `idx_PurchaseOrderSnItems_poNo` (`poNo`),
+  KEY `idx_PurchaseOrderSnItems_sn` (`sn`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='PurchaseOrderSnItems';
+
+CREATE TABLE IF NOT EXISTS `power_purchaseorderplanitems` (
+  `id` VARCHAR(64) NOT NULL COMMENT 'PK',
+  `purchaseOrderId` VARCHAR(128) NOT NULL COMMENT 'system purchase order id',
+  `poNo` VARCHAR(128) NOT NULL COMMENT 'PO no',
+  `purchaseOrderItemId` VARCHAR(64) NULL COMMENT 'purchase order item id',
+  `requestNo` VARCHAR(128) NULL COMMENT 'source request no',
+  `sourcePlanId` VARCHAR(128) NULL COMMENT 'source demand plan item id',
+  `quoteReceivedAt` DATE NULL COMMENT 'CEG quotation received date',
+  `poIssuedAt` DATE NULL COMMENT 'supplier PO issued date',
+  `receiptProofUploadedAt` DATE NULL COMMENT 'receipt proof uploaded date',
+  `logisticsReceivedAt` DATE NULL COMMENT 'logistics receipt date',
+  `ataAt` DATE NULL COMMENT 'ATA date',
+  `ata` VARCHAR(255) NULL COMMENT 'ATA',
+  `supplierCpd` DATE NULL COMMENT 'supplier CPD',
+  `material` VARCHAR(500) NULL COMMENT 'material',
+  `createdAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'created time',
+  `updatedAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'updated time',
+  PRIMARY KEY (`id`),
+  KEY `idx_PurchaseOrderPlanItems_purchaseOrderId` (`purchaseOrderId`),
+  KEY `idx_PurchaseOrderPlanItems_purchaseOrderItemId` (`purchaseOrderItemId`),
+  KEY `idx_PurchaseOrderPlanItems_poNo` (`poNo`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='PurchaseOrderPlanItems';
+
+CREATE TABLE IF NOT EXISTS `power_prepaymentcontracts` (
   `contractNo` VARCHAR(128) NOT NULL COMMENT 'contract no PK',
   `status` VARCHAR(64) NOT NULL DEFAULT '草稿' COMMENT 'prepayment contract status',
   `currency` VARCHAR(16) NULL COMMENT 'contract currency',
@@ -167,7 +242,7 @@ CREATE TABLE IF NOT EXISTS `PrepaymentContracts` (
   PRIMARY KEY (`contractNo`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='PrepaymentContracts';
 
-CREATE TABLE IF NOT EXISTS `PrepaymentContractItems` (
+CREATE TABLE IF NOT EXISTS `power_prepaymentcontractitems` (
   `id` VARCHAR(64) NOT NULL COMMENT 'PK',
   `contractNo` VARCHAR(128) NOT NULL COMMENT 'prepayment contract no',
   `lineType` VARCHAR(32) NOT NULL DEFAULT 'instance' COMMENT 'instance/fee',
@@ -180,6 +255,8 @@ CREATE TABLE IF NOT EXISTS `PrepaymentContractItems` (
   `deviceCode` VARCHAR(64) NULL COMMENT 'device code',
   `modelCode` VARCHAR(128) NULL COMMENT 'model code',
   `nameEn` VARCHAR(255) NULL COMMENT 'instance english name',
+  `supplierId` VARCHAR(64) NULL COMMENT 'supplier id',
+  `undertakingUnitId` VARCHAR(64) NULL COMMENT 'undertaking unit id',
   `quantity` INT NULL COMMENT 'quantity',
   `actualCurrency` VARCHAR(16) NULL COMMENT 'actual currency',
   `actualUnitPrice` DECIMAL(18, 4) NULL COMMENT 'actual unit price',
@@ -199,7 +276,7 @@ CREATE TABLE IF NOT EXISTS `PrepaymentContractItems` (
   KEY `idx_PrepaymentContractItems_purchaseOrderItemId` (`purchaseOrderItemId`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='PrepaymentContractItems';
 
-CREATE TABLE IF NOT EXISTS `MonthlyPrepaymentWriteOffs` (
+CREATE TABLE IF NOT EXISTS `power_monthlyprepaymentwriteoffs` (
   `id` VARCHAR(96) NOT NULL COMMENT 'monthly write-off id',
   `contractNo` VARCHAR(128) NOT NULL COMMENT 'prepayment contract no',
   `contractLineId` VARCHAR(64) NOT NULL COMMENT 'prepayment contract line id',
@@ -217,6 +294,8 @@ CREATE TABLE IF NOT EXISTS `MonthlyPrepaymentWriteOffs` (
   `deviceCode` VARCHAR(64) NULL COMMENT 'device code',
   `modelCode` VARCHAR(128) NULL COMMENT 'model code',
   `nameEn` VARCHAR(255) NULL COMMENT 'instance english name',
+  `supplierId` VARCHAR(64) NULL COMMENT 'supplier id',
+  `undertakingUnitId` VARCHAR(64) NULL COMMENT 'undertaking unit id',
   `quantity` INT NULL COMMENT 'quantity',
   `sourceType` VARCHAR(64) NULL COMMENT 'source type',
   `adjustmentNo` VARCHAR(128) NULL COMMENT 'adjustment no',
@@ -226,7 +305,7 @@ CREATE TABLE IF NOT EXISTS `MonthlyPrepaymentWriteOffs` (
   KEY `idx_MonthlyPrepaymentWriteOffs_writeOffMonth` (`writeOffMonth`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='MonthlyPrepaymentWriteOffs';
 
-CREATE TABLE IF NOT EXISTS `PrepaymentWriteOffAdjustments` (
+CREATE TABLE IF NOT EXISTS `power_prepaymentwriteoffadjustments` (
   `adjustmentNo` VARCHAR(128) NOT NULL COMMENT 'adjustment no',
   `status` VARCHAR(64) NOT NULL DEFAULT '草稿' COMMENT 'adjustment status',
   `countryCode` VARCHAR(32) NULL COMMENT 'country code',
@@ -243,7 +322,7 @@ CREATE TABLE IF NOT EXISTS `PrepaymentWriteOffAdjustments` (
   KEY `idx_PrepaymentWriteOffAdjustments_contractNo` (`contractNo`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='PrepaymentWriteOffAdjustments';
 
-CREATE TABLE IF NOT EXISTS `PrepaymentWriteOffAdjustmentItems` (
+CREATE TABLE IF NOT EXISTS `power_prepaymentwriteoffadjustmentitems` (
   `id` VARCHAR(160) NOT NULL COMMENT 'adjustment item id',
   `adjustmentNo` VARCHAR(128) NOT NULL COMMENT 'adjustment no',
   `monthlyWriteOffId` VARCHAR(96) NOT NULL COMMENT 'monthly write-off id',
@@ -268,7 +347,7 @@ CREATE TABLE IF NOT EXISTS `PrepaymentWriteOffAdjustmentItems` (
   KEY `idx_PrepaymentWriteOffAdjustmentItems_monthlyWriteOffId` (`monthlyWriteOffId`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='PrepaymentWriteOffAdjustmentItems';
 
-CREATE TABLE IF NOT EXISTS `BillingInstanceLedgers` (
+CREATE TABLE IF NOT EXISTS `power_billinginstanceledgers` (
   `ledgerId` VARCHAR(96) NOT NULL COMMENT 'billing ledger id',
   `purchaseOrderItemId` VARCHAR(64) NOT NULL COMMENT 'purchase order item id',
   `countryCode` VARCHAR(32) NULL COMMENT 'country code',
@@ -278,13 +357,21 @@ CREATE TABLE IF NOT EXISTS `BillingInstanceLedgers` (
   `deviceCode` VARCHAR(64) NULL COMMENT 'device code',
   `modelCode` VARCHAR(128) NULL COMMENT 'model code',
   `nameEn` VARCHAR(255) NULL COMMENT 'instance english name',
+  `supplierId` VARCHAR(64) NULL COMMENT 'supplier id',
+  `undertakingUnitId` VARCHAR(64) NULL COMMENT 'undertaking unit id',
   `quantity` INT NULL COMMENT 'quantity',
   `actualCurrency` VARCHAR(16) NULL COMMENT 'actual currency',
   `actualUnitPrice` DECIMAL(18, 4) NULL COMMENT 'actual unit price',
+  `taxExcludedUnitPrice` DECIMAL(18, 4) NULL COMMENT 'tax excluded unit price',
+  `taxSurcharge` DECIMAL(18, 4) NOT NULL DEFAULT 0 COMMENT 'tax surcharge',
+  `vatRate` DECIMAL(10, 6) NULL COMMENT 'VAT rate',
+  `selfCalculatedUnitPrice` DECIMAL(18, 4) NULL COMMENT 'self calculated VAT included unit price',
   `instanceContractNo` VARCHAR(128) NULL COMMENT 'locked instance contract no',
   `contractCurrency` VARCHAR(16) NULL COMMENT 'contract currency',
   `first24MonthPrice` DECIMAL(18, 4) NULL COMMENT 'first 24 month price',
   `next36MonthPrice` DECIMAL(18, 4) NULL COMMENT 'next 36 month price',
+  `differenceUnitPrice` DECIMAL(18, 4) NULL COMMENT 'settlement difference unit price',
+  `differenceTotalPrice` DECIMAL(18, 4) NULL COMMENT 'settlement difference total price',
   `startMonth` DATE NULL COMMENT 'billing start month',
   `status` VARCHAR(64) NOT NULL DEFAULT '核销中' COMMENT 'billing status',
   `confirmedAt` DATETIME NULL COMMENT 'confirmed time',
@@ -296,7 +383,7 @@ CREATE TABLE IF NOT EXISTS `BillingInstanceLedgers` (
   KEY `idx_BillingInstanceLedgers_deviceCode` (`deviceCode`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='BillingInstanceLedgers';
 
-CREATE TABLE IF NOT EXISTS `MonthlyBillingWriteOffs` (
+CREATE TABLE IF NOT EXISTS `power_monthlybillingwriteoffs` (
   `id` VARCHAR(112) NOT NULL COMMENT 'monthly billing write-off id',
   `ledgerId` VARCHAR(96) NOT NULL COMMENT 'billing ledger id',
   `writeOffMonth` DATE NOT NULL COMMENT 'write-off month first day',
@@ -309,11 +396,16 @@ CREATE TABLE IF NOT EXISTS `MonthlyBillingWriteOffs` (
   `deviceCode` VARCHAR(64) NULL COMMENT 'device code',
   `modelCode` VARCHAR(128) NULL COMMENT 'model code',
   `nameEn` VARCHAR(255) NULL COMMENT 'instance english name',
+  `supplierId` VARCHAR(64) NULL COMMENT 'supplier id',
+  `undertakingUnitId` VARCHAR(64) NULL COMMENT 'undertaking unit id',
   `quantity` INT NULL COMMENT 'quantity',
   `instanceContractNo` VARCHAR(128) NULL COMMENT 'instance contract no',
   `currency` VARCHAR(16) NULL COMMENT 'currency',
   `monthlyAmount` DECIMAL(18, 4) NULL COMMENT 'monthly amount',
   `monthlyTotalAmount` DECIMAL(18, 4) NULL COMMENT 'monthly total amount',
+  `selfCalculatedUnitPrice` DECIMAL(18, 4) NULL COMMENT 'self calculated VAT included unit price',
+  `differenceUnitPrice` DECIMAL(18, 4) NULL COMMENT 'settlement difference unit price',
+  `differenceTotalPrice` DECIMAL(18, 4) NULL COMMENT 'settlement difference total price',
   `sourceType` VARCHAR(32) NULL COMMENT 'initial/adjustment',
   `adjustmentNo` VARCHAR(128) NULL COMMENT 'adjustment no',
   `createdAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'created time',
@@ -323,7 +415,7 @@ CREATE TABLE IF NOT EXISTS `MonthlyBillingWriteOffs` (
   KEY `idx_MonthlyBillingWriteOffs_adjustmentNo` (`adjustmentNo`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='MonthlyBillingWriteOffs';
 
-CREATE TABLE IF NOT EXISTS `BillingAdjustments` (
+CREATE TABLE IF NOT EXISTS `power_billingadjustments` (
   `adjustmentNo` VARCHAR(128) NOT NULL COMMENT 'adjustment no',
   `instanceContractNo` VARCHAR(128) NULL COMMENT 'adjustment instance contract no',
   `status` VARCHAR(64) NOT NULL DEFAULT '草稿' COMMENT 'adjustment status',
@@ -345,7 +437,7 @@ CREATE TABLE IF NOT EXISTS `BillingAdjustments` (
   KEY `idx_BillingAdjustments_effectiveMonth` (`effectiveMonth`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='BillingAdjustments';
 
-CREATE TABLE IF NOT EXISTS `BillingAdjustmentItems` (
+CREATE TABLE IF NOT EXISTS `power_billingadjustmentitems` (
   `id` VARCHAR(160) NOT NULL COMMENT 'adjustment item id',
   `adjustmentNo` VARCHAR(128) NOT NULL COMMENT 'adjustment no',
   `countryCode` VARCHAR(32) NULL COMMENT 'country code',
@@ -367,7 +459,7 @@ CREATE TABLE IF NOT EXISTS `BillingAdjustmentItems` (
   KEY `idx_BillingAdjustmentItems_effectiveMonth` (`effectiveMonth`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='BillingAdjustmentItems';
 
-CREATE TABLE IF NOT EXISTS `BillingStatementSnapshots` (
+CREATE TABLE IF NOT EXISTS `power_billingstatementsnapshots` (
   `snapshotNo` VARCHAR(128) NOT NULL COMMENT 'billing statement snapshot no',
   `countryCode` VARCHAR(32) NOT NULL COMMENT 'country code',
   `startDate` DATE NOT NULL COMMENT 'statement start date',
@@ -382,7 +474,7 @@ CREATE TABLE IF NOT EXISTS `BillingStatementSnapshots` (
   KEY `idx_BillingStatementSnapshots_dates` (`startDate`, `endDate`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='BillingStatementSnapshots';
 
-CREATE TABLE IF NOT EXISTS `BillingStatementSnapshotItems` (
+CREATE TABLE IF NOT EXISTS `power_billingstatementsnapshotitems` (
   `id` VARCHAR(160) NOT NULL COMMENT 'billing statement snapshot item id',
   `snapshotNo` VARCHAR(128) NOT NULL COMMENT 'billing statement snapshot no',
   `countryCode` VARCHAR(32) NOT NULL COMMENT 'country code',
@@ -403,7 +495,7 @@ CREATE TABLE IF NOT EXISTS `BillingStatementSnapshotItems` (
   KEY `idx_BillingStatementSnapshotItems_currency` (`currency`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='BillingStatementSnapshotItems';
 
-CREATE TABLE IF NOT EXISTS `ServiceFeeSnapshots` (
+CREATE TABLE IF NOT EXISTS `power_servicefeesnapshots` (
   `snapshotNo` VARCHAR(128) NOT NULL COMMENT 'service fee snapshot no',
   `status` VARCHAR(64) NOT NULL DEFAULT '已确认' COMMENT 'snapshot status',
   `startMonth` DATE NULL COMMENT 'start month',
@@ -424,7 +516,7 @@ CREATE TABLE IF NOT EXISTS `ServiceFeeSnapshots` (
   KEY `idx_ServiceFeeSnapshots_countryCode` (`countryCode`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='ServiceFeeSnapshots';
 
-CREATE TABLE IF NOT EXISTS `ServiceFeeSnapshotItems` (
+CREATE TABLE IF NOT EXISTS `power_servicefeesnapshotitems` (
   `id` VARCHAR(160) NOT NULL COMMENT 'service fee snapshot item id',
   `snapshotNo` VARCHAR(128) NOT NULL COMMENT 'service fee snapshot no',
   `writeOffMonth` DATE NOT NULL COMMENT 'write-off month',
@@ -435,6 +527,8 @@ CREATE TABLE IF NOT EXISTS `ServiceFeeSnapshotItems` (
   `deviceCode` VARCHAR(64) NULL COMMENT 'device code',
   `modelCode` VARCHAR(128) NULL COMMENT 'model code',
   `nameEn` VARCHAR(255) NULL COMMENT 'english name',
+  `supplierId` VARCHAR(64) NULL COMMENT 'supplier id',
+  `undertakingUnitId` VARCHAR(64) NULL COMMENT 'undertaking unit id',
   `quantity` INT NULL COMMENT 'quantity',
   `currency` VARCHAR(16) NULL COMMENT 'currency',
   `billingCurrency` VARCHAR(16) NULL COMMENT 'monthly billing currency',
@@ -454,7 +548,7 @@ CREATE TABLE IF NOT EXISTS `ServiceFeeSnapshotItems` (
   KEY `idx_ServiceFeeSnapshotItems_deviceCode` (`deviceCode`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='ServiceFeeSnapshotItems';
 
-CREATE TABLE IF NOT EXISTS `WriteOffItems` (
+CREATE TABLE IF NOT EXISTS `power_writeoffitems` (
   `id` VARCHAR(64) NOT NULL COMMENT 'PK',
   `requestItemId` VARCHAR(64) NOT NULL COMMENT 'request item id',
   `prepaymentContractItemId` VARCHAR(64) NOT NULL COMMENT 'prepayment contract item id',
@@ -469,13 +563,15 @@ CREATE TABLE IF NOT EXISTS `WriteOffItems` (
   CONSTRAINT `chk_WriteOffItems_totalMonths_positive` CHECK (`totalMonths` IS NULL OR `totalMonths` > 0)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='WriteOffItems';
 
-CREATE TABLE IF NOT EXISTS `Shipments` (
+CREATE TABLE IF NOT EXISTS `power_shipments` (
     `shipmentId` VARCHAR(64) NOT NULL COMMENT 'shipment id PK',
     `poNo` VARCHAR(128) NOT NULL COMMENT 'PO no',
     `batchName` VARCHAR(255) NULL COMMENT 'batch name',
     `purchaseOrderItemId` VARCHAR(64) NULL COMMENT 'purchase order item id',
     `deviceCode` VARCHAR(64) NULL COMMENT 'instance device code',
     `nameEn` VARCHAR(255) NULL COMMENT 'instance english name',
+  `supplierId` VARCHAR(64) NULL COMMENT 'supplier id',
+  `undertakingUnitId` VARCHAR(64) NULL COMMENT 'undertaking unit id',
   `dcCode` VARCHAR(64) NULL COMMENT 'datacenter code',
   `dcNameZh` VARCHAR(255) NULL COMMENT 'datacenter Chinese name',
   `destinationLocationId` VARCHAR(64) NOT NULL COMMENT 'destination location id',
@@ -503,7 +599,7 @@ CREATE TABLE IF NOT EXISTS `Shipments` (
   KEY `idx_Shipments_recipientContactId` (`recipientContactId`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Shipments';
 
-CREATE TABLE IF NOT EXISTS `DocumentFolders` (
+CREATE TABLE IF NOT EXISTS `power_documentfolders` (
   `folderId` VARCHAR(80) NOT NULL COMMENT 'folder id',
   `parentId` VARCHAR(80) NULL COMMENT 'parent folder id',
   `name` VARCHAR(255) NOT NULL COMMENT 'folder name',
@@ -515,7 +611,7 @@ CREATE TABLE IF NOT EXISTS `DocumentFolders` (
   KEY `idx_DocumentFolders_parentId` (`parentId`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='DocumentFolders';
 
-CREATE TABLE IF NOT EXISTS `DocumentFiles` (
+CREATE TABLE IF NOT EXISTS `power_documentfiles` (
   `fileId` VARCHAR(80) NOT NULL COMMENT 'file id',
   `folderId` VARCHAR(80) NOT NULL COMMENT 'folder id',
   `originalName` VARCHAR(255) NOT NULL COMMENT 'original file name',
@@ -533,7 +629,7 @@ CREATE TABLE IF NOT EXISTS `DocumentFiles` (
   KEY `idx_DocumentFiles_originalName` (`originalName`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='DocumentFiles';
 
-CREATE TABLE IF NOT EXISTS `ImportJobs` (
+CREATE TABLE IF NOT EXISTS `power_importjobs` (
   `jobId` VARCHAR(96) NOT NULL COMMENT 'import job id',
   `targetKey` VARCHAR(64) NOT NULL COMMENT 'import target key',
   `targetTitle` VARCHAR(255) NOT NULL COMMENT 'import target title',
@@ -553,7 +649,7 @@ CREATE TABLE IF NOT EXISTS `ImportJobs` (
   KEY `idx_ImportJobs_createdAt` (`createdAt`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='ImportJobs';
 
-CREATE TABLE IF NOT EXISTS `AppUsers` (
+CREATE TABLE IF NOT EXISTS `power_appusers` (
   `userId` VARCHAR(80) NOT NULL COMMENT 'user id',
   `email` VARCHAR(255) NOT NULL COMMENT 'login email',
   `passwordHash` VARCHAR(128) NOT NULL COMMENT 'password hash',

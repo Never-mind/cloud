@@ -7,9 +7,14 @@ export type BillingPurchaseLine = {
   deviceCode: string;
   modelCode: string;
   nameEn: string;
+  supplierId?: string;
+  undertakingUnitId?: string;
   quantity: number;
   actualCurrency: string;
   actualUnitPrice: number;
+  taxExcludedUnitPrice?: number;
+  taxSurcharge?: number;
+  vatRate?: number;
 };
 
 export type BillingInstanceContract = {
@@ -29,6 +34,9 @@ export type BillingLedgerDraft = BillingPurchaseLine & {
   contractCurrency: string;
   first24MonthPrice: number;
   next36MonthPrice: number;
+  selfCalculatedUnitPrice: number;
+  differenceUnitPrice: number;
+  differenceTotalPrice: number;
   startMonth: string;
   status: string;
 };
@@ -46,11 +54,16 @@ export type MonthlyBillingRow = {
   deviceCode: string;
   modelCode: string;
   nameEn: string;
+  supplierId: string;
+  undertakingUnitId: string;
   quantity: number;
   instanceContractNo: string;
   currency: string;
   monthlyAmount: number;
   monthlyTotalAmount: number;
+  selfCalculatedUnitPrice: number;
+  differenceUnitPrice: number;
+  differenceTotalPrice: number;
   sourceType: "首次生成" | "调整单";
   adjustmentNo: string;
 };
@@ -118,6 +131,9 @@ export function buildBillingLedgerDraft({
     contractCurrency: contract.currency,
     first24MonthPrice: Number(contract.first24MonthPrice ?? 0),
     next36MonthPrice: Number(contract.next36MonthPrice ?? 0),
+    selfCalculatedUnitPrice: calculateSelfCalculatedUnitPrice(purchaseLine),
+    differenceUnitPrice: roundMoney(Number(contract.first24MonthPrice ?? 0) - calculateSelfCalculatedUnitPrice(purchaseLine)),
+    differenceTotalPrice: roundMoney(Number(purchaseLine.quantity ?? 0) * (Number(contract.first24MonthPrice ?? 0) - calculateSelfCalculatedUnitPrice(purchaseLine))),
     startMonth: firstDayOfMonth(startMonth),
     status: "核销中",
   };
@@ -138,6 +154,9 @@ export function buildUpdatedBillingLedgerDraft({
     contractCurrency: contract.currency,
     first24MonthPrice: Number(contract.first24MonthPrice ?? 0),
     next36MonthPrice: Number(contract.next36MonthPrice ?? 0),
+    selfCalculatedUnitPrice: currentLedger.selfCalculatedUnitPrice,
+    differenceUnitPrice: roundMoney(Number(contract.first24MonthPrice ?? 0) - currentLedger.selfCalculatedUnitPrice),
+    differenceTotalPrice: roundMoney(Number(currentLedger.quantity ?? 0) * (Number(contract.first24MonthPrice ?? 0) - currentLedger.selfCalculatedUnitPrice)),
     startMonth: firstDayOfMonth(startMonth),
   };
 }
@@ -148,6 +167,7 @@ export function buildMonthlyBillingRows(ledger: BillingLedgerDraft): MonthlyBill
     const firstStage = monthIndex <= FIRST_STAGE_MONTHS;
     const quantity = Number(ledger.quantity ?? 0);
     const monthlyAmount = firstStage ? Number(ledger.first24MonthPrice ?? 0) : Number(ledger.next36MonthPrice ?? 0);
+    const selfCalculatedUnitPrice = Number(ledger.selfCalculatedUnitPrice ?? 0);
 
     return {
       id: `MBW-${ledger.ledgerId}-${String(monthIndex).padStart(3, "0")}`,
@@ -162,11 +182,16 @@ export function buildMonthlyBillingRows(ledger: BillingLedgerDraft): MonthlyBill
       deviceCode: ledger.deviceCode,
       modelCode: ledger.modelCode,
       nameEn: ledger.nameEn,
+      supplierId: ledger.supplierId ?? "",
+      undertakingUnitId: ledger.undertakingUnitId ?? "",
       quantity,
       instanceContractNo: ledger.instanceContractNo,
       currency: ledger.contractCurrency,
       monthlyAmount,
       monthlyTotalAmount: roundMoney(quantity * monthlyAmount),
+      selfCalculatedUnitPrice,
+      differenceUnitPrice: roundMoney(monthlyAmount - selfCalculatedUnitPrice),
+      differenceTotalPrice: roundMoney(quantity * (monthlyAmount - selfCalculatedUnitPrice)),
       sourceType: "首次生成",
       adjustmentNo: "",
     };
@@ -189,6 +214,8 @@ export function applyBillingAdjustment(rows: MonthlyBillingRow[], adjustment: Bi
       currency: adjustment.currency?.trim() || row.currency,
       monthlyAmount,
       monthlyTotalAmount: roundMoney(Number(row.quantity ?? 0) * monthlyAmount),
+      differenceUnitPrice: roundMoney(monthlyAmount - Number(row.selfCalculatedUnitPrice ?? 0)),
+      differenceTotalPrice: roundMoney(Number(row.quantity ?? 0) * (monthlyAmount - Number(row.selfCalculatedUnitPrice ?? 0))),
       sourceType: "调整单" as const,
       adjustmentNo: adjustment.adjustmentNo,
     };
@@ -230,4 +257,11 @@ function getTime(value: string | Date | null | undefined) {
 
 function roundMoney(value: number) {
   return Math.round((value + Number.EPSILON) * 10000) / 10000;
+}
+
+export function calculateSelfCalculatedUnitPrice(purchaseLine: Pick<BillingPurchaseLine, "taxExcludedUnitPrice" | "taxSurcharge" | "vatRate">) {
+  return roundMoney(
+    (Number(purchaseLine.taxExcludedUnitPrice ?? 0) / 88495.58 * 3978.4 + Number(purchaseLine.taxSurcharge ?? 0) / 24) *
+      (1 + Number(purchaseLine.vatRate ?? 0)),
+  );
 }

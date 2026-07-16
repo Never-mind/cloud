@@ -1,9 +1,13 @@
 import type { OrderRouteMode } from "./order-routes";
 
+export function getOrderListPrimaryDisplayValue(mode: OrderRouteMode, row: Record<string, unknown>) {
+  return String(mode === "purchase" ? row.poNo ?? "" : row.requestNo ?? "");
+}
+
 export function getOrderListColumnKeys(mode: OrderRouteMode) {
   if (mode === "requests") {
     return [
-      "id",
+      "requestNo",
       "countryCode",
       "batchName",
       "status",
@@ -16,7 +20,6 @@ export function getOrderListColumnKeys(mode: OrderRouteMode) {
   }
 
   return [
-    "purchaseOrderId",
     "poNo",
     "requestNo",
     "batchName",

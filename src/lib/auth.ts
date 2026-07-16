@@ -1,9 +1,9 @@
 import { pbkdf2Sync, randomBytes, timingSafeEqual } from "node:crypto";
 
+import { AUTH_COOKIE_NAME, AUTH_SESSION_VALUE } from "./auth-session";
 import { queryRows } from "./db";
+export { AUTH_COOKIE_NAME, AUTH_SESSION_VALUE } from "./auth-session";
 
-export const AUTH_COOKIE_NAME = "cloud_power_session";
-export const AUTH_SESSION_VALUE = process.env.AUTH_SESSION_TOKEN ?? "cloud-power-admin-session";
 export const INITIAL_ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "admin@luzcorp.com";
 export const INITIAL_ADMIN_PASSWORD = process.env.ADMIN_INITIAL_PASSWORD ?? "Luz@#789789";
 
