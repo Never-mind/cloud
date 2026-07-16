@@ -213,6 +213,45 @@ describe("billing workflow", () => {
     });
   });
 
+  it("lets a later-confirmed backdated adjustment supersede older future adjustments", () => {
+    const ledger = buildBillingLedgerDraft({
+      purchaseLine: { ...purchaseLine, purchaseOrderItemId: "POI-BACKDATED" },
+      contract: contracts[1],
+      startMonth: "2024-01-01",
+    });
+    const adjusted = applyBillingAdjustments(buildMonthlyBillingRows(ledger), [
+      {
+        adjustmentNo: "ADJ-MAY",
+        effectiveMonth: "2024-05-01",
+        currency: "USD",
+        adjustedFirst24MonthPrice: 600,
+        adjustedNext36MonthPrice: 6,
+        confirmedAt: "2024-05-02 10:00:00",
+      },
+      {
+        adjustmentNo: "ADJ-OCT",
+        effectiveMonth: "2024-10-01",
+        currency: "USD",
+        adjustedFirst24MonthPrice: 700,
+        adjustedNext36MonthPrice: 7,
+        confirmedAt: "2024-10-02 10:00:00",
+      },
+      {
+        adjustmentNo: "ADJ-APR-LATEST",
+        effectiveMonth: "2024-04-01",
+        currency: "CLP",
+        adjustedFirst24MonthPrice: 800,
+        adjustedNext36MonthPrice: 8,
+        confirmedAt: "2024-11-01 10:00:00",
+      },
+    ]);
+
+    expect(adjusted[2]).toMatchObject({ writeOffMonth: "2024-03-01", monthlyAmount: 500, adjustmentNo: "" });
+    expect(adjusted[3]).toMatchObject({ writeOffMonth: "2024-04-01", monthlyAmount: 800, currency: "CLP", adjustmentNo: "ADJ-APR-LATEST" });
+    expect(adjusted[4]).toMatchObject({ writeOffMonth: "2024-05-01", monthlyAmount: 800, adjustmentNo: "ADJ-APR-LATEST" });
+    expect(adjusted[9]).toMatchObject({ writeOffMonth: "2024-10-01", monthlyAmount: 800, adjustmentNo: "ADJ-APR-LATEST" });
+  });
+
   it("calculates monthly total amount and carries adjustment currency forward", () => {
     const ledger = buildBillingLedgerDraft({
       purchaseLine,

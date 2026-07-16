@@ -223,13 +223,19 @@ export function applyBillingAdjustment(rows: MonthlyBillingRow[], adjustment: Bi
 }
 
 export function applyBillingAdjustments(rows: MonthlyBillingRow[], adjustments: BillingAdjustmentInput[]) {
-  return adjustments
-    .toSorted((left, right) => {
-      const confirmedDiff = getTime(left.confirmedAt) - getTime(right.confirmedAt);
+  return rows.map((row) => {
+    const effectiveAdjustments = adjustments.filter(
+      (adjustment) => row.writeOffMonth >= firstDayOfMonth(adjustment.effectiveMonth),
+    );
+    if (!effectiveAdjustments.length) return row;
+
+    const winningAdjustment = effectiveAdjustments.toSorted((left, right) => {
+      const confirmedDiff = getTime(right.confirmedAt) - getTime(left.confirmedAt);
       if (confirmedDiff !== 0) return confirmedDiff;
-      return left.adjustmentNo.localeCompare(right.adjustmentNo);
-    })
-    .reduce((currentRows, adjustment) => applyBillingAdjustment(currentRows, adjustment), rows);
+      return right.adjustmentNo.localeCompare(left.adjustmentNo);
+    })[0];
+    return applyBillingAdjustment([row], winningAdjustment)[0];
+  });
 }
 
 export function firstDayOfMonth(value: string | Date) {
