@@ -42,7 +42,7 @@ type InstanceContract = {
   next36MonthPriceUSD: number;
 };
 
-const columns = [
+const columns: Array<{ key: keyof Row; label: string; type?: string }> = [
   { key: "countryCode", label: "国家" },
   { key: "batchName", label: "批次号" },
   { key: "requestNo", label: "需求单号" },
@@ -53,17 +53,17 @@ const columns = [
   { key: "supplierId", label: "供应商" },
   { key: "quantity", label: "数量" },
   { key: "actualCurrency", label: "币种" },
-  { key: "actualUnitPrice", label: "实际单价" },
-  { key: "taxExcludedUnitPrice", label: "不含税单价" },
-  { key: "taxSurcharge", label: "税费加成" },
+  { key: "actualUnitPrice", label: "实际单价", type: "money" },
+  { key: "taxExcludedUnitPrice", label: "不含税单价", type: "money" },
+  { key: "taxSurcharge", label: "税费加成", type: "money" },
   { key: "instanceContractNo", label: "实例合同号" },
   { key: "contractCurrency", label: "合同币种" },
-  { key: "first24MonthPrice", label: "24个月实例合同价" },
-  { key: "next36MonthPrice", label: "36个月实例合同价" },
-  { key: "selfCalculatedUnitPrice", label: "24个月实例单价（含税自算）" },
-  { key: "differenceUnitPrice", label: "结差差额单价" },
-  { key: "differenceTotalPrice", label: "结差差额总价" },
-] as const;
+  { key: "first24MonthPrice", label: "24个月实例合同价", type: "money" },
+  { key: "next36MonthPrice", label: "36个月实例合同价", type: "money" },
+  { key: "selfCalculatedUnitPrice", label: "24个月实例单价（含税自算）", type: "money" },
+  { key: "differenceUnitPrice", label: "结差差额单价", type: "money" },
+  { key: "differenceTotalPrice", label: "结差差额总价", type: "money" },
+];
 
 export function BillingAvailablePage() {
   const router = useRouter();
@@ -232,7 +232,7 @@ export function BillingAvailablePage() {
                               : undefined
                           }
                         >
-                          {formatValue(row[column.key])}
+                          {formatValue(row[column.key], column.type)}
                         </span>
                       )}
                     </td>
@@ -270,8 +270,8 @@ export function BillingAvailablePage() {
   );
 }
 
-function formatValue(value: unknown) {
-  return formatDisplayValue(value as string | number | boolean | null | undefined);
+function formatValue(value: unknown, type?: string) {
+  return formatDisplayValue(value as string | number | boolean | null | undefined, type);
 }
 
 function findMatchingContract(contracts: InstanceContract[], row: Row, contractNo: string) {

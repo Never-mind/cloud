@@ -433,8 +433,8 @@ export async function listMonthlyBillingWriteOffs(searchParams: URLSearchParams)
         deviceCode,
         modelCode,
         nameEn,
-        COALESCE(NULLIF(monthlybillingwriteoffs.supplierId, ''), ri.supplierId) AS supplierId,
-        COALESCE(NULLIF(monthlybillingwriteoffs.undertakingUnitId, ''), ri.undertakingUnitId) AS undertakingUnitId,
+        COALESCE(NULLIF(monthlybillingwriteoffs.supplierId, ''), ri.supplierId, riByBusinessKey.supplierId) AS supplierId,
+        COALESCE(NULLIF(monthlybillingwriteoffs.undertakingUnitId, ''), ri.undertakingUnitId, riByBusinessKey.undertakingUnitId) AS undertakingUnitId,
         quantity,
         instanceContractNo,
         currency,
@@ -449,6 +449,9 @@ export async function listMonthlyBillingWriteOffs(searchParams: URLSearchParams)
       FROM monthlybillingwriteoffs
       LEFT JOIN billinginstanceledgers AS ledger ON ledger.ledgerId = monthlybillingwriteoffs.ledgerId
       LEFT JOIN requestitems AS ri ON ri.id = ledger.purchaseOrderItemId
+      LEFT JOIN requestitems AS riByBusinessKey
+        ON riByBusinessKey.requestNo = monthlybillingwriteoffs.requestNo
+        AND riByBusinessKey.deviceCode = monthlybillingwriteoffs.deviceCode
       ${where}
       ORDER BY writeOffMonth DESC, ledgerId
     `,
@@ -633,14 +636,18 @@ async function listConfirmedBillingAdjustmentsForLedger(ledger: BillingLedgerDra
       INNER JOIN billingadjustmentitems bai ON bai.adjustmentNo = ba.adjustmentNo
       WHERE bai.countryCode = :countryCode
         AND bai.batchName = :batchName
+        AND (bai.requestNo = :requestNo OR bai.requestNo = '')
         AND bai.deviceCode = :deviceCode
+        AND ba.instanceContractNo = :instanceContractNo
         AND ba.confirmedAt IS NOT NULL
       ORDER BY ba.confirmedAt ASC, ba.adjustmentNo ASC
     `,
     {
       countryCode: ledger.countryCode,
       batchName: ledger.batchName,
+      requestNo: ledger.requestNo,
       deviceCode: ledger.deviceCode,
+      instanceContractNo: ledger.instanceContractNo,
     },
   );
 

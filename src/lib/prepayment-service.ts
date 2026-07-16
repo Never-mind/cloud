@@ -128,33 +128,34 @@ export async function getPrepaymentContract(contractNo: string) {
     ? await queryRows<PrepaymentLineRow>(
         `
           SELECT
-            id,
-            contractNo,
-            lineType,
-            purchaseOrderItemId,
-            requestItemId,
-            countryCode,
-            batchName,
-            requestNo,
-            poNo,
-            deviceCode,
-            modelCode,
-            nameEn,
-            supplierId,
-            undertakingUnitId,
-            quantity,
-            actualCurrency,
-            actualUnitPrice,
-            actualTotalAmount,
-            contractCurrency,
-            contractUnitPrice,
-            contractTotalAmount,
-            DATE_FORMAT(writeOffStartMonth, '%Y-%m-%d') AS writeOffStartMonth,
-            feeName,
-            feeDescription
-          FROM prepaymentcontractitems
-          WHERE contractNo = :contractNo
-          ORDER BY id
+            contractItem.id,
+            contractItem.contractNo,
+            contractItem.lineType,
+            contractItem.purchaseOrderItemId,
+            contractItem.requestItemId,
+            contractItem.countryCode,
+            contractItem.batchName,
+            contractItem.requestNo,
+            contractItem.poNo,
+            contractItem.deviceCode,
+            contractItem.modelCode,
+            contractItem.nameEn AS nameEn,
+            COALESCE(NULLIF(contractItem.supplierId, ''), ri.supplierId) AS supplierId,
+            COALESCE(NULLIF(contractItem.undertakingUnitId, ''), ri.undertakingUnitId) AS undertakingUnitId,
+            contractItem.quantity,
+            contractItem.actualCurrency,
+            contractItem.actualUnitPrice,
+            contractItem.actualTotalAmount,
+            contractItem.contractCurrency,
+            contractItem.contractUnitPrice,
+            contractItem.contractTotalAmount,
+            DATE_FORMAT(contractItem.writeOffStartMonth, '%Y-%m-%d') AS writeOffStartMonth,
+            contractItem.feeName,
+            contractItem.feeDescription
+          FROM prepaymentcontractitems AS contractItem
+          LEFT JOIN requestitems AS ri ON ri.id = contractItem.requestItemId
+          WHERE contractItem.contractNo = :contractNo
+          ORDER BY contractItem.id
         `,
         { contractNo },
       )
@@ -305,8 +306,8 @@ export async function listMonthlyPrepaymentWriteOffs(searchParams: URLSearchPara
         deviceCode,
         modelCode,
         nameEn,
-        COALESCE(NULLIF(monthlyprepaymentwriteoffs.supplierId, ''), ri.supplierId) AS supplierId,
-        COALESCE(NULLIF(monthlyprepaymentwriteoffs.undertakingUnitId, ''), ri.undertakingUnitId) AS undertakingUnitId,
+        COALESCE(NULLIF(monthlyprepaymentwriteoffs.supplierId, ''), ri.supplierId, riByBusinessKey.supplierId) AS supplierId,
+        COALESCE(NULLIF(monthlyprepaymentwriteoffs.undertakingUnitId, ''), ri.undertakingUnitId, riByBusinessKey.undertakingUnitId) AS undertakingUnitId,
         quantity,
         sourceType,
         adjustmentNo,
@@ -314,6 +315,9 @@ export async function listMonthlyPrepaymentWriteOffs(searchParams: URLSearchPara
       FROM monthlyprepaymentwriteoffs
       LEFT JOIN prepaymentcontractitems AS contractItem ON contractItem.id = monthlyprepaymentwriteoffs.contractLineId
       LEFT JOIN requestitems AS ri ON ri.id = contractItem.requestItemId
+      LEFT JOIN requestitems AS riByBusinessKey
+        ON riByBusinessKey.requestNo = monthlyprepaymentwriteoffs.requestNo
+        AND riByBusinessKey.deviceCode = monthlyprepaymentwriteoffs.deviceCode
       ${where}
       ORDER BY writeOffMonth DESC, contractNo, contractLineId
     `,

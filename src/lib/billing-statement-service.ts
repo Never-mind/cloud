@@ -237,7 +237,7 @@ async function listMonthlyBillingRowsForStatement(filters: Required<BillingState
         id,
         countryCode,
         instanceContractNo,
-        nameEn,
+        monthlybillingwriteoffs.nameEn AS nameEn,
         quantity,
         currency,
         monthlyAmount,
@@ -246,7 +246,7 @@ async function listMonthlyBillingRowsForStatement(filters: Required<BillingState
       FROM monthlybillingwriteoffs
       LEFT JOIN countries country ON country.code = monthlybillingwriteoffs.countryCode
       WHERE ${whereParts.join(" AND ")}
-      ORDER BY countryCode, currency, instanceContractNo, nameEn, monthlyAmount
+      ORDER BY monthlybillingwriteoffs.countryCode, monthlybillingwriteoffs.currency, instanceContractNo, monthlybillingwriteoffs.nameEn, monthlyAmount
     `,
     params,
   );

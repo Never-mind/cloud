@@ -100,12 +100,39 @@ export async function listEntityRows(config: EntityConfig, searchParams: URLSear
     params,
   );
 
+  const enrichedRows = config.key === "shipments"
+    ? await enrichShipmentRows(rows)
+    : await enrichFinancialPartyRows(config.key, rows);
   return {
-    rows: config.key === "shipments" ? await enrichShipmentRows(rows) : rows,
+    rows: enrichedRows,
     total,
     page,
     pageSize,
   };
+}
+
+const financePartyEntityKeys = new Set(["billing-ledgers", "prepayment-contract-items", "monthly-billing-writeoffs", "monthly-prepayment-writeoffs", "service-fee-snapshot-items"]);
+
+async function enrichFinancialPartyRows(entityKey: string, rows: Row[]) {
+  if (!financePartyEntityKeys.has(entityKey) || !rows.length) return rows;
+  const requestNos = uniqueValues(rows, "requestNo");
+  if (!requestNos.length) return rows;
+  const requestItems = await queryRows<Row>(
+    "SELECT requestNo, deviceCode, supplierId, undertakingUnitId FROM requestitems WHERE requestNo IN (:requestNos)",
+    { requestNos },
+  );
+  const partyByRequestDevice = new Map(
+    requestItems.map((item) => [`${String(item.requestNo ?? "")}::${String(item.deviceCode ?? "")}`, item]),
+  );
+  return rows.map((row) => {
+    const party = partyByRequestDevice.get(`${String(row.requestNo ?? "")}::${String(row.deviceCode ?? "")}`);
+    if (!party) return row;
+    return {
+      ...row,
+      supplierId: row.supplierId || party.supplierId || "",
+      undertakingUnitId: row.undertakingUnitId || party.undertakingUnitId || "",
+    };
+  });
 }
 
 export async function getEntityRow(config: EntityConfig, id: string) {

@@ -30,7 +30,7 @@ const columns: Array<{ key: string; label: string; type?: string }> = [
 
 const displayColumns = columns.flatMap((column) =>
   column.key === "countryCode"
-    ? [column, { key: "undertakingUnitId", label: "承接单位" }]
+    ? [column, { key: "undertakingUnitId", label: "承接单位" }, { key: "supplierId", label: "供应商" }]
     : [column],
 );
 
@@ -94,7 +94,7 @@ export function MonthlyBillingWriteOffsPage() {
   return (
     <div className="space-y-5">
       <div>
-        <h1 className="text-xl font-medium text-[#303133]">月账单每月核销明细</h1>
+        <h1 className="text-xl font-medium text-[#303133]">月账单每月明细</h1>
         <p className="mt-1 text-sm text-[#909399]">查看实例月账单生成的60个月核销明细和调整单影响。</p>
       </div>
       <Panel>

@@ -44,7 +44,7 @@ type Line = {
   feeDescription: string;
 };
 
-const instanceColumns = [
+const instanceColumns: Array<{ key: keyof Line; label: string; type?: string }> = [
   { key: "countryCode", label: "国家" },
   { key: "batchName", label: "批次号" },
   { key: "requestNo", label: "需求单号" },
@@ -54,9 +54,9 @@ const instanceColumns = [
   { key: "nameEn", label: "英文名称" },
   { key: "quantity", label: "数量" },
   { key: "actualCurrency", label: "实际币种" },
-  { key: "actualUnitPrice", label: "实际单价" },
-  { key: "actualTotalAmount", label: "实际总价" },
-] as const;
+  { key: "actualUnitPrice", label: "实际单价", type: "money" },
+  { key: "actualTotalAmount", label: "实际总价", type: "money" },
+];
 
 export function PrepaymentContractDetailPage({ contractNo }: { contractNo: string }) {
   const router = useRouter();
@@ -293,7 +293,7 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
                 <tr className="hover:bg-[#fafafa]" key={line.id}>
                   {instanceColumns.map((column) => (
                     <td className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3" key={column.key}>
-                      {formatValue(line[column.key])}
+                      {formatValue(line[column.key], column.type)}
                     </td>
                   ))}
                   <td className="border-b border-r border-[#ebeef5] px-3 py-3">
@@ -413,8 +413,8 @@ function Field({
   );
 }
 
-function formatValue(value: unknown) {
-  return formatDisplayValue(value as string | number | boolean | null | undefined);
+function formatValue(value: unknown, type?: string) {
+  return formatDisplayValue(value as string | number | boolean | null | undefined, type);
 }
 
 function roundMoney(value: number) {

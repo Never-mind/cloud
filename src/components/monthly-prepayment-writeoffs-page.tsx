@@ -14,6 +14,8 @@ const columns: Array<{ key: string; label: string; type?: string }> = [
   { key: "contractNo", label: "预付款合同号" },
   { key: "countryCode", label: "国家" },
   { key: "batchName", label: "批次号" },
+  { key: "undertakingUnitId", label: "承接单位" },
+  { key: "supplierId", label: "供应商" },
   { key: "requestNo", label: "需求单号" },
   { key: "poNo", label: "PO单号" },
   { key: "deviceCode", label: "实例编码" },
