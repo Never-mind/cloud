@@ -433,8 +433,8 @@ export async function listMonthlyBillingWriteOffs(searchParams: URLSearchParams)
         deviceCode,
         modelCode,
         nameEn,
-        COALESCE(NULLIF(monthlybillingwriteoffs.supplierId, ''), ri.supplierId, riByBusinessKey.supplierId) AS supplierId,
-        COALESCE(NULLIF(monthlybillingwriteoffs.undertakingUnitId, ''), ri.undertakingUnitId, riByBusinessKey.undertakingUnitId) AS undertakingUnitId,
+        COALESCE(NULLIF(monthlybillingwriteoffs.supplierId, ''), ri.linkedSupplierId, riByBusinessKey.fallbackSupplierId) AS supplierId,
+        COALESCE(NULLIF(monthlybillingwriteoffs.undertakingUnitId, ''), ri.linkedUndertakingUnitId, riByBusinessKey.fallbackUndertakingUnitId) AS undertakingUnitId,
         quantity,
         instanceContractNo,
         currency,
@@ -447,11 +447,20 @@ export async function listMonthlyBillingWriteOffs(searchParams: URLSearchParams)
         adjustmentNo,
         createdAt
       FROM monthlybillingwriteoffs
-      LEFT JOIN billinginstanceledgers AS ledger ON ledger.ledgerId = monthlybillingwriteoffs.ledgerId
-      LEFT JOIN requestitems AS ri ON ri.id = ledger.purchaseOrderItemId
-      LEFT JOIN requestitems AS riByBusinessKey
-        ON riByBusinessKey.requestNo = monthlybillingwriteoffs.requestNo
-        AND riByBusinessKey.deviceCode = monthlybillingwriteoffs.deviceCode
+      LEFT JOIN (
+        SELECT ledgerId AS linkedLedgerId, purchaseOrderItemId AS linkedPurchaseOrderItemId
+        FROM billinginstanceledgers
+      ) AS ledger ON ledger.linkedLedgerId = monthlybillingwriteoffs.ledgerId
+      LEFT JOIN (
+        SELECT id AS linkedRequestItemId, supplierId AS linkedSupplierId, undertakingUnitId AS linkedUndertakingUnitId
+        FROM requestitems
+      ) AS ri ON ri.linkedRequestItemId = ledger.linkedPurchaseOrderItemId
+      LEFT JOIN (
+        SELECT requestNo AS keyRequestNo, deviceCode AS keyDeviceCode, supplierId AS fallbackSupplierId, undertakingUnitId AS fallbackUndertakingUnitId
+        FROM requestitems
+      ) AS riByBusinessKey
+        ON riByBusinessKey.keyRequestNo = monthlybillingwriteoffs.requestNo
+        AND riByBusinessKey.keyDeviceCode = monthlybillingwriteoffs.deviceCode
       ${where}
       ORDER BY writeOffMonth DESC, ledgerId
     `,

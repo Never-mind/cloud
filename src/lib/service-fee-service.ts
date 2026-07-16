@@ -114,19 +114,17 @@ async function listBillingRows(filters: ServiceFeeFilters) {
         deviceCode,
         modelCode,
         monthlybillingwriteoffs.nameEn AS nameEn,
-        COALESCE(NULLIF(monthlybillingwriteoffs.supplierId, ''), ri.supplierId, riByBusinessKey.supplierId) AS supplierId,
-        COALESCE(NULLIF(monthlybillingwriteoffs.undertakingUnitId, ''), ri.undertakingUnitId, riByBusinessKey.undertakingUnitId) AS undertakingUnitId,
+        COALESCE(NULLIF(monthlybillingwriteoffs.supplierId, ''), ri.linkedSupplierId, riByBusinessKey.fallbackSupplierId) AS supplierId,
+        COALESCE(NULLIF(monthlybillingwriteoffs.undertakingUnitId, ''), ri.linkedUndertakingUnitId, riByBusinessKey.fallbackUndertakingUnitId) AS undertakingUnitId,
         quantity,
         currency,
         COALESCE(country.vatRate, 0) AS vatRate,
         monthlyTotalAmount,
         monthlyAmount
       FROM monthlybillingwriteoffs
-      LEFT JOIN billinginstanceledgers AS ledger ON ledger.ledgerId = monthlybillingwriteoffs.ledgerId
-      LEFT JOIN requestitems AS ri ON ri.id = ledger.purchaseOrderItemId
-      LEFT JOIN requestitems AS riByBusinessKey
-        ON riByBusinessKey.requestNo = monthlybillingwriteoffs.requestNo
-        AND riByBusinessKey.deviceCode = monthlybillingwriteoffs.deviceCode
+      LEFT JOIN (SELECT ledgerId AS linkedLedgerId, purchaseOrderItemId AS linkedPurchaseOrderItemId FROM billinginstanceledgers) AS ledger ON ledger.linkedLedgerId = monthlybillingwriteoffs.ledgerId
+      LEFT JOIN (SELECT id AS linkedRequestItemId, supplierId AS linkedSupplierId, undertakingUnitId AS linkedUndertakingUnitId FROM requestitems) AS ri ON ri.linkedRequestItemId = ledger.linkedPurchaseOrderItemId
+      LEFT JOIN (SELECT requestNo AS keyRequestNo, deviceCode AS keyDeviceCode, supplierId AS fallbackSupplierId, undertakingUnitId AS fallbackUndertakingUnitId FROM requestitems) AS riByBusinessKey ON riByBusinessKey.keyRequestNo = monthlybillingwriteoffs.requestNo AND riByBusinessKey.keyDeviceCode = monthlybillingwriteoffs.deviceCode
       LEFT JOIN countries AS country ON country.code = monthlybillingwriteoffs.countryCode
       ${where}
       ORDER BY writeOffMonth, countryCode, batchName, requestNo, poNo, deviceCode
@@ -155,19 +153,17 @@ async function listPrepaymentRows(filters: ServiceFeeFilters) {
         deviceCode,
         modelCode,
         monthlyprepaymentwriteoffs.nameEn AS nameEn,
-        COALESCE(NULLIF(monthlyprepaymentwriteoffs.supplierId, ''), ri.supplierId, riByBusinessKey.supplierId) AS supplierId,
-        COALESCE(NULLIF(monthlyprepaymentwriteoffs.undertakingUnitId, ''), ri.undertakingUnitId, riByBusinessKey.undertakingUnitId) AS undertakingUnitId,
+        COALESCE(NULLIF(monthlyprepaymentwriteoffs.supplierId, ''), ri.linkedSupplierId, riByBusinessKey.fallbackSupplierId) AS supplierId,
+        COALESCE(NULLIF(monthlyprepaymentwriteoffs.undertakingUnitId, ''), ri.linkedUndertakingUnitId, riByBusinessKey.fallbackUndertakingUnitId) AS undertakingUnitId,
         quantity,
         currency,
         COALESCE(country.vatRate, 0) AS vatRate,
         monthlyAmount,
         lineType
       FROM monthlyprepaymentwriteoffs
-      LEFT JOIN prepaymentcontractitems AS contractItem ON contractItem.id = monthlyprepaymentwriteoffs.contractLineId
-      LEFT JOIN requestitems AS ri ON ri.id = contractItem.requestItemId
-      LEFT JOIN requestitems AS riByBusinessKey
-        ON riByBusinessKey.requestNo = monthlyprepaymentwriteoffs.requestNo
-        AND riByBusinessKey.deviceCode = monthlyprepaymentwriteoffs.deviceCode
+      LEFT JOIN (SELECT id AS linkedContractLineId, requestItemId AS linkedRequestItemId FROM prepaymentcontractitems) AS contractItem ON contractItem.linkedContractLineId = monthlyprepaymentwriteoffs.contractLineId
+      LEFT JOIN (SELECT id AS linkedRequestItemId, supplierId AS linkedSupplierId, undertakingUnitId AS linkedUndertakingUnitId FROM requestitems) AS ri ON ri.linkedRequestItemId = contractItem.linkedRequestItemId
+      LEFT JOIN (SELECT requestNo AS keyRequestNo, deviceCode AS keyDeviceCode, supplierId AS fallbackSupplierId, undertakingUnitId AS fallbackUndertakingUnitId FROM requestitems) AS riByBusinessKey ON riByBusinessKey.keyRequestNo = monthlyprepaymentwriteoffs.requestNo AND riByBusinessKey.keyDeviceCode = monthlyprepaymentwriteoffs.deviceCode
       LEFT JOIN countries AS country ON country.code = monthlyprepaymentwriteoffs.countryCode
       ${where}
       ORDER BY writeOffMonth, countryCode, batchName, requestNo, poNo, deviceCode, contractLineId

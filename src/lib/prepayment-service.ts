@@ -306,18 +306,27 @@ export async function listMonthlyPrepaymentWriteOffs(searchParams: URLSearchPara
         deviceCode,
         modelCode,
         nameEn,
-        COALESCE(NULLIF(monthlyprepaymentwriteoffs.supplierId, ''), ri.supplierId, riByBusinessKey.supplierId) AS supplierId,
-        COALESCE(NULLIF(monthlyprepaymentwriteoffs.undertakingUnitId, ''), ri.undertakingUnitId, riByBusinessKey.undertakingUnitId) AS undertakingUnitId,
+        COALESCE(NULLIF(monthlyprepaymentwriteoffs.supplierId, ''), ri.linkedSupplierId, riByBusinessKey.fallbackSupplierId) AS supplierId,
+        COALESCE(NULLIF(monthlyprepaymentwriteoffs.undertakingUnitId, ''), ri.linkedUndertakingUnitId, riByBusinessKey.fallbackUndertakingUnitId) AS undertakingUnitId,
         quantity,
         sourceType,
         adjustmentNo,
         createdAt
       FROM monthlyprepaymentwriteoffs
-      LEFT JOIN prepaymentcontractitems AS contractItem ON contractItem.id = monthlyprepaymentwriteoffs.contractLineId
-      LEFT JOIN requestitems AS ri ON ri.id = contractItem.requestItemId
-      LEFT JOIN requestitems AS riByBusinessKey
-        ON riByBusinessKey.requestNo = monthlyprepaymentwriteoffs.requestNo
-        AND riByBusinessKey.deviceCode = monthlyprepaymentwriteoffs.deviceCode
+      LEFT JOIN (
+        SELECT id AS linkedContractLineId, requestItemId AS linkedRequestItemId
+        FROM prepaymentcontractitems
+      ) AS contractItem ON contractItem.linkedContractLineId = monthlyprepaymentwriteoffs.contractLineId
+      LEFT JOIN (
+        SELECT id AS linkedRequestItemId, supplierId AS linkedSupplierId, undertakingUnitId AS linkedUndertakingUnitId
+        FROM requestitems
+      ) AS ri ON ri.linkedRequestItemId = contractItem.linkedRequestItemId
+      LEFT JOIN (
+        SELECT requestNo AS keyRequestNo, deviceCode AS keyDeviceCode, supplierId AS fallbackSupplierId, undertakingUnitId AS fallbackUndertakingUnitId
+        FROM requestitems
+      ) AS riByBusinessKey
+        ON riByBusinessKey.keyRequestNo = monthlyprepaymentwriteoffs.requestNo
+        AND riByBusinessKey.keyDeviceCode = monthlyprepaymentwriteoffs.deviceCode
       ${where}
       ORDER BY writeOffMonth DESC, contractNo, contractLineId
     `,
