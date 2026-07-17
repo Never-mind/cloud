@@ -10,6 +10,8 @@
     "lint": "next lint",
     "test": "vitest run",
     "schema:deploy": "node scripts/build-deploy-schema.mjs",
+    "schema:apply": "node scripts/apply-deploy-schema.mjs",
+    "schema:verify": "node scripts/verify-deploy-schema.mjs",
     "migrate": "tsx scripts/migrate.ts",
     "seed": "npm run migrate && tsx scripts/seed.ts"
   },

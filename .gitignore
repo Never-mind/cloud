@@ -11,7 +11,7 @@ prod-server*.log
 start-test.log
 tsconfig.tsbuildinfo
 uploads/
-cloud_power_schema.sql
+*_schema.sql
 
 .DS_Store
 Thumbs.db

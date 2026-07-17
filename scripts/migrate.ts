@@ -147,6 +147,16 @@ async function main() {
 
   await addColumnIfMissing(
     "countries",
+    "nameEn",
+    "`nameEn` VARCHAR(255) NULL COMMENT 'country English name'",
+  );
+  await addColumnIfMissing(
+    "countries",
+    "nameLocal",
+    "`nameLocal` VARCHAR(255) NULL COMMENT 'country local name' AFTER `nameEn`",
+  );
+  await addColumnIfMissing(
+    "countries",
     "vatRate",
     "`vatRate` DECIMAL(10, 6) NULL COMMENT 'VAT rate as decimal' AFTER `nameLocal`",
   );

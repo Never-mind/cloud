@@ -3,7 +3,8 @@ import { resolve } from "node:path";
 
 const root = process.cwd();
 const sourcePath = resolve(root, "schema.sql");
-const outputPath = resolve(root, "cloud_power_schema.sql");
+const targetDatabase = process.env.DEPLOY_DB_NAME ?? "cloud_power";
+const outputPath = resolve(root, `${targetDatabase}_schema.sql`);
 
 const tableNames = [
   "Countries",
@@ -43,7 +44,7 @@ const tableNames = [
 
 let sql = readFileSync(sourcePath, "utf8").replace(/^\uFEFF/, "");
 
-sql = sql.replaceAll("`suanli`", "`cloud_power`");
+sql = sql.replaceAll("`suanli`", `\`${targetDatabase}\``);
 
 for (const tableName of tableNames) {
   const logicalName = tableName.toLowerCase();
