@@ -218,6 +218,9 @@ export function EntityPage({
   async function importFile(file: File) {
     const formData = new FormData();
     formData.append("file", file);
+    if (Object.keys(fixedValues).length) {
+      formData.append("fixedValues", JSON.stringify(fixedValues));
+    }
     const response = await fetch(`/api/entities/${config.key}/import`, { method: "POST", body: formData });
     const result = (await response.json()) as ImportReport | { error?: string };
     if (!response.ok) {

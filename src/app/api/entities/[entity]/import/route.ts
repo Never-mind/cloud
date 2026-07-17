@@ -18,6 +18,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ en
 
   const formData = await request.formData();
   const file = formData.get("file");
+  const fixedValues = getDemandPlanFixedValues(config.key, formData.get("fixedValues"));
 
   if (!(file instanceof File)) {
     return NextResponse.json({ error: "Missing file" }, { status: 400 });
@@ -30,13 +31,14 @@ export async function POST(request: NextRequest, context: { params: Promise<{ en
     .sheet_to_json<Record<string, unknown>>(worksheet, { defval: "", raw: false })
     .filter((row) => !isEntityTemplateNoteRow(config, row));
   const fieldByLabel = new Map(config.formFields.map((field) => [field.label, field.key]));
-  const mappedRows = rows.map((row) =>
-    Object.fromEntries(
+  const mappedRows = rows.map((row) => ({
+    ...Object.fromEntries(
       Object.entries(row)
         .map(([label, value]) => [fieldByLabel.get(label) ?? label, value])
         .filter(([field]) => config.formFields.some((item) => item.key === field)),
     ),
-  );
+    ...fixedValues,
+  }));
 
   const normalizedRows = mappedRows.map((row) => {
     const normalized = normalizeEntityImportRow(config, row);
@@ -65,6 +67,20 @@ export async function POST(request: NextRequest, context: { params: Promise<{ en
     await upsertEntityRow(config, row);
   });
   return NextResponse.json(report);
+}
+
+function getDemandPlanFixedValues(entityKey: string, value: FormDataEntryValue | null): Row {
+  if (entityKey !== "purchase-order-sn-items" && entityKey !== "purchase-order-plan-items") return {};
+  if (typeof value !== "string" || !value.trim()) return {};
+  try {
+    const parsed = JSON.parse(value) as Row;
+    return {
+      purchaseOrderId: normalizeText(parsed.purchaseOrderId),
+      poNo: normalizeText(parsed.poNo),
+    };
+  } catch {
+    return {};
+  }
 }
 
 async function enrichInstanceContractImportRows(rows: Row[]) {
