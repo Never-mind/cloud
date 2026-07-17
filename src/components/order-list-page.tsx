@@ -239,7 +239,7 @@ export function OrderListPage({
         </div>
 
         <div className="table-scroll overflow-auto">
-          <table className="min-w-[1180px] border-collapse text-sm">
+          <table className="w-full min-w-[1180px] border-collapse text-sm">
             <thead className="bg-[#f5f7fa] text-[#303133]">
               <tr>
                 <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium">
