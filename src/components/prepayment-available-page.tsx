@@ -206,8 +206,8 @@ export function PrepaymentAvailablePage() {
           <div className="flex flex-wrap items-center gap-5 text-sm text-[#606266]">
             <span>已选实例：<b className="text-[#303133]">{summary.selectedRows}</b></span>
             <span>已选数量：<b className="text-[#303133]">{summary.totalQuantity}</b></span>
-            <span>实际总价：<b className="text-[#303133]">{formatValue(summary.actualTotalAmount)}</b></span>
-            <span>预付款合同总价金额：<b className="text-[#303133]">{formatValue(summary.actualTotalAmount)}</b></span>
+            <span>实际总价：<b className="text-[#303133]">{formatValue(summary.actualTotalAmount, "money")}</b></span>
+            <span>预付款合同总价金额：<b className="text-[#303133]">{formatValue(summary.actualTotalAmount, "money")}</b></span>
             <Button className="ml-auto" disabled={creating || !contractNo || !selectedIds.length} tone="primary" onClick={() => void createDraft()}>
               <FilePlus2 size={15} />
               生成预付款合同草稿
@@ -219,8 +219,8 @@ export function PrepaymentAvailablePage() {
   );
 }
 
-function formatValue(value: unknown) {
-  return formatDisplayValue(value as string | number | boolean | null | undefined);
+function formatValue(value: unknown, type?: string) {
+  return formatDisplayValue(value as string | number | boolean | null | undefined, type);
 }
 
 function roundMoney(value: number) {

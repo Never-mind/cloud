@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { RefreshCw, Search, Trash2 } from "lucide-react";
+import { RefreshCw, RotateCcw, Search, Trash2 } from "lucide-react";
 import { formatDisplayValue } from "@/lib/display-format";
 import { Button, Input, Panel } from "./ui";
 
@@ -13,7 +13,7 @@ const columns: Array<{ key: string; label: string; type?: string }> = [
   { key: "status", label: "状态" },
   { key: "currency", label: "币种" },
   { key: "effectiveDate", label: "生效日期", type: "date" },
-  { key: "totalAmount", label: "合同总金额" },
+  { key: "totalAmount", label: "合同总金额", type: "money" },
   { key: "confirmedAt", label: "确认时间", type: "datetime" },
   { key: "createdAt", label: "创建时间", type: "datetime" },
   { key: "updatedAt", label: "更新时间", type: "datetime" },
@@ -52,6 +52,17 @@ export function PrepaymentContractsPage() {
   async function deleteDraft(contractNo: string) {
     if (!confirm("确认删除该预付款合同草稿？删除后已占用实例会释放回待生成列表。")) return;
     await fetch(`/api/prepayments/contracts/${encodeURIComponent(contractNo)}`, { method: "DELETE" });
+    await loadData();
+  }
+
+  async function rollbackContract(contractNo: string) {
+    if (!confirm("回退后会删除该合同生成的预付款每月核销明细，合同将恢复为草稿。是否继续？")) return;
+    const response = await fetch(`/api/prepayments/contracts/${encodeURIComponent(contractNo)}/rollback`, { method: "POST" });
+    const data = await response.json();
+    if (!response.ok) {
+      alert(data.error ?? "回退失败");
+      return;
+    }
     await loadData();
   }
 
@@ -131,6 +142,12 @@ export function PrepaymentContractsPage() {
                           <Trash2 size={15} />
                           删除草稿
                         </Button>
+                        {confirmed ? (
+                          <Button tone="warning" onClick={() => void rollbackContract(contractNo)}>
+                            <RotateCcw size={15} />
+                            回退草稿
+                          </Button>
+                        ) : null}
                       </div>
                     </td>
                   </tr>

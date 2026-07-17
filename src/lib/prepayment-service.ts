@@ -88,6 +88,7 @@ export async function createPrepaymentDraft({
     effectiveDate: firstDayOfMonth(effectiveDate),
     purchaseLines: selected,
   });
+  await assertPrepaymentInstanceOwnership(draft.lines);
 
   await execute(
     `
@@ -186,6 +187,7 @@ export async function updatePrepaymentDraft({
     contractTotalAmount: Number(line.contractTotalAmount ?? 0),
     contractUnitPrice: Number(line.contractUnitPrice ?? 0),
   }));
+  await assertPrepaymentInstanceOwnership(normalizedLines);
   const totalAmount = roundMoney(
     normalizedLines.reduce((total, line) => total + Number(line.contractTotalAmount ?? 0), 0),
   );
@@ -223,6 +225,7 @@ export async function confirmPrepaymentContract(contractNo: string) {
   if (!contract) throw new Error("预付款合同不存在");
   if (String(contract.status) === "已确认") return getPrepaymentContract(contractNo);
   if (!lines.length) throw new Error("预付款合同明细不能为空");
+  await assertPrepaymentInstanceOwnership(lines);
 
   const writeOffRows = buildMonthlyWriteOffRows(lines as MonthlyWriteOffSourceLine[]);
   await execute("DELETE FROM monthlyprepaymentwriteoffs WHERE contractNo = :contractNo", { contractNo });
@@ -252,6 +255,61 @@ export async function confirmPrepaymentContract(contractNo: string) {
   );
 
   return getPrepaymentContract(contractNo);
+}
+
+export async function rollbackPrepaymentContract(contractNo: string) {
+  const { contract } = await getPrepaymentContract(contractNo);
+  if (!contract) throw new Error("预付款合同不存在");
+  if (String(contract.status) !== "已确认") throw new Error("仅已确认的预付款合同可以回退草稿");
+
+  const [{ total: confirmedAdjustmentCount }] = await queryRows<{ total: number }>(
+    "SELECT COUNT(*) AS total FROM prepaymentwriteoffadjustments WHERE contractNo = :contractNo AND status = '已确认'",
+    { contractNo },
+  );
+  if (Number(confirmedAdjustmentCount ?? 0) > 0) {
+    throw new Error("该合同存在已确认的预付款核销调整单，请先处理调整单后再回退");
+  }
+
+  await execute("DELETE FROM monthlyprepaymentwriteoffs WHERE contractNo = :contractNo", { contractNo });
+  await execute(
+    "UPDATE prepaymentcontracts SET status = '草稿', confirmedAt = NULL WHERE contractNo = :contractNo",
+    { contractNo },
+  );
+  return getPrepaymentContract(contractNo);
+}
+
+export async function assertPrepaymentInstanceOwnership(lines: Array<Pick<PrepaymentContractLineDraft, "contractNo" | "lineType" | "purchaseOrderItemId">>) {
+  const instanceLines = lines.filter((line) => line.lineType === "instance");
+  const sourceContractByPurchaseItemId = new Map<string, string>();
+  for (const line of instanceLines) {
+    const purchaseOrderItemId = String(line.purchaseOrderItemId ?? "").trim();
+    const contractNo = String(line.contractNo ?? "").trim();
+    if (!purchaseOrderItemId) throw new Error("实例明细必须关联采购明细ID，不能重复占用预付款实例");
+    const previousContractNo = sourceContractByPurchaseItemId.get(purchaseOrderItemId);
+    if (previousContractNo && previousContractNo !== contractNo) {
+      throw new Error(`采购明细 ${purchaseOrderItemId} 同时被导入到预付款合同 ${previousContractNo} 和 ${contractNo}`);
+    }
+    sourceContractByPurchaseItemId.set(purchaseOrderItemId, contractNo);
+  }
+  const purchaseOrderItemIds = Array.from(sourceContractByPurchaseItemId.keys());
+  if (!purchaseOrderItemIds.length) return;
+
+  const occupiedRows = await queryRows<{ purchaseOrderItemId: string; contractNo: string }>(
+    `
+      SELECT pci.purchaseOrderItemId, pci.contractNo
+      FROM prepaymentcontractitems pci
+      INNER JOIN prepaymentcontracts pc ON pc.contractNo = pci.contractNo
+      WHERE pci.purchaseOrderItemId IN (:purchaseOrderItemIds)
+        AND pc.status IN ('草稿', '已确认')
+    `,
+    { purchaseOrderItemIds },
+  );
+  const conflict = occupiedRows.find((row) =>
+    String(row.contractNo) !== sourceContractByPurchaseItemId.get(String(row.purchaseOrderItemId)),
+  );
+  if (conflict) {
+    throw new Error(`采购明细 ${conflict.purchaseOrderItemId} 已被预付款合同 ${conflict.contractNo} 占用，不能重复生成`);
+  }
 }
 
 export async function listMonthlyPrepaymentWriteOffs(searchParams: URLSearchParams) {

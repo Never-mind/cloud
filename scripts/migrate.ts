@@ -57,6 +57,31 @@ async function addIndexIfMissing(tableName: string, indexName: string, ddl: stri
   }
 }
 
+async function addUniquePrepaymentPurchaseItemIndexIfSafe() {
+  const duplicateRows = await queryRowsRaw<{ total: number }>(
+    `
+      SELECT COUNT(*) AS total
+      FROM (
+        SELECT purchaseOrderItemId
+        FROM ${physicalTableName("prepaymentcontractitems")}
+        WHERE purchaseOrderItemId IS NOT NULL
+          AND purchaseOrderItemId <> ''
+        GROUP BY purchaseOrderItemId
+        HAVING COUNT(*) > 1
+      ) AS duplicates
+    `,
+  );
+  if (Number(duplicateRows[0]?.total ?? 0) > 0) {
+    console.warn("检测到历史预付款实例重复占用，暂不创建唯一索引；请处理重复合同后再次执行迁移。");
+    return;
+  }
+  await addIndexIfMissing(
+    "prepaymentcontractitems",
+    "uk_PrepaymentContractItems_purchaseOrderItemId",
+    "UNIQUE KEY `uk_PrepaymentContractItems_purchaseOrderItemId` (`purchaseOrderItemId`)",
+  );
+}
+
 async function dropIndexIfExists(tableName: string, indexName: string) {
   const rows = await queryRowsRaw<{ count: number }>(
     `
@@ -649,6 +674,10 @@ async function main() {
     "idx_PrepaymentContractItems_purchaseOrderItemId",
     "KEY `idx_PrepaymentContractItems_purchaseOrderItemId` (`purchaseOrderItemId`)",
   );
+  await execute(
+    "UPDATE prepaymentcontractitems SET purchaseOrderItemId = NULL WHERE purchaseOrderItemId = ''",
+  );
+  await addUniquePrepaymentPurchaseItemIndexIfSafe();
   await execute(
     `
       UPDATE prepaymentcontractitems pci

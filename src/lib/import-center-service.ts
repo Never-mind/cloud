@@ -8,6 +8,7 @@ import {
   type ImportTargetKey,
 } from "./import-center";
 import { DEFAULT_PAGE_SIZE, normalizePageSize } from "./pagination";
+import { assertPrepaymentInstanceOwnership } from "./prepayment-service";
 
 type ImportJobRow = Row & {
   jobId: string;
@@ -327,6 +328,9 @@ export async function confirmImportJob(jobId: string, options: { allowConfirmed?
   const strategy = normalizeImportStrategy(preview.strategy);
   if (strategy === "overwrite-all" && !options.allowConfirmed) {
     throw new Error("覆盖已确认数据需要再次确认");
+  }
+  if (preview.targetKey === "prepayment-contracts") {
+    await assertPrepaymentInstanceOwnership(preview.operations.prepaymentContractItems as any);
   }
 
   for (const plan of EXECUTION_PLAN) {

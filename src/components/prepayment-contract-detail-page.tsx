@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, CheckCircle2, Pencil, Plus, Save, Trash2 } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Pencil, Plus, RotateCcw, Save, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { formatDateInputValue, formatDisplayValue } from "@/lib/display-format";
 import { getPrepaymentContractEditState } from "@/lib/prepayment-contract-ui";
@@ -64,6 +64,7 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
   const [lines, setLines] = useState<Line[]>([]);
   const [editing, setEditing] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const [rollingBack, setRollingBack] = useState(false);
   const [saving, setSaving] = useState(false);
   const [suppliers, setSuppliers] = useState<Row[]>([]);
   const [undertakingUnits, setUndertakingUnits] = useState<Row[]>([]);
@@ -225,6 +226,20 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
     router.push("/finance/monthly-prepayment-writeoffs");
   }
 
+  async function rollbackContract() {
+    if (!contract) return;
+    if (!confirm("回退后会删除该合同生成的预付款每月核销明细，合同将恢复为草稿。服务费历史快照不会改变，是否继续？")) return;
+    setRollingBack(true);
+    const response = await fetch(`/api/prepayments/contracts/${encodeURIComponent(contract.contractNo)}/rollback`, { method: "POST" });
+    const data = await response.json();
+    setRollingBack(false);
+    if (!response.ok) {
+      alert(data.error ?? "回退失败");
+      return;
+    }
+    await loadData();
+  }
+
   function handleEditButton() {
     if (!editing) {
       setEditing(true);
@@ -257,6 +272,12 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
             <CheckCircle2 size={15} />
             {editState.confirmButtonLabel}
           </Button>
+          {confirmed ? (
+            <Button disabled={rollingBack} tone="warning" onClick={() => void rollbackContract()}>
+              <RotateCcw size={15} />
+              回退草稿
+            </Button>
+          ) : null}
         </div>
       </div>
 
@@ -267,7 +288,7 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
           <Field disabled label="状态" value={contract.status} onChange={() => undefined} />
           <Field disabled={!canEdit} label="币种" value={contract.currency ?? ""} onChange={(value) => updateContract({ currency: value })} />
           <Field disabled={!canEdit} label="生效日期" type="date" value={contract.effectiveDate} onChange={(value) => updateContract({ effectiveDate: value })} />
-          <Field disabled label="合同总金额" value={String(totalAmount)} onChange={() => undefined} />
+          <Field disabled label="合同总金额" value={formatDisplayValue(totalAmount, "money")} onChange={() => undefined} />
         </div>
       </Panel>
 
