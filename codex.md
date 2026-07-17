@@ -122,9 +122,9 @@ npm run dev:hot
 
 ## 7. 数据库说明
 
-数据库默认名称：`suanli`。
+本地开发数据库默认名称：`suanli`；远程部署数据库名称：`cloud`，通过环境变量 `DB_NAME` 切换，无需修改业务代码。
 
-建表脚本：`schema.sql`。
+基础建表脚本：`schema.sql`。远程 `cloud` 数据库已完成结构初始化，正常部署无需重复执行建表或迁移。
 
 迁移脚本：`scripts/migrate.ts`。
 
