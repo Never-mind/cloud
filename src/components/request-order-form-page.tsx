@@ -63,9 +63,20 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
   const canConfirm = !isConfirmedRequestStatus(master.status);
 
   async function fetchEntity(entity: string) {
-    const response = await fetch(`/api/entities/${entity}?page=1&pageSize=100`);
-    const data = await response.json();
-    return (data.rows ?? []) as Row[];
+    const pageSize = 100;
+    let page = 1;
+    let total = 0;
+    const rows: Row[] = [];
+
+    do {
+      const response = await fetch(`/api/entities/${entity}?page=${page}&pageSize=${pageSize}`);
+      const data = await response.json();
+      rows.push(...((data.rows ?? []) as Row[]));
+      total = Number(data.total ?? rows.length);
+      page += 1;
+    } while (rows.length < total);
+
+    return rows;
   }
 
   useEffect(() => {
