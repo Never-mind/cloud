@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { CheckCircle2, RefreshCw, Search } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { formatDisplayValue } from "@/lib/display-format";
+import { fetchAllEntityRows } from "@/lib/client-entity-fetch";
 import { Button, Input, Panel } from "./ui";
 
 type Row = {
@@ -78,14 +79,13 @@ export function BillingAvailablePage() {
 
   async function loadData() {
     setLoading(true);
-    const [response, contractResponse] = await Promise.all([
+    const [response, contractRows] = await Promise.all([
       fetch("/api/billing/available"),
-      fetch("/api/entities/instance-contracts?page=1&pageSize=100"),
+      fetchAllEntityRows<InstanceContract>("instance-contracts"),
     ]);
     const data = await response.json();
-    const contractData = await contractResponse.json();
     setRows(data.rows ?? []);
-    setContracts(contractData.rows ?? []);
+    setContracts(contractRows);
     setSelectedIds([]);
     setLoading(false);
   }

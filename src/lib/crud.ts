@@ -202,7 +202,8 @@ async function enrichShipmentRows(rows: Row[]): Promise<Row[]> {
   const locationIds = uniqueValues(rows, "destinationLocationId");
   const contactIds = uniqueValues(rows, "recipientContactId");
   const poNos = uniqueValues(rows, "poNo");
-  const [datacenters, locations, contacts, purchaseOrders, purchaseLines] = await Promise.all([
+  const deviceCodes = uniqueValues(rows, "deviceCode");
+  const [datacenters, locations, contacts, purchaseOrders, purchaseLines, instanceModels] = await Promise.all([
     dcCodes.length ? queryRows("SELECT dcCode, nameZh FROM datacenters WHERE dcCode IN (:dcCodes)", { dcCodes }) : [],
     locationIds.length
       ? queryRows("SELECT locationId, fullAddress FROM deliverylocations WHERE locationId IN (:locationIds)", { locationIds })
@@ -212,11 +213,15 @@ async function enrichShipmentRows(rows: Row[]): Promise<Row[]> {
     poNos.length
       ? queryRows("SELECT poi.id AS purchaseOrderItemId, poi.poNo, ri.deviceCode, ri.supplierId, ri.undertakingUnitId FROM purchaseorderitems poi LEFT JOIN requestitems ri ON ri.id = poi.requestItemId WHERE poi.poNo IN (:poNos)", { poNos })
       : [],
+    deviceCodes.length
+      ? queryRows("SELECT deviceCode, nameEn FROM instancemodels WHERE deviceCode IN (:deviceCodes)", { deviceCodes })
+      : [],
   ]);
   const datacenterByCode = new Map(datacenters.map((row) => [String(row.dcCode), row]));
   const locationById = new Map(locations.map((row) => [String(row.locationId), row]));
   const contactById = new Map(contacts.map((row) => [String(row.contactId), row]));
   const purchaseOrderByPoNo = new Map(purchaseOrders.map((row) => [String(row.poNo), row]));
+  const instanceModelByDeviceCode = new Map(instanceModels.map((row) => [String(row.deviceCode), row]));
   const purchaseLineById = new Map(purchaseLines.map((row) => [String(row.purchaseOrderItemId), row]));
   const purchaseLineByPoDevice = new Map(purchaseLines.map((row) => [`${String(row.poNo)}::${String(row.deviceCode ?? "")}`, row]));
   const purchaseLinesByPoNo = new Map<string, Row[]>();
@@ -234,8 +239,11 @@ async function enrichShipmentRows(rows: Row[]): Promise<Row[]> {
     const purchaseLine = purchaseLineById.get(String(row.purchaseOrderItemId ?? ""))
       ?? purchaseLineByPoDevice.get(`${poNo}::${String(row.deviceCode ?? "")}`)
       ?? (matchingPoLines.length === 1 ? matchingPoLines[0] : undefined);
+    const instanceModel = instanceModelByDeviceCode.get(String(row.deviceCode ?? ""));
     return {
       ...row,
+      // The logistics record keeps its original value, while the list and export always show the current model name.
+      nameEn: instanceModel?.nameEn ?? row.nameEn,
       dcNameZh: datacenter?.nameZh ?? row.dcNameZh ?? row.dcCode,
       destinationAddress: location?.fullAddress ?? row.snapshotDestinationAddress ?? row.destinationLocationId,
       recipientName: contact?.name ?? row.snapshotRecipientName ?? row.recipientContactId,

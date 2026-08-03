@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { CheckCircle2, FileDown, Pencil, Plus, Save, Trash2, Upload } from "lucide-react";
 import {
   applyBillingAdjustmentDeviceAutofill,
@@ -11,6 +11,8 @@ import {
 import { formatDateInputValue, formatDisplayValue } from "@/lib/display-format";
 import { buildImportMessage, type ImportReport } from "@/lib/entity-import";
 import { PURCHASE_CURRENCY_OPTIONS } from "@/lib/purchase-order-form";
+import { fetchAllEntityRows } from "@/lib/client-entity-fetch";
+import { buildDetailRoute, getReturnTo } from "@/lib/client-list-navigation";
 import { Button, Input, Panel, Textarea } from "./ui";
 
 type Row = Record<string, string | number | boolean | null>;
@@ -47,6 +49,8 @@ const emptyItem = {
 
 export function BillingAdjustmentDetailPage({ adjustmentNo: routeAdjustmentNo }: { adjustmentNo: string }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const returnTo = getReturnTo(searchParams.get("returnTo"), "/finance/billing-adjustments");
   const fileRef = useRef<HTMLInputElement>(null);
   const isNew = routeAdjustmentNo === "new";
   const [adjustmentNo, setAdjustmentNo] = useState(isNew ? buildAdjustmentNo() : routeAdjustmentNo);
@@ -76,11 +80,10 @@ export function BillingAdjustmentDetailPage({ adjustmentNo: routeAdjustmentNo }:
 
   useEffect(() => {
     void loadAdjustment();
-    void fetch("/api/entities/instance-models?page=1&pageSize=1000")
-      .then((response) => response.json())
-      .then((data) =>
+    void fetchAllEntityRows<Row>("instance-models")
+      .then((rows) =>
         setInstanceModels(
-          (data.rows ?? []).map((row: Row) => ({
+          rows.map((row) => ({
             deviceCode: String(row.deviceCode ?? ""),
             modelCode: String(row.modelCode ?? ""),
             nameEn: String(row.nameEn ?? ""),
@@ -130,7 +133,7 @@ export function BillingAdjustmentDetailPage({ adjustmentNo: routeAdjustmentNo }:
       return false;
     }
     if (isNew) {
-      router.replace(`/finance/billing-adjustments/${encodeURIComponent(adjustmentNo)}`);
+      router.replace(buildDetailRoute(`/finance/billing-adjustments/${encodeURIComponent(adjustmentNo)}`, returnTo), { scroll: false });
       router.refresh();
     }
     setItems(data.items ?? items);
@@ -155,7 +158,7 @@ export function BillingAdjustmentDetailPage({ adjustmentNo: routeAdjustmentNo }:
     }
     setStatus("已确认");
     alert("实例合同调整单已确认");
-    router.push("/finance/billing-adjustments");
+    router.push(returnTo);
   }
 
   async function importItems(file: File) {

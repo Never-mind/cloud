@@ -362,6 +362,7 @@ export async function listMonthlyPrepaymentWriteOffs(searchParams: URLSearchPara
         batchName,
         requestNo,
         poNo,
+        purchaseItem.purchaseOrderId,
         deviceCode,
         modelCode,
         nameEn,
@@ -373,9 +374,10 @@ export async function listMonthlyPrepaymentWriteOffs(searchParams: URLSearchPara
         createdAt
       FROM monthlyprepaymentwriteoffs
       LEFT JOIN (
-        SELECT id AS linkedContractLineId, requestItemId AS linkedRequestItemId
+        SELECT id AS linkedContractLineId, requestItemId AS linkedRequestItemId, purchaseOrderItemId AS linkedPurchaseOrderItemId
         FROM prepaymentcontractitems
       ) AS contractItem ON contractItem.linkedContractLineId = monthlyprepaymentwriteoffs.contractLineId
+      LEFT JOIN purchaseorderitems AS purchaseItem ON purchaseItem.id = contractItem.linkedPurchaseOrderItemId
       LEFT JOIN (
         SELECT id AS linkedRequestItemId, supplierId AS linkedSupplierId, undertakingUnitId AS linkedUndertakingUnitId
         FROM requestitems

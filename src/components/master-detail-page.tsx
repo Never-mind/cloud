@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { EntityConfig } from "@/lib/modules";
+import { fetchAllEntityRows } from "@/lib/client-entity-fetch";
 import { Button, Panel } from "./ui";
 import { EntityPage } from "./entity-page";
 
@@ -21,20 +22,15 @@ export function MasterDetailPage({
   const [selected, setSelected] = useState<string>("");
 
   async function loadMasters() {
-    const response = await fetch(`/api/entities/${masterConfig.key}?page=1&pageSize=100`);
-    const data = await response.json();
-    const rows = data.rows ?? [];
+    const rows = await fetchAllEntityRows<Row>(masterConfig.key);
     setMasters(rows);
     setSelected((current) => current || String(rows[0]?.[masterConfig.primaryKey] ?? ""));
   }
 
   async function loadDetails(masterId: string) {
     if (!masterId) return;
-    const response = await fetch(
-      `/api/entities/${detailConfig.key}?page=1&pageSize=100&keyword=${encodeURIComponent(masterId)}`,
-    );
-    const data = await response.json();
-    setDetails((data.rows ?? []).filter((row: Row) => String(row[relationKey]) === masterId));
+    const rows = await fetchAllEntityRows<Row>(detailConfig.key, { keyword: masterId });
+    setDetails(rows.filter((row) => String(row[relationKey]) === masterId));
   }
 
   useEffect(() => {

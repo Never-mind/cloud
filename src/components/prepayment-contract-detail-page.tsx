@@ -3,8 +3,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, CheckCircle2, Pencil, Plus, RotateCcw, Save, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { formatDateInputValue, formatDisplayValue } from "@/lib/display-format";
 import { getPrepaymentContractEditState } from "@/lib/prepayment-contract-ui";
+import { fetchAllEntityRows } from "@/lib/client-entity-fetch";
+import { getReturnTo } from "@/lib/client-list-navigation";
 import { Button, Input, Panel, Textarea } from "./ui";
 
 type Contract = {
@@ -60,6 +63,8 @@ const instanceColumns: Array<{ key: keyof Line; label: string; type?: string }> 
 
 export function PrepaymentContractDetailPage({ contractNo }: { contractNo: string }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const returnTo = getReturnTo(searchParams.get("returnTo"), "/finance/prepayment-contracts");
   const [contract, setContract] = useState<Contract | null>(null);
   const [lines, setLines] = useState<Line[]>([]);
   const [editing, setEditing] = useState(false);
@@ -82,7 +87,7 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
     const data = await response.json();
     if (!response.ok) {
       alert(data.error ?? "合同不存在");
-      router.push("/finance/prepayment-contracts");
+      router.push(returnTo);
       return;
     }
     setContract({
@@ -105,13 +110,9 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
   }
 
   useEffect(() => {
-    void Promise.all([
-      fetch("/api/entities/suppliers?page=1&pageSize=100"),
-      fetch("/api/entities/undertaking-units?page=1&pageSize=100"),
-    ]).then(async ([supplierResponse, unitResponse]) => {
-      const [supplierData, unitData] = await Promise.all([supplierResponse.json(), unitResponse.json()]);
-      setSuppliers(supplierData.rows ?? []);
-      setUndertakingUnits(unitData.rows ?? []);
+    void Promise.all([fetchAllEntityRows<Row>("suppliers"), fetchAllEntityRows<Row>("undertaking-units")]).then(([supplierRows, unitRows]) => {
+      setSuppliers(supplierRows);
+      setUndertakingUnits(unitRows);
     });
   }, []);
 
@@ -255,7 +256,7 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
   return (
     <div className="space-y-5">
       <div className="flex items-start gap-3">
-        <Button onClick={() => router.push("/finance/prepayment-contracts")}>
+        <Button onClick={() => router.push(returnTo)}>
           <ArrowLeft size={15} />
           返回列表
         </Button>

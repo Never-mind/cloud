@@ -8,6 +8,7 @@ import { formatNumericInputValue, parseNumericInputValue } from "@/lib/numeric-i
 import { PURCHASE_CURRENCY_OPTIONS, buildPurchaseOrderItemRows, type PurchaseDetailDraft } from "@/lib/purchase-order-form";
 import { calculatePurchaseTotalAmount } from "@/lib/purchase-lines";
 import { buildAutoPurchaseOrderId, buildAutoPurchaseOrderNo, normalizeRequestNos } from "@/lib/procurement-workflow";
+import { fetchAllEntityRows } from "@/lib/client-entity-fetch";
 import { Button, Input, Panel } from "./ui";
 
 type Row = Record<string, string | number | boolean | null>;
@@ -51,9 +52,7 @@ export function PurchaseOrderFormPage() {
   const [saving, setSaving] = useState(false);
 
   async function fetchEntity(entity: string) {
-    const response = await fetch(`/api/entities/${entity}?page=1&pageSize=100`);
-    const data = await response.json();
-    return (data.rows ?? []) as Row[];
+    return fetchAllEntityRows<Row>(entity);
   }
 
   useEffect(() => {

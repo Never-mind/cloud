@@ -3,6 +3,7 @@
 import Link from "next/link";
 import * as XLSX from "xlsx";
 import { useEffect, useMemo, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { CheckCircle2, FileDown, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { formatDisplayValue } from "@/lib/display-format";
 import type { EntityConfig } from "@/lib/modules";
@@ -15,6 +16,7 @@ import {
 import { getOrderCreateRoute, getOrderDetailRoute, type OrderRouteMode } from "@/lib/order-routes";
 import { DEFAULT_PAGE_SIZE, paginateRows } from "@/lib/pagination";
 import { calculatePurchaseTotalAmount } from "@/lib/purchase-lines";
+import { buildDetailRoute, buildListRoute, getCurrentRoute, getPositiveNumber, useListScrollPosition } from "@/lib/client-list-navigation";
 import { PaginationBar } from "./pagination-bar";
 import { Button, Input, Panel } from "./ui";
 
@@ -31,18 +33,38 @@ export function OrderListPage({
   detailConfig: EntityConfig;
   relationKey: string;
 }) {
+  const pathname = usePathname();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [masters, setMasters] = useState<Row[]>([]);
   const [details, setDetails] = useState<Row[]>([]);
   const [requestItems, setRequestItems] = useState<Row[]>([]);
   const [requests, setRequests] = useState<Row[]>([]);
-  const [keyword, setKeyword] = useState("");
-  const [statusTab, setStatusTab] = useState<OrderStatusTab>("draft");
+  const [keyword, setKeyword] = useState(() => searchParams.get("keyword") ?? "");
+  const [statusTab, setStatusTab] = useState<OrderStatusTab>(() =>
+    searchParams.get("statusTab") === "confirmed" ? "confirmed" : "draft",
+  );
   const [loading, setLoading] = useState(false);
   const [confirmingId, setConfirmingId] = useState("");
   const [deletingId, setDeletingId] = useState("");
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+  const [page, setPage] = useState(() => getPositiveNumber(searchParams.get("page"), 1));
+  const [pageSize, setPageSize] = useState(() => getPositiveNumber(searchParams.get("pageSize"), DEFAULT_PAGE_SIZE));
   const columnKeys = getOrderListColumnKeys(mode);
+  const currentRoute = getCurrentRoute(pathname, searchParams.toString());
+
+  useListScrollPosition(currentRoute, !loading);
+
+  useEffect(() => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("page", String(page));
+    params.set("pageSize", String(pageSize));
+    params.set("statusTab", statusTab);
+    if (keyword.trim()) params.set("keyword", keyword);
+    else params.delete("keyword");
+
+    const nextRoute = buildListRoute(pathname, params);
+    if (nextRoute !== currentRoute) router.replace(nextRoute, { scroll: false });
+  }, [currentRoute, keyword, page, pageSize, pathname, router, searchParams, statusTab]);
 
   async function fetchEntity(entity: string) {
     const fetchPageSize = 100;
@@ -79,10 +101,6 @@ export function OrderListPage({
   useEffect(() => {
     void loadData();
   }, [masterConfig.key, detailConfig.key]);
-
-  useEffect(() => {
-    setPage(1);
-  }, [keyword, statusTab, pageSize]);
 
   const rowsWithTotals = useMemo<Row[]>(() => {
     const requestByNo = new Map(requests.map((request) => [String(request.requestNo), request]));
@@ -130,6 +148,7 @@ export function OrderListPage({
     await loadData();
     setConfirmingId("");
     setStatusTab("confirmed");
+    setPage(1);
   }
 
   async function confirmPurchaseOrder(poNo: string) {
@@ -200,13 +219,13 @@ export function OrderListPage({
 
       <Panel>
         <div className="flex items-center gap-2 border-b border-[#ebeef5] bg-[#fafafa] p-3">
-          <Button tone={statusTab === "draft" ? "primary" : "default"} onClick={() => setStatusTab("draft")}>
+          <Button tone={statusTab === "draft" ? "primary" : "default"} onClick={() => { setStatusTab("draft"); setPage(1); }}>
             草稿
             <span className="ml-1 rounded bg-white/35 px-1.5 text-xs">{statusCounts.draft}</span>
           </Button>
           <Button
             tone={statusTab === "confirmed" ? "primary" : "default"}
-            onClick={() => setStatusTab("confirmed")}
+            onClick={() => { setStatusTab("confirmed"); setPage(1); }}
           >
             已确认
             <span className="ml-1 rounded bg-white/35 px-1.5 text-xs">{statusCounts.confirmed}</span>
@@ -217,7 +236,7 @@ export function OrderListPage({
           <Input
             placeholder={mode === "requests" ? "搜索需求单号/状态/批次" : "搜索PO单号/需求单号/状态"}
             value={keyword}
-            onChange={(event) => setKeyword(event.target.value)}
+            onChange={(event) => { setKeyword(event.target.value); setPage(1); }}
           />
           <Button onClick={() => void loadData()}>
             <RefreshCw size={15} />
@@ -297,7 +316,7 @@ export function OrderListPage({
                     <td className="border-b border-r border-[#ebeef5] px-3 py-3">
                       <Link
                         className="font-medium text-[#1890ff] hover:underline"
-                        href={getOrderDetailRoute(mode, id)}
+                        href={buildDetailRoute(getOrderDetailRoute(mode, id), currentRoute)}
                       >
                         {primaryDisplayValue}
                       </Link>
@@ -355,7 +374,7 @@ export function OrderListPage({
                       <td className="sticky right-0 whitespace-nowrap border-b border-[#ebeef5] bg-white px-3 py-3">
                         {mode === "requests" ? (
                           <div className="flex items-center gap-2">
-                            <Link href={getOrderDetailRoute(mode, id)}>
+                            <Link href={buildDetailRoute(getOrderDetailRoute(mode, id), currentRoute)}>
                               <Button disabled={confirmed}>
                                 <Pencil size={15} />
                                 修改

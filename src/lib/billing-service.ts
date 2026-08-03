@@ -437,6 +437,7 @@ export async function listMonthlyBillingWriteOffs(searchParams: URLSearchParams)
         COALESCE(NULLIF(monthlybillingwriteoffs.supplierId, ''), ri.linkedSupplierId, riByBusinessKey.fallbackSupplierId) AS supplierId,
         COALESCE(NULLIF(monthlybillingwriteoffs.undertakingUnitId, ''), ri.linkedUndertakingUnitId, riByBusinessKey.fallbackUndertakingUnitId) AS undertakingUnitId,
         quantity,
+        purchaseItem.purchaseOrderId,
         instanceContractNo,
         currency,
         monthlyTotalAmount,
@@ -452,6 +453,7 @@ export async function listMonthlyBillingWriteOffs(searchParams: URLSearchParams)
         SELECT ledgerId AS linkedLedgerId, purchaseOrderItemId AS linkedPurchaseOrderItemId
         FROM billinginstanceledgers
       ) AS ledger ON ledger.linkedLedgerId = monthlybillingwriteoffs.ledgerId
+      LEFT JOIN purchaseorderitems AS purchaseItem ON purchaseItem.id = ledger.linkedPurchaseOrderItemId
       LEFT JOIN (
         SELECT id AS linkedRequestItemId, supplierId AS linkedSupplierId, undertakingUnitId AS linkedUndertakingUnitId
         FROM requestitems

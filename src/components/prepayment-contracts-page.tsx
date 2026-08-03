@@ -2,8 +2,11 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { RefreshCw, RotateCcw, Search, Trash2 } from "lucide-react";
 import { formatDisplayValue } from "@/lib/display-format";
+import { fetchAllEntityRows } from "@/lib/client-entity-fetch";
+import { buildDetailRoute, buildListRoute, getCurrentRoute, useListScrollPosition } from "@/lib/client-list-navigation";
 import { Button, Input, Panel } from "./ui";
 
 type Row = Record<string, string | number | boolean | null>;
@@ -20,16 +23,29 @@ const columns: Array<{ key: string; label: string; type?: string }> = [
 ] as const;
 
 export function PrepaymentContractsPage() {
+  const pathname = usePathname();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [rows, setRows] = useState<Row[]>([]);
-  const [keyword, setKeyword] = useState("");
-  const [statusTab, setStatusTab] = useState<"draft" | "confirmed">("draft");
+  const [keyword, setKeyword] = useState(() => searchParams.get("keyword") ?? "");
+  const [statusTab, setStatusTab] = useState<"draft" | "confirmed">(() => searchParams.get("statusTab") === "confirmed" ? "confirmed" : "draft");
   const [loading, setLoading] = useState(false);
+  const currentRoute = getCurrentRoute(pathname, searchParams.toString());
+
+  useListScrollPosition(currentRoute, !loading);
+
+  useEffect(() => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("statusTab", statusTab);
+    if (keyword.trim()) params.set("keyword", keyword);
+    else params.delete("keyword");
+    const nextRoute = buildListRoute(pathname, params);
+    if (nextRoute !== currentRoute) router.replace(nextRoute, { scroll: false });
+  }, [currentRoute, keyword, pathname, router, searchParams, statusTab]);
 
   async function loadData() {
     setLoading(true);
-    const response = await fetch("/api/entities/prepayment-contracts?page=1&pageSize=100");
-    const data = await response.json();
-    setRows(data.rows ?? []);
+    setRows(await fetchAllEntityRows<Row>("prepayment-contracts"));
     setLoading(false);
   }
 
@@ -125,7 +141,7 @@ export function PrepaymentContractsPage() {
                     {columns.map((column) => (
                       <td className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3" key={column.key}>
                         {column.key === "contractNo" ? (
-                          <Link className="font-medium text-[#1890ff] hover:underline" href={`/finance/prepayment-contracts/${encodeURIComponent(contractNo)}`}>
+                          <Link className="font-medium text-[#1890ff] hover:underline" href={buildDetailRoute(`/finance/prepayment-contracts/${encodeURIComponent(contractNo)}`, currentRoute)}>
                             {contractNo}
                           </Link>
                         ) : (
@@ -135,7 +151,7 @@ export function PrepaymentContractsPage() {
                     ))}
                     <td className="sticky right-0 whitespace-nowrap border-b border-[#ebeef5] bg-white px-3 py-3">
                       <div className="flex items-center gap-2">
-                        <Link href={`/finance/prepayment-contracts/${encodeURIComponent(contractNo)}`}>
+                        <Link href={buildDetailRoute(`/finance/prepayment-contracts/${encodeURIComponent(contractNo)}`, currentRoute)}>
                           <Button>{confirmed ? "查看" : "编辑"}</Button>
                         </Link>
                         <Button disabled={confirmed} tone="danger" onClick={() => void deleteDraft(contractNo)}>

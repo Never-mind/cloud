@@ -9,6 +9,7 @@ import {
 } from "./import-center";
 import { DEFAULT_PAGE_SIZE, normalizePageSize } from "./pagination";
 import { assertPrepaymentInstanceOwnership } from "./prepayment-service";
+import { synchronizeConfirmedPurchaseOrderShipments } from "./procurement-service";
 
 type ImportJobRow = Row & {
   jobId: string;
@@ -325,6 +326,7 @@ export async function confirmImportJob(jobId: string, options: { allowConfirmed?
   const failed: Array<{ rowNumber: number; primaryKey: string; error: string }> = [];
   let success = 0;
   let skipped = 0;
+  const synchronizedPurchaseOrderIds = new Set<string>();
   const strategy = normalizeImportStrategy(preview.strategy);
   if (strategy === "overwrite-all" && !options.allowConfirmed) {
     throw new Error("覆盖已确认数据需要再次确认");
@@ -344,6 +346,12 @@ export async function confirmImportJob(jobId: string, options: { allowConfirmed?
         }
         if (existing) await updateRow(plan, existing, row);
         else await insertRow(plan, row);
+        if (plan.key === "purchaseOrders" && row.purchaseOrderId) {
+          synchronizedPurchaseOrderIds.add(String(row.purchaseOrderId));
+        }
+        if (plan.key === "purchaseOrderItems" && row.purchaseOrderId) {
+          synchronizedPurchaseOrderIds.add(String(row.purchaseOrderId));
+        }
         success += 1;
       } catch (error) {
         failed.push({
@@ -361,6 +369,10 @@ export async function confirmImportJob(jobId: string, options: { allowConfirmed?
     success: failed.length ? 0 : success,
     failed,
   };
+
+  const shipmentSync = preview.targetKey === "purchase-orders" && synchronizedPurchaseOrderIds.size
+    ? await synchronizeConfirmedPurchaseOrderShipments([...synchronizedPurchaseOrderIds])
+    : { orderCount: 0, created: 0, updated: 0 };
 
   await execute(
     `
@@ -381,7 +393,8 @@ export async function confirmImportJob(jobId: string, options: { allowConfirmed?
     },
   );
 
-  return getImportJob(jobId);
+  const savedJob = await getImportJob(jobId);
+  return savedJob ? { ...savedJob, shipmentSync } : savedJob;
 }
 
 export type ImportJobListResult = {

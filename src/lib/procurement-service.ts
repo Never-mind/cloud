@@ -21,6 +21,20 @@ type ShipmentLineRow = {
   undertakingUnitId: string | null;
 };
 
+type PurchaseOrderRow = Row & {
+  purchaseOrderId: string;
+  poNo: string;
+  requestNo: string | null;
+  sourceRequestNos: string | null;
+  status: string | null;
+};
+
+export type ShipmentSyncResult = {
+  shipments: Row[];
+  created: number;
+  updated: number;
+};
+
 export async function createPurchaseOrderFromRequest(requestNo: string, poNo?: string) {
   const requestRows = await queryRows<Row>(
     "SELECT requestNo FROM requests WHERE requestNo = :requestNo LIMIT 1",
@@ -81,7 +95,7 @@ export async function createPurchaseOrderFromRequest(requestNo: string, poNo?: s
 }
 
 export async function confirmPurchaseOrder(purchaseOrderIdOrPoNo: string) {
-  const rows = await queryRows<Row>(
+  const rows = await queryRows<PurchaseOrderRow>(
     "SELECT purchaseOrderId, poNo, requestNo, sourceRequestNos, status FROM purchaseorders WHERE purchaseOrderId = :id OR poNo = :id LIMIT 1",
     { id: purchaseOrderIdOrPoNo },
   );
@@ -91,22 +105,32 @@ export async function confirmPurchaseOrder(purchaseOrderIdOrPoNo: string) {
   }
 
   const purchaseOrderId = String(order.purchaseOrderId ?? purchaseOrderIdOrPoNo);
-  const poNo = String(order.poNo ?? purchaseOrderIdOrPoNo);
 
   await execute("UPDATE purchaseorders SET status = :status WHERE purchaseOrderId = :purchaseOrderId", {
     purchaseOrderId,
     status: "已确认",
   });
 
-  const requestNos = normalizeRequestNos([String(order.sourceRequestNos ?? order.requestNo ?? "")])
-    .split(",")
-    .filter(Boolean);
-  for (const requestNo of requestNos) {
-    await execute("UPDATE requests SET status = :status WHERE requestNo = :requestNo", {
-      requestNo,
-      status: "已下单",
-    });
-  }
+  await markPurchaseOrderRequestsAsOrdered(order);
+
+  const result = await synchronizePurchaseOrderShipments(purchaseOrderId);
+  return result.shipments;
+}
+
+/**
+ * Synchronize shipment source fields from one purchase order without replacing logistics-entered fields.
+ * Repeated calls update by purchase detail ID, so imports can safely be retried.
+ */
+export async function synchronizePurchaseOrderShipments(purchaseOrderIdOrPoNo: string): Promise<ShipmentSyncResult> {
+  const rows = await queryRows<PurchaseOrderRow>(
+    "SELECT purchaseOrderId, poNo, requestNo, sourceRequestNos, status FROM purchaseorders WHERE purchaseOrderId = :id OR poNo = :id LIMIT 1",
+    { id: purchaseOrderIdOrPoNo },
+  );
+  const order = rows[0];
+  if (!order) throw new Error("采购单不存在");
+
+  const purchaseOrderId = String(order.purchaseOrderId);
+  const poNo = String(order.poNo);
 
   const shipmentLines = await queryRows<ShipmentLineRow>(
     `
@@ -127,8 +151,54 @@ export async function confirmPurchaseOrder(purchaseOrderIdOrPoNo: string) {
     { purchaseOrderId },
   );
   const shipments = buildShipmentDraft(poNo, shipmentLines);
+  const itemIds = shipmentLines.map((line) => line.purchaseOrderItemId).filter(Boolean);
+  const existingRows = itemIds.length
+    ? await queryRows<Row>(
+        "SELECT shipmentId, poNo, purchaseOrderItemId, deviceCode FROM shipments WHERE purchaseOrderItemId IN (:itemIds) OR poNo = :poNo",
+        { itemIds, poNo },
+      )
+    : [];
+  const existingByItemId = new Map(
+    existingRows
+      .filter((row) => String(row.purchaseOrderItemId ?? "").trim())
+      .map((row) => [String(row.purchaseOrderItemId), row]),
+  );
+  const existingByShipmentId = new Map(existingRows.map((row) => [String(row.shipmentId), row]));
+  const existingByDeviceCode = new Map<string, Row[]>();
+  for (const row of existingRows) {
+    const key = String(row.deviceCode ?? "").trim();
+    if (key) existingByDeviceCode.set(key, [...(existingByDeviceCode.get(key) ?? []), row]);
+  }
 
-  for (const shipment of shipments) {
+  let created = 0;
+  let updated = 0;
+  for (const [index, shipment] of shipments.entries()) {
+    const line = shipmentLines[index];
+    const matchingByDevice = existingByDeviceCode.get(String(line.deviceCode ?? "").trim()) ?? [];
+    // Older logistics rows may not have a purchase detail ID. Only reuse a PO/device match when unambiguous.
+    const existing = existingByItemId.get(String(line.purchaseOrderItemId))
+      ?? existingByShipmentId.get(String(shipment.shipmentId))
+      ?? (matchingByDevice.length === 1 ? matchingByDevice[0] : undefined);
+
+    if (existing) {
+      await execute(
+        `
+          UPDATE shipments
+          SET poNo = :poNo,
+              batchName = :batchName,
+              purchaseOrderItemId = :purchaseOrderItemId,
+              deviceCode = :deviceCode,
+              nameEn = :nameEn,
+              supplierId = :supplierId,
+              undertakingUnitId = :undertakingUnitId
+          WHERE shipmentId = :shipmentId
+        `,
+        { ...shipment, shipmentId: existing.shipmentId },
+      );
+      updated += 1;
+      continue;
+    }
+
     await execute(
       `
         INSERT INTO shipments
@@ -139,20 +209,47 @@ export async function confirmPurchaseOrder(purchaseOrderIdOrPoNo: string) {
           (:shipmentId, :poNo, :batchName, :purchaseOrderItemId, :deviceCode, :nameEn, :supplierId, :undertakingUnitId, :destinationLocationId,
            :recipientContactId, :snapshotDestinationAddress, :snapshotRecipientName,
            :snapshotRecipientPhone, :transportMode, :isReceived)
-        ON DUPLICATE KEY UPDATE
-          poNo = VALUES(poNo),
-          batchName = VALUES(batchName),
-          purchaseOrderItemId = VALUES(purchaseOrderItemId),
-          deviceCode = VALUES(deviceCode),
-          nameEn = VALUES(nameEn),
-          supplierId = VALUES(supplierId),
-          undertakingUnitId = VALUES(undertakingUnitId)
       `,
       shipment,
     );
+    created += 1;
   }
 
-  return shipments;
+  return { shipments, created, updated };
+}
+
+export async function synchronizeConfirmedPurchaseOrderShipments(purchaseOrderIds?: string[]) {
+  const orders = purchaseOrderIds?.length
+    ? await queryRows<PurchaseOrderRow>(
+        "SELECT purchaseOrderId, poNo, requestNo, sourceRequestNos, status FROM purchaseorders WHERE purchaseOrderId IN (:purchaseOrderIds) AND status = :status",
+        { purchaseOrderIds, status: "已确认" },
+      )
+    : await queryRows<PurchaseOrderRow>(
+        "SELECT purchaseOrderId, poNo, requestNo, sourceRequestNos, status FROM purchaseorders WHERE status = :status",
+        { status: "已确认" },
+      );
+
+  let created = 0;
+  let updated = 0;
+  for (const order of orders) {
+    await markPurchaseOrderRequestsAsOrdered(order);
+    const result = await synchronizePurchaseOrderShipments(order.purchaseOrderId);
+    created += result.created;
+    updated += result.updated;
+  }
+  return { orderCount: orders.length, created, updated };
+}
+
+async function markPurchaseOrderRequestsAsOrdered(order: Pick<PurchaseOrderRow, "requestNo" | "sourceRequestNos">) {
+  const requestNos = normalizeRequestNos([String(order.sourceRequestNos ?? order.requestNo ?? "")])
+    .split(",")
+    .filter(Boolean);
+  for (const requestNo of requestNos) {
+    await execute("UPDATE requests SET status = :status WHERE requestNo = :requestNo", {
+      requestNo,
+      status: "已下单",
+    });
+  }
 }
 
 async function markRequestAsPendingOrder(requestNo: string) {

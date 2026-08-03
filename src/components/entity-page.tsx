@@ -2,10 +2,13 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Columns3, Eye, EyeOff, FileDown, FileSpreadsheet, Plus, Search, Trash2, Upload } from "lucide-react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { Columns3, Eye, EyeOff, FileDown, FileSpreadsheet, Plus, RefreshCw, Search, Trash2, Upload } from "lucide-react";
 import { formatDateInputValue, formatDisplayValue } from "@/lib/display-format";
 import { buildImportMessage, type ImportReport } from "@/lib/entity-import";
 import { getInstanceContractModelAutofill } from "@/lib/instance-contract-form";
+import { fetchAllEntityRows } from "@/lib/client-entity-fetch";
+import { buildListRoute, getCurrentRoute, getPositiveNumber, useListScrollPosition } from "@/lib/client-list-navigation";
 import type { EntityConfig } from "@/lib/modules";
 import { DEFAULT_PAGE_SIZE } from "@/lib/pagination";
 import {
@@ -38,12 +41,21 @@ export function EntityPage({
   hideHeading?: boolean;
   enableFieldSettings?: boolean;
 }) {
+  const pathname = usePathname();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [rows, setRows] = useState<Row[]>([]);
   const [total, setTotal] = useState(0);
-  const [keyword, setKeyword] = useState("");
-  const [filterValues, setFilterValues] = useState<Record<string, string>>({});
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+  const [keyword, setKeyword] = useState(() => searchParams.get("keyword") ?? "");
+  const [filterValues, setFilterValues] = useState<Record<string, string>>(() =>
+    Object.fromEntries(
+      config.filters
+        .filter((filter) => filter.key !== "keyword")
+        .map((filter) => [filter.key, searchParams.get(filter.key) ?? ""]),
+    ),
+  );
+  const [page, setPage] = useState(() => getPositiveNumber(searchParams.get("page"), 1));
+  const [pageSize, setPageSize] = useState(() => getPositiveNumber(searchParams.get("pageSize"), DEFAULT_PAGE_SIZE));
   const [loading, setLoading] = useState(false);
   const [editing, setEditing] = useState<Row | null>(null);
   const [showForm, setShowForm] = useState(false);
@@ -57,6 +69,25 @@ export function EntityPage({
     mergeColumnVisibility(config.listFields, {}),
   );
   const fileRef = useRef<HTMLInputElement>(null);
+  const currentRoute = getCurrentRoute(pathname, searchParams.toString());
+
+  useListScrollPosition(`${config.key}:${currentRoute}`, !loading);
+
+  useEffect(() => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("page", String(page));
+    params.set("pageSize", String(pageSize));
+    if (keyword.trim()) params.set("keyword", keyword);
+    else params.delete("keyword");
+    for (const filter of config.filters) {
+      if (filter.key === "keyword") continue;
+      const value = filterValues[filter.key]?.trim();
+      if (value) params.set(filter.key, value);
+      else params.delete(filter.key);
+    }
+    const nextRoute = buildListRoute(pathname, params);
+    if (nextRoute !== currentRoute) router.replace(nextRoute, { scroll: false });
+  }, [config.filters, currentRoute, filterValues, keyword, page, pageSize, pathname, router, searchParams]);
   const visibleColumns = useMemo(
     () => getVisibleColumns(config.listFields, visibility),
     [config.listFields, visibility],
@@ -119,17 +150,13 @@ export function EntityPage({
   useEffect(() => {
     if (config.key !== "instance-contracts") return;
 
-    void fetch("/api/entities/instance-models?page=1&pageSize=100")
-      .then((response) => response.json())
-      .then((data) => setInstanceModels(data.rows ?? []));
+    void fetchAllEntityRows<Row>("instance-models").then(setInstanceModels);
   }, [config.key]);
 
   useEffect(() => {
     if (config.key !== "billing-ledgers") return;
 
-    void fetch("/api/entities/instance-contracts?page=1&pageSize=100")
-      .then((response) => response.json())
-      .then((data) => setInstanceContracts(data.rows ?? []));
+    void fetchAllEntityRows<Row>("instance-contracts").then(setInstanceContracts);
   }, [config.key]);
 
   useEffect(() => {
@@ -197,6 +224,20 @@ export function EntityPage({
     setShowForm(false);
     setEditing(null);
     setBillingContractNo("");
+    await loadRows();
+  }
+
+  async function syncConfirmedPurchaseOrderShipments() {
+    if (!confirm("将为所有已确认采购订单补生成或更新物流实例行。已填写的物流时间、地址、收件人和签收信息不会被覆盖，是否继续？")) {
+      return;
+    }
+    const response = await fetch("/api/procurement/shipments/sync", { method: "POST" });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      alert(data.error ?? "同步物流数据失败");
+      return;
+    }
+    alert(`已同步 ${data.orderCount ?? 0} 张已确认采购订单：新增 ${data.created ?? 0} 条物流数据，更新 ${data.updated ?? 0} 条物流数据。`);
     await loadRows();
   }
 
@@ -340,6 +381,12 @@ export function EntityPage({
               导出 Excel
             </Button>
           </a>
+          {config.key === "shipments" ? (
+            <Button onClick={() => void syncConfirmedPurchaseOrderShipments()}>
+              <RefreshCw size={15} />
+              同步已确认采购订单
+            </Button>
+          ) : null}
           {config.key === "shipments" || enableFieldSettings ? (
             <Button className="ml-auto" onClick={() => setShowFieldSettings(true)}>
               <Columns3 size={15} />
@@ -740,22 +787,6 @@ function formatDateTimeInputValue(value: unknown) {
   const text = String(value).trim().replace(" ", "T");
   const match = text.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/);
   return match ? `${match[1]}T${match[2]}` : "";
-}
-
-async function fetchAllEntityRows(entity: string) {
-  const rows: Row[] = [];
-  let page = 1;
-  let total = 0;
-
-  do {
-    const response = await fetch(`/api/entities/${entity}?page=${page}&pageSize=100`);
-    const data = await response.json();
-    rows.push(...((data.rows ?? []) as Row[]));
-    total = Number(data.total ?? rows.length);
-    page += 1;
-  } while (rows.length < total);
-
-  return rows;
 }
 
 function getShipmentLookupListId(source: EntityConfig["formFields"][number]["lookupSource"]) {

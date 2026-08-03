@@ -1,12 +1,14 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ArrowLeft, CheckCircle2, Pencil, Plus, Save, Upload, X } from "lucide-react";
 import { formatDateInputValue, formatDisplayValue } from "@/lib/display-format";
 import { formatNumericInputValue, parseNumericInputValue } from "@/lib/numeric-input";
 import { isConfirmedOrderStatus } from "@/lib/order-status";
 import { buildRequestItemRows, type RequestDetailDraft } from "@/lib/request-order-form";
+import { fetchAllEntityRows } from "@/lib/client-entity-fetch";
+import { buildDetailRoute, getReturnTo } from "@/lib/client-list-navigation";
 import { Button, Input, Panel } from "./ui";
 
 type Row = Record<string, string | number | boolean | null>;
@@ -49,6 +51,8 @@ const emptyDetail: DetailDraft = {
 
 export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const returnTo = getReturnTo(searchParams.get("returnTo"), "/requests/orders");
   const fileRef = useRef<HTMLInputElement>(null);
   const [master, setMaster] = useState<MasterDraft>(emptyMaster);
   const [details, setDetails] = useState<DetailDraft[]>([{ ...emptyDetail }]);
@@ -63,20 +67,7 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
   const canConfirm = !isConfirmedRequestStatus(master.status);
 
   async function fetchEntity(entity: string) {
-    const pageSize = 100;
-    let page = 1;
-    let total = 0;
-    const rows: Row[] = [];
-
-    do {
-      const response = await fetch(`/api/entities/${entity}?page=${page}&pageSize=${pageSize}`);
-      const data = await response.json();
-      rows.push(...((data.rows ?? []) as Row[]));
-      total = Number(data.total ?? rows.length);
-      page += 1;
-    } while (rows.length < total);
-
-    return rows;
+    return fetchAllEntityRows<Row>(entity);
   }
 
   useEffect(() => {
@@ -96,12 +87,10 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
   useEffect(() => {
     if (!requestNo) return;
 
-    void Promise.all([
-      fetch(`/api/entities/requests/${encodeURIComponent(requestNo)}`),
-      fetchEntity("request-items"),
-    ]).then(async ([masterResponse, itemRows]) => {
-      if (masterResponse.ok) {
-        const row = await masterResponse.json();
+    void fetch(`/api/order-details/requests/${encodeURIComponent(requestNo)}`).then(async (response) => {
+      if (response.ok) {
+        const data = await response.json();
+        const row = data.master as Row;
         setMaster({
           requestNo: String(row.requestNo ?? ""),
           countryCode: String(row.countryCode ?? ""),
@@ -112,18 +101,15 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
           plannedDeliveryDate: formatDateInputValue(row.plannedDeliveryDate),
         });
         setEditing(false);
-      }
-
-      const existingDetails = itemRows
-        .filter((item) => String(item.requestNo) === requestNo)
-        .map((item) => ({
+        const existingDetails = ((data.details ?? []) as Row[]).map((item) => ({
           deviceCode: String(item.deviceCode ?? ""),
           supplierId: String(item.supplierId ?? ""),
           undertakingUnitId: String(item.undertakingUnitId ?? ""),
           quantity: Number(item.quantity ?? 0),
         }));
 
-      setDetails(existingDetails.length ? existingDetails : [{ ...emptyDetail }]);
+        setDetails(existingDetails.length ? existingDetails : [{ ...emptyDetail }]);
+      }
     });
   }, [requestNo]);
 
@@ -220,20 +206,20 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
       }
       setMaster((current) => ({ ...current, status }));
       setEditing(false);
-      router.replace(`/requests/orders/${encodeURIComponent(master.requestNo)}`);
+      router.replace(buildDetailRoute(`/requests/orders/${encodeURIComponent(master.requestNo)}`, returnTo), { scroll: false });
       return;
     }
 
     setSaving(false);
     setMaster((current) => ({ ...current, status }));
     setEditing(false);
-    router.replace(`/requests/orders/${encodeURIComponent(master.requestNo)}`);
+    router.replace(buildDetailRoute(`/requests/orders/${encodeURIComponent(master.requestNo)}`, returnTo), { scroll: false });
   }
 
   return (
     <div className="space-y-5">
       <div className="flex items-start gap-3">
-        <Button type="button" onClick={() => router.push("/requests/orders")}>
+        <Button type="button" onClick={() => router.push(returnTo)}>
           <ArrowLeft size={15} />
           返回列表
         </Button>

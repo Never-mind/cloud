@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { ArrowLeft, CheckCircle2, Pencil, Save, X } from "lucide-react";
 import { formatDateInputValue, formatDisplayValue } from "@/lib/display-format";
 import type { EntityConfig } from "@/lib/modules";
@@ -10,6 +11,7 @@ import { getPurchaseOrderForDetailLines } from "@/lib/order-detail-view";
 import type { OrderRouteMode } from "@/lib/order-routes";
 import { buildPurchaseProductLines, calculatePurchaseTotalAmount } from "@/lib/purchase-lines";
 import { PurchaseOrderDemandPlanTabs } from "./purchase-order-demand-plan-tabs";
+import { getReturnTo } from "@/lib/client-list-navigation";
 import { Button, Input, Panel } from "./ui";
 
 type Row = Record<string, string | number | boolean | null>;
@@ -29,6 +31,8 @@ export function OrderDetailPage({
   detailConfig: EntityConfig;
   relationKey: string;
 }) {
+  const searchParams = useSearchParams();
+  const returnTo = getReturnTo(searchParams.get("returnTo"), mode === "requests" ? "/requests/orders" : "/purchase/orders");
   const [master, setMaster] = useState<Row | null>(null);
   const [details, setDetails] = useState<Row[]>([]);
   const [requestItems, setRequestItems] = useState<Row[]>([]);
@@ -38,33 +42,31 @@ export function OrderDetailPage({
   const [masterDraft, setMasterDraft] = useState<Row>({});
   const [detailDrafts, setDetailDrafts] = useState<Row[]>([]);
 
-  async function fetchEntity(entity: string) {
-    const response = await fetch(`/api/entities/${entity}?page=1&pageSize=100`);
-    const data = await response.json();
-    return (data.rows ?? []) as Row[];
-  }
-
   async function loadData() {
-    const [masterResponse, detailRows, requestItemRows, modelRows] = await Promise.all([
-      fetch(`/api/entities/${masterConfig.key}/${encodeURIComponent(id)}`),
-      fetchEntity(detailConfig.key),
-      fetchEntity("request-items"),
-      fetchEntity("instance-models"),
-    ]);
-    const nextMaster = masterResponse.ok ? await masterResponse.json() : null;
-    const nextDetails = detailRows.filter((row) => String(row[relationKey]) === id);
+    const detailType = mode === "purchase" ? "purchase-orders" : "requests";
+    const response = await fetch(`/api/order-details/${detailType}/${encodeURIComponent(id)}`);
+    if (!response.ok) {
+      setMaster(null);
+      setDetails([]);
+      setRequestItems([]);
+      setInstanceModels([]);
+      return;
+    }
 
+    const data = await response.json();
+    const nextMaster = (data.master ?? null) as Row | null;
+    const nextDetails = (data.details ?? []) as Row[];
     setMaster(nextMaster);
     setDetails(nextDetails);
-    setRequestItems(requestItemRows);
-    setInstanceModels(modelRows);
+    setRequestItems((data.requestItems ?? []) as Row[]);
+    setInstanceModels((data.instanceModels ?? []) as Row[]);
     setMasterDraft(nextMaster ?? {});
     setDetailDrafts(nextDetails);
   }
 
   useEffect(() => {
     void loadData();
-  }, [id, masterConfig.key, detailConfig.key, relationKey]);
+  }, [id, mode]);
 
   const totalQuantity = useMemo(() => {
     if (mode === "requests") {
@@ -208,7 +210,7 @@ export function OrderDetailPage({
   return (
     <div className="space-y-5">
       <div className="flex items-start gap-3">
-        <Link href={mode === "requests" ? "/requests/orders" : "/purchase/orders"}>
+        <Link href={returnTo}>
           <Button>
             <ArrowLeft size={15} />
             返回列表

@@ -1,10 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { FileDown, RefreshCw, Search } from "lucide-react";
 import { formatDisplayValue } from "@/lib/display-format";
 import { DEFAULT_PAGE_SIZE, paginateRows } from "@/lib/pagination";
 import { PaginationBar } from "./pagination-bar";
+import { buildDetailRoute, buildListRoute, getCurrentRoute, getPositiveNumber, useListScrollPosition } from "@/lib/client-list-navigation";
 import { Button, Input, Panel } from "./ui";
 
 type Row = Record<string, string | number | boolean | null>;
@@ -35,19 +38,36 @@ const displayColumns = columns.flatMap((column) =>
 );
 
 export function MonthlyBillingWriteOffsPage() {
+  const pathname = usePathname();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [rows, setRows] = useState<Row[]>([]);
-  const [keyword, setKeyword] = useState("");
-  const [countryCode, setCountryCode] = useState("");
-  const [batchName, setBatchName] = useState("");
-  const [startMonth, setStartMonth] = useState("");
-  const [endMonth, setEndMonth] = useState("");
+  const [keyword, setKeyword] = useState(() => searchParams.get("keyword") ?? "");
+  const [countryCode, setCountryCode] = useState(() => searchParams.get("countryCode") ?? "");
+  const [batchName, setBatchName] = useState(() => searchParams.get("batchName") ?? "");
+  const [startMonth, setStartMonth] = useState(() => searchParams.get("startMonth") ?? "");
+  const [endMonth, setEndMonth] = useState(() => searchParams.get("endMonth") ?? "");
   const [loading, setLoading] = useState(false);
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+  const [page, setPage] = useState(() => getPositiveNumber(searchParams.get("page"), 1));
+  const [pageSize, setPageSize] = useState(() => getPositiveNumber(searchParams.get("pageSize"), DEFAULT_PAGE_SIZE));
+  const currentRoute = getCurrentRoute(pathname, searchParams.toString());
+
+  useListScrollPosition(currentRoute, !loading);
+
+  useEffect(() => {
+    const params = new URLSearchParams(searchParams.toString());
+    for (const [key, value] of Object.entries({ keyword, countryCode, batchName, startMonth, endMonth })) {
+      if (value.trim()) params.set(key, value);
+      else params.delete(key);
+    }
+    params.set("page", String(page));
+    params.set("pageSize", String(pageSize));
+    const nextRoute = buildListRoute(pathname, params);
+    if (nextRoute !== currentRoute) router.replace(nextRoute, { scroll: false });
+  }, [batchName, countryCode, currentRoute, endMonth, keyword, page, pageSize, pathname, router, searchParams, startMonth]);
 
   async function loadData() {
     setLoading(true);
-    setPage(1);
     const params = new URLSearchParams();
     if (keyword.trim()) params.set("keyword", keyword.trim());
     if (countryCode.trim()) params.set("countryCode", countryCode.trim());
@@ -104,7 +124,7 @@ export function MonthlyBillingWriteOffsPage() {
           <Input placeholder="批次" value={batchName} onChange={(event) => setBatchName(event.target.value)} />
           <Input type="date" value={startMonth} onChange={(event) => setStartMonth(event.target.value)} />
           <Input type="date" value={endMonth} onChange={(event) => setEndMonth(event.target.value)} />
-          <Button tone="primary" onClick={() => void loadData()}>
+          <Button tone="primary" onClick={() => { setPage(1); void loadData(); }}>
             <Search size={15} />
             查询
           </Button>
@@ -136,7 +156,7 @@ export function MonthlyBillingWriteOffsPage() {
                 <tr className="hover:bg-[#fafafa]" key={String(row.id)}>
                   {displayColumns.map((column) => (
                     <td className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3" key={column.key}>
-                      {formatValue(row[column.key], column.type)}
+                      {renderLinkedValue(row, column, currentRoute)}
                     </td>
                   ))}
                 </tr>
@@ -155,6 +175,17 @@ export function MonthlyBillingWriteOffsPage() {
       </Panel>
     </div>
   );
+}
+
+function renderLinkedValue(row: Row, column: { key: string; type?: string }, returnTo: string) {
+  const value = formatValue(row[column.key], column.type);
+  if (column.key === "requestNo" && row.requestNo) {
+    return <Link className="font-medium text-[#1890ff] hover:underline" href={buildDetailRoute(`/requests/orders/${encodeURIComponent(String(row.requestNo))}`, returnTo)}>{value}</Link>;
+  }
+  if (column.key === "poNo" && row.purchaseOrderId) {
+    return <Link className="font-medium text-[#1890ff] hover:underline" href={buildDetailRoute(`/purchase/orders/${encodeURIComponent(String(row.purchaseOrderId))}`, returnTo)}>{value}</Link>;
+  }
+  return value;
 }
 
 function formatValue(value: unknown, type?: string) {

@@ -31,6 +31,7 @@ type ImportJob = {
 
 type ImportPreview = {
   jobId: string;
+  targetKey: string;
   status: string;
   report: {
     total: number;
@@ -126,6 +127,12 @@ export function ImportCenterPage() {
     if (!response.ok) {
       alert(data.error ?? "确认导入失败");
       return;
+    }
+    const shipmentSync = data.job?.shipmentSync;
+    if (shipmentSync && preview.targetKey === "purchase-orders") {
+      alert(
+        `采购订单导入完成。已确认采购订单同步 ${shipmentSync.orderCount ?? 0} 张，新增 ${shipmentSync.created ?? 0} 条物流数据，更新 ${shipmentSync.updated ?? 0} 条物流数据。`,
+      );
     }
     setPreview(null);
     setJobPage(1);

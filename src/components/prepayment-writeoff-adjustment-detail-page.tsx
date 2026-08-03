@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { CheckCircle2, Plus, RefreshCw, Save, Search, Trash2 } from "lucide-react";
 import { formatDisplayValue } from "@/lib/display-format";
+import { buildDetailRoute, getReturnTo } from "@/lib/client-list-navigation";
 import {
   mergePrepaymentAdjustmentSelection,
   type PrepaymentMonthlyWriteOffForAdjustment,
@@ -48,6 +49,8 @@ const confirmedColumns: Array<{ key: string; label: string; type?: string }> = [
 
 export function PrepaymentWriteOffAdjustmentDetailPage({ adjustmentNo: routeAdjustmentNo }: { adjustmentNo: string }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const returnTo = getReturnTo(searchParams.get("returnTo"), "/finance/prepayment-writeoff-adjustments");
   const isNew = routeAdjustmentNo === "new";
   const [adjustmentNo, setAdjustmentNo] = useState(isNew ? buildAdjustmentNo() : routeAdjustmentNo);
   const [status, setStatus] = useState("草稿");
@@ -173,7 +176,7 @@ export function PrepaymentWriteOffAdjustmentDetailPage({ adjustmentNo: routeAdju
       return false;
     }
     if (isNew) {
-      router.replace(`/finance/prepayment-writeoff-adjustments/${encodeURIComponent(adjustmentNo)}`);
+      router.replace(buildDetailRoute(`/finance/prepayment-writeoff-adjustments/${encodeURIComponent(adjustmentNo)}`, returnTo), { scroll: false });
       router.refresh();
       alert("预付款核销调整单草稿已保存");
       return true;
@@ -197,7 +200,7 @@ export function PrepaymentWriteOffAdjustmentDetailPage({ adjustmentNo: routeAdju
     setStatus("已确认");
     setConfirmedItems(data.items ?? []);
     alert("预付款核销调整单已确认");
-    router.push("/finance/prepayment-writeoff-adjustments");
+    router.push(returnTo);
   }
 
   return (

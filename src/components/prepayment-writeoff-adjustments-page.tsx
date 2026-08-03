@@ -2,8 +2,10 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { CheckCircle2, Plus, RefreshCw, Search, Trash2 } from "lucide-react";
 import { formatDisplayValue } from "@/lib/display-format";
+import { buildDetailRoute, buildListRoute, getCurrentRoute, useListScrollPosition } from "@/lib/client-list-navigation";
 import { Button, Input, Panel } from "./ui";
 
 type Row = Record<string, string | number | boolean | null>;
@@ -22,10 +24,27 @@ const columns: Array<{ key: string; label: string; type?: string }> = [
 ];
 
 export function PrepaymentWriteOffAdjustmentsPage() {
+  const pathname = usePathname();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [rows, setRows] = useState<Row[]>([]);
-  const [keyword, setKeyword] = useState("");
-  const [statusTab, setStatusTab] = useState<"draft" | "confirmed">("draft");
+  const [keyword, setKeyword] = useState(() => searchParams.get("keyword") ?? "");
+  const [statusTab, setStatusTab] = useState<"draft" | "confirmed">(() =>
+    searchParams.get("statusTab") === "confirmed" ? "confirmed" : "draft",
+  );
   const [loading, setLoading] = useState(false);
+  const currentRoute = getCurrentRoute(pathname, searchParams.toString());
+
+  useListScrollPosition(currentRoute, !loading);
+
+  useEffect(() => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("statusTab", statusTab);
+    if (keyword.trim()) params.set("keyword", keyword);
+    else params.delete("keyword");
+    const nextRoute = buildListRoute(pathname, params);
+    if (nextRoute !== currentRoute) router.replace(nextRoute, { scroll: false });
+  }, [currentRoute, keyword, pathname, router, searchParams, statusTab]);
 
   async function loadData() {
     setLoading(true);
@@ -129,7 +148,7 @@ export function PrepaymentWriteOffAdjustmentsPage() {
                     {columns.map((column) => (
                       <td className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3" key={column.key}>
                         {column.key === "adjustmentNo" ? (
-                          <Link className="font-medium text-[#1890ff] hover:underline" href={`/finance/prepayment-writeoff-adjustments/${encodeURIComponent(adjustmentNo)}`}>
+                          <Link className="font-medium text-[#1890ff] hover:underline" href={buildDetailRoute(`/finance/prepayment-writeoff-adjustments/${encodeURIComponent(adjustmentNo)}`, currentRoute)}>
                             {adjustmentNo}
                           </Link>
                         ) : (
@@ -139,7 +158,7 @@ export function PrepaymentWriteOffAdjustmentsPage() {
                     ))}
                     <td className="sticky right-0 whitespace-nowrap border-b border-[#ebeef5] bg-white px-3 py-3">
                       <div className="flex items-center gap-2">
-                        <Link href={`/finance/prepayment-writeoff-adjustments/${encodeURIComponent(adjustmentNo)}`}>
+                        <Link href={buildDetailRoute(`/finance/prepayment-writeoff-adjustments/${encodeURIComponent(adjustmentNo)}`, currentRoute)}>
                           <Button>{confirmed ? "查看" : "编辑"}</Button>
                         </Link>
                         <Button disabled={confirmed} tone="success" onClick={() => void confirmAdjustment(adjustmentNo)}>
