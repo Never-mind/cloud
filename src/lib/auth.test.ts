@@ -1,5 +1,12 @@
 import { describe, expect, test } from "vitest";
-import { AUTH_SESSION_VALUE, hashPassword, isAuthenticatedCookie, validateLogin } from "./auth";
+import {
+  AUTH_SESSION_VALUE,
+  createUserSessionValue,
+  getUserEmailFromSessionValue,
+  hashPassword,
+  isAuthenticatedCookie,
+  validateLogin,
+} from "./auth";
 
 describe("auth", () => {
   test("accepts an active database user with a matching password", async () => {
@@ -42,5 +49,12 @@ describe("auth", () => {
   test("recognizes the configured session cookie value", () => {
     expect(isAuthenticatedCookie(AUTH_SESSION_VALUE)).toBe(true);
     expect(isAuthenticatedCookie("bad-session")).toBe(false);
+  });
+
+  test("creates a signed user session that rejects tampering", () => {
+    const session = createUserSessionValue("Test@LuzCorp.com");
+
+    expect(getUserEmailFromSessionValue(session)).toBe("test@luzcorp.com");
+    expect(getUserEmailFromSessionValue(`${session}x`)).toBeNull();
   });
 });
