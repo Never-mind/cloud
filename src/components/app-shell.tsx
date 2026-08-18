@@ -8,10 +8,12 @@ import {
   Database,
   FileText,
   FolderOpen,
+  GripVertical,
   Home,
   LogOut,
   Menu,
   ReceiptText,
+  RotateCcw,
   Ship,
   ShoppingCart,
   Upload,
@@ -19,6 +21,7 @@ import {
 } from "lucide-react";
 import { navGroups } from "@/lib/modules";
 import { getChildGroupKey, isGroupOpen, toggleGroup, type SidebarGroupState } from "@/lib/nav-utils";
+import { DEFAULT_SIDEBAR_GROUP_ORDER, getSidebarNavGroups, moveSidebarGroup } from "@/lib/sidebar-navigation";
 import {
   closeWorkspaceTab,
   createInitialWorkspace,
@@ -47,7 +50,10 @@ export function AppShell({ children, embedded }: { children: React.ReactNode; em
   const [workspace, setWorkspace] = useState<WorkspaceState>(() => createInitialWorkspace());
   const [clientEmbedded, setClientEmbedded] = useState(false);
   const [loadedFrames, setLoadedFrames] = useState<Record<string, boolean>>({});
+  const [sidebarGroupOrder, setSidebarGroupOrder] = useState<string[]>([...DEFAULT_SIDEBAR_GROUP_ORDER]);
+  const [draggingGroupTitle, setDraggingGroupTitle] = useState<string | null>(null);
   const moduleItems = useMemo(() => navGroups.flatMap((group) => group.children?.flatMap((child) => child.items) ?? group.items), []);
+  const sidebarGroups = useMemo(() => getSidebarNavGroups(navGroups, sidebarGroupOrder), [sidebarGroupOrder]);
   const isEmbedded = embedded || clientEmbedded;
 
   if (pathname === "/login") {
@@ -57,6 +63,20 @@ export function AppShell({ children, embedded }: { children: React.ReactNode; em
   useEffect(() => {
     setClientEmbedded(new URLSearchParams(window.location.search).get("embed") === "1");
   }, []);
+
+  useEffect(() => {
+    if (isEmbedded) return;
+    let active = true;
+    void fetch("/api/user-preferences/sidebar-order")
+      .then(async (response) => (response.ok ? response.json() : null))
+      .then((data) => {
+        if (active && data?.order) setSidebarGroupOrder(data.order);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [isEmbedded]);
 
   useEffect(() => {
     const raw = window.sessionStorage.getItem(WORKSPACE_STORAGE_KEY);
@@ -89,6 +109,31 @@ export function AppShell({ children, embedded }: { children: React.ReactNode; em
     setWorkspace((current) => closeWorkspaceTab(current, route));
   };
 
+  const saveSidebarOrder = async (order: string[]) => {
+    const response = await fetch("/api/user-preferences/sidebar-order", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ order }),
+    });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      alert(data.error ?? "目录排序保存失败，请重新登录后再试");
+    }
+  };
+
+  const reorderSidebarGroups = (sourceTitle: string, targetTitle: string) => {
+    const nextOrder = moveSidebarGroup(sidebarGroupOrder, sourceTitle, targetTitle);
+    setDraggingGroupTitle(null);
+    setSidebarGroupOrder(nextOrder);
+    void saveSidebarOrder(nextOrder);
+  };
+
+  const resetSidebarOrder = () => {
+    const nextOrder = [...DEFAULT_SIDEBAR_GROUP_ORDER];
+    setSidebarGroupOrder(nextOrder);
+    void saveSidebarOrder(nextOrder);
+  };
+
   return (
     <div className="min-h-screen" data-app-shell="outer">
       <aside className="fixed inset-y-0 left-0 z-20 flex w-[210px] flex-col bg-[var(--color-sidebar)] text-[#bfcbd9]">
@@ -97,6 +142,14 @@ export function AppShell({ children, embedded }: { children: React.ReactNode; em
           <span className="min-w-0 truncate font-medium" title="算力交付">
             算力交付
           </span>
+          <button
+            className="ml-auto shrink-0 text-[#bfcbd9] hover:text-white"
+            onClick={resetSidebarOrder}
+            title="恢复默认目录顺序"
+            type="button"
+          >
+            <RotateCcw size={15} />
+          </button>
         </div>
         <nav className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden pb-4">
           <button
@@ -109,21 +162,46 @@ export function AppShell({ children, embedded }: { children: React.ReactNode; em
               首页
             </span>
           </button>
-          {navGroups.map((group) => {
+          {sidebarGroups.map((group) => {
             const Icon = icons[group.title as keyof typeof icons] ?? Database;
             const open = isGroupOpen(openGroups, group.title);
             return (
-              <div key={group.title}>
-                <button
-                  className="flex h-14 w-full min-w-0 items-center gap-3 bg-[var(--color-sidebar-active)] px-5 text-left hover:text-white"
-                  onClick={() => setOpenGroups((current) => toggleGroup(current, group.title))}
-                  type="button"
-                  title={group.title}
-                >
-                  <Icon className="shrink-0" size={17} />
-                  <span className="min-w-0 flex-1 truncate">{group.title}</span>
-                  <ChevronDown className={`shrink-0 transition-transform ${open ? "rotate-0" : "-rotate-90"}`} size={14} />
-                </button>
+              <div
+                key={group.title}
+                onDragOver={(event) => event.preventDefault()}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  const sourceTitle = event.dataTransfer.getData("text/plain");
+                  if (sourceTitle) reorderSidebarGroups(sourceTitle, group.title);
+                }}
+              >
+                <div className={`flex h-14 min-w-0 items-center bg-[var(--color-sidebar-active)] ${draggingGroupTitle === group.title ? "opacity-60" : ""}`}>
+                  <button
+                    aria-label={`拖动调整${group.title}顺序`}
+                    className="flex h-full shrink-0 cursor-grab items-center px-2 text-[#8aa0b8] hover:text-white active:cursor-grabbing"
+                    draggable
+                    onDragEnd={() => setDraggingGroupTitle(null)}
+                    onDragStart={(event) => {
+                      event.dataTransfer.effectAllowed = "move";
+                      event.dataTransfer.setData("text/plain", group.title);
+                      setDraggingGroupTitle(group.title);
+                    }}
+                    title="拖动调整目录顺序"
+                    type="button"
+                  >
+                    <GripVertical size={15} />
+                  </button>
+                  <button
+                    className="flex h-full min-w-0 flex-1 items-center gap-3 pr-5 text-left hover:text-white"
+                    onClick={() => setOpenGroups((current) => toggleGroup(current, group.title))}
+                    type="button"
+                    title={group.title}
+                  >
+                    <Icon className="shrink-0" size={17} />
+                    <span className="min-w-0 flex-1 truncate">{group.title}</span>
+                    <ChevronDown className={`shrink-0 transition-transform ${open ? "rotate-0" : "-rotate-90"}`} size={14} />
+                  </button>
+                </div>
                 {open ? (
                   <div className="bg-[var(--color-sidebar-deep)] py-1">
                     {group.children?.length
