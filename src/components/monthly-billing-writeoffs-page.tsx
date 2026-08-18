@@ -1,16 +1,17 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { FileDown, RefreshCw, Search } from "lucide-react";
 import { formatDisplayValue } from "@/lib/display-format";
-import { DEFAULT_PAGE_SIZE, paginateRows } from "@/lib/pagination";
+import { DEFAULT_PAGE_SIZE } from "@/lib/pagination";
 import { PaginationBar } from "./pagination-bar";
 import { buildDetailRoute, buildListRoute, getCurrentRoute, getPositiveNumber, useListScrollPosition } from "@/lib/client-list-navigation";
 import { Button, Input, Panel } from "./ui";
 
 type Row = Record<string, string | number | boolean | null>;
+type ListResponse = { rows: Row[]; total: number; totalAmount: number; page: number; pageSize: number; totalPages: number };
 
 const columns: Array<{ key: string; label: string; type?: string }> = [
   { key: "writeOffMonth", label: "核销月份", type: "date" },
@@ -50,6 +51,10 @@ export function MonthlyBillingWriteOffsPage() {
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(() => getPositiveNumber(searchParams.get("page"), 1));
   const [pageSize, setPageSize] = useState(() => getPositiveNumber(searchParams.get("pageSize"), DEFAULT_PAGE_SIZE));
+  const [total, setTotal] = useState(0);
+  const [totalAmount, setTotalAmount] = useState(0);
+  const pageSizeRef = useRef(pageSize);
+  const skipNextPageChangeRef = useRef(false);
   const currentRoute = getCurrentRoute(pathname, searchParams.toString());
 
   useListScrollPosition(currentRoute, !loading);
@@ -66,21 +71,38 @@ export function MonthlyBillingWriteOffsPage() {
     if (nextRoute !== currentRoute) router.replace(nextRoute, { scroll: false });
   }, [batchName, countryCode, currentRoute, endMonth, keyword, page, pageSize, pathname, router, searchParams, startMonth]);
 
-  async function loadData() {
-    setLoading(true);
+  function buildRequestParams(nextPage: number, nextPageSize: number, exportAll = false) {
     const params = new URLSearchParams();
     if (keyword.trim()) params.set("keyword", keyword.trim());
     if (countryCode.trim()) params.set("countryCode", countryCode.trim());
     if (batchName.trim()) params.set("batchName", batchName.trim());
     if (startMonth) params.set("startMonth", startMonth);
     if (endMonth) params.set("endMonth", endMonth);
+    params.set("page", String(nextPage));
+    params.set("pageSize", String(nextPageSize));
+    if (exportAll) params.set("export", "1");
+    return params;
+  }
+
+  async function fetchData(nextPage: number, nextPageSize: number, exportAll = false): Promise<ListResponse> {
+    const response = await fetch(`/api/billing/monthly-writeoffs?${buildRequestParams(nextPage, nextPageSize, exportAll).toString()}`);
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error ?? "月账单明细加载失败");
+    return data as ListResponse;
+  }
+
+  async function loadData(nextPage = page, nextPageSize = pageSizeRef.current) {
+    setLoading(true);
     try {
-      const response = await fetch(`/api/billing/monthly-writeoffs?${params.toString()}`);
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error ?? "月账单明细加载失败");
+      const data = await fetchData(nextPage, nextPageSize);
       setRows(data.rows ?? []);
+      setTotal(Number(data.total ?? 0));
+      setTotalAmount(Number(data.totalAmount ?? 0));
+      if (data.page !== nextPage) setPage(data.page);
     } catch (error) {
       setRows([]);
+      setTotal(0);
+      setTotalAmount(0);
       alert(error instanceof Error ? error.message : "月账单明细加载失败");
     } finally {
       setLoading(false);
@@ -91,15 +113,17 @@ export function MonthlyBillingWriteOffsPage() {
     void loadData();
   }, []);
 
-  const totalAmount = useMemo(
-    () => rows.reduce((total, row) => total + Number(row.monthlyTotalAmount ?? 0), 0),
-    [rows],
-  );
-  const pagedRows = useMemo(() => paginateRows(rows, page, pageSize), [page, pageSize, rows]);
-
-  function exportCsv() {
+  async function exportCsv() {
+    let exportRows: Row[];
+    try {
+      const data = await fetchData(1, pageSizeRef.current, true);
+      exportRows = data.rows ?? [];
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "月账单明细导出失败");
+      return;
+    }
     const header = displayColumns.map((column) => column.label);
-    const body = rows.map((row) =>
+    const body = exportRows.map((row) =>
       displayColumns.map((column) => `"${String(formatValue(row[column.key], column.type)).replaceAll('"', '""')}"`).join(","),
     );
     const blob = new Blob([`\uFEFF${[header.join(","), ...body].join("\n")}`], { type: "text/csv;charset=utf-8" });
@@ -124,7 +148,7 @@ export function MonthlyBillingWriteOffsPage() {
           <Input placeholder="批次" value={batchName} onChange={(event) => setBatchName(event.target.value)} />
           <Input type="date" value={startMonth} onChange={(event) => setStartMonth(event.target.value)} />
           <Input type="date" value={endMonth} onChange={(event) => setEndMonth(event.target.value)} />
-          <Button tone="primary" onClick={() => { setPage(1); void loadData(); }}>
+          <Button tone="primary" onClick={() => { setPage(1); void loadData(1, pageSizeRef.current); }}>
             <Search size={15} />
             查询
           </Button>
@@ -132,13 +156,13 @@ export function MonthlyBillingWriteOffsPage() {
             <RefreshCw size={15} />
             刷新
           </Button>
-          <Button className="ml-auto" tone="warning" onClick={exportCsv}>
+          <Button className="ml-auto" tone="warning" onClick={() => void exportCsv()}>
             <FileDown size={15} />
             导出
           </Button>
         </div>
         <div className="border-b border-[#ebeef5] bg-[#fafafa] px-4 py-3 text-sm text-[#606266]">
-          当前筛选共 {rows.length} 条，月账单核销总金额合计 {formatValue(totalAmount, "money")}
+          当前筛选共 {total} 条，月账单核销总金额合计 {formatValue(totalAmount, "money")}
         </div>
         <div className="table-scroll overflow-auto">
           <table className="min-w-full border-collapse text-sm">
@@ -152,7 +176,7 @@ export function MonthlyBillingWriteOffsPage() {
               </tr>
             </thead>
             <tbody>
-              {pagedRows.map((row) => (
+              {rows.map((row) => (
                 <tr className="hover:bg-[#fafafa]" key={String(row.id)}>
                   {displayColumns.map((column) => (
                     <td className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3" key={column.key}>
@@ -171,7 +195,26 @@ export function MonthlyBillingWriteOffsPage() {
             </tbody>
           </table>
         </div>
-        <PaginationBar page={page} pageSize={pageSize} total={rows.length} onPageChange={setPage} onPageSizeChange={setPageSize} />
+        <PaginationBar
+          page={page}
+          pageSize={pageSize}
+          total={total}
+          onPageChange={(nextPage) => {
+            if (skipNextPageChangeRef.current) {
+              skipNextPageChangeRef.current = false;
+              return;
+            }
+            setPage(nextPage);
+            void loadData(nextPage, pageSizeRef.current);
+          }}
+          onPageSizeChange={(nextPageSize) => {
+            pageSizeRef.current = nextPageSize;
+            skipNextPageChangeRef.current = true;
+            setPageSize(nextPageSize);
+            setPage(1);
+            void loadData(1, nextPageSize);
+          }}
+        />
       </Panel>
     </div>
   );

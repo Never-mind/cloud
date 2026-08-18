@@ -2,31 +2,38 @@
 
 import Link from "next/link";
 import * as XLSX from "xlsx";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { CheckCircle2, FileDown, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { formatDisplayValue } from "@/lib/display-format";
 import type { EntityConfig } from "@/lib/modules";
-import { countOrderStatusTabs, isConfirmedOrderStatus, type OrderStatusTab } from "@/lib/order-status";
+import { isConfirmedOrderStatus, type OrderStatusTab } from "@/lib/order-status";
 import {
   getOrderListColumnKeys,
   getOrderListPrimaryDisplayValue,
   shouldShowPurchaseSourceGenerator,
 } from "@/lib/order-list-view";
 import { getOrderCreateRoute, getOrderDetailRoute, type OrderRouteMode } from "@/lib/order-routes";
-import { DEFAULT_PAGE_SIZE, paginateRows } from "@/lib/pagination";
-import { calculatePurchaseTotalAmount } from "@/lib/purchase-lines";
+import { DEFAULT_PAGE_SIZE } from "@/lib/pagination";
 import { buildDetailRoute, buildListRoute, getCurrentRoute, getPositiveNumber, useListScrollPosition } from "@/lib/client-list-navigation";
 import { PaginationBar } from "./pagination-bar";
 import { Button, Input, Panel } from "./ui";
 
 type Row = Record<string, string | number | boolean | null>;
 type PageMode = OrderRouteMode;
+type OrderListResponse = {
+  rows: Row[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+  statusCounts: { draft: number; confirmed: number };
+};
 
 export function OrderListPage({
   mode,
   masterConfig,
-  detailConfig,
+  detailConfig: _detailConfig,
 }: {
   mode: PageMode;
   masterConfig: EntityConfig;
@@ -36,10 +43,9 @@ export function OrderListPage({
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [masters, setMasters] = useState<Row[]>([]);
-  const [details, setDetails] = useState<Row[]>([]);
-  const [requestItems, setRequestItems] = useState<Row[]>([]);
-  const [requests, setRequests] = useState<Row[]>([]);
+  const [rows, setRows] = useState<Row[]>([]);
+  const [total, setTotal] = useState(0);
+  const [statusCounts, setStatusCounts] = useState({ draft: 0, confirmed: 0 });
   const [keyword, setKeyword] = useState(() => searchParams.get("keyword") ?? "");
   const [statusTab, setStatusTab] = useState<OrderStatusTab>(() =>
     searchParams.get("statusTab") === "confirmed" ? "confirmed" : "draft",
@@ -49,6 +55,8 @@ export function OrderListPage({
   const [deletingId, setDeletingId] = useState("");
   const [page, setPage] = useState(() => getPositiveNumber(searchParams.get("page"), 1));
   const [pageSize, setPageSize] = useState(() => getPositiveNumber(searchParams.get("pageSize"), DEFAULT_PAGE_SIZE));
+  const pageSizeRef = useRef(pageSize);
+  const skipNextPageChangeRef = useRef(false);
   const columnKeys = getOrderListColumnKeys(mode);
   const currentRoute = getCurrentRoute(pathname, searchParams.toString());
 
@@ -66,77 +74,48 @@ export function OrderListPage({
     if (nextRoute !== currentRoute) router.replace(nextRoute, { scroll: false });
   }, [currentRoute, keyword, page, pageSize, pathname, router, searchParams, statusTab]);
 
-  async function fetchEntity(entity: string) {
-    const fetchPageSize = 100;
-    let fetchPage = 1;
-    let rows: Row[] = [];
-    let total = 0;
-
-    do {
-      const response = await fetch(`/api/entities/${entity}?page=${fetchPage}&pageSize=${fetchPageSize}`);
-      const data = await response.json();
-      rows = [...rows, ...((data.rows ?? []) as Row[])];
-      total = Number(data.total ?? rows.length);
-      fetchPage += 1;
-    } while (rows.length < total);
-
-    return rows;
+  async function fetchData(
+    nextPage: number,
+    nextPageSize: number,
+    nextStatusTab = statusTab,
+    nextKeyword = keyword,
+    exportAll = false,
+  ): Promise<OrderListResponse> {
+    const params = new URLSearchParams({
+      mode,
+      page: String(nextPage),
+      pageSize: String(nextPageSize),
+      statusTab: nextStatusTab,
+    });
+    if (nextKeyword.trim()) params.set("keyword", nextKeyword.trim());
+    if (exportAll) params.set("export", "1");
+    const response = await fetch(`/api/orders?${params.toString()}`);
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error ?? "订单列表加载失败");
+    return data as OrderListResponse;
   }
 
-  async function loadData() {
+  async function loadData(nextPage = page, nextPageSize = pageSizeRef.current, nextStatusTab = statusTab, nextKeyword = keyword) {
     setLoading(true);
-    const [masterRows, detailRows, requestItemRows, requestRows] = await Promise.all([
-      fetchEntity(masterConfig.key),
-      fetchEntity(detailConfig.key),
-      fetchEntity("request-items"),
-      fetchEntity("requests"),
-    ]);
-    setMasters(masterRows);
-    setDetails(detailRows);
-    setRequestItems(requestItemRows);
-    setRequests(requestRows);
-    setLoading(false);
+    try {
+      const data = await fetchData(nextPage, nextPageSize, nextStatusTab, nextKeyword);
+      setRows(data.rows ?? []);
+      setTotal(Number(data.total ?? 0));
+      setStatusCounts(data.statusCounts ?? { draft: 0, confirmed: 0 });
+      if (data.page !== nextPage) setPage(data.page);
+    } catch (error) {
+      setRows([]);
+      setTotal(0);
+      setStatusCounts({ draft: 0, confirmed: 0 });
+      alert(error instanceof Error ? error.message : "订单列表加载失败");
+    } finally {
+      setLoading(false);
+    }
   }
 
   useEffect(() => {
-    void loadData();
-  }, [masterConfig.key, detailConfig.key]);
-
-  const rowsWithTotals = useMemo<Row[]>(() => {
-    const requestByNo = new Map(requests.map((request) => [String(request.requestNo), request]));
-
-    return masters.map((master) => ({
-      ...master,
-      batchName:
-        mode === "purchase"
-          ? getBatchNamesForPurchaseOrder(master, requestByNo)
-          : master.batchName,
-      totalQuantity: getTotalQuantity(mode, master, details, requestItems),
-      purchaseTotalAmount:
-        mode === "purchase" ? getPurchaseTotalAmount(master, details, requestItems) : null,
-    }));
-  }, [details, masters, mode, requestItems, requests]);
-
-  const statusCounts = useMemo(
-    () => countOrderStatusTabs(mode, rowsWithTotals),
-    [mode, rowsWithTotals],
-  );
-
-  const rows = useMemo(() => {
-    const normalizedKeyword = keyword.trim().toLowerCase();
-    const statusRows = rowsWithTotals.filter((row) => {
-      const confirmed = isConfirmedOrderStatus(mode, row.status);
-      return statusTab === "confirmed" ? confirmed : !confirmed;
-    });
-
-    if (!normalizedKeyword) return statusRows;
-    return statusRows.filter((row) =>
-      [masterConfig.primaryKey, "poNo", "requestNo", "sourceRequestNos", "status", "batchName", "currency"].some((key) =>
-        String(row[key] ?? "").toLowerCase().includes(normalizedKeyword),
-      ),
-    );
-  }, [keyword, masterConfig.primaryKey, mode, rowsWithTotals, statusTab]);
-  const pagedRows = useMemo(() => paginateRows(rows, page, pageSize), [page, pageSize, rows]);
+    void loadData(page, pageSize, statusTab, keyword);
+  }, [mode]);
 
   async function confirmRequestOrder(requestNo: string) {
     setConfirmingId(requestNo);
@@ -145,7 +124,7 @@ export function OrderListPage({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ requestNo }),
     });
-    await loadData();
+    await loadData(1, pageSizeRef.current, "confirmed");
     setConfirmingId("");
     setStatusTab("confirmed");
     setPage(1);
@@ -156,7 +135,7 @@ export function OrderListPage({
     await fetch(`/api/procurement/${encodeURIComponent(poNo)}/confirm`, {
       method: "POST",
     });
-    await loadData();
+    await loadData(page, pageSizeRef.current);
     setConfirmingId("");
   }
 
@@ -176,10 +155,18 @@ export function OrderListPage({
       alert(data.error ?? "删除失败");
       return;
     }
-    await loadData();
+    await loadData(page, pageSizeRef.current);
   }
 
-  function exportOrders() {
+  async function exportOrders() {
+    let exportRows: Row[];
+    try {
+      const data = await fetchData(1, pageSizeRef.current, statusTab, keyword, true);
+      exportRows = data.rows;
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "订单导出失败");
+      return;
+    }
     const columns: Array<[string, string, string?]> =
       mode === "requests"
         ? [
@@ -194,7 +181,7 @@ export function OrderListPage({
           ];
     const worksheet = XLSX.utils.aoa_to_sheet([
       columns.map(([, label]) => label),
-      ...rows.map((row) => columns.map(([key, , type]) => formatValue(row[key], type))),
+      ...exportRows.map((row) => columns.map(([key, , type]) => formatValue(row[key], type))),
     ]);
     worksheet["!cols"] = columns.map(([, label]) => ({ wch: Math.max(12, label.length * 2 + 4) }));
     const workbook = XLSX.utils.book_new();
@@ -219,13 +206,13 @@ export function OrderListPage({
 
       <Panel>
         <div className="flex items-center gap-2 border-b border-[#ebeef5] bg-[#fafafa] p-3">
-          <Button tone={statusTab === "draft" ? "primary" : "default"} onClick={() => { setStatusTab("draft"); setPage(1); }}>
+          <Button tone={statusTab === "draft" ? "primary" : "default"} onClick={() => { setStatusTab("draft"); setPage(1); void loadData(1, pageSizeRef.current, "draft"); }}>
             草稿
             <span className="ml-1 rounded bg-white/35 px-1.5 text-xs">{statusCounts.draft}</span>
           </Button>
           <Button
             tone={statusTab === "confirmed" ? "primary" : "default"}
-            onClick={() => { setStatusTab("confirmed"); setPage(1); }}
+            onClick={() => { setStatusTab("confirmed"); setPage(1); void loadData(1, pageSizeRef.current, "confirmed"); }}
           >
             已确认
             <span className="ml-1 rounded bg-white/35 px-1.5 text-xs">{statusCounts.confirmed}</span>
@@ -249,7 +236,7 @@ export function OrderListPage({
             </Button>
           </Link>
           <div>
-            <Button tone="warning" onClick={exportOrders}>
+              <Button tone="warning" onClick={() => void exportOrders()}>
               <FileDown size={15} />
               导出 Excel
             </Button>
@@ -307,7 +294,7 @@ export function OrderListPage({
               </tr>
             </thead>
             <tbody>
-              {pagedRows.map((row) => {
+              {rows.map((row) => {
                 const id = String(row[masterConfig.primaryKey]);
                 const primaryDisplayValue = getOrderListPrimaryDisplayValue(mode, row);
                 const confirmed = isConfirmedOrderStatus(mode, row.status);
@@ -427,9 +414,22 @@ export function OrderListPage({
         <PaginationBar
           page={page}
           pageSize={pageSize}
-          total={rows.length}
-          onPageChange={setPage}
-          onPageSizeChange={setPageSize}
+          total={total}
+          onPageChange={(nextPage) => {
+            if (skipNextPageChangeRef.current) {
+              skipNextPageChangeRef.current = false;
+              return;
+            }
+            setPage(nextPage);
+            void loadData(nextPage, pageSizeRef.current);
+          }}
+          onPageSizeChange={(nextPageSize) => {
+            pageSizeRef.current = nextPageSize;
+            skipNextPageChangeRef.current = true;
+            setPageSize(nextPageSize);
+            setPage(1);
+            void loadData(1, nextPageSize);
+          }}
         />
       </Panel>
     </div>
@@ -444,64 +444,6 @@ function StatusBadge({ mode, value }: { mode: PageMode; value: string }) {
       : "border-[#dcdfe6] bg-white text-[#606266]";
 
   return <span className={`inline-flex rounded border px-2 py-0.5 text-xs ${tone}`}>{value}</span>;
-}
-
-function getTotalQuantity(
-  mode: PageMode,
-  master: Row,
-  details: Row[],
-  requestItems: Row[],
-) {
-  if (mode === "requests") {
-    const requestNo = String(master.requestNo ?? "");
-    return details
-      .filter((detail) => String(detail.requestNo) === requestNo)
-      .reduce((total, detail) => total + Number(detail.quantity ?? 0), 0);
-  }
-
-  const purchaseOrderId = String(master.purchaseOrderId ?? "");
-  const poNo = String(master.poNo ?? "");
-  const itemIds = new Set(
-    details
-      .filter((detail) =>
-        purchaseOrderId
-          ? String(detail.purchaseOrderId ?? "") === purchaseOrderId
-          : String(detail.poNo) === poNo,
-      )
-      .map((detail) => String(detail.requestItemId)),
-  );
-  return requestItems
-    .filter((item) => itemIds.has(String(item.id)))
-    .reduce((total, item) => total + Number(item.quantity ?? 0), 0);
-}
-
-function getPurchaseTotalAmount(master: Row, details: Row[], requestItems: Row[]) {
-  const purchaseOrderId = String(master.purchaseOrderId ?? "");
-  const poNo = String(master.poNo ?? "");
-  const requestItemById = new Map(requestItems.map((item) => [String(item.id), item]));
-
-  return calculatePurchaseTotalAmount(
-    details
-      .filter((detail) =>
-        purchaseOrderId
-          ? String(detail.purchaseOrderId ?? "") === purchaseOrderId
-          : String(detail.poNo) === poNo,
-      )
-      .map((detail) => ({
-        quantity: Number(requestItemById.get(String(detail.requestItemId))?.quantity ?? 0),
-        unitPrice: Number(detail.unitPrice ?? 0),
-      })),
-  );
-}
-
-function getBatchNamesForPurchaseOrder(master: Row, requestByNo: Map<string, Row>) {
-  const requestNos = String(master.sourceRequestNos ?? master.requestNo ?? "")
-    .split(",")
-    .map((value) => value.trim())
-    .filter(Boolean);
-  return Array.from(
-    new Set(requestNos.map((requestNo) => String(requestByNo.get(requestNo)?.batchName ?? "")).filter(Boolean)),
-  ).join(",");
 }
 
 function formatValue(value: unknown, type?: string) {

@@ -1,6 +1,7 @@
 import { execute, queryRows, type Row } from "./db";
 import { attachPartyCodes } from "./party-display";
 import { isConfirmedOrderStatus } from "./order-status";
+import { DEFAULT_PAGE_SIZE, normalizePageSize } from "./pagination";
 import {
   buildMonthlyWriteOffRows,
   buildPrepaymentDraft,
@@ -318,65 +319,83 @@ export async function listMonthlyPrepaymentWriteOffs(searchParams: URLSearchPara
   const batchName = searchParams.get("batchName")?.trim();
   const startMonth = searchParams.get("startMonth")?.trim();
   const endMonth = searchParams.get("endMonth")?.trim();
+  const exportAll = searchParams.get("export") === "1";
+  const requestedPage = Math.max(1, Math.floor(Number(searchParams.get("page") ?? 1) || 1));
+  const pageSize = normalizePageSize(Number(searchParams.get("pageSize") ?? DEFAULT_PAGE_SIZE));
   const whereParts: string[] = [];
   const params: Row = {};
 
   if (keyword) {
     whereParts.push(
-      `(contractNo LIKE :keyword OR countryCode LIKE :keyword OR batchName LIKE :keyword OR requestNo LIKE :keyword OR poNo LIKE :keyword OR deviceCode LIKE :keyword OR nameEn LIKE :keyword)`,
+      `(mpw.contractNo LIKE :keyword OR mpw.countryCode LIKE :keyword OR mpw.batchName LIKE :keyword OR mpw.requestNo LIKE :keyword OR mpw.poNo LIKE :keyword OR mpw.deviceCode LIKE :keyword OR mpw.nameEn LIKE :keyword)`,
     );
     params.keyword = `%${keyword}%`;
   }
   if (countryCode) {
-    whereParts.push("countryCode = :countryCode");
+    whereParts.push("mpw.countryCode = :countryCode");
     params.countryCode = countryCode;
   }
   if (batchName) {
-    whereParts.push("batchName = :batchName");
+    whereParts.push("mpw.batchName = :batchName");
     params.batchName = batchName;
   }
   if (startMonth) {
-    whereParts.push("writeOffMonth >= :startMonth");
+    whereParts.push("mpw.writeOffMonth >= :startMonth");
     params.startMonth = firstDayOfMonth(startMonth);
   }
   if (endMonth) {
-    whereParts.push("writeOffMonth <= :endMonth");
+    whereParts.push("mpw.writeOffMonth <= :endMonth");
     params.endMonth = firstDayOfMonth(endMonth);
   }
 
   const where = whereParts.length ? `WHERE ${whereParts.join(" AND ")}` : "";
+  const [{ total, totalAmount }] = await queryRows<{ total: number; totalAmount: number }>(
+    `
+      SELECT COUNT(*) AS total, COALESCE(SUM(mpw.monthlyAmount), 0) AS totalAmount
+      FROM monthlyprepaymentwriteoffs AS mpw
+      ${where}
+    `,
+    params,
+  );
+  const normalizedTotal = Number(total ?? 0);
+  const totalPages = Math.max(1, Math.ceil(normalizedTotal / pageSize));
+  const page = Math.min(requestedPage, totalPages);
+  if (!exportAll) {
+    params.limit = pageSize;
+    params.offset = (page - 1) * pageSize;
+  }
   const rows = await queryRows<Row>(
     `
       SELECT
-        id,
-        contractNo,
-        contractLineId,
-        DATE_FORMAT(writeOffMonth, '%Y-%m-%d') AS writeOffMonth,
-        monthIndex,
-        totalMonths,
-        currency,
-        originalAmount,
-        monthlyAmount,
-        lineType,
-        countryCode,
-        batchName,
-        requestNo,
-        poNo,
+        mpw.id,
+        mpw.contractNo,
+        mpw.contractLineId,
+        DATE_FORMAT(mpw.writeOffMonth, '%Y-%m-%d') AS writeOffMonth,
+        mpw.monthIndex,
+        mpw.totalMonths,
+        mpw.currency,
+        mpw.originalAmount,
+        mpw.monthlyAmount,
+        mpw.lineType,
+        mpw.countryCode,
+        mpw.batchName,
+        mpw.requestNo,
+        mpw.poNo,
         purchaseItem.purchaseOrderId,
-        deviceCode,
-        modelCode,
-        nameEn,
-        COALESCE(NULLIF(monthlyprepaymentwriteoffs.supplierId, ''), ri.linkedSupplierId, riByBusinessKey.fallbackSupplierId) AS supplierId,
-        COALESCE(NULLIF(monthlyprepaymentwriteoffs.undertakingUnitId, ''), ri.linkedUndertakingUnitId, riByBusinessKey.fallbackUndertakingUnitId) AS undertakingUnitId,
-        quantity,
-        sourceType,
-        adjustmentNo,
-        createdAt
-      FROM monthlyprepaymentwriteoffs
+        mpw.deviceCode,
+        mpw.modelCode,
+        mpw.nameEn,
+        COALESCE(NULLIF(mpw.supplierId, ''), ri.linkedSupplierId, riByBusinessKey.fallbackSupplierId) AS supplierId,
+        COALESCE(NULLIF(mpw.undertakingUnitId, ''), ri.linkedUndertakingUnitId, riByBusinessKey.fallbackUndertakingUnitId) AS undertakingUnitId,
+        mpw.quantity,
+        mpw.sourceType,
+        mpw.adjustmentNo,
+        mpw.createdAt
+      FROM monthlyprepaymentwriteoffs AS mpw
       LEFT JOIN (
         SELECT id AS linkedContractLineId, requestItemId AS linkedRequestItemId, purchaseOrderItemId AS linkedPurchaseOrderItemId
         FROM prepaymentcontractitems
-      ) AS contractItem ON contractItem.linkedContractLineId = monthlyprepaymentwriteoffs.contractLineId
+      ) AS contractItem ON contractItem.linkedContractLineId = mpw.contractLineId
       LEFT JOIN purchaseorderitems AS purchaseItem ON purchaseItem.id = contractItem.linkedPurchaseOrderItemId
       LEFT JOIN (
         SELECT id AS linkedRequestItemId, supplierId AS linkedSupplierId, undertakingUnitId AS linkedUndertakingUnitId
@@ -386,15 +405,23 @@ export async function listMonthlyPrepaymentWriteOffs(searchParams: URLSearchPara
         SELECT requestNo AS keyRequestNo, deviceCode AS keyDeviceCode, supplierId AS fallbackSupplierId, undertakingUnitId AS fallbackUndertakingUnitId
         FROM requestitems
       ) AS riByBusinessKey
-        ON riByBusinessKey.keyRequestNo = monthlyprepaymentwriteoffs.requestNo
-        AND riByBusinessKey.keyDeviceCode = monthlyprepaymentwriteoffs.deviceCode
+        ON riByBusinessKey.keyRequestNo = mpw.requestNo
+        AND riByBusinessKey.keyDeviceCode = mpw.deviceCode
       ${where}
-      ORDER BY writeOffMonth DESC, contractNo, contractLineId
+      ORDER BY mpw.writeOffMonth DESC, mpw.contractNo, mpw.contractLineId
+      ${exportAll ? "" : "LIMIT :limit OFFSET :offset"}
     `,
     params,
   );
 
-  return { rows: await attachPartyCodes(rows), total: rows.length };
+  return {
+    rows: await attachPartyCodes(rows),
+    total: normalizedTotal,
+    totalAmount: Number(totalAmount ?? 0),
+    page: exportAll ? 1 : page,
+    pageSize,
+    totalPages,
+  };
 }
 
 async function insertPrepaymentLine(line: PrepaymentContractLineDraft) {

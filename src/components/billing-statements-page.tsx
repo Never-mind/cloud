@@ -1,13 +1,14 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { CheckCircle2, Download, RefreshCw, Search } from "lucide-react";
 import { formatDisplayValue } from "@/lib/display-format";
-import { DEFAULT_PAGE_SIZE, paginateRows } from "@/lib/pagination";
+import { DEFAULT_PAGE_SIZE } from "@/lib/pagination";
 import { Button, Input, Panel } from "./ui";
 import { PaginationBar } from "./pagination-bar";
 
 type Row = Record<string, string | number | boolean | null>;
+type SnapshotListResponse = { rows: Row[]; total: number; page: number; pageSize: number; totalPages: number };
 
 const snapshotColumns: Array<{ key: string; label: string; type?: string }> = [
   { key: "snapshotNo", label: "快照编号" },
@@ -45,15 +46,31 @@ export function BillingStatementsPage() {
   const [creating, setCreating] = useState(false);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+  const [total, setTotal] = useState(0);
+  const pageSizeRef = useRef(pageSize);
+  const skipNextPageChangeRef = useRef(false);
 
-  async function loadSnapshots() {
+  async function loadSnapshots(nextPage = page, nextPageSize = pageSizeRef.current) {
     setLoading(true);
     const params = new URLSearchParams();
     if (keyword.trim()) params.set("keyword", keyword.trim());
-    const response = await fetch(`/api/billing-statements?${params.toString()}`);
-    const data = await response.json();
-    setSnapshots(data.rows ?? []);
-    setLoading(false);
+    params.set("page", String(nextPage));
+    params.set("pageSize", String(nextPageSize));
+    try {
+      const response = await fetch(`/api/billing-statements?${params.toString()}`);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error ?? "月账单对账单快照加载失败");
+      const result = data as SnapshotListResponse;
+      setSnapshots(result.rows ?? []);
+      setTotal(Number(result.total ?? 0));
+      if (result.page !== nextPage) setPage(result.page);
+    } catch (error) {
+      setSnapshots([]);
+      setTotal(0);
+      alert(error instanceof Error ? error.message : "月账单对账单快照加载失败");
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function preview() {
@@ -90,7 +107,6 @@ export function BillingStatementsPage() {
     void loadSnapshots();
   }, []);
 
-  const pagedSnapshots = useMemo(() => paginateRows(snapshots, page, pageSize), [page, pageSize, snapshots]);
   const previewSummary = useMemo(
     () =>
       previewRows.reduce<{ totalQuantity: number; totalAmount: number }>(
@@ -215,7 +231,7 @@ export function BillingStatementsPage() {
               </tr>
             </thead>
             <tbody>
-              {pagedSnapshots.map((row) => {
+              {snapshots.map((row) => {
                 const snapshot = String(row.snapshotNo ?? "");
                 return (
                   <tr className="hover:bg-[#fafafa]" key={snapshot}>
@@ -245,7 +261,26 @@ export function BillingStatementsPage() {
             </tbody>
           </table>
         </div>
-        <PaginationBar page={page} pageSize={pageSize} total={snapshots.length} onPageChange={setPage} onPageSizeChange={setPageSize} />
+        <PaginationBar
+          page={page}
+          pageSize={pageSize}
+          total={total}
+          onPageChange={(nextPage) => {
+            if (skipNextPageChangeRef.current) {
+              skipNextPageChangeRef.current = false;
+              return;
+            }
+            setPage(nextPage);
+            void loadSnapshots(nextPage, pageSizeRef.current);
+          }}
+          onPageSizeChange={(nextPageSize) => {
+            pageSizeRef.current = nextPageSize;
+            skipNextPageChangeRef.current = true;
+            setPageSize(nextPageSize);
+            setPage(1);
+            void loadSnapshots(1, nextPageSize);
+          }}
+        />
       </Panel>
     </div>
   );

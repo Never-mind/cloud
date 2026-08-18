@@ -2,6 +2,7 @@ import ExcelJS from "exceljs";
 import * as XLSX from "xlsx";
 import { execute, queryRows, type Row } from "./db";
 import { firstDayOfMonth } from "./billing-workflow";
+import { DEFAULT_PAGE_SIZE, normalizePageSize } from "./pagination";
 import {
   buildBillingStatementRows,
   getVatRate,
@@ -35,6 +36,9 @@ const COUNTRY_NAMES: Record<string, { company: string; customer: string }> = {
 export async function listBillingStatementSnapshots(searchParams: URLSearchParams) {
   const keyword = searchParams.get("keyword")?.trim();
   const countryCode = searchParams.get("countryCode")?.trim();
+  const exportAll = searchParams.get("export") === "1";
+  const requestedPage = Math.max(1, Math.floor(Number(searchParams.get("page") ?? 1) || 1));
+  const pageSize = normalizePageSize(Number(searchParams.get("pageSize") ?? DEFAULT_PAGE_SIZE));
   const whereParts: string[] = [];
   const params: Row = {};
 
@@ -48,6 +52,17 @@ export async function listBillingStatementSnapshots(searchParams: URLSearchParam
   }
 
   const where = whereParts.length ? `WHERE ${whereParts.join(" AND ")}` : "";
+  const [{ total }] = await queryRows<{ total: number }>(
+    `SELECT COUNT(*) AS total FROM billingstatementsnapshots ${where}`,
+    params,
+  );
+  const normalizedTotal = Number(total ?? 0);
+  const totalPages = Math.max(1, Math.ceil(normalizedTotal / pageSize));
+  const page = exportAll ? 1 : Math.min(requestedPage, totalPages);
+  if (!exportAll) {
+    params.limit = pageSize;
+    params.offset = (page - 1) * pageSize;
+  }
   const rows = await queryRows<Row>(
     `
       SELECT
@@ -63,11 +78,12 @@ export async function listBillingStatementSnapshots(searchParams: URLSearchParam
       FROM billingstatementsnapshots
       ${where}
       ORDER BY createdAt DESC
+      ${exportAll ? "" : "LIMIT :limit OFFSET :offset"}
     `,
     params,
   );
 
-  return { rows, total: rows.length };
+  return { rows, total: normalizedTotal, page, pageSize, totalPages };
 }
 
 export async function previewBillingStatement(filters: BillingStatementFilters) {

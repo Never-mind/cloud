@@ -1,6 +1,7 @@
 import { execute, queryRows, type Row } from "./db";
 import { attachPartyCodes } from "./party-display";
 import { isConfirmedOrderStatus } from "./order-status";
+import { DEFAULT_PAGE_SIZE, normalizePageSize } from "./pagination";
 import {
   applyBillingAdjustments,
   buildBillingLedgerDraft,
@@ -392,67 +393,85 @@ export async function listMonthlyBillingWriteOffs(searchParams: URLSearchParams)
   const batchName = searchParams.get("batchName")?.trim();
   const startMonth = searchParams.get("startMonth")?.trim();
   const endMonth = searchParams.get("endMonth")?.trim();
+  const exportAll = searchParams.get("export") === "1";
+  const requestedPage = Math.max(1, Math.floor(Number(searchParams.get("page") ?? 1) || 1));
+  const pageSize = normalizePageSize(Number(searchParams.get("pageSize") ?? DEFAULT_PAGE_SIZE));
   const whereParts: string[] = [];
   const params: Row = {};
 
   if (keyword) {
     whereParts.push(
-      `(ledgerId LIKE :keyword OR countryCode LIKE :keyword OR batchName LIKE :keyword OR requestNo LIKE :keyword OR poNo LIKE :keyword OR deviceCode LIKE :keyword OR nameEn LIKE :keyword OR instanceContractNo LIKE :keyword)`,
+      `(mbw.ledgerId LIKE :keyword OR mbw.countryCode LIKE :keyword OR mbw.batchName LIKE :keyword OR mbw.requestNo LIKE :keyword OR mbw.poNo LIKE :keyword OR mbw.deviceCode LIKE :keyword OR mbw.nameEn LIKE :keyword OR mbw.instanceContractNo LIKE :keyword)`,
     );
     params.keyword = `%${keyword}%`;
   }
   if (countryCode) {
-    whereParts.push("countryCode = :countryCode");
+    whereParts.push("mbw.countryCode = :countryCode");
     params.countryCode = countryCode;
   }
   if (batchName) {
-    whereParts.push("batchName = :batchName");
+    whereParts.push("mbw.batchName = :batchName");
     params.batchName = batchName;
   }
   if (startMonth) {
-    whereParts.push("writeOffMonth >= :startMonth");
+    whereParts.push("mbw.writeOffMonth >= :startMonth");
     params.startMonth = firstDayOfMonth(startMonth);
   }
   if (endMonth) {
-    whereParts.push("writeOffMonth <= :endMonth");
+    whereParts.push("mbw.writeOffMonth <= :endMonth");
     params.endMonth = firstDayOfMonth(endMonth);
   }
 
   const where = whereParts.length ? `WHERE ${whereParts.join(" AND ")}` : "";
+  const [{ total, totalAmount }] = await queryRows<{ total: number; totalAmount: number }>(
+    `
+      SELECT COUNT(*) AS total, COALESCE(SUM(mbw.monthlyTotalAmount), 0) AS totalAmount
+      FROM monthlybillingwriteoffs AS mbw
+      ${where}
+    `,
+    params,
+  );
+  const normalizedTotal = Number(total ?? 0);
+  const totalPages = Math.max(1, Math.ceil(normalizedTotal / pageSize));
+  const page = Math.min(requestedPage, totalPages);
+  if (!exportAll) {
+    params.limit = pageSize;
+    params.offset = (page - 1) * pageSize;
+  }
   const rows = await queryRows<Row>(
     `
       SELECT
-        id,
-        ledgerId,
-        DATE_FORMAT(writeOffMonth, '%Y-%m-%d') AS writeOffMonth,
-        monthIndex,
-        stage,
-        countryCode,
-        batchName,
-        requestNo,
-        poNo,
-        deviceCode,
-        modelCode,
-        nameEn,
-        COALESCE(NULLIF(monthlybillingwriteoffs.supplierId, ''), ri.linkedSupplierId, riByBusinessKey.fallbackSupplierId) AS supplierId,
-        COALESCE(NULLIF(monthlybillingwriteoffs.undertakingUnitId, ''), ri.linkedUndertakingUnitId, riByBusinessKey.fallbackUndertakingUnitId) AS undertakingUnitId,
-        quantity,
+        mbw.id,
+        mbw.ledgerId,
+        DATE_FORMAT(mbw.writeOffMonth, '%Y-%m-%d') AS writeOffMonth,
+        mbw.monthIndex,
+        mbw.stage,
+        mbw.countryCode,
+        mbw.batchName,
+        mbw.requestNo,
+        mbw.poNo,
+        mbw.deviceCode,
+        mbw.modelCode,
+        mbw.nameEn,
+        COALESCE(NULLIF(mbw.supplierId, ''), ri.linkedSupplierId, riByBusinessKey.fallbackSupplierId) AS supplierId,
+        COALESCE(NULLIF(mbw.undertakingUnitId, ''), ri.linkedUndertakingUnitId, riByBusinessKey.fallbackUndertakingUnitId) AS undertakingUnitId,
+        mbw.quantity,
         purchaseItem.purchaseOrderId,
-        instanceContractNo,
-        currency,
-        monthlyTotalAmount,
-        monthlyAmount,
-        selfCalculatedUnitPrice,
-        differenceUnitPrice,
-        differenceTotalPrice,
-        sourceType,
-        adjustmentNo,
-        createdAt
-      FROM monthlybillingwriteoffs
+        mbw.instanceContractNo,
+        mbw.currency,
+        mbw.monthlyTotalAmount,
+        mbw.monthlyAmount,
+        mbw.selfCalculatedUnitPrice,
+        mbw.differenceUnitPrice,
+        mbw.differenceTotalPrice,
+        mbw.sourceType,
+        mbw.adjustmentNo,
+        mbw.createdAt
+      FROM monthlybillingwriteoffs AS mbw
       LEFT JOIN (
         SELECT ledgerId AS linkedLedgerId, purchaseOrderItemId AS linkedPurchaseOrderItemId
         FROM billinginstanceledgers
-      ) AS ledger ON ledger.linkedLedgerId = monthlybillingwriteoffs.ledgerId
+      ) AS ledger ON ledger.linkedLedgerId = mbw.ledgerId
       LEFT JOIN purchaseorderitems AS purchaseItem ON purchaseItem.id = ledger.linkedPurchaseOrderItemId
       LEFT JOIN (
         SELECT id AS linkedRequestItemId, supplierId AS linkedSupplierId, undertakingUnitId AS linkedUndertakingUnitId
@@ -462,15 +481,23 @@ export async function listMonthlyBillingWriteOffs(searchParams: URLSearchParams)
         SELECT requestNo AS keyRequestNo, deviceCode AS keyDeviceCode, supplierId AS fallbackSupplierId, undertakingUnitId AS fallbackUndertakingUnitId
         FROM requestitems
       ) AS riByBusinessKey
-        ON riByBusinessKey.keyRequestNo = monthlybillingwriteoffs.requestNo
-        AND riByBusinessKey.keyDeviceCode = monthlybillingwriteoffs.deviceCode
+        ON riByBusinessKey.keyRequestNo = mbw.requestNo
+        AND riByBusinessKey.keyDeviceCode = mbw.deviceCode
       ${where}
-      ORDER BY writeOffMonth DESC, ledgerId
+      ORDER BY mbw.writeOffMonth DESC, mbw.ledgerId
+      ${exportAll ? "" : "LIMIT :limit OFFSET :offset"}
     `,
     params,
   );
 
-  return { rows: await attachPartyCodes(rows), total: rows.length };
+  return {
+    rows: await attachPartyCodes(rows),
+    total: normalizedTotal,
+    totalAmount: Number(totalAmount ?? 0),
+    page: exportAll ? 1 : page,
+    pageSize,
+    totalPages,
+  };
 }
 
 export async function confirmBillingAdjustment(adjustmentNo: string) {

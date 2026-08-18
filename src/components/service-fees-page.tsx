@@ -1,13 +1,14 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { CheckCircle2, FileDown, RefreshCw, Search } from "lucide-react";
 import { formatDisplayValue } from "@/lib/display-format";
-import { DEFAULT_PAGE_SIZE, paginateRows } from "@/lib/pagination";
+import { DEFAULT_PAGE_SIZE } from "@/lib/pagination";
 import { Button, Input, Panel } from "./ui";
 import { PaginationBar } from "./pagination-bar";
 
 type Row = Record<string, string | number | boolean | null>;
+type ListResponse = { rows: Row[]; summary: Summary; total: number; page: number; pageSize: number; totalPages: number };
 
 type Summary = {
   billingTotal: number;
@@ -62,6 +63,9 @@ export function ServiceFeesPage() {
   const [confirming, setConfirming] = useState(false);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+  const [total, setTotal] = useState(0);
+  const pageSizeRef = useRef(pageSize);
+  const skipNextPageChangeRef = useRef(false);
 
   const params = useMemo(() => buildParams({ keyword, startMonth, endMonth, countryCode, batchName, lineType }), [
     keyword,
@@ -72,18 +76,29 @@ export function ServiceFeesPage() {
     lineType,
   ]);
 
-  async function loadData() {
+  async function fetchData(nextPage: number, nextPageSize: number, exportAll = false): Promise<ListResponse> {
+    const requestParams = new URLSearchParams(params);
+    requestParams.set("page", String(nextPage));
+    requestParams.set("pageSize", String(nextPageSize));
+    if (exportAll) requestParams.set("export", "1");
+    const response = await fetch(`/api/service-fees/calculate?${requestParams.toString()}`);
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error ?? "服务费数据加载失败");
+    return data as ListResponse;
+  }
+
+  async function loadData(nextPage = page, nextPageSize = pageSizeRef.current) {
     setLoading(true);
-    setPage(1);
     try {
-      const response = await fetch(`/api/service-fees/calculate?${params.toString()}`);
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error ?? "服务费数据加载失败");
+      const data = await fetchData(nextPage, nextPageSize);
       setRows(data.rows ?? []);
       setSummary(data.summary ?? emptySummary);
+      setTotal(Number(data.total ?? 0));
+      if (data.page !== nextPage) setPage(data.page);
     } catch (error) {
       setRows([]);
       setSummary(emptySummary);
+      setTotal(0);
       alert(error instanceof Error ? error.message : "服务费数据加载失败");
     } finally {
       setLoading(false);
@@ -95,7 +110,7 @@ export function ServiceFeesPage() {
   }, []);
 
   async function confirmSnapshot() {
-    if (!rows.length) {
+    if (!total) {
       alert("当前没有可确认的服务费核算明细");
       return;
     }
@@ -118,9 +133,17 @@ export function ServiceFeesPage() {
     alert(`已生成服务费核算快照：${data.snapshotNo}`);
   }
 
-  function exportCsv() {
+  async function exportCsv() {
+    let exportRows: Row[];
+    try {
+      const data = await fetchData(1, pageSizeRef.current, true);
+      exportRows = data.rows;
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "服务费导出失败");
+      return;
+    }
     const header = columns.map((column) => column.label);
-    const body = rows.map((row) =>
+    const body = exportRows.map((row) =>
       columns.map((column) => `"${String(formatValue(row[column.key], column.type)).replaceAll('"', '""')}"`).join(","),
     );
     const blob = new Blob([`\uFEFF${[header.join(","), ...body].join("\n")}`], { type: "text/csv;charset=utf-8" });
@@ -131,8 +154,6 @@ export function ServiceFeesPage() {
     link.click();
     URL.revokeObjectURL(url);
   }
-
-  const pagedRows = useMemo(() => paginateRows(rows, page, pageSize), [page, pageSize, rows]);
 
   return (
     <div className="space-y-5">
@@ -157,7 +178,7 @@ export function ServiceFeesPage() {
             <option value="instance">实例</option>
             <option value="fee">非实例费用</option>
           </select>
-          <Button tone="primary" onClick={() => void loadData()}>
+          <Button tone="primary" onClick={() => { setPage(1); void loadData(1, pageSizeRef.current); }}>
             <Search size={15} />
             查询
           </Button>
@@ -165,7 +186,7 @@ export function ServiceFeesPage() {
             <RefreshCw size={15} />
             刷新
           </Button>
-          <Button tone="warning" onClick={exportCsv}>
+          <Button tone="warning" onClick={() => void exportCsv()}>
             <FileDown size={15} />
             导出
           </Button>
@@ -185,7 +206,7 @@ export function ServiceFeesPage() {
             <CheckCircle2 size={15} />
             {confirming ? "确认中" : "确认生成快照"}
           </Button>
-          <span className="text-sm text-[#909399]">当前筛选共 {rows.length} 条，确认后会保存为历史快照。</span>
+          <span className="text-sm text-[#909399]">当前筛选共 {total} 条，确认后会保存为历史快照。</span>
         </div>
 
         <div className="table-scroll overflow-auto">
@@ -200,7 +221,7 @@ export function ServiceFeesPage() {
               </tr>
             </thead>
             <tbody>
-              {pagedRows.map((row) => (
+              {rows.map((row) => (
                 <tr className="hover:bg-[#fafafa]" key={String(row.id)}>
                   {columns.map((column) => (
                     <td className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3" key={column.key}>
@@ -219,7 +240,26 @@ export function ServiceFeesPage() {
             </tbody>
           </table>
         </div>
-        <PaginationBar page={page} pageSize={pageSize} total={rows.length} onPageChange={setPage} onPageSizeChange={setPageSize} />
+        <PaginationBar
+          page={page}
+          pageSize={pageSize}
+          total={total}
+          onPageChange={(nextPage) => {
+            if (skipNextPageChangeRef.current) {
+              skipNextPageChangeRef.current = false;
+              return;
+            }
+            setPage(nextPage);
+            void loadData(nextPage, pageSizeRef.current);
+          }}
+          onPageSizeChange={(nextPageSize) => {
+            pageSizeRef.current = nextPageSize;
+            skipNextPageChangeRef.current = true;
+            setPageSize(nextPageSize);
+            setPage(1);
+            void loadData(1, nextPageSize);
+          }}
+        />
       </Panel>
     </div>
   );

@@ -1,6 +1,7 @@
 import { execute, queryRows, type Row } from "./db";
 import { attachPartyCodes } from "./party-display";
 import { firstDayOfMonth } from "./billing-workflow";
+import { DEFAULT_PAGE_SIZE, normalizePageSize } from "./pagination";
 import {
   buildServiceFeeRows,
   summarizeServiceFeeRows,
@@ -24,8 +25,26 @@ export async function calculateServiceFees(searchParams: URLSearchParams) {
     listBillingRows(filters),
     listPrepaymentRows(filters),
   ]);
-  const rows = filterCalculatedRows(buildServiceFeeRows({ billingRows, prepaymentRows }), filters);
-  return { rows: await attachPartyCodes(rows), summary: summarizeServiceFeeRows(rows), total: rows.length };
+  const allRows = filterCalculatedRows(buildServiceFeeRows({ billingRows, prepaymentRows }), filters);
+  const exportAll = searchParams.get("export") === "1";
+  const shouldPaginate = !exportAll && searchParams.has("page");
+  const requestedPage = Math.max(1, Math.floor(Number(searchParams.get("page") ?? 1) || 1));
+  const pageSize = normalizePageSize(Number(searchParams.get("pageSize") ?? DEFAULT_PAGE_SIZE));
+  const total = allRows.length;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const page = shouldPaginate ? Math.min(requestedPage, totalPages) : 1;
+  const rows = shouldPaginate
+    ? allRows.slice((page - 1) * pageSize, page * pageSize)
+    : allRows;
+
+  return {
+    rows: await attachPartyCodes(rows),
+    summary: summarizeServiceFeeRows(allRows),
+    total,
+    page,
+    pageSize,
+    totalPages,
+  };
 }
 
 export async function confirmServiceFeeSnapshot({
