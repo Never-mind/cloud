@@ -135,8 +135,6 @@ export async function listPurchaseProductLines(searchParams: URLSearchParams): P
         COALESCE(item.taxExcludedUnitPrice, item.unitPrice, 0) AS taxExcludedUnitPrice,
         COALESCE(item.taxSurcharge, 0) AS taxSurcharge,
         COALESCE(item.unitPrice, COALESCE(item.taxExcludedUnitPrice, 0) + COALESCE(item.taxSurcharge, 0)) AS unitPrice,
-        COALESCE(item.capexUnitPrice, 0) AS capexUnitPrice,
-        COALESCE(item.opexUnitPrice, 0) AS opexUnitPrice,
         ROUND(
           COALESCE(requestItem.quantity, 0) * COALESCE(item.unitPrice, COALESCE(item.taxExcludedUnitPrice, 0) + COALESCE(item.taxSurcharge, 0)),
           4
