@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { CheckCircle2, Plus, RefreshCw, Save, Search, Trash2 } from "lucide-react";
 import { formatDisplayValue } from "@/lib/display-format";
@@ -10,6 +10,8 @@ import {
   type PrepaymentMonthlyWriteOffForAdjustment,
 } from "@/lib/prepayment-adjustment-workflow";
 import { Button, Input, Panel, Textarea } from "./ui";
+import { PaginationBar } from "./pagination-bar";
+import { DEFAULT_PAGE_SIZE } from "@/lib/pagination";
 
 type Row = Record<string, string | number | boolean | null>;
 
@@ -67,18 +69,26 @@ export function PrepaymentWriteOffAdjustmentDetailPage({ adjustmentNo: routeAdju
   const [contractNo, setContractNo] = useState("");
   const [deviceCode, setDeviceCode] = useState("");
   const [loading, setLoading] = useState(false);
+  const [searchPage, setSearchPage] = useState(1);
+  const [searchPageSize, setSearchPageSize] = useState(DEFAULT_PAGE_SIZE);
+  const [searchTotal, setSearchTotal] = useState(0);
+  const searchPageSizeRef = useRef(searchPageSize);
   const [saving, setSaving] = useState(false);
   const confirmed = status === "已确认";
 
-  async function loadSearchRows() {
+  async function loadSearchRows(nextPage = searchPage, nextPageSize = searchPageSizeRef.current) {
     setLoading(true);
     const params = new URLSearchParams();
     for (const [key, value] of Object.entries({ keyword, startMonth, endMonth, countryCode, batchName, contractNo, deviceCode })) {
       if (value.trim()) params.set(key, value.trim());
     }
+    params.set("page", String(nextPage));
+    params.set("pageSize", String(nextPageSize));
     const response = await fetch(`/api/prepayment-adjustments/available?${params.toString()}`);
     const data = await response.json();
     setSearchRows(data.rows ?? []);
+    setSearchTotal(Number(data.total ?? 0));
+    setSearchPage(Number(data.page ?? nextPage));
     setLoading(false);
   }
 
@@ -236,7 +246,7 @@ export function PrepaymentWriteOffAdjustmentDetailPage({ adjustmentNo: routeAdju
               <Input placeholder="批次" value={batchName} onChange={(event) => setBatchName(event.target.value)} />
               <Input placeholder="预付款合同号" value={contractNo} onChange={(event) => setContractNo(event.target.value)} />
               <Input placeholder="实例编码" value={deviceCode} onChange={(event) => setDeviceCode(event.target.value)} />
-              <Button tone="primary" onClick={() => void loadSearchRows()}>
+              <Button tone="primary" onClick={() => { setSearchPage(1); void loadSearchRows(1, searchPageSizeRef.current); }}>
                 <Search size={15} />
                 查询
               </Button>
@@ -289,6 +299,13 @@ export function PrepaymentWriteOffAdjustmentDetailPage({ adjustmentNo: routeAdju
                 </tbody>
               </table>
             </div>
+            <PaginationBar
+              page={searchPage}
+              pageSize={searchPageSize}
+              total={searchTotal}
+              onPageChange={(next) => { setSearchPage(next); void loadSearchRows(next, searchPageSizeRef.current); }}
+              onPageSizeChange={(next) => { searchPageSizeRef.current = next; setSearchPageSize(next); setSearchPage(1); void loadSearchRows(1, next); }}
+            />
 
             <div className="flex flex-wrap items-center gap-4 border-b border-[#ebeef5] bg-[#fafafa] p-4 text-sm text-[#606266]">
               <span>已添加 {selectedSummary.count} 条</span>

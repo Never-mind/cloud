@@ -1,13 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { RefreshCw, RotateCcw, Search, Trash2 } from "lucide-react";
 import { formatDisplayValue } from "@/lib/display-format";
-import { fetchAllEntityRows } from "@/lib/client-entity-fetch";
+import { DEFAULT_PAGE_SIZE } from "@/lib/pagination";
 import { buildDetailRoute, buildListRoute, getCurrentRoute, useListScrollPosition } from "@/lib/client-list-navigation";
 import { Button, Input, Panel } from "./ui";
+import { PaginationBar } from "./pagination-bar";
 
 type Row = Record<string, string | number | boolean | null>;
 
@@ -30,6 +31,10 @@ export function PrepaymentContractsPage() {
   const [keyword, setKeyword] = useState(() => searchParams.get("keyword") ?? "");
   const [statusTab, setStatusTab] = useState<"draft" | "confirmed">(() => searchParams.get("statusTab") === "confirmed" ? "confirmed" : "draft");
   const [loading, setLoading] = useState(false);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+  const [total, setTotal] = useState(0);
+  const pageSizeRef = useRef(pageSize);
   const currentRoute = getCurrentRoute(pathname, searchParams.toString());
 
   useListScrollPosition(currentRoute, !loading);
@@ -43,27 +48,29 @@ export function PrepaymentContractsPage() {
     if (nextRoute !== currentRoute) router.replace(nextRoute, { scroll: false });
   }, [currentRoute, keyword, pathname, router, searchParams, statusTab]);
 
-  async function loadData() {
+  async function loadData(nextPage = page, nextPageSize = pageSizeRef.current, nextStatusTab = statusTab, nextKeyword = keyword) {
     setLoading(true);
-    setRows(await fetchAllEntityRows<Row>("prepayment-contracts"));
-    setLoading(false);
+    try {
+      const params = new URLSearchParams({ page: String(nextPage), pageSize: String(nextPageSize), status: nextStatusTab === "confirmed" ? "已确认" : "草稿" });
+      if (nextKeyword.trim()) params.set("keyword", nextKeyword.trim());
+      const response = await fetch(`/api/entities/prepayment-contracts?${params}`);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error ?? "合同加载失败");
+      setRows(data.rows ?? []);
+      setTotal(Number(data.total ?? 0));
+      setPage(Number(data.page ?? nextPage));
+    } catch (error) {
+      setRows([]);
+      setTotal(0);
+      alert(error instanceof Error ? error.message : "合同加载失败");
+    } finally {
+      setLoading(false);
+    }
   }
 
   useEffect(() => {
     void loadData();
   }, []);
-
-  const filteredRows = useMemo(() => {
-    const normalizedKeyword = keyword.trim().toLowerCase();
-    return rows.filter((row) => {
-      const confirmed = String(row.status ?? "") === "已确认";
-      if (statusTab === "confirmed" ? !confirmed : confirmed) return false;
-      if (!normalizedKeyword) return true;
-      return [row.contractNo, row.status, row.currency].some((value) =>
-        String(value ?? "").toLowerCase().includes(normalizedKeyword),
-      );
-    });
-  }, [keyword, rows, statusTab]);
 
   async function deleteDraft(contractNo: string) {
     if (!confirm("确认删除该预付款合同草稿？删除后已占用实例会释放回待生成列表。")) return;
@@ -91,27 +98,27 @@ export function PrepaymentContractsPage() {
 
       <Panel>
         <div className="flex items-center gap-2 border-b border-[#ebeef5] bg-[#fafafa] p-3">
-          <Button tone={statusTab === "draft" ? "primary" : "default"} onClick={() => setStatusTab("draft")}>
+          <Button tone={statusTab === "draft" ? "primary" : "default"} onClick={() => { setStatusTab("draft"); setPage(1); void loadData(1, pageSizeRef.current, "draft"); }}>
             草稿
             <span className="ml-1 rounded bg-white/35 px-1.5 text-xs">
-              {rows.filter((row) => String(row.status ?? "") !== "已确认").length}
+              {statusTab === "draft" ? total : ""}
             </span>
           </Button>
-          <Button tone={statusTab === "confirmed" ? "primary" : "default"} onClick={() => setStatusTab("confirmed")}>
+          <Button tone={statusTab === "confirmed" ? "primary" : "default"} onClick={() => { setStatusTab("confirmed"); setPage(1); void loadData(1, pageSizeRef.current, "confirmed"); }}>
             已确认
             <span className="ml-1 rounded bg-white/35 px-1.5 text-xs">
-              {rows.filter((row) => String(row.status ?? "") === "已确认").length}
+              {statusTab === "confirmed" ? total : ""}
             </span>
           </Button>
         </div>
 
         <div className="flex flex-wrap items-center gap-2 border-b border-[#ebeef5] p-4">
           <Input placeholder="搜索合同号/状态/币种" value={keyword} onChange={(event) => setKeyword(event.target.value)} />
-          <Button tone="primary">
+          <Button tone="primary" onClick={() => { setPage(1); void loadData(1, pageSizeRef.current); }}>
             <Search size={15} />
             查询
           </Button>
-          <Button onClick={() => void loadData()}>
+          <Button onClick={() => void loadData(page, pageSizeRef.current)}>
             <RefreshCw size={15} />
             刷新
           </Button>
@@ -133,7 +140,7 @@ export function PrepaymentContractsPage() {
               </tr>
             </thead>
             <tbody>
-              {filteredRows.map((row) => {
+              {rows.map((row) => {
                 const contractNo = String(row.contractNo ?? "");
                 const confirmed = String(row.status ?? "") === "已确认";
                 return (
@@ -169,7 +176,7 @@ export function PrepaymentContractsPage() {
                   </tr>
                 );
               })}
-              {!filteredRows.length ? (
+              {!rows.length ? (
                 <tr>
                   <td className="py-12 text-center text-[#909399]" colSpan={columns.length + 1}>
                     {loading ? "加载中..." : "暂无数据"}
@@ -179,6 +186,7 @@ export function PrepaymentContractsPage() {
             </tbody>
           </table>
         </div>
+        <PaginationBar page={page} pageSize={pageSize} total={total} onPageChange={(next) => { setPage(next); void loadData(next, pageSizeRef.current); }} onPageSizeChange={(next) => { pageSizeRef.current = next; setPageSize(next); setPage(1); void loadData(1, next); }} />
       </Panel>
     </div>
   );

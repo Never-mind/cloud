@@ -57,7 +57,7 @@ export async function ensureDefaultDocumentFolders() {
   }
 }
 
-export async function getDocumentItems(folderId = DOCUMENT_ROOT_ID) {
+export async function getDocumentItems(folderId = DOCUMENT_ROOT_ID, options: { page?: number; pageSize?: number; keyword?: string } = {}) {
   await ensureDefaultDocumentFolders();
   const [folder] = await queryRows<DocumentFolder>("SELECT * FROM documentfolders WHERE folderId = :folderId", { folderId });
   if (!folder) {
@@ -68,12 +68,24 @@ export async function getDocumentItems(folderId = DOCUMENT_ROOT_ID) {
     "SELECT * FROM documentfolders WHERE parentId = :folderId ORDER BY sortOrder ASC, name ASC",
     { folderId },
   );
+  const pageSize = Math.min(100, Math.max(1, Math.floor(Number(options.pageSize ?? 20) || 20)));
+  const requestedPage = Math.max(1, Math.floor(Number(options.page ?? 1) || 1));
+  const keyword = String(options.keyword ?? "").trim();
+  const fileWhere = keyword ? "AND originalName LIKE :keyword" : "";
+  const fileParams = keyword ? { folderId, keyword: `%${keyword}%` } : { folderId };
+  const [{ total: totalValue }] = await queryRows<{ total: number }>(
+    `SELECT COUNT(*) AS total FROM documentfiles WHERE folderId = :folderId ${fileWhere}`,
+    fileParams,
+  );
+  const total = Number(totalValue ?? 0);
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const page = Math.min(requestedPage, totalPages);
   const files = await queryRows<DocumentFile>(
-    "SELECT * FROM documentfiles WHERE folderId = :folderId ORDER BY createdAt DESC, originalName ASC",
-    { folderId },
+    `SELECT * FROM documentfiles WHERE folderId = :folderId ${fileWhere} ORDER BY createdAt DESC, originalName ASC LIMIT :limit OFFSET :offset`,
+    { ...fileParams, limit: pageSize, offset: (page - 1) * pageSize },
   );
   const breadcrumbs = await getFolderBreadcrumbs(folderId);
-  return { folder, folders, files, breadcrumbs };
+  return { folder, folders, files, breadcrumbs, total, page, pageSize, totalPages };
 }
 
 export async function getDocumentTree() {

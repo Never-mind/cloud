@@ -1,6 +1,6 @@
 import { execute, queryRows, type Row } from "./db";
 import { attachPartyCodes } from "./party-display";
-import { isConfirmedOrderStatus } from "./order-status";
+import { regenerateInternalServiceLedger } from "./internal-service-fee-service";
 import { DEFAULT_PAGE_SIZE, normalizePageSize } from "./pagination";
 import {
   applyBillingAdjustments,
@@ -58,6 +58,9 @@ export type BillingAdjustmentDraft = {
 
 export async function listBillingAdjustments(searchParams: URLSearchParams) {
   const keyword = searchParams.get("keyword")?.trim();
+  const status = searchParams.get("status")?.trim();
+  const requestedPage = Math.max(1, Math.floor(Number(searchParams.get("page") ?? 1) || 1));
+  const pageSize = normalizePageSize(Number(searchParams.get("pageSize") ?? DEFAULT_PAGE_SIZE));
   const whereParts: string[] = [];
   const params: Row = {};
 
@@ -67,8 +70,22 @@ export async function listBillingAdjustments(searchParams: URLSearchParams) {
     );
     params.keyword = `%${keyword}%`;
   }
+  if (status) {
+    whereParts.push("ba.status = :status");
+    params.status = status;
+  }
 
   const where = whereParts.length ? `WHERE ${whereParts.join(" AND ")}` : "";
+  const groupedFrom = `
+    FROM billingadjustments ba
+    LEFT JOIN billingadjustmentitems bai ON bai.adjustmentNo = ba.adjustmentNo
+    ${where}
+    GROUP BY ba.adjustmentNo, ba.instanceContractNo, ba.status, ba.itemCount, ba.reason, ba.confirmedAt, ba.createdAt, ba.updatedAt
+  `;
+  const [{ total: totalValue }] = await queryRows<{ total: number }>(`SELECT COUNT(*) AS total FROM (SELECT ba.adjustmentNo ${groupedFrom}) grouped`, params);
+  const total = Number(totalValue ?? 0);
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const page = Math.min(requestedPage, totalPages);
   const rows = await queryRows<Row>(
     `
       SELECT
@@ -83,16 +100,14 @@ export async function listBillingAdjustments(searchParams: URLSearchParams) {
         DATE_FORMAT(ba.confirmedAt, '%Y-%m-%d') AS confirmedAt,
         DATE_FORMAT(ba.createdAt, '%Y-%m-%d') AS createdAt,
         DATE_FORMAT(ba.updatedAt, '%Y-%m-%d') AS updatedAt
-      FROM billingadjustments ba
-      LEFT JOIN billingadjustmentitems bai ON bai.adjustmentNo = ba.adjustmentNo
-      ${where}
-      GROUP BY ba.adjustmentNo, ba.instanceContractNo, ba.status, ba.itemCount, ba.reason, ba.confirmedAt, ba.createdAt, ba.updatedAt
+      ${groupedFrom}
       ORDER BY ba.createdAt DESC
+      LIMIT :limit OFFSET :offset
     `,
-    params,
+    { ...params, limit: pageSize, offset: (page - 1) * pageSize },
   );
 
-  return { rows, total: rows.length };
+  return { rows, total, page, pageSize, totalPages };
 }
 
 export async function getBillingAdjustment(adjustmentNo: string) {
@@ -203,8 +218,39 @@ export async function deleteBillingAdjustmentDraft(adjustmentNo: string) {
   await execute("DELETE FROM billingadjustments WHERE adjustmentNo = :adjustmentNo", { adjustmentNo });
 }
 
-export async function listAvailableBillingLines() {
-  const [purchaseLines, ledgerRows, contractRows] = await Promise.all([
+export async function listAvailableBillingLines(options: { page?: number; pageSize?: number; keyword?: string; purchaseOrderItemIds?: string[] } = {}) {
+  const requestedPage = Math.max(1, Math.floor(Number(options.page ?? 1) || 1));
+  const conditions = [
+    "po.status LIKE :purchaseStatus",
+    "req.status <> :requestDraftStatus",
+    "NOT EXISTS (SELECT 1 FROM billinginstanceledgers occupied WHERE occupied.purchaseOrderItemId = poi.id)",
+  ];
+  const params: Row = { purchaseStatus: "%确认%", requestDraftStatus: "草稿" };
+  if (options.keyword?.trim()) {
+    conditions.push("(req.countryCode LIKE :keyword OR req.batchName LIKE :keyword OR COALESCE(poi.requestNo, po.requestNo, ri.requestNo) LIKE :keyword OR poi.poNo LIKE :keyword OR ri.deviceCode LIKE :keyword OR im.modelCode LIKE :keyword OR im.nameEn LIKE :keyword)");
+    params.keyword = `%${options.keyword.trim()}%`;
+  }
+  const ids = Array.from(new Set((options.purchaseOrderItemIds ?? []).map(String).filter(Boolean)));
+  // Browsing remains capped. Workflow commands fetch every explicit selection,
+  // including IDs chosen from previous pages.
+  const pageSize = ids.length
+    ? Math.max(ids.length, 1)
+    : Math.min(100, Math.max(1, Math.floor(Number(options.pageSize ?? DEFAULT_PAGE_SIZE) || DEFAULT_PAGE_SIZE)));
+  if (ids.length) { conditions.push("poi.id IN (:purchaseOrderItemIds)"); params.purchaseOrderItemIds = ids; }
+  const sourceFrom = `
+    FROM purchaseorderitems poi
+    LEFT JOIN purchaseorders po ON po.purchaseOrderId = poi.purchaseOrderId OR (poi.purchaseOrderId IS NULL AND po.poNo = poi.poNo)
+    LEFT JOIN requestitems ri ON ri.id = poi.requestItemId
+    LEFT JOIN requests req ON req.requestNo = COALESCE(poi.requestNo, po.requestNo, ri.requestNo)
+    LEFT JOIN instancemodels im ON im.deviceCode = ri.deviceCode
+    LEFT JOIN countries country ON country.code = req.countryCode
+    WHERE ${conditions.join(" AND ")}
+  `;
+  const [{ total: totalValue }] = await queryRows<{ total: number }>(`SELECT COUNT(*) AS total ${sourceFrom}`, params);
+  const total = Number(totalValue ?? 0);
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const page = Math.min(requestedPage, totalPages);
+  const [purchaseLines, contractRows] = await Promise.all([
     queryRows<PurchaseLineRow>(
       `
         SELECT
@@ -226,16 +272,12 @@ export async function listAvailableBillingLines() {
           COALESCE(country.vatRate, 0) AS vatRate,
           po.status AS purchaseStatus,
           req.status AS requestStatus
-        FROM purchaseorderitems poi
-        LEFT JOIN purchaseorders po ON po.purchaseOrderId = poi.purchaseOrderId OR (poi.purchaseOrderId IS NULL AND po.poNo = poi.poNo)
-        LEFT JOIN requestitems ri ON ri.id = poi.requestItemId
-        LEFT JOIN requests req ON req.requestNo = COALESCE(poi.requestNo, po.requestNo, ri.requestNo)
-        LEFT JOIN instancemodels im ON im.deviceCode = ri.deviceCode
-        LEFT JOIN countries country ON country.code = req.countryCode
+        ${sourceFrom}
         ORDER BY req.countryCode, req.batchName, poi.id
+        LIMIT :limit OFFSET :offset
       `,
+      { ...params, limit: pageSize, offset: (page - 1) * pageSize },
     ),
-    queryRows<{ purchaseOrderItemId: string }>("SELECT purchaseOrderItemId FROM billinginstanceledgers"),
     queryRows<BillingInstanceContract>(
       `
         SELECT
@@ -252,16 +294,7 @@ export async function listAvailableBillingLines() {
       `,
     ),
   ]);
-  const occupied = new Set(ledgerRows.map((row) => String(row.purchaseOrderItemId)));
-
-  const availableLines = purchaseLines
-    .filter(
-      (line) =>
-        isConfirmedOrderStatus("purchase", line.purchaseStatus) &&
-        isConfirmedOrderStatus("requests", line.requestStatus) &&
-        !occupied.has(line.purchaseOrderItemId),
-    )
-    .map((line) => {
+  const availableLines = purchaseLines.map((line) => {
       const contract = findLatestInstanceContract(line, contractRows);
       return {
         ...line,
@@ -277,7 +310,7 @@ export async function listAvailableBillingLines() {
         startMonth: new Date().toISOString().slice(0, 10),
       };
     });
-  return attachPartyCodes(availableLines);
+  return { rows: await attachPartyCodes(availableLines), total, page, pageSize, totalPages };
 }
 
 export async function confirmBillingLedgers({
@@ -285,8 +318,8 @@ export async function confirmBillingLedgers({
 }: {
   lines: Array<{ purchaseOrderItemId: string; startMonth: string; instanceContractNo?: string }>;
 }) {
-  const availableLines = await listAvailableBillingLines();
-  const lineById = new Map(availableLines.map((line) => [line.purchaseOrderItemId, line]));
+  const availableLines = await listAvailableBillingLines({ purchaseOrderItemIds: lines.map((line) => line.purchaseOrderItemId), pageSize: Math.max(lines.length, 1) });
+  const lineById = new Map(availableLines.rows.map((line) => [line.purchaseOrderItemId, line]));
   const contractRows = await queryRows<BillingInstanceContract>(
     `
       SELECT
@@ -321,6 +354,7 @@ export async function confirmBillingLedgers({
 
     await insertBillingLedger(ledger);
     await replaceMonthlyBillingRows(ledger.ledgerId, await buildMonthlyBillingRowsWithConfirmedAdjustments(ledger));
+    await regenerateInternalServiceLedger(ledger.ledgerId);
     created.push(ledger);
   }
 
@@ -378,11 +412,15 @@ export async function updateBillingLedger(
     updated,
   );
   await replaceMonthlyBillingRows(updated.ledgerId, await buildMonthlyBillingRowsWithConfirmedAdjustments(updated));
+  await regenerateInternalServiceLedger(updated.ledgerId);
 
   return getBillingLedgerDraft(ledgerId);
 }
 
 export async function deleteBillingLedger(ledgerId: string) {
+  await execute("DELETE FROM internalservicefeeadjustments WHERE ledgerId = :ledgerId", { ledgerId });
+  await execute("DELETE FROM monthlyinternalservicefees WHERE ledgerId = :ledgerId", { ledgerId });
+  await execute("DELETE FROM internalserviceledgers WHERE ledgerId = :ledgerId", { ledgerId });
   await execute("DELETE FROM monthlybillingwriteoffs WHERE ledgerId = :ledgerId", { ledgerId });
   await execute("DELETE FROM billinginstanceledgers WHERE ledgerId = :ledgerId", { ledgerId });
 }
@@ -542,7 +580,10 @@ export async function confirmBillingAdjustment(adjustmentNo: string) {
 
   for (const ledgerId of ledgerIds) {
     const ledger = await getBillingLedgerDraft(ledgerId);
-    if (ledger) await replaceMonthlyBillingRows(ledgerId, await buildMonthlyBillingRowsWithConfirmedAdjustments(ledger));
+    if (ledger) {
+      await replaceMonthlyBillingRows(ledgerId, await buildMonthlyBillingRowsWithConfirmedAdjustments(ledger));
+      await regenerateInternalServiceLedger(ledgerId);
+    }
   }
 
   return { adjustmentNo, updatedLedgers: ledgerIds.size };

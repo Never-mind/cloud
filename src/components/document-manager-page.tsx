@@ -19,6 +19,7 @@ import {
   Upload,
 } from "lucide-react";
 import { Button, Input, Panel } from "./ui";
+import { PaginationBar } from "./pagination-bar";
 
 type DocumentFolder = {
   folderId: string;
@@ -53,6 +54,9 @@ export function DocumentManagerPage() {
   const [renaming, setRenaming] = useState<ContextTarget | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; target: ContextTarget } | null>(null);
+  const [filePage, setFilePage] = useState(1);
+  const [filePageSize, setFilePageSize] = useState(20);
+  const [fileTotal, setFileTotal] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const currentParentId = breadcrumbs.length > 1 ? breadcrumbs[breadcrumbs.length - 2].folderId : null;
@@ -62,14 +66,10 @@ export function DocumentManagerPage() {
     return word ? folders.filter((folder) => folder.name.toLowerCase().includes(word)) : folders;
   }, [folders, keyword]);
 
-  const filteredFiles = useMemo(() => {
-    const word = keyword.trim().toLowerCase();
-    return word ? files.filter((file) => file.originalName.toLowerCase().includes(word)) : files;
-  }, [files, keyword]);
-
   useEffect(() => {
-    void loadItems(folderId);
-  }, [folderId]);
+    setFilePage(1);
+    void loadItems(folderId, 1, filePageSize);
+  }, [folderId, keyword]);
 
   useEffect(() => {
     void loadTree();
@@ -92,15 +92,24 @@ export function DocumentManagerPage() {
     }
   };
 
-  async function loadItems(targetFolderId = folderId) {
+  async function loadItems(targetFolderId = folderId, nextPage = filePage, nextPageSize = filePageSize) {
     setLoading(true);
     try {
-      const response = await fetch(`/api/documents/items?folderId=${encodeURIComponent(targetFolderId)}`);
+      const params = new URLSearchParams({
+        folderId: targetFolderId,
+        page: String(nextPage),
+        pageSize: String(nextPageSize),
+      });
+      if (keyword.trim()) params.set("keyword", keyword.trim());
+      const response = await fetch(`/api/documents/items?${params}`);
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "读取文档失败");
       setFolders(data.folders || []);
       setFiles(data.files || []);
       setBreadcrumbs(data.breadcrumbs || []);
+      setFileTotal(Number(data.total ?? 0));
+      setFilePage(Number(data.page ?? nextPage));
+      setFilePageSize(Number(data.pageSize ?? nextPageSize));
     } catch (error) {
       alert(error instanceof Error ? error.message : "读取文档失败");
     } finally {
@@ -265,7 +274,7 @@ export function DocumentManagerPage() {
             </div>
             <div className="overflow-auto p-4">
               {loading ? <div className="py-10 text-center text-[#909399]">加载中...</div> : null}
-              {!loading && filteredFolders.length === 0 && filteredFiles.length === 0 ? (
+              {!loading && filteredFolders.length === 0 && files.length === 0 ? (
                 <div className="py-20 text-center text-[#909399]">当前文件夹暂无内容</div>
               ) : null}
               <div className="grid grid-cols-[repeat(auto-fill,minmax(190px,1fr))] gap-3">
@@ -287,7 +296,7 @@ export function DocumentManagerPage() {
                     subText="文件夹"
                   />
                 ))}
-                {filteredFiles.map((file) => (
+                {files.map((file) => (
                   <DocumentTile
                     icon={<FileIcon category={file.category} />}
                     isRenaming={renaming?.type === "file" && renaming.item.fileId === file.fileId}
@@ -306,6 +315,13 @@ export function DocumentManagerPage() {
                   />
                 ))}
               </div>
+              <PaginationBar
+                page={filePage}
+                pageSize={filePageSize}
+                total={fileTotal}
+                onPageChange={(next) => { setFilePage(next); void loadItems(folderId, next, filePageSize); }}
+                onPageSizeChange={(next) => { setFilePageSize(next); setFilePage(1); void loadItems(folderId, 1, next); }}
+              />
             </div>
           </section>
         </div>

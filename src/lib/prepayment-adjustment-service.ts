@@ -15,6 +15,12 @@ export type PrepaymentAdjustmentPayload = {
 
 export async function listAvailablePrepaymentWriteOffs(searchParams: URLSearchParams) {
   const { where, params } = buildMonthlyWhere(searchParams);
+  const requestedPage = Math.max(1, Math.floor(Number(searchParams.get("page") ?? 1) || 1));
+  const pageSize = Math.min(100, Math.max(1, Math.floor(Number(searchParams.get("pageSize") ?? 20) || 20)));
+  const [{ total: totalValue }] = await queryRows<{ total: number }>(`SELECT COUNT(*) AS total FROM monthlyprepaymentwriteoffs ${where}`, params);
+  const total = Number(totalValue ?? 0);
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const page = Math.min(requestedPage, totalPages);
   const rows = await queryRows<Row>(
     `
       SELECT
@@ -41,15 +47,19 @@ export async function listAvailablePrepaymentWriteOffs(searchParams: URLSearchPa
       FROM monthlyprepaymentwriteoffs
       ${where}
       ORDER BY writeOffMonth DESC, contractNo, contractLineId
+      LIMIT :limit OFFSET :offset
     `,
-    params,
+    { ...params, limit: pageSize, offset: (page - 1) * pageSize },
   );
 
-  return { rows, total: rows.length };
+  return { rows, total, page, pageSize, totalPages };
 }
 
 export async function listPrepaymentWriteOffAdjustments(searchParams: URLSearchParams) {
   const keyword = searchParams.get("keyword")?.trim();
+  const status = searchParams.get("status")?.trim();
+  const requestedPage = Math.max(1, Math.floor(Number(searchParams.get("page") ?? 1) || 1));
+  const pageSize = Math.min(100, Math.max(1, Math.floor(Number(searchParams.get("pageSize") ?? 20) || 20)));
   const whereParts: string[] = [];
   const params: Row = {};
 
@@ -59,8 +69,16 @@ export async function listPrepaymentWriteOffAdjustments(searchParams: URLSearchP
     );
     params.keyword = `%${keyword}%`;
   }
+  if (status) {
+    whereParts.push("status = :status");
+    params.status = status;
+  }
 
   const where = whereParts.length ? `WHERE ${whereParts.join(" AND ")}` : "";
+  const [{ total: totalValue }] = await queryRows<{ total: number }>(`SELECT COUNT(*) AS total FROM prepaymentwriteoffadjustments ${where}`, params);
+  const total = Number(totalValue ?? 0);
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const page = Math.min(requestedPage, totalPages);
   const rows = await queryRows<Row>(
     `
       SELECT
@@ -78,11 +96,12 @@ export async function listPrepaymentWriteOffAdjustments(searchParams: URLSearchP
       FROM prepaymentwriteoffadjustments
       ${where}
       ORDER BY createdAt DESC
+      LIMIT :limit OFFSET :offset
     `,
-    params,
+    { ...params, limit: pageSize, offset: (page - 1) * pageSize },
   );
 
-  return { rows, total: rows.length };
+  return { rows, total, page, pageSize, totalPages };
 }
 
 export async function getPrepaymentWriteOffAdjustment(adjustmentNo: string) {

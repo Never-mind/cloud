@@ -1,9 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { FilePlus2, RefreshCw, Search } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { formatDateInputValue, formatDisplayValue } from "@/lib/display-format";
+import { DEFAULT_PAGE_SIZE } from "@/lib/pagination";
+import { PaginationBar } from "./pagination-bar";
 import { Button, Input, Panel } from "./ui";
 
 type Row = {
@@ -39,18 +41,31 @@ export function PrepaymentAvailablePage() {
   const router = useRouter();
   const [rows, setRows] = useState<Row[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [selectedRowsById, setSelectedRowsById] = useState<Record<string, Row>>({});
   const [keyword, setKeyword] = useState("");
   const [contractNo, setContractNo] = useState(`PPC-${formatDateInputValue(new Date()).replaceAll("-", "")}`);
   const [effectiveDate, setEffectiveDate] = useState(formatDateInputValue(new Date()));
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+  const [total, setTotal] = useState(0);
+  const pageSizeRef = useRef(pageSize);
 
-  async function loadData() {
+  async function loadData(nextPage = page, nextPageSize = pageSizeRef.current, nextKeyword = keyword) {
     setLoading(true);
-    const response = await fetch("/api/prepayments/available");
+    const params = new URLSearchParams({ page: String(nextPage), pageSize: String(nextPageSize) });
+    if (nextKeyword.trim()) params.set("keyword", nextKeyword.trim());
+    const response = await fetch(`/api/prepayments/available?${params}`);
     const data = await response.json();
     setRows(data.rows ?? []);
-    setSelectedIds([]);
+    setTotal(Number(data.total ?? 0));
+    setPage(Number(data.page ?? nextPage));
+    setSelectedRowsById((current) => {
+      const next = { ...current };
+      for (const row of data.rows ?? []) if (selectedIds.includes(row.id)) next[row.id] = row;
+      return next;
+    });
     setLoading(false);
   }
 
@@ -58,19 +73,9 @@ export function PrepaymentAvailablePage() {
     void loadData();
   }, []);
 
-  const filteredRows = useMemo(() => {
-    const normalizedKeyword = keyword.trim().toLowerCase();
-    if (!normalizedKeyword) return rows;
-    return rows.filter((row) =>
-      [row.batchName, row.requestNo, row.poNo, row.deviceCode, row.modelCode, row.nameEn].some((value) =>
-        String(value ?? "").toLowerCase().includes(normalizedKeyword),
-      ),
-    );
-  }, [keyword, rows]);
-
   const selectedRows = useMemo(
-    () => rows.filter((row) => selectedIds.includes(row.id)),
-    [rows, selectedIds],
+    () => Object.values(selectedRowsById),
+    [selectedRowsById],
   );
   const summary = useMemo(
     () => ({
@@ -80,21 +85,34 @@ export function PrepaymentAvailablePage() {
     }),
     [selectedRows],
   );
-  const allVisibleSelected = filteredRows.length > 0 && filteredRows.every((row) => selectedIds.includes(row.id));
+  const allVisibleSelected = rows.length > 0 && rows.every((row) => selectedIds.includes(row.id));
 
-  function toggleSelected(id: string) {
+  function toggleSelected(row: Row) {
+    const id = row.id;
     setSelectedIds((current) =>
       current.includes(id) ? current.filter((item) => item !== id) : [...current, id],
     );
+    setSelectedRowsById((current) => {
+      if (current[id]) { const { [id]: _removed, ...next } = current; return next; }
+      return { ...current, [id]: row };
+    });
   }
 
   function toggleAllVisible() {
-    const visibleIds = filteredRows.map((row) => row.id);
+    const visibleIds = rows.map((row) => row.id);
     setSelectedIds((current) => {
       if (visibleIds.every((id) => current.includes(id))) {
         return current.filter((id) => !visibleIds.includes(id));
       }
       return Array.from(new Set([...current, ...visibleIds]));
+    });
+    setSelectedRowsById((current) => {
+      if (visibleIds.every((id) => current[id])) {
+        const next = { ...current };
+        for (const id of visibleIds) delete next[id];
+        return next;
+      }
+      return Object.assign({}, current, Object.fromEntries(rows.map((row) => [row.id, row])));
     });
   }
 
@@ -130,11 +148,11 @@ export function PrepaymentAvailablePage() {
             value={keyword}
             onChange={(event) => setKeyword(event.target.value)}
           />
-          <Button tone="primary">
+          <Button tone="primary" onClick={() => void loadData(1, pageSizeRef.current)}>
             <Search size={15} />
             查询
           </Button>
-          <Button onClick={() => void loadData()}>
+          <Button onClick={() => void loadData(page, pageSizeRef.current)}>
             <RefreshCw size={15} />
             刷新
           </Button>
@@ -177,10 +195,10 @@ export function PrepaymentAvailablePage() {
               </tr>
             </thead>
             <tbody>
-              {filteredRows.map((row) => (
+              {rows.map((row) => (
                 <tr className="hover:bg-[#fafafa]" key={row.id}>
                   <td className="border-b border-r border-[#ebeef5] px-3 py-3">
-                    <input checked={selectedIds.includes(row.id)} type="checkbox" onChange={() => toggleSelected(row.id)} />
+                    <input checked={selectedIds.includes(row.id)} type="checkbox" onChange={() => toggleSelected(row)} />
                   </td>
                   {columns.map((column) => (
                     <td className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3" key={column.key}>
@@ -189,7 +207,7 @@ export function PrepaymentAvailablePage() {
                   ))}
                 </tr>
               ))}
-              {!filteredRows.length ? (
+              {!rows.length ? (
                 <tr>
                   <td className="py-12 text-center text-[#909399]" colSpan={columns.length + 1}>
                     {loading ? "加载中..." : "暂无可生成预付款合同的实例"}
@@ -199,6 +217,7 @@ export function PrepaymentAvailablePage() {
             </tbody>
           </table>
         </div>
+        <PaginationBar page={page} pageSize={pageSize} total={total} onPageChange={(next) => { setPage(next); void loadData(next, pageSizeRef.current); }} onPageSizeChange={(next) => { pageSizeRef.current = next; setPageSize(next); setPage(1); void loadData(1, next); }} />
       </Panel>
 
       {selectedIds.length ? (

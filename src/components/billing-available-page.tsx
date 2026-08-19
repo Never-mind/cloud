@@ -1,10 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { CheckCircle2, RefreshCw, Search } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { formatDisplayValue } from "@/lib/display-format";
 import { fetchAllEntityRows } from "@/lib/client-entity-fetch";
+import { DEFAULT_PAGE_SIZE } from "@/lib/pagination";
+import { PaginationBar } from "./pagination-bar";
 import { Button, Input, Panel } from "./ui";
 
 type Row = {
@@ -73,20 +75,33 @@ export function BillingAvailablePage() {
   const [rows, setRows] = useState<Row[]>([]);
   const [contracts, setContracts] = useState<InstanceContract[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [selectedRowsById, setSelectedRowsById] = useState<Record<string, Row>>({});
   const [keyword, setKeyword] = useState("");
   const [loading, setLoading] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+  const [total, setTotal] = useState(0);
+  const pageSizeRef = useRef(pageSize);
 
-  async function loadData() {
+  async function loadData(nextPage = page, nextPageSize = pageSizeRef.current, nextKeyword = keyword) {
     setLoading(true);
+    const params = new URLSearchParams({ page: String(nextPage), pageSize: String(nextPageSize) });
+    if (nextKeyword.trim()) params.set("keyword", nextKeyword.trim());
     const [response, contractRows] = await Promise.all([
-      fetch("/api/billing/available"),
+      fetch(`/api/billing/available?${params}`),
       fetchAllEntityRows<InstanceContract>("instance-contracts"),
     ]);
     const data = await response.json();
     setRows(data.rows ?? []);
     setContracts(contractRows);
-    setSelectedIds([]);
+    setTotal(Number(data.total ?? 0));
+    setPage(Number(data.page ?? nextPage));
+    setSelectedRowsById((current) => {
+      const next = { ...current };
+      for (const row of data.rows ?? []) if (selectedIds.includes(row.purchaseOrderItemId)) next[row.purchaseOrderItemId] = row;
+      return next;
+    });
     setLoading(false);
   }
 
@@ -94,53 +109,62 @@ export function BillingAvailablePage() {
     void loadData();
   }, []);
 
-  const filteredRows = useMemo(() => {
-    const normalizedKeyword = keyword.trim().toLowerCase();
-    if (!normalizedKeyword) return rows;
-    return rows.filter((row) =>
-      [row.countryCode, row.batchName, row.requestNo, row.poNo, row.deviceCode, row.modelCode, row.nameEn].some((value) =>
-        String(value ?? "").toLowerCase().includes(normalizedKeyword),
-      ),
-    );
-  }, [keyword, rows]);
-  const selectedRows = rows.filter((row) => selectedIds.includes(row.purchaseOrderItemId));
+  const selectedRows = useMemo(() => Object.values(selectedRowsById), [selectedRowsById]);
   const canConfirm = selectedRows.length > 0 && selectedRows.every((row) => row.instanceContractNo && row.contractCurrency && row.startMonth);
-  const allVisibleSelected = filteredRows.length > 0 && filteredRows.every((row) => selectedIds.includes(row.purchaseOrderItemId));
+  const allVisibleSelected = rows.length > 0 && rows.every((row) => selectedIds.includes(row.purchaseOrderItemId));
 
-  function toggleSelected(id: string) {
+  function toggleSelected(row: Row) {
+    const id = row.purchaseOrderItemId;
     setSelectedIds((current) => (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]));
+    setSelectedRowsById((current) => {
+      if (current[id]) { const { [id]: _removed, ...next } = current; return next; }
+      return { ...current, [id]: row };
+    });
   }
 
   function toggleAllVisible() {
-    const visibleIds = filteredRows.map((row) => row.purchaseOrderItemId);
+    const visibleIds = rows.map((row) => row.purchaseOrderItemId);
     setSelectedIds((current) =>
       visibleIds.every((id) => current.includes(id))
         ? current.filter((id) => !visibleIds.includes(id))
         : Array.from(new Set([...current, ...visibleIds])),
     );
+    setSelectedRowsById((current) => {
+      if (visibleIds.every((id) => current[id])) {
+        const next = { ...current };
+        for (const id of visibleIds) delete next[id];
+        return next;
+      }
+      return Object.assign({}, current, Object.fromEntries(rows.map((row) => [row.purchaseOrderItemId, row])));
+    });
   }
 
   function updateStartMonth(id: string, startMonth: string) {
     setRows((current) => current.map((row) => (row.purchaseOrderItemId === id ? { ...row, startMonth } : row)));
+    setSelectedRowsById((current) => current[id] ? { ...current, [id]: { ...current[id], startMonth } } : current);
   }
 
   function updateInstanceContractNo(id: string, instanceContractNo: string) {
+    const updateRow = (row: Row) => {
+      if (row.purchaseOrderItemId !== id) return row;
+      const contract = findMatchingContract(contracts, row, instanceContractNo);
+      return {
+        ...row,
+        instanceContractNo,
+        contractCurrency: contract?.currency ?? "",
+        first24MonthPrice: Number(contract?.first24MonthPriceUSD ?? 0),
+        next36MonthPrice: Number(contract?.next36MonthPriceUSD ?? 0),
+        selfCalculatedUnitPrice: calculateSelfPrice(row),
+        differenceUnitPrice: Number(contract?.first24MonthPriceUSD ?? 0) - calculateSelfPrice(row),
+        differenceTotalPrice: Number(row.quantity ?? 0) * (Number(contract?.first24MonthPriceUSD ?? 0) - calculateSelfPrice(row)),
+      };
+    };
     setRows((current) =>
       current.map((row) => {
-        if (row.purchaseOrderItemId !== id) return row;
-        const contract = findMatchingContract(contracts, row, instanceContractNo);
-        return {
-          ...row,
-          instanceContractNo,
-          contractCurrency: contract?.currency ?? "",
-          first24MonthPrice: Number(contract?.first24MonthPriceUSD ?? 0),
-          next36MonthPrice: Number(contract?.next36MonthPriceUSD ?? 0),
-          selfCalculatedUnitPrice: calculateSelfPrice(row),
-          differenceUnitPrice: Number(contract?.first24MonthPriceUSD ?? 0) - calculateSelfPrice(row),
-          differenceTotalPrice: Number(row.quantity ?? 0) * (Number(contract?.first24MonthPriceUSD ?? 0) - calculateSelfPrice(row)),
-        };
+        return updateRow(row);
       }),
     );
+    setSelectedRowsById((current) => current[id] ? { ...current, [id]: updateRow(current[id]) } : current);
   }
 
   async function confirmSelected() {
@@ -174,11 +198,11 @@ export function BillingAvailablePage() {
       <Panel>
         <div className="flex flex-wrap items-center gap-2 border-b border-[#ebeef5] p-4">
           <Input placeholder="搜索国家/批次/需求单/PO/实例编码" value={keyword} onChange={(event) => setKeyword(event.target.value)} />
-          <Button tone="primary">
+          <Button tone="primary" onClick={() => void loadData(1, pageSizeRef.current)}>
             <Search size={15} />
             查询
           </Button>
-          <Button onClick={() => void loadData()}>
+          <Button onClick={() => void loadData(page, pageSizeRef.current)}>
             <RefreshCw size={15} />
             刷新
           </Button>
@@ -188,7 +212,7 @@ export function BillingAvailablePage() {
             <thead className="bg-[#f5f7fa] text-[#303133]">
               <tr>
                 <th className="w-12 border-b border-r border-[#ebeef5] px-3 py-3 text-left">
-                  <input checked={allVisibleSelected} type="checkbox" onChange={toggleAllVisible} />
+                <input checked={allVisibleSelected} type="checkbox" onChange={toggleAllVisible} />
                 </th>
                 {columns.map((column) => (
                   <th className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium" key={column.key}>
@@ -199,10 +223,10 @@ export function BillingAvailablePage() {
               </tr>
             </thead>
             <tbody>
-              {filteredRows.map((row) => (
+              {rows.map((row) => (
                 <tr className="hover:bg-[#fafafa]" key={row.purchaseOrderItemId}>
                   <td className="border-b border-r border-[#ebeef5] px-3 py-3">
-                    <input checked={selectedIds.includes(row.purchaseOrderItemId)} disabled={!row.instanceContractNo || !row.contractCurrency} type="checkbox" onChange={() => toggleSelected(row.purchaseOrderItemId)} />
+                    <input checked={selectedIds.includes(row.purchaseOrderItemId)} disabled={!row.instanceContractNo || !row.contractCurrency} type="checkbox" onChange={() => toggleSelected(row)} />
                   </td>
                   {columns.map((column) => (
                     <td className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3" key={column.key}>
@@ -244,7 +268,7 @@ export function BillingAvailablePage() {
                   </td>
                 </tr>
               ))}
-              {!filteredRows.length ? (
+              {!rows.length ? (
                 <tr>
                   <td className="py-12 text-center text-[#909399]" colSpan={columns.length + 2}>
                     {loading ? "加载中..." : "暂无可生成月账单的实例"}
@@ -254,6 +278,7 @@ export function BillingAvailablePage() {
             </tbody>
           </table>
         </div>
+        <PaginationBar page={page} pageSize={pageSize} total={total} onPageChange={(next) => { setPage(next); void loadData(next, pageSizeRef.current); }} onPageSizeChange={(next) => { pageSizeRef.current = next; setPageSize(next); setPage(1); void loadData(1, next); }} />
       </Panel>
       {selectedIds.length ? (
         <div className="fixed bottom-5 left-[230px] right-5 z-20 border border-[#1890ff] bg-white p-4 shadow-lg">

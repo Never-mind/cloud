@@ -1,6 +1,5 @@
 import { execute, queryRows, type Row } from "./db";
 import { attachPartyCodes } from "./party-display";
-import { isConfirmedOrderStatus } from "./order-status";
 import { DEFAULT_PAGE_SIZE, normalizePageSize } from "./pagination";
 import {
   buildMonthlyWriteOffRows,
@@ -21,7 +20,40 @@ type PrepaymentLineRow = PrepaymentContractLineDraft & {
   status?: string | null;
 };
 
-export async function listAvailablePrepaymentLines() {
+export async function listAvailablePrepaymentLines(options: { page?: number; pageSize?: number; keyword?: string; purchaseOrderItemIds?: string[] } = {}) {
+  const requestedPage = Math.max(1, Math.floor(Number(options.page ?? 1) || 1));
+  const conditions = [
+    "po.status LIKE :purchaseStatus",
+    "req.status <> :requestDraftStatus",
+    `NOT EXISTS (
+      SELECT 1 FROM prepaymentcontractitems pci
+      INNER JOIN prepaymentcontracts pc ON pc.contractNo = pci.contractNo
+      WHERE pci.purchaseOrderItemId = poi.id AND pc.status IN ('草稿', '已确认')
+    )`,
+  ];
+  const params: Row = { purchaseStatus: "%确认%", requestDraftStatus: "草稿" };
+  if (options.keyword?.trim()) {
+    conditions.push("(req.countryCode LIKE :keyword OR req.batchName LIKE :keyword OR COALESCE(poi.requestNo, po.requestNo, ri.requestNo) LIKE :keyword OR poi.poNo LIKE :keyword OR ri.deviceCode LIKE :keyword OR im.modelCode LIKE :keyword OR im.nameEn LIKE :keyword)");
+    params.keyword = `%${options.keyword.trim()}%`;
+  }
+  const ids = Array.from(new Set((options.purchaseOrderItemIds ?? []).map(String).filter(Boolean)));
+  // Explicit workflow selections are intentionally not restricted by the list cap.
+  const pageSize = ids.length
+    ? Math.max(ids.length, 1)
+    : Math.min(100, Math.max(1, Math.floor(Number(options.pageSize ?? DEFAULT_PAGE_SIZE) || DEFAULT_PAGE_SIZE)));
+  if (ids.length) { conditions.push("poi.id IN (:purchaseOrderItemIds)"); params.purchaseOrderItemIds = ids; }
+  const sourceFrom = `
+    FROM purchaseorderitems poi
+    LEFT JOIN purchaseorders po ON po.purchaseOrderId = poi.purchaseOrderId OR (poi.purchaseOrderId IS NULL AND po.poNo = poi.poNo)
+    LEFT JOIN requestitems ri ON ri.id = poi.requestItemId
+    LEFT JOIN requests req ON req.requestNo = COALESCE(poi.requestNo, po.requestNo, ri.requestNo)
+    LEFT JOIN instancemodels im ON im.deviceCode = ri.deviceCode
+    WHERE ${conditions.join(" AND ")}
+  `;
+  const [{ total: totalValue }] = await queryRows<{ total: number }>(`SELECT COUNT(*) AS total ${sourceFrom}`, params);
+  const total = Number(totalValue ?? 0);
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const page = Math.min(requestedPage, totalPages);
   const purchaseLines = await queryRows<PurchaseLineRow>(
     `
       SELECT
@@ -41,33 +73,19 @@ export async function listAvailablePrepaymentLines() {
         poi.unitPrice,
         po.status AS purchaseStatus,
         req.status AS requestStatus
-      FROM purchaseorderitems poi
-      LEFT JOIN purchaseorders po ON po.purchaseOrderId = poi.purchaseOrderId OR (poi.purchaseOrderId IS NULL AND po.poNo = poi.poNo)
-      LEFT JOIN requestitems ri ON ri.id = poi.requestItemId
-      LEFT JOIN requests req ON req.requestNo = COALESCE(poi.requestNo, po.requestNo, ri.requestNo)
-      LEFT JOIN instancemodels im ON im.deviceCode = ri.deviceCode
+      ${sourceFrom}
       ORDER BY req.batchName, po.poNo, poi.id
+      LIMIT :limit OFFSET :offset
     `,
+    { ...params, limit: pageSize, offset: (page - 1) * pageSize },
   );
-  const occupiedRows = await queryRows<{ purchaseOrderItemId: string }>(
-    `
-      SELECT pci.purchaseOrderItemId
-      FROM prepaymentcontractitems pci
-      INNER JOIN prepaymentcontracts pc ON pc.contractNo = pci.contractNo
-      WHERE pci.purchaseOrderItemId IS NOT NULL
-        AND pc.status IN ('草稿', '已确认')
-    `,
-  );
-  const confirmedLines = purchaseLines.filter(
-    (line) =>
-      isConfirmedOrderStatus("purchase", line.purchaseStatus) &&
-      isConfirmedOrderStatus("requests", line.requestStatus),
-  );
-
-  return filterAvailablePrepaymentLines({
-    purchaseLines: confirmedLines,
-    occupiedPurchaseOrderItemIds: occupiedRows.map((row) => String(row.purchaseOrderItemId)),
-  });
+  return {
+    rows: filterAvailablePrepaymentLines({ purchaseLines, occupiedPurchaseOrderItemIds: [] }),
+    total,
+    page,
+    pageSize,
+    totalPages,
+  };
 }
 
 export async function createPrepaymentDraft({
@@ -79,8 +97,8 @@ export async function createPrepaymentDraft({
   effectiveDate: string;
   purchaseOrderItemIds: string[];
 }) {
-  const availableLines = await listAvailablePrepaymentLines();
-  const selected = availableLines.filter((line) => purchaseOrderItemIds.includes(line.id));
+  const availableLines = await listAvailablePrepaymentLines({ purchaseOrderItemIds, pageSize: Math.max(purchaseOrderItemIds.length, 1) });
+  const selected = availableLines.rows.filter((line) => purchaseOrderItemIds.includes(line.id));
   if (!contractNo.trim()) throw new Error("预付款合同号不能为空");
   if (!selected.length) throw new Error("请选择可生成预付款合同的实例");
 

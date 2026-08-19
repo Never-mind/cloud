@@ -1,12 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { CheckCircle2, Plus, RefreshCw, Search, Trash2 } from "lucide-react";
 import { formatDisplayValue } from "@/lib/display-format";
+import { DEFAULT_PAGE_SIZE } from "@/lib/pagination";
 import { buildDetailRoute, buildListRoute, getCurrentRoute, useListScrollPosition } from "@/lib/client-list-navigation";
 import { Button, Input, Panel } from "./ui";
+import { PaginationBar } from "./pagination-bar";
 
 type Row = Record<string, string | number | boolean | null>;
 
@@ -33,6 +35,10 @@ export function BillingAdjustmentsPage() {
     searchParams.get("statusTab") === "confirmed" ? "confirmed" : "draft",
   );
   const [loading, setLoading] = useState(false);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+  const [total, setTotal] = useState(0);
+  const pageSizeRef = useRef(pageSize);
   const currentRoute = getCurrentRoute(pathname, searchParams.toString());
 
   useListScrollPosition(currentRoute, !loading);
@@ -46,26 +52,24 @@ export function BillingAdjustmentsPage() {
     if (nextRoute !== currentRoute) router.replace(nextRoute, { scroll: false });
   }, [currentRoute, keyword, pathname, router, searchParams, statusTab]);
 
-  async function loadRows() {
+  async function loadRows(nextPage = page, nextPageSize = pageSizeRef.current, nextStatusTab = statusTab, nextKeyword = keyword) {
     setLoading(true);
     const params = new URLSearchParams();
-    if (keyword.trim()) params.set("keyword", keyword.trim());
+    params.set("page", String(nextPage));
+    params.set("pageSize", String(nextPageSize));
+    params.set("status", nextStatusTab === "confirmed" ? "已确认" : "草稿");
+    if (nextKeyword.trim()) params.set("keyword", nextKeyword.trim());
     const response = await fetch(`/api/billing/adjustments?${params.toString()}`);
     const data = await response.json();
     setRows(data.rows ?? []);
+    setTotal(Number(data.total ?? 0));
+    setPage(Number(data.page ?? nextPage));
     setLoading(false);
   }
 
   useEffect(() => {
     void loadRows();
   }, []);
-
-  const filteredRows = useMemo(() => {
-    return rows.filter((row) => {
-      const confirmed = String(row.status ?? "") === "已确认";
-      return statusTab === "confirmed" ? confirmed : !confirmed;
-    });
-  }, [rows, statusTab]);
 
   async function confirmAdjustment(adjustmentNo: string) {
     if (!confirm("确认后会按调整单明细更新对应月账单每月核销明细，是否继续？")) return;
@@ -100,23 +104,23 @@ export function BillingAdjustmentsPage() {
 
       <Panel>
         <div className="flex items-center gap-2 border-b border-[#ebeef5] bg-[#fafafa] p-3">
-          <Button tone={statusTab === "draft" ? "primary" : "default"} onClick={() => setStatusTab("draft")}>
+          <Button tone={statusTab === "draft" ? "primary" : "default"} onClick={() => { setStatusTab("draft"); setPage(1); void loadRows(1, pageSizeRef.current, "draft"); }}>
             草稿
             <span className="ml-1 rounded bg-white/35 px-1.5 text-xs">
-              {rows.filter((row) => String(row.status ?? "") !== "已确认").length}
+              {statusTab === "draft" ? total : ""}
             </span>
           </Button>
-          <Button tone={statusTab === "confirmed" ? "primary" : "default"} onClick={() => setStatusTab("confirmed")}>
+          <Button tone={statusTab === "confirmed" ? "primary" : "default"} onClick={() => { setStatusTab("confirmed"); setPage(1); void loadRows(1, pageSizeRef.current, "confirmed"); }}>
             已确认
             <span className="ml-1 rounded bg-white/35 px-1.5 text-xs">
-              {rows.filter((row) => String(row.status ?? "") === "已确认").length}
+              {statusTab === "confirmed" ? total : ""}
             </span>
           </Button>
         </div>
 
         <div className="flex flex-wrap items-center gap-2 border-b border-[#ebeef5] p-4">
           <Input placeholder="搜索调整单/合同号/国家/批次/实例编码" value={keyword} onChange={(event) => setKeyword(event.target.value)} />
-          <Button tone="primary" onClick={() => void loadRows()}>
+          <Button tone="primary" onClick={() => { setPage(1); void loadRows(1, pageSizeRef.current); }}>
             <Search size={15} />
             查询
           </Button>
@@ -145,7 +149,7 @@ export function BillingAdjustmentsPage() {
               </tr>
             </thead>
             <tbody>
-              {filteredRows.map((row) => {
+              {rows.map((row) => {
                 const adjustmentNo = String(row.adjustmentNo ?? "");
                 const confirmed = String(row.status ?? "") === "已确认";
                 return (
@@ -179,7 +183,7 @@ export function BillingAdjustmentsPage() {
                   </tr>
                 );
               })}
-              {!filteredRows.length ? (
+              {!rows.length ? (
                 <tr>
                   <td className="py-12 text-center text-[#909399]" colSpan={columns.length + 1}>
                     {loading ? "加载中..." : "暂无调整单"}
@@ -189,6 +193,7 @@ export function BillingAdjustmentsPage() {
             </tbody>
           </table>
         </div>
+        <PaginationBar page={page} pageSize={pageSize} total={total} onPageChange={(next) => { setPage(next); void loadRows(next, pageSizeRef.current); }} onPageSizeChange={(next) => { pageSizeRef.current = next; setPageSize(next); setPage(1); void loadRows(1, next); }} />
       </Panel>
     </div>
   );
