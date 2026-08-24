@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ArrowLeft, CheckCircle2, Pencil, Plus, Save, Upload, X } from "lucide-react";
 import { formatDateInputValue, formatDisplayValue } from "@/lib/display-format";
 import { formatNumericInputValue, parseNumericInputValue } from "@/lib/numeric-input";
@@ -46,6 +46,7 @@ const emptyDetail: DetailDraft = {
   deviceCode: "",
   supplierId: "",
   undertakingUnitId: "",
+  customerId: "",
   quantity: 0,
 };
 
@@ -59,6 +60,7 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
   const [instanceModels, setInstanceModels] = useState<Row[]>([]);
   const [suppliers, setSuppliers] = useState<Row[]>([]);
   const [undertakingUnits, setUndertakingUnits] = useState<Row[]>([]);
+  const [customers, setCustomers] = useState<Row[]>([]);
   const [countries, setCountries] = useState<Row[]>([]);
   const [saving, setSaving] = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -75,11 +77,13 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
       fetchEntity("instance-models"),
       fetchEntity("suppliers"),
       fetchEntity("undertaking-units"),
+      fetchEntity("customers"),
       fetchEntity("countries"),
-    ]).then(([models, supplierRows, undertakingRows, countryRows]) => {
+    ]).then(([models, supplierRows, undertakingRows, customerRows, countryRows]) => {
       setInstanceModels(models);
       setSuppliers(supplierRows);
       setUndertakingUnits(undertakingRows);
+      setCustomers(customerRows);
       setCountries(countryRows);
     });
   }, []);
@@ -105,6 +109,7 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
           deviceCode: String(item.deviceCode ?? ""),
           supplierId: String(item.supplierId ?? ""),
           undertakingUnitId: String(item.undertakingUnitId ?? ""),
+          customerId: String(item.customerId ?? ""),
           quantity: Number(item.quantity ?? 0),
         }));
 
@@ -142,9 +147,10 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
         deviceCode: String(row.deviceCode ?? row["设备编码"] ?? ""),
         supplierId: String(row.supplierId ?? row["供应商"] ?? row["供应商ID"] ?? ""),
         undertakingUnitId: String(row.undertakingUnitId ?? ""),
+        customerId: resolveCustomerId(row),
         quantity: Number(row.quantity ?? row["节点数量"] ?? 0),
       }))
-      .filter((row) => row.deviceCode || row.supplierId || row.undertakingUnitId || row.quantity);
+      .filter((row) => row.deviceCode || row.supplierId || row.undertakingUnitId || row.customerId || row.quantity);
 
     if (imported.length) setDetails(imported);
   }
@@ -321,7 +327,7 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
         </div>
 
         <div className="table-scroll overflow-auto">
-          <table className="min-w-full border-collapse text-sm">
+          <table className="min-w-[1220px] whitespace-nowrap border-collapse text-sm">
             <thead className="bg-[#f5f7fa] text-[#303133]">
               <tr>
                 <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">设备编码</th>
@@ -329,6 +335,7 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
                 <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">英文名称</th>
                 <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">供应商</th>
                 <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">承接单位</th>
+                <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">客户</th>
                 <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">节点数量</th>
               </tr>
             </thead>
@@ -346,14 +353,7 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
                         value={detail.deviceCode}
                         disabled={!canEdit}
                         onChange={(value) => updateDetail(index, { deviceCode: value })}
-                      >
-                        <option value="">请选择</option>
-                        {undertakingUnits.map((unit) => (
-                          <option key={String(unit.undertakingUnitId)} value={String(unit.undertakingUnitId)}>
-                            {String(unit.name ?? unit.undertakingUnitCode ?? unit.undertakingUnitId)}
-                          </option>
-                        ))}
-                      </SearchPicker>
+                      />
                     </td>
                     <td className="border-b border-r border-[#ebeef5] px-3 py-3">{formatValue(model?.modelCode)}</td>
                     <td className="border-b border-r border-[#ebeef5] px-3 py-3">{formatValue(model?.nameEn)}</td>
@@ -365,14 +365,7 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
                         value={detail.supplierId}
                         disabled={!canEdit}
                         onChange={(value) => updateDetail(index, { supplierId: value })}
-                      >
-                        <option value="">请选择</option>
-                        {suppliers.map((supplier) => (
-                          <option key={String(supplier.supplierId)} value={String(supplier.supplierId)}>
-                            {String(supplier.supplierCode ?? supplier.supplierId)}
-                          </option>
-                        ))}
-                      </SearchPicker>
+                      />
                     </td>
                     <td className="border-b border-r border-[#ebeef5] px-3 py-3">
                       <SearchPicker
@@ -381,6 +374,15 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
                         value={detail.undertakingUnitId}
                         disabled={!canEdit}
                         onChange={(value) => updateDetail(index, { undertakingUnitId: value })}
+                      />
+                    </td>
+                    <td className="border-b border-r border-[#ebeef5] px-3 py-3">
+                      <SearchPicker
+                        options={customers.map((customer) => ({ value: String(customer.customerId ?? ""), label: String(customer.customerCode ?? customer.customerId ?? ""), keywords: `${String(customer.customerCode ?? "")} ${String(customer.name ?? "")} ${String(customer.customerId ?? "")}` }))}
+                        placeholder="搜索客户"
+                        value={detail.customerId}
+                        disabled={!canEdit}
+                        onChange={(value) => updateDetail(index, { customerId: value })}
                       />
                     </td>
                     <td className="border-b border-r border-[#ebeef5] px-3 py-3">
@@ -409,11 +411,18 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
       </Panel>
     </div>
   );
+
+  function resolveCustomerId(row: Record<string, unknown>) {
+    const raw = String(row.customerId ?? row["客户ID"] ?? row.customerCode ?? row["客户代码"] ?? row["客户"] ?? "").trim();
+    if (!raw) return "";
+    const match = customers.find((customer) => [customer.customerId, customer.customerCode, customer.name]
+      .some((value) => String(value ?? "").trim().toLowerCase() === raw.toLowerCase()));
+    return String(match?.customerId ?? raw);
+  }
 }
 
 function SearchPicker({
   allowFreeText = false,
-  children,
   className,
   disabled,
   onChange,
@@ -422,7 +431,6 @@ function SearchPicker({
   value,
 }: {
   allowFreeText?: boolean;
-  children?: ReactNode;
   className?: string;
   disabled?: boolean;
   onChange: (value: string) => void;
@@ -502,7 +510,6 @@ function SearchPicker({
           ))}
         </div>
       ) : null}
-      {children ? null : null}
     </div>
   );
 }

@@ -17,6 +17,8 @@ type PurchaseItemRow = {
   taxExcludedUnitPrice?: number | string | null;
   taxSurcharge?: number | string | null;
   unitPrice?: number | string | null;
+  capexUnitPrice?: number | string | null;
+  opexUnitPrice?: number | string | null;
 };
 
 type RequestItemRow = {
@@ -55,6 +57,8 @@ export const PURCHASE_PRODUCT_LINE_COLUMNS = [
   { key: "taxExcludedUnitPrice", label: "不含税单价" },
   { key: "taxSurcharge", label: "税费加成" },
   { key: "unitPrice", label: "含税单价" },
+  { key: "capexUnitPrice", label: "采购CAPEX单价" },
+  { key: "opexUnitPrice", label: "采购OPEX单价" },
   { key: "totalAmount", label: "含税总价" },
 ] as const;
 
@@ -73,6 +77,8 @@ export type PurchaseProductLine = {
   taxExcludedUnitPrice: number;
   taxSurcharge: number;
   unitPrice: number;
+  capexUnitPrice: number;
+  opexUnitPrice: number;
   totalAmount: number;
 };
 
@@ -114,6 +120,8 @@ export function buildPurchaseProductLines({
     const taxExcludedUnitPrice = Number(item.taxExcludedUnitPrice ?? item.unitPrice ?? 0);
     const taxSurcharge = Number(item.taxSurcharge ?? 0);
     const unitPrice = Number(item.unitPrice ?? taxExcludedUnitPrice + taxSurcharge);
+    const capexUnitPrice = Number(item.capexUnitPrice ?? 0);
+    const opexUnitPrice = Number(item.opexUnitPrice ?? 0);
 
     return {
       line: {
@@ -131,6 +139,8 @@ export function buildPurchaseProductLines({
         taxExcludedUnitPrice,
         taxSurcharge,
         unitPrice,
+        capexUnitPrice,
+        opexUnitPrice,
         totalAmount: quantity * unitPrice,
       },
       sortTime: getTime(order?.updatedAt || order?.createdAt),

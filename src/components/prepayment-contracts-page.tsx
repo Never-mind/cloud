@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { RefreshCw, RotateCcw, Search, Trash2 } from "lucide-react";
+import { RefreshCw, Search, Trash2 } from "lucide-react";
 import { formatDisplayValue } from "@/lib/display-format";
 import { DEFAULT_PAGE_SIZE } from "@/lib/pagination";
 import { buildDetailRoute, buildListRoute, getCurrentRoute, useListScrollPosition } from "@/lib/client-list-navigation";
@@ -75,17 +75,6 @@ export function PrepaymentContractsPage() {
   async function deleteDraft(contractNo: string) {
     if (!confirm("确认删除该预付款合同草稿？删除后已占用实例会释放回待生成列表。")) return;
     await fetch(`/api/prepayments/contracts/${encodeURIComponent(contractNo)}`, { method: "DELETE" });
-    await loadData();
-  }
-
-  async function rollbackContract(contractNo: string) {
-    if (!confirm("回退后会删除该合同生成的预付款每月核销明细，合同将恢复为草稿。是否继续？")) return;
-    const response = await fetch(`/api/prepayments/contracts/${encodeURIComponent(contractNo)}/rollback`, { method: "POST" });
-    const data = await response.json();
-    if (!response.ok) {
-      alert(data.error ?? "回退失败");
-      return;
-    }
     await loadData();
   }
 
@@ -165,12 +154,6 @@ export function PrepaymentContractsPage() {
                           <Trash2 size={15} />
                           删除草稿
                         </Button>
-                        {confirmed ? (
-                          <Button tone="warning" onClick={() => void rollbackContract(contractNo)}>
-                            <RotateCcw size={15} />
-                            回退草稿
-                          </Button>
-                        ) : null}
                       </div>
                     </td>
                   </tr>

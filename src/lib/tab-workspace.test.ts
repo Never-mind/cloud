@@ -3,7 +3,10 @@ import {
   closeWorkspaceTab,
   createInitialWorkspace,
   getEmbeddedRoute,
+  getWorkspaceRouteFromLocation,
+  getWorkspaceTabTitle,
   openWorkspaceTab,
+  updateWorkspaceTabRoute,
 } from "./tab-workspace";
 
 describe("tab workspace state", () => {
@@ -55,5 +58,51 @@ describe("tab workspace state", () => {
   it("adds embed query for module tabs", () => {
     expect(getEmbeddedRoute("/purchase/orders")).toBe("/purchase/orders?embed=1");
     expect(getEmbeddedRoute("/purchase/orders?status=draft")).toBe("/purchase/orders?status=draft&embed=1");
+  });
+
+  it("updates the source tab title after an embedded page changes route", () => {
+    const opened = openWorkspaceTab(createInitialWorkspace(), {
+      route: "/finance/prepayment-contracts",
+      title: "预付款合同",
+      closable: true,
+    });
+    const next = updateWorkspaceTabRoute(
+      opened,
+      "workspace-route:/finance/prepayment-contracts",
+      "/finance/prepayment-contracts/FPA-001",
+      "预付款合同明细",
+    );
+
+    expect(next.tabs).toHaveLength(2);
+    expect(next.tabs[1]).toMatchObject({
+      route: "/finance/prepayment-contracts/FPA-001",
+      title: "预付款合同明细",
+    });
+    expect(next.activeRoute).toBe("/finance/prepayment-contracts/FPA-001");
+  });
+
+  it("opens a new filtered detail tab while preserving the current tab", () => {
+    const opened = openWorkspaceTab(createInitialWorkspace(), {
+      route: "/finance/prepayment-contracts/FPA-001",
+      title: "预付款合同明细",
+      closable: true,
+    });
+    const next = openWorkspaceTab(opened, {
+      route: "/finance/monthly-prepayment-writeoffs?keyword=FPA-001",
+      title: "预付款每月核销明细",
+      closable: true,
+    });
+
+    expect(next.tabs.map((tab) => tab.title)).toEqual(["首页", "预付款合同明细", "预付款每月核销明细"]);
+    expect(next.activeRoute).toBe("/finance/monthly-prepayment-writeoffs?keyword=FPA-001");
+  });
+
+  it("strips the iframe marker and resolves detail tab titles", () => {
+    expect(getWorkspaceRouteFromLocation("/finance/service-fee-snapshot-items", "?snapshotNo=SFC-001&embed=1")).toBe(
+      "/finance/service-fee-snapshot-items?snapshotNo=SFC-001",
+    );
+    expect(getWorkspaceTabTitle("/finance/service-fee-snapshot-items?snapshotNo=SFC-001")).toBe("服务费对账单明细");
+    expect(getWorkspaceTabTitle("/finance/billing-statements/BSS-MX-202608")).toBe("月账单对账单明细");
+    expect(getWorkspaceTabTitle("/finance/monthly-billing-writeoffs")).toBe("月账单每月明细");
   });
 });

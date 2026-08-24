@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { getEntityConfig, navGroups } from "./modules";
+import { getEntityOrderBy } from "./crud";
 import { purchaseOrderPlanFieldSpecs, purchaseOrderSnFieldSpecs } from "./purchase-order-demand-plan-fields";
 
 describe("module configuration", () => {
@@ -59,11 +60,17 @@ describe("module configuration", () => {
     const financeGroup = navGroups[0];
 
     expect(financeGroup?.children?.map((child) => child.title)).toEqual([
+      "成本与锚定价格",
       "月账单管理",
       "预付款管理",
       "服务费核算",
     ]);
     expect(financeGroup?.children?.flatMap((child) => child.items.map((item) => item.key))).toEqual([
+      "b6-type-configs",
+      "capex-pricing",
+      "balance-settlements",
+      "non-instance-settlements",
+      "balance-final-settlements",
       "billing-available",
       "billing-ledgers",
       "monthly-billing-writeoffs",
@@ -75,8 +82,29 @@ describe("module configuration", () => {
       "service-fees",
       "service-fee-snapshots",
       "service-fee-snapshot-items",
+      "internal-service-fee-available",
+      "internal-service-fees",
+      "internal-service-fee-adjustments",
+      "internal-service-fee-snapshots",
     ]);
     expect(financeGroup?.children?.map((child) => child.title)).not.toContain("财务汇总");
+  });
+
+  it("uses separate modules for instance sources, non-instance expenses, and final settlement", () => {
+    expect(getEntityConfig("balance-settlements")?.title).toBe("实例结差");
+    expect(getEntityConfig("non-instance-settlements")?.title).toBe("非实例费用结差");
+    expect(getEntityConfig("balance-final-settlements")?.title).toBe("结差结算单");
+  });
+
+  it("exposes B6 rule management and the instance model default B6 type", () => {
+    const b6Config = getEntityConfig("b6-type-configs");
+    const instanceModels = getEntityConfig("instance-models");
+
+    expect(b6Config?.route).toBe("/finance/b6-type-configs");
+    expect(b6Config?.formFields.map((field) => field.key)).toEqual(expect.arrayContaining([
+      "b6Type", "defaultFundingMonths", "defaultSpareOccupancyMonths", "overseasSpareServiceAvailable", "defaultSpareRate",
+    ]));
+    expect(instanceModels?.formFields.find((field) => field.key === "b6Type")?.lookupSource).toBe("b6-type-configs");
   });
 
   it("removes purchase order exchange rate from list and form configuration", () => {
@@ -108,10 +136,11 @@ describe("module configuration", () => {
     }
   });
 
-  it("shows newest shipment rows first", () => {
+  it("sorts shipment rows by their natural batch sequence before creation time", () => {
     const config = getEntityConfig("shipments");
 
-    expect(config?.defaultSort).toBe("createdAt DESC");
+    expect(getEntityOrderBy(config!)).toContain("CAST(SUBSTRING_INDEX(TRIM(shipment.`batchName`), '-', -1) AS UNSIGNED) DESC");
+    expect(getEntityOrderBy(config!)).toContain("UPPER(SUBSTRING_INDEX(TRIM(shipment.`batchName`), '-', 1)) ASC");
     expect(config?.listFields.map((field) => field.key)).toContain("batchName");
     expect(config?.formFields.map((field) => field.key)).toContain("batchName");
   });
@@ -131,6 +160,11 @@ describe("module configuration", () => {
         { label: "未签收", value: "unreceived" },
       ],
     });
+    expect(config?.filters.find((field) => field.key === "countryCode")).toMatchObject({
+      type: "select",
+      lookupSource: "countries",
+    });
+    expect(config?.listFields.map((field) => field.key)).toContain("countryCode");
   });
 
   it("keeps shipment reference fields available for searchable selection in the edit form", () => {

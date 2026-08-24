@@ -44,6 +44,7 @@ describe("import center workflow", () => {
       "deviceCode",
       "supplierId",
       "undertakingUnitId",
+      "customerId",
       "quantity",
     ]);
     expect(getImportTemplateColumns("purchase-orders").map((column) => column.key)).toContain("deviceCode");

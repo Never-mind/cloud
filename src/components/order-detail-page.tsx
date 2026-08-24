@@ -114,15 +114,17 @@ export function OrderDetailPage({
           { key: "deviceCode", label: "产品实例编码" },
           { key: "nameZh", label: "中文名称" },
           { key: "nameEn", label: "英文名称" },
-          { key: "quantity", label: "数量" },
+          { key: "quantity", label: "数量", type: "number" },
           { key: "currency", label: "币种" },
-          { key: "taxExcludedUnitPrice", label: "不含税单价" },
-          { key: "taxSurcharge", label: "税费加成" },
-          { key: "unitPrice", label: "含税单价" },
-          { key: "totalAmount", label: "含税总价" },
-          { key: "hardwareCoefficient", label: "硬件系数" },
-          { key: "softwareCoefficient", label: "软件系数" },
-          { key: "totalCoefficient", label: "总系数" },
+          { key: "taxExcludedUnitPrice", label: "不含税单价", type: "money" },
+          { key: "taxSurcharge", label: "税费加成", type: "money" },
+          { key: "unitPrice", label: "含税单价", type: "money" },
+          { key: "totalAmount", label: "含税总价", type: "money" },
+          { key: "capexUnitPrice", label: "采购CAPEX单价", type: "money" },
+          { key: "opexUnitPrice", label: "采购OPEX单价", type: "money" },
+          { key: "hardwareCoefficient", label: "硬件系数", type: "number" },
+          { key: "softwareCoefficient", label: "软件系数", type: "number" },
+          { key: "totalCoefficient", label: "总系数", type: "number" },
           { key: "requestItemId", label: "需求明细ID" },
         ]
       : detailConfig.listFields;
@@ -297,7 +299,7 @@ export function OrderDetailPage({
               </label>
             ))}
             <Info label="总数量" value={totalQuantity} />
-            {mode === "purchase" ? <Info label="采购总金额" value={purchaseTotalAmount} /> : null}
+            {mode === "purchase" ? <Info label="采购总金额" value={purchaseTotalAmount} type="money" /> : null}
             <Info label="明细数量" value={details.length} />
           </div>
         ) : (
@@ -306,7 +308,7 @@ export function OrderDetailPage({
               <Info key={field.key} label={field.label} value={master[field.key]} />
             ))}
             <Info label="总数量" value={totalQuantity} />
-            {mode === "purchase" ? <Info label="采购总金额" value={purchaseTotalAmount} /> : null}
+            {mode === "purchase" ? <Info label="采购总金额" value={purchaseTotalAmount} type="money" /> : null}
             <Info label="明细数量" value={details.length} />
           </div>
         )}
@@ -315,7 +317,7 @@ export function OrderDetailPage({
       <Panel>
         <div className="border-b border-[#ebeef5] px-4 py-3 font-medium text-[#303133]">明细列表</div>
         <div className="table-scroll overflow-auto">
-          <table className="min-w-full border-collapse text-sm">
+          <table className={mode === "purchase" ? "min-w-[1800px] whitespace-nowrap border-collapse text-sm" : "min-w-[1050px] whitespace-nowrap border-collapse text-sm"}>
             <thead className="bg-[#f5f7fa] text-[#303133]">
               <tr>
                 {detailColumns.map((field) => (
@@ -330,13 +332,13 @@ export function OrderDetailPage({
                 <tr className="hover:bg-[#fafafa]" key={String(row.id ?? row[detailConfig.primaryKey])}>
                   {detailColumns.map((field) => (
                     <td className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3" key={field.key}>
-                      {editing && mode === "purchase" && ["taxExcludedUnitPrice", "taxSurcharge", "hardwareCoefficient", "softwareCoefficient"].includes(field.key) ? (
+                      {editing && mode === "purchase" && ["taxExcludedUnitPrice", "taxSurcharge", "capexUnitPrice", "opexUnitPrice", "hardwareCoefficient", "softwareCoefficient"].includes(field.key) ? (
                         <NumberInput
                           value={Number(row[field.key] ?? 0)}
                           onChange={(value) => updateDetailDraft(String(row.id), field.key, value)}
                         />
                       ) : (
-                        formatValue(row[field.key])
+                        formatValue(row[field.key], field.type)
                       )}
                     </td>
                   ))}
@@ -363,11 +365,11 @@ export function OrderDetailPage({
   );
 }
 
-function Info({ label, value }: { label: string; value: unknown }) {
+function Info({ label, value, type }: { label: string; value: unknown; type?: string }) {
   return (
     <div className="border border-[#ebeef5] bg-[#fafafa] p-3">
       <div className="text-xs text-[#909399]">{label}</div>
-      <div className="mt-1 truncate text-sm text-[#303133]">{formatValue(value)}</div>
+      <div className="mt-1 truncate text-sm text-[#303133]">{formatValue(value, type)}</div>
     </div>
   );
 }

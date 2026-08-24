@@ -1,14 +1,16 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, CheckCircle2, Pencil, Plus, RotateCcw, Save, Trash2 } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Pencil, Plus, Save, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useSearchParams } from "next/navigation";
 import { formatDateInputValue, formatDisplayValue } from "@/lib/display-format";
 import { getPrepaymentContractEditState } from "@/lib/prepayment-contract-ui";
 import { fetchAllEntityRows } from "@/lib/client-entity-fetch";
 import { getReturnTo } from "@/lib/client-list-navigation";
+import { postWorkspaceMessage } from "@/lib/tab-workspace";
 import { Button, Input, Panel, Textarea } from "./ui";
+import { WorkspaceNavigationDialog } from "./workspace-navigation-dialog";
 
 type Contract = {
   contractNo: string;
@@ -35,6 +37,7 @@ type Line = {
   nameEn: string;
   supplierId?: string;
   undertakingUnitId?: string;
+  customerId?: string;
   quantity: number;
   actualCurrency: string;
   actualUnitPrice: number;
@@ -55,6 +58,9 @@ const instanceColumns: Array<{ key: keyof Line; label: string; type?: string }> 
   { key: "deviceCode", label: "实例编码" },
   { key: "modelCode", label: "机型" },
   { key: "nameEn", label: "英文名称" },
+  { key: "undertakingUnitId", label: "承接单位" },
+  { key: "supplierId", label: "供应商" },
+  { key: "customerId", label: "客户" },
   { key: "quantity", label: "数量" },
   { key: "actualCurrency", label: "实际币种" },
   { key: "actualUnitPrice", label: "实际单价", type: "money" },
@@ -69,10 +75,11 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
   const [lines, setLines] = useState<Line[]>([]);
   const [editing, setEditing] = useState(false);
   const [confirming, setConfirming] = useState(false);
-  const [rollingBack, setRollingBack] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [navigationPrompt, setNavigationPrompt] = useState<{ route: string; title: string; detail: string } | null>(null);
   const [suppliers, setSuppliers] = useState<Row[]>([]);
   const [undertakingUnits, setUndertakingUnits] = useState<Row[]>([]);
+  const [customers, setCustomers] = useState<Row[]>([]);
   const editState = getPrepaymentContractEditState({
     isConfirming: confirming,
     isEditing: editing,
@@ -81,6 +88,13 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
   });
   const confirmed = editState.confirmed;
   const canEdit = editState.canEdit;
+
+  function partyCode(line: Line, key: "undertakingUnitId" | "supplierId" | "customerId") {
+    const value = String(line[key] ?? "");
+    if (key === "undertakingUnitId") return String(undertakingUnits.find((row) => String(row.undertakingUnitId) === value)?.undertakingUnitCode ?? value);
+    if (key === "supplierId") return String(suppliers.find((row) => String(row.supplierId) === value)?.supplierCode ?? value);
+    return String(customers.find((row) => String(row.customerId) === value)?.customerCode ?? value);
+  }
 
   async function loadData() {
     const response = await fetch(`/api/prepayments/contracts/${encodeURIComponent(contractNo)}`);
@@ -110,9 +124,10 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
   }
 
   useEffect(() => {
-    void Promise.all([fetchAllEntityRows<Row>("suppliers"), fetchAllEntityRows<Row>("undertaking-units")]).then(([supplierRows, unitRows]) => {
+    void Promise.all([fetchAllEntityRows<Row>("suppliers"), fetchAllEntityRows<Row>("undertaking-units"), fetchAllEntityRows<Row>("customers")]).then(([supplierRows, unitRows, customerRows]) => {
       setSuppliers(supplierRows);
       setUndertakingUnits(unitRows);
+      setCustomers(customerRows);
     });
   }, []);
 
@@ -163,6 +178,7 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
         nameEn: "",
         supplierId: "",
         undertakingUnitId: "",
+        customerId: "",
         quantity: 1,
         actualCurrency: contract.currency || "USD",
         actualUnitPrice: 0,
@@ -222,23 +238,14 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
       alert(data.error ?? "确认失败");
       return;
     }
+    setConfirming(false);
     setContract((current) => (current ? { ...current, status: "已确认" } : current));
     setEditing(false);
-    router.push("/finance/monthly-prepayment-writeoffs");
-  }
-
-  async function rollbackContract() {
-    if (!contract) return;
-    if (!confirm("回退后会删除该合同生成的预付款每月核销明细，合同将恢复为草稿。服务费历史快照不会改变，是否继续？")) return;
-    setRollingBack(true);
-    const response = await fetch(`/api/prepayments/contracts/${encodeURIComponent(contract.contractNo)}/rollback`, { method: "POST" });
-    const data = await response.json();
-    setRollingBack(false);
-    if (!response.ok) {
-      alert(data.error ?? "回退失败");
-      return;
-    }
-    await loadData();
+    setNavigationPrompt({
+      route: `/finance/monthly-prepayment-writeoffs?keyword=${encodeURIComponent(contract.contractNo)}`,
+      title: "预付款每月核销明细",
+      detail: `合同号：${contract.contractNo}`,
+    });
   }
 
   function handleEditButton() {
@@ -273,12 +280,6 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
             <CheckCircle2 size={15} />
             {editState.confirmButtonLabel}
           </Button>
-          {confirmed ? (
-            <Button disabled={rollingBack} tone="warning" onClick={() => void rollbackContract()}>
-              <RotateCcw size={15} />
-              回退草稿
-            </Button>
-          ) : null}
         </div>
       </div>
 
@@ -315,7 +316,9 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
                 <tr className="hover:bg-[#fafafa]" key={line.id}>
                   {instanceColumns.map((column) => (
                     <td className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3" key={column.key}>
-                      {formatValue(line[column.key], column.type)}
+                      {column.key === "undertakingUnitId" || column.key === "supplierId" || column.key === "customerId"
+                        ? partyCode(line, column.key)
+                        : formatValue(line[column.key], column.type)}
                     </td>
                   ))}
                   <td className="border-b border-r border-[#ebeef5] px-3 py-3">
@@ -354,6 +357,7 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
                 <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">说明</th>
                 <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">承接单位</th>
                 <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">供应商</th>
+                <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">客户</th>
                 <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">币种</th>
                 <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">金额</th>
                 <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">起始核销月份</th>
@@ -385,6 +389,12 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
                     </select>
                   </td>
                   <td className="border-b border-r border-[#ebeef5] px-3 py-3">
+                    <select className="h-9 min-w-[160px] rounded border border-[#dcdfe6] bg-white px-2" disabled={!canEdit} value={line.customerId ?? ""} onChange={(event) => updateLine(line.id, { customerId: event.target.value })}>
+                      <option value="">请选择</option>
+                      {customers.map((customer) => <option key={String(customer.customerId)} value={String(customer.customerId)}>{String(customer.customerCode ?? customer.customerId)}</option>)}
+                    </select>
+                  </td>
+                  <td className="border-b border-r border-[#ebeef5] px-3 py-3">
                     <Input className="w-24 min-w-0" disabled={!canEdit} value={line.contractCurrency ?? ""} onChange={(event) => updateLine(line.id, { contractCurrency: event.target.value })} />
                   </td>
                   <td className="border-b border-r border-[#ebeef5] px-3 py-3">
@@ -410,6 +420,19 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
           </table>
         </div>
       </Panel>
+      {navigationPrompt ? (
+        <WorkspaceNavigationDialog
+          title="合同已确认"
+          message="预付款合同已确认，是否打开对应的预付款每月核销明细？"
+          detail={navigationPrompt.detail}
+          onStay={() => setNavigationPrompt(null)}
+          onOpen={() => {
+            const target = navigationPrompt;
+            setNavigationPrompt(null);
+            postWorkspaceMessage({ type: "cloud-power:open-tab", route: target.route, title: target.title });
+          }}
+        />
+      ) : null}
     </div>
   );
 }

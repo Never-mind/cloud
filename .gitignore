@@ -1,6 +1,8 @@
 .next/
 node_modules/
 .npm-cache/
+.codex/
+outputs/
 
 .env
 .env*.local

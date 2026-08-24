@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import {
   Boxes,
   ChevronDown,
@@ -20,13 +20,24 @@ import {
   X,
 } from "lucide-react";
 import { navGroups } from "@/lib/modules";
+import {
+  filterNavGroupsByModuleFeatures,
+  getModuleFeatureKeyForRoute,
+  isModuleFeatureEnabled,
+  type ModuleFeatureState,
+} from "@/lib/module-feature-definitions";
 import { getChildGroupKey, isGroupOpen, toggleGroup, type SidebarGroupState } from "@/lib/nav-utils";
 import { DEFAULT_SIDEBAR_GROUP_ORDER, getSidebarNavGroups, moveSidebarGroup } from "@/lib/sidebar-navigation";
 import {
   closeWorkspaceTab,
   createInitialWorkspace,
   getEmbeddedRoute,
+  getWorkspaceRouteFromLocation,
+  getWorkspaceTabId,
+  getWorkspaceTabTitle,
+  normalizeWorkspaceState,
   openWorkspaceTab,
+  updateWorkspaceTabRoute,
   type WorkspaceState,
   type WorkspaceTab,
 } from "@/lib/tab-workspace";
@@ -44,28 +55,30 @@ const icons = {
   数据工具: Upload,
 };
 
-export function AppShell({ children, embedded }: { children: React.ReactNode; embedded: boolean }) {
+export function AppShell({
+  children,
+  embedded,
+  initialModuleFeatureState,
+}: {
+  children: React.ReactNode;
+  embedded: boolean;
+  initialModuleFeatureState: ModuleFeatureState;
+}) {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [openGroups, setOpenGroups] = useState<SidebarGroupState>({});
   const [workspace, setWorkspace] = useState<WorkspaceState>(() => createInitialWorkspace());
-  const [clientEmbedded, setClientEmbedded] = useState(false);
-  const [loadedFrames, setLoadedFrames] = useState<Record<string, boolean>>({});
+  const [workspaceReady, setWorkspaceReady] = useState(false);
   const [sidebarGroupOrder, setSidebarGroupOrder] = useState<string[]>([...DEFAULT_SIDEBAR_GROUP_ORDER]);
   const [draggingGroupTitle, setDraggingGroupTitle] = useState<string | null>(null);
-  const moduleItems = useMemo(() => navGroups.flatMap((group) => group.children?.flatMap((child) => child.items) ?? group.items), []);
-  const sidebarGroups = useMemo(() => getSidebarNavGroups(navGroups, sidebarGroupOrder), [sidebarGroupOrder]);
-  const isEmbedded = embedded || clientEmbedded;
-
-  if (pathname === "/login") {
-    return <>{children}</>;
-  }
+  const [moduleFeatureState, setModuleFeatureState] = useState<ModuleFeatureState>(() => initialModuleFeatureState);
+  const filteredNavGroups = useMemo(() => filterNavGroupsByModuleFeatures(navGroups, moduleFeatureState), [moduleFeatureState]);
+  const moduleItems = useMemo(() => filteredNavGroups.flatMap((group) => group.children?.flatMap((child) => child.items) ?? group.items), [filteredNavGroups]);
+  const sidebarGroups = useMemo(() => getSidebarNavGroups(filteredNavGroups, sidebarGroupOrder), [filteredNavGroups, sidebarGroupOrder]);
+  const isEmbedded = embedded;
 
   useEffect(() => {
-    setClientEmbedded(new URLSearchParams(window.location.search).get("embed") === "1");
-  }, []);
-
-  useEffect(() => {
-    if (isEmbedded) return;
+    if (isEmbedded || pathname === "/login") return;
     let active = true;
     void fetch("/api/user-preferences/sidebar-order")
       .then(async (response) => (response.ok ? response.json() : null))
@@ -76,29 +89,114 @@ export function AppShell({ children, embedded }: { children: React.ReactNode; em
     return () => {
       active = false;
     };
+  }, [isEmbedded, pathname]);
+
+  useEffect(() => {
+    if (isEmbedded || pathname === "/login") return;
+    let active = true;
+    void fetch("/api/system/module-features", { cache: "no-store" })
+      .then(async (response) => (response.ok ? response.json() : null))
+      .then((data) => {
+        if (active && data?.state && typeof data.state === "object") setModuleFeatureState(data.state as ModuleFeatureState);
+      })
+      .catch(() => undefined);
+    return () => { active = false; };
+  }, [isEmbedded, pathname]);
+
+  useEffect(() => {
+    if (isEmbedded) {
+      setWorkspaceReady(true);
+      return;
+    }
+    const raw = window.sessionStorage.getItem(WORKSPACE_STORAGE_KEY);
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw) as WorkspaceState;
+        if (Array.isArray(parsed.tabs) && parsed.tabs.length && parsed.activeRoute) {
+          setWorkspace(normalizeWorkspaceState(parsed));
+        }
+      } catch {
+        window.sessionStorage.removeItem(WORKSPACE_STORAGE_KEY);
+      }
+    }
+    setWorkspaceReady(true);
   }, [isEmbedded]);
 
   useEffect(() => {
-    const raw = window.sessionStorage.getItem(WORKSPACE_STORAGE_KEY);
-    if (!raw) return;
-    try {
-      const parsed = JSON.parse(raw) as WorkspaceState;
-      if (Array.isArray(parsed.tabs) && parsed.tabs.length && parsed.activeRoute) {
-        setWorkspace(parsed);
-      }
-    } catch {
-      window.sessionStorage.removeItem(WORKSPACE_STORAGE_KEY);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (!isEmbedded) {
+    if (!isEmbedded && workspaceReady) {
       window.sessionStorage.setItem(WORKSPACE_STORAGE_KEY, JSON.stringify(workspace));
     }
-  }, [isEmbedded, workspace]);
+  }, [isEmbedded, workspaceReady, workspace]);
+
+  useEffect(() => {
+    if (!isEmbedded) return;
+    const route = getWorkspaceRouteFromLocation(pathname, window.location.search);
+    window.parent.postMessage(
+      { type: "cloud-power:route", route, title: getWorkspaceTabTitle(route) },
+      window.location.origin,
+    );
+  }, [isEmbedded, pathname, searchParams]);
+
+  useEffect(() => {
+    if (isEmbedded) return;
+
+    function handleWorkspaceMessage(event: MessageEvent) {
+      if (event.origin !== window.location.origin || event.source === window) return;
+      const message = event.data as { type?: string; route?: string; title?: string } | null;
+      if (message?.type === "cloud-power:module-features-updated") {
+        void fetch("/api/system/module-features", { cache: "no-store" })
+          .then(async (response) => (response.ok ? response.json() : null))
+          .then((data) => {
+            if (data?.state && typeof data.state === "object") setModuleFeatureState(data.state as ModuleFeatureState);
+          })
+          .catch(() => undefined);
+        return;
+      }
+      if (!message?.route || !message.title) return;
+      const frame = Array.from(document.querySelectorAll<HTMLIFrameElement>("iframe[data-workspace-tab-id]"))
+        .find((candidate) => candidate.contentWindow === event.source);
+      if (!frame) return;
+
+      const route = getWorkspaceRouteFromLocation(new URL(message.route, window.location.origin).pathname, new URL(message.route, window.location.origin).search);
+      const title = message.title || getWorkspaceTabTitle(route);
+      if (message.type === "cloud-power:open-tab") {
+        setWorkspace((current) => openWorkspaceTab(current, { route, title, closable: true }));
+        return;
+      }
+      if (message.type === "cloud-power:route") {
+        const tabId = frame.dataset.workspaceTabId;
+        if (tabId) setWorkspace((current) => updateWorkspaceTabRoute(current, tabId, route, title));
+      }
+    }
+
+    window.addEventListener("message", handleWorkspaceMessage);
+    return () => window.removeEventListener("message", handleWorkspaceMessage);
+  }, [isEmbedded]);
+
+  useEffect(() => {
+    if (isEmbedded || workspace.activeRoute === "/") return;
+    const moduleKey = getModuleFeatureKeyForRoute(workspace.activeRoute);
+    if (moduleKey && !isModuleFeatureEnabled(moduleKey, moduleFeatureState)) {
+      setWorkspace((current) => ({
+        ...current,
+        tabs: current.tabs.filter((tab) => tab.route === "/" || isModuleFeatureEnabled(getModuleFeatureKeyForRoute(tab.route) ?? "", moduleFeatureState)),
+        activeRoute: "/",
+      }));
+    }
+  }, [isEmbedded, moduleFeatureState, workspace.activeRoute]);
+
+  const currentModuleKey = getModuleFeatureKeyForRoute(pathname);
+  if (pathname === "/login") return <>{children}</>;
 
   if (isEmbedded) {
+    if (currentModuleKey && !isModuleFeatureEnabled(currentModuleKey, moduleFeatureState)) {
+      return <main className="min-h-screen bg-[var(--color-page-bg)] p-5" data-app-shell="inner"><div className="border border-[#ebeef5] bg-white p-6"><h1 className="text-lg font-medium text-[#303133]">功能模块暂未启用</h1><p className="mt-2 text-sm text-[#606266]">请联系管理员在“功能模块管理”中启用该功能。</p></div></main>;
+    }
     return <main className="min-h-screen bg-[var(--color-page-bg)] p-5" data-app-shell="inner">{children}</main>;
+  }
+
+  if (!workspaceReady) {
+    return <main className="min-h-screen bg-[var(--color-page-bg)]" data-app-shell="outer" />;
   }
 
   const openTab = (tab: WorkspaceTab) => {
@@ -288,15 +386,18 @@ export function AppShell({ children, embedded }: { children: React.ReactNode; em
           <div className={workspace.activeRoute === "/" ? "h-full overflow-auto p-5" : "hidden"}>{children}</div>
           {workspace.tabs
             .filter((tab) => tab.route !== "/")
-            .map((tab) => (
-              <iframe
-                className={tab.route === workspace.activeRoute ? `block h-full w-full border-0 transition-opacity ${loadedFrames[tab.route] ? "opacity-100" : "opacity-0"}` : "hidden"}
-                key={tab.route}
-                onLoad={() => window.setTimeout(() => setLoadedFrames((current) => ({ ...current, [tab.route]: true })), 120)}
-                src={getEmbeddedRoute(tab.route)}
-                title={tab.title}
-              />
-            ))}
+            .map((tab) => {
+              const tabId = getWorkspaceTabId(tab);
+              return (
+                <iframe
+                  className={tab.route === workspace.activeRoute ? "block h-full w-full border-0" : "hidden"}
+                  data-workspace-tab-id={tabId}
+                  key={tabId}
+                  src={getEmbeddedRoute(tab.route)}
+                  title={tab.title}
+                />
+              );
+            })}
           {workspace.activeRoute !== "/" && !moduleItems.some((item) => item.route === workspace.activeRoute) ? null : null}
         </section>
       </main>

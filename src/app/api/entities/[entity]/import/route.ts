@@ -31,6 +31,9 @@ export async function POST(request: NextRequest, context: { params: Promise<{ en
     .sheet_to_json<Record<string, unknown>>(worksheet, { defval: "", raw: false })
     .filter((row) => !isEntityTemplateNoteRow(config, row));
   const fieldByLabel = new Map(config.formFields.map((field) => [field.label, field.key]));
+  // Historical datacenter templates called this field "物理地址ID", while actual imports
+  // contain the full physical address. Keep those files importable after the label change.
+  if (config.key === "datacenters") fieldByLabel.set("物理地址ID", "locationId");
   const mappedRows = rows.map((row) => ({
     ...Object.fromEntries(
       Object.entries(row)

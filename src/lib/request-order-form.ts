@@ -2,6 +2,7 @@ export type RequestDetailDraft = {
   deviceCode: string;
   supplierId: string;
   undertakingUnitId: string;
+  customerId: string;
   quantity: number;
 };
 
@@ -20,6 +21,7 @@ export function buildRequestItemRows({
     deviceCode: detail.deviceCode,
     supplierId: detail.supplierId,
     undertakingUnitId: detail.undertakingUnitId,
+    customerId: detail.customerId,
     requestedAt,
     quantity: detail.quantity,
   }));

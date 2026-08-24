@@ -16,6 +16,7 @@ import {
 import { getOrderCreateRoute, getOrderDetailRoute, type OrderRouteMode } from "@/lib/order-routes";
 import { DEFAULT_PAGE_SIZE } from "@/lib/pagination";
 import { buildDetailRoute, buildListRoute, getCurrentRoute, getPositiveNumber, useListScrollPosition } from "@/lib/client-list-navigation";
+import { fetchAllEntityRows } from "@/lib/client-entity-fetch";
 import { PaginationBar } from "./pagination-bar";
 import { Button, Input, Panel } from "./ui";
 
@@ -47,6 +48,8 @@ export function OrderListPage({
   const [total, setTotal] = useState(0);
   const [statusCounts, setStatusCounts] = useState({ draft: 0, confirmed: 0 });
   const [keyword, setKeyword] = useState(() => searchParams.get("keyword") ?? "");
+  const [countryCode, setCountryCode] = useState(() => searchParams.get("countryCode") ?? "");
+  const [countryOptions, setCountryOptions] = useState<Array<{ code: string; nameZh: string }>>([]);
   const [statusTab, setStatusTab] = useState<OrderStatusTab>(() =>
     searchParams.get("statusTab") === "confirmed" ? "confirmed" : "draft",
   );
@@ -69,16 +72,37 @@ export function OrderListPage({
     params.set("statusTab", statusTab);
     if (keyword.trim()) params.set("keyword", keyword);
     else params.delete("keyword");
+    if (countryCode.trim()) params.set("countryCode", countryCode);
+    else params.delete("countryCode");
 
     const nextRoute = buildListRoute(pathname, params);
     if (nextRoute !== currentRoute) router.replace(nextRoute, { scroll: false });
-  }, [currentRoute, keyword, page, pageSize, pathname, router, searchParams, statusTab]);
+  }, [countryCode, currentRoute, keyword, page, pageSize, pathname, router, searchParams, statusTab]);
+
+  useEffect(() => {
+    let active = true;
+    void fetchAllEntityRows<Row>("countries")
+      .then((rows) => {
+        if (!active) return;
+        setCountryOptions(
+          rows
+            .map((row) => ({ code: String(row.code ?? "").trim(), nameZh: String(row.nameZh ?? "").trim() }))
+            .filter((row) => row.code)
+            .sort((left, right) => left.code.localeCompare(right.code)),
+        );
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, []);
 
   async function fetchData(
     nextPage: number,
     nextPageSize: number,
     nextStatusTab = statusTab,
     nextKeyword = keyword,
+    nextCountryCode = countryCode,
     exportAll = false,
   ): Promise<OrderListResponse> {
     const params = new URLSearchParams({
@@ -88,6 +112,7 @@ export function OrderListPage({
       statusTab: nextStatusTab,
     });
     if (nextKeyword.trim()) params.set("keyword", nextKeyword.trim());
+    if (nextCountryCode.trim()) params.set("countryCode", nextCountryCode.trim());
     if (exportAll) params.set("export", "1");
     const response = await fetch(`/api/orders?${params.toString()}`);
     const data = await response.json();
@@ -95,10 +120,10 @@ export function OrderListPage({
     return data as OrderListResponse;
   }
 
-  async function loadData(nextPage = page, nextPageSize = pageSizeRef.current, nextStatusTab = statusTab, nextKeyword = keyword) {
+  async function loadData(nextPage = page, nextPageSize = pageSizeRef.current, nextStatusTab = statusTab, nextKeyword = keyword, nextCountryCode = countryCode) {
     setLoading(true);
     try {
-      const data = await fetchData(nextPage, nextPageSize, nextStatusTab, nextKeyword);
+      const data = await fetchData(nextPage, nextPageSize, nextStatusTab, nextKeyword, nextCountryCode);
       setRows(data.rows ?? []);
       setTotal(Number(data.total ?? 0));
       setStatusCounts(data.statusCounts ?? { draft: 0, confirmed: 0 });
@@ -114,7 +139,7 @@ export function OrderListPage({
   }
 
   useEffect(() => {
-    void loadData(page, pageSize, statusTab, keyword);
+    void loadData(page, pageSize, statusTab, keyword, countryCode);
   }, [mode]);
 
   async function confirmRequestOrder(requestNo: string) {
@@ -161,7 +186,7 @@ export function OrderListPage({
   async function exportOrders() {
     let exportRows: Row[];
     try {
-      const data = await fetchData(1, pageSizeRef.current, statusTab, keyword, true);
+      const data = await fetchData(1, pageSizeRef.current, statusTab, keyword, countryCode, true);
       exportRows = data.rows;
     } catch (error) {
       alert(error instanceof Error ? error.message : "订单导出失败");
@@ -225,6 +250,23 @@ export function OrderListPage({
             value={keyword}
             onChange={(event) => { setKeyword(event.target.value); setPage(1); }}
           />
+          <select
+            className="h-9 min-w-32 rounded border border-[#dcdfe6] bg-white px-3 text-sm outline-none focus:border-[#1890ff]"
+            value={countryCode}
+            onChange={(event) => {
+              const value = event.target.value;
+              setCountryCode(value);
+              setPage(1);
+              void loadData(1, pageSizeRef.current, statusTab, keyword, value);
+            }}
+          >
+            <option value="">全部国家</option>
+            {countryOptions.map((country) => (
+              <option key={country.code} value={country.code}>
+                {country.nameZh ? `${country.code} - ${country.nameZh}` : country.code}
+              </option>
+            ))}
+          </select>
           <Button onClick={() => void loadData()}>
             <RefreshCw size={15} />
             刷新
@@ -343,7 +385,7 @@ export function OrderListPage({
                     </td>
                     {mode === "purchase" ? (
                       <td className="border-b border-r border-[#ebeef5] px-3 py-3">
-                        {formatValue(row.purchaseTotalAmount)}
+                        {formatValue(row.purchaseTotalAmount, "money")}
                       </td>
                     ) : null}
                     {mode === "requests" ? (

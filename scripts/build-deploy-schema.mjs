@@ -13,6 +13,7 @@ const tableNames = [
   "Datacenters",
   "InstanceModels",
   "Suppliers",
+  "Customers",
   "InstanceContracts",
   "ContractItems",
   "Requests",
@@ -34,12 +35,20 @@ const tableNames = [
   "BillingStatementSnapshotItems",
   "ServiceFeeSnapshots",
   "ServiceFeeSnapshotItems",
+  "CapexPricingVersions",
+  "B6TypeConfigs",
+  "CapexPricingItems",
+  "BalanceSettlements",
+  "BalanceSettlementItems",
+  "BalanceSettlementFinals",
+  "BalanceSettlementFinalSources",
   "WriteOffItems",
   "Shipments",
   "DocumentFolders",
   "DocumentFiles",
   "ImportJobs",
   "AppUsers",
+  "ModuleFeatures",
 ];
 
 let sql = readFileSync(sourcePath, "utf8").replace(/^\uFEFF/, "");

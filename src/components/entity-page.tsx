@@ -33,6 +33,7 @@ export function EntityPage({
   fixedValues = EMPTY_VALUES,
   hideHeading = false,
   enableFieldSettings = false,
+  readOnly = false,
 }: {
   config: EntityConfig;
   hideCreateImportTemplate?: boolean;
@@ -40,6 +41,7 @@ export function EntityPage({
   fixedValues?: Row;
   hideHeading?: boolean;
   enableFieldSettings?: boolean;
+  readOnly?: boolean;
 }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -61,8 +63,10 @@ export function EntityPage({
   const [showForm, setShowForm] = useState(false);
   const [showFieldSettings, setShowFieldSettings] = useState(false);
   const [instanceModels, setInstanceModels] = useState<Row[]>([]);
+  const [b6TypeConfigs, setB6TypeConfigs] = useState<Row[]>([]);
   const [instanceContracts, setInstanceContracts] = useState<Row[]>([]);
   const [shipmentLookups, setShipmentLookups] = useState<Record<string, Row[]>>({});
+  const [filterOptions, setFilterOptions] = useState<Record<string, Array<{ label: string; value: string }>>>({});
   const [instanceContractDeviceCode, setInstanceContractDeviceCode] = useState("");
   const [billingContractNo, setBillingContractNo] = useState("");
   const [visibility, setVisibility] = useState<ColumnVisibility>(() =>
@@ -133,7 +137,9 @@ export function EntityPage({
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? "数据加载失败");
       setRows(data.rows ?? []);
-      setTotal(data.total ?? 0);
+      setTotal(Number(data.total ?? 0));
+      if (Number(data.page ?? nextPage) !== nextPage) setPage(Number(data.page));
+      if (Number(data.pageSize ?? nextPageSize) !== nextPageSize) setPageSize(Number(data.pageSize));
     } catch (error) {
       setRows([]);
       setTotal(0);
@@ -151,6 +157,12 @@ export function EntityPage({
     if (config.key !== "instance-contracts") return;
 
     void fetchAllEntityRows<Row>("instance-models").then(setInstanceModels);
+  }, [config.key]);
+
+  useEffect(() => {
+    if (config.key !== "instance-models") return;
+
+    void fetchAllEntityRows<Row>("b6-type-configs").then(setB6TypeConfigs);
   }, [config.key]);
 
   useEffect(() => {
@@ -174,6 +186,36 @@ export function EntityPage({
       });
     });
   }, [config.key]);
+
+  useEffect(() => {
+    const countryFilters = config.filters.filter((filter) => filter.lookupSource === "countries");
+    if (!countryFilters.length) {
+      setFilterOptions({});
+      return;
+    }
+
+    let active = true;
+    void fetchAllEntityRows<Row>("countries")
+      .then((countries) => {
+        if (!active) return;
+        const options = countries
+          .map((country) => {
+            const code = String(country.code ?? "").trim();
+            const name = String(country.nameZh ?? "").trim();
+            return { value: code, label: name ? `${code} - ${name}` : code };
+          })
+          .filter((option) => option.value)
+          .sort((left, right) => left.value.localeCompare(right.value));
+        setFilterOptions(Object.fromEntries(countryFilters.map((filter) => [filter.key, options])));
+      })
+      .catch(() => {
+        if (active) setFilterOptions({});
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [config.filters]);
 
   const instanceContractAutofill = useMemo(
     () =>
@@ -202,6 +244,7 @@ export function EntityPage({
         if (field.hidden) return [field.key, editing?.[field.key] ?? fixedValues[field.key] ?? null];
         const value = formData.get(field.key);
         if (field.type === "boolean") return [field.key, value === "on"];
+        if (field.type === "switch") return [field.key, value === "已回款" ? "已回款" : "未回款"];
         if (field.type === "number" || field.type === "money") return [field.key, value === "" ? null : Number(value)];
         if (field.type === "percentage") return [field.key, value === "" ? null : Number(value) / 100];
         if (field.type === "datetime") return [field.key, value === "" ? null : String(value).replace("T", " ") + ":00"];
@@ -305,7 +348,7 @@ export function EntityPage({
                   }}
                 >
                   <option value="">{filter.label}</option>
-                  {filter.options?.map((option) => (
+                  {(filter.options ?? filterOptions[filter.key] ?? []).map((option) => (
                     <option key={option.value} value={option.value}>
                       {option.label}
                     </option>
@@ -426,9 +469,11 @@ export function EntityPage({
                     {column.label}
                   </th>
                 ))}
-                <th className="sticky right-0 border-b border-[#ebeef5] bg-[#f5f7fa] px-3 py-3 text-left font-medium">
-                  操作
-                </th>
+                {!readOnly ? (
+                  <th className="sticky right-0 border-b border-[#ebeef5] bg-[#f5f7fa] px-3 py-3 text-left font-medium">
+                    操作
+                  </th>
+                ) : null}
               </tr>
             </thead>
             <tbody>
@@ -448,27 +493,29 @@ export function EntityPage({
                       )}
                     </td>
                   ))}
-                  <td className="sticky right-0 whitespace-nowrap border-b border-[#ebeef5] bg-white px-3 py-3">
-                    <Button
-                      onClick={() => {
-                        setEditing(row);
-                        setInstanceContractDeviceCode(String(row.deviceCode ?? ""));
-                        setBillingContractNo(String(row.instanceContractNo ?? ""));
-                        setShowForm(true);
-                      }}
-                    >
-                      编辑
-                    </Button>
-                    <Button className="ml-2" tone="danger" onClick={() => deleteRow(row)}>
-                      <Trash2 size={14} />
-                      删除
-                    </Button>
-                  </td>
+                  {!readOnly ? (
+                    <td className="sticky right-0 whitespace-nowrap border-b border-[#ebeef5] bg-white px-3 py-3">
+                      <Button
+                        onClick={() => {
+                          setEditing(row);
+                          setInstanceContractDeviceCode(String(row.deviceCode ?? ""));
+                          setBillingContractNo(String(row.instanceContractNo ?? ""));
+                          setShowForm(true);
+                        }}
+                      >
+                        编辑
+                      </Button>
+                      <Button className="ml-2" tone="danger" onClick={() => deleteRow(row)}>
+                        <Trash2 size={14} />
+                        删除
+                      </Button>
+                    </td>
+                  ) : null}
                 </tr>
               ))}
               {!rows.length && (
                 <tr>
-                  <td className="py-12 text-center text-[#909399]" colSpan={visibleColumns.length + 1 + (config.showSequence ? 1 : 0)}>
+                  <td className="py-12 text-center text-[#909399]" colSpan={visibleColumns.length + (readOnly ? 0 : 1) + (config.showSequence ? 1 : 0)}>
                     {loading ? "加载中..." : "暂无数据"}
                   </td>
                 </tr>
@@ -535,6 +582,21 @@ export function EntityPage({
                     </select>
                   ) : field.type === "boolean" ? (
                     <input name={field.key} type="checkbox" defaultChecked={Boolean(editing?.[field.key])} />
+                  ) : field.type === "switch" ? (
+                    <label className="inline-flex h-9 cursor-pointer items-center gap-2 text-sm text-[#606266]">
+                      <input
+                        className="peer sr-only"
+                        name={field.key}
+                        type="checkbox"
+                        value="已回款"
+                        defaultChecked={String(editing?.[field.key] ?? fixedValues[field.key] ?? "未回款") === "已回款"}
+                      />
+                      <span className="relative inline-flex h-5 w-10 rounded-full bg-[#c0c4cc] transition-colors peer-checked:bg-[#13ce66]">
+                        <span className="absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform peer-checked:translate-x-[22px]" />
+                      </span>
+                      <span className="peer-checked:hidden">未回款</span>
+                      <span className="hidden peer-checked:inline">已回款</span>
+                    </label>
                   ) : config.key === "billing-ledgers" && field.key === "instanceContractNo" ? (
                     <>
                       <Input
@@ -549,14 +611,17 @@ export function EntityPage({
                       ) : null}
                     </>
                   ) : (
+                    <div className={field.type === "percentage" ? "relative" : undefined}>
                     <Input
-                      className="w-full"
+                      className={field.type === "percentage" ? "w-full pr-8 text-right" : "w-full"}
                       name={field.key}
                       type={field.type === "number" || field.type === "money" || field.type === "percentage" ? "number" : field.type === "date" ? "date" : field.type === "datetime" ? "datetime-local" : "text"}
                       step={field.type === "money" ? "0.01" : field.type === "number" || field.type === "percentage" ? "0.0001" : undefined}
                       list={
                         config.key === "instance-contracts" && field.key === "deviceCode"
                           ? "instance-contract-device-codes"
+                          : config.key === "instance-models" && field.key === "b6Type"
+                            ? "instance-model-b6-types"
                           : config.key === "shipments"
                             ? getShipmentLookupListId(field.lookupSource)
                             : undefined
@@ -599,6 +664,8 @@ export function EntityPage({
                           : undefined
                       }
                     />
+                    {field.type === "percentage" ? <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm text-[#909399]">%</span> : null}
+                    </div>
                   )}
                 </label>
               ))}
@@ -608,6 +675,15 @@ export function EntityPage({
                 {instanceModels.map((model) => (
                   <option key={String(model.deviceCode)} value={String(model.deviceCode)}>
                     {String(model.modelCode ?? "")} {String(model.nameEn ?? "")}
+                  </option>
+                ))}
+              </datalist>
+            ) : null}
+            {config.key === "instance-models" ? (
+              <datalist id="instance-model-b6-types">
+                {b6TypeConfigs.map((rule) => (
+                  <option key={String(rule.b6Type)} value={String(rule.b6Type)}>
+                    {String(rule.scope ?? "")} {String(rule.alias ?? "")}
                   </option>
                 ))}
               </datalist>

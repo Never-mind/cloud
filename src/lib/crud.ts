@@ -2,6 +2,7 @@ import { randomUUID } from "crypto";
 import { execute, queryRows, type Row } from "./db";
 import { attachPartyCodes } from "./party-display";
 import type { EntityConfig } from "./modules";
+import { DEFAULT_PAGE_SIZE, normalizePageSize } from "./pagination";
 
 function quoteIdentifier(identifier: string) {
   return `\`${identifier.replace(/`/g, "``")}\``;
@@ -15,8 +16,8 @@ function getInsertFields(config: EntityConfig) {
   return Array.from(new Set([config.primaryKey, ...getWritableFields(config)]));
 }
 
-const shipmentDisplayFields = new Set(["destinationAddress", "recipientName", "supplierCode", "undertakingUnitCode"]);
-const partyCodeDisplayFields = new Set(["supplierCode", "undertakingUnitCode"]);
+const shipmentDisplayFields = new Set(["countryCode", "destinationAddress", "recipientName", "supplierCode", "undertakingUnitCode", "customerCode"]);
+const partyCodeDisplayFields = new Set(["supplierCode", "undertakingUnitCode", "customerCode"]);
 
 function isShipmentDelivered(value: unknown) {
   return value !== null && value !== undefined && String(value).trim() !== "";
@@ -50,24 +51,37 @@ function withPrimaryKey(config: EntityConfig, body: Row) {
 }
 
 export async function listEntityRows(config: EntityConfig, searchParams: URLSearchParams) {
-  const page = Math.max(1, Number(searchParams.get("page") ?? 1));
-  const pageSize = Math.min(100, Math.max(1, Number(searchParams.get("pageSize") ?? 20)));
+  const requestedPage = Math.max(1, Math.floor(Number(searchParams.get("page") ?? 1) || 1));
+  const pageSize = normalizePageSize(Number(searchParams.get("pageSize") ?? DEFAULT_PAGE_SIZE));
   const keyword = searchParams.get("keyword")?.trim();
-  const fields = Array.from(new Set([...config.listFields, ...config.formFields].map((field) => field.key)));
-  const displayOnlyFields = config.key === "shipments"
+  const table = quoteIdentifier(config.table);
+  const shipmentAlias = config.key === "shipments" ? "shipment" : "";
+  const tableSource = shipmentAlias ? `${table} AS ${shipmentAlias}` : table;
+  const fieldReference = (field: string) => shipmentAlias ? `${shipmentAlias}.${quoteIdentifier(field)}` : quoteIdentifier(field);
+  const fields = Array.from(new Set([
+    ...[...config.listFields, ...config.formFields].map((field) => field.key),
+    ...(financePartyEntityKeys.has(config.key) ? ["supplierId", "undertakingUnitId", "customerId"] : []),
+  ]));
+  const displayOnlyFields = config.key === "request-items"
+    ? new Set(["customerCode"])
+    : config.key === "service-fee-snapshots"
+      ? new Set(["receivingUnitCode", "payerCustomerCode"])
+    : config.key === "shipments"
     ? shipmentDisplayFields
     : financePartyEntityKeys.has(config.key)
       ? partyCodeDisplayFields
       : new Set<string>();
   const storageFields = fields.filter((field) => !displayOnlyFields.has(field));
-  const selectedFields = storageFields.map(quoteIdentifier).join(", ");
+  const selectedFields = storageFields
+    .map((field) => shipmentAlias ? `${fieldReference(field)} AS ${quoteIdentifier(field)}` : quoteIdentifier(field))
+    .join(", ");
   const whereParts: string[] = [];
-  const params: Row = { limit: pageSize, offset: (page - 1) * pageSize };
+  const params: Row = {};
 
   if (keyword) {
     const keywordFields = storageFields.slice(0, 5);
     whereParts.push(
-      `(${keywordFields.map((field) => `${quoteIdentifier(field)} LIKE :keyword`).join(" OR ")})`,
+      `(${keywordFields.map((field) => `${fieldReference(field)} LIKE :keyword`).join(" OR ")})`,
     );
     params.keyword = `%${keyword}%`;
   }
@@ -77,11 +91,33 @@ export async function listEntityRows(config: EntityConfig, searchParams: URLSear
     const value = searchParams.get(filter.key)?.trim();
     if (value) {
       if (config.key === "shipments" && filter.key === "receiptStatus") {
-        if (value === "received") whereParts.push("`deliveredAt` IS NOT NULL");
-        if (value === "unreceived") whereParts.push("`deliveredAt` IS NULL");
+        if (value === "received") whereParts.push(`${fieldReference("deliveredAt")} IS NOT NULL`);
+        if (value === "unreceived") whereParts.push(`${fieldReference("deliveredAt")} IS NULL`);
         continue;
       }
-      whereParts.push(`${quoteIdentifier(filter.key)} = :${filter.key}`);
+      if (config.key === "shipments" && filter.key === "countryCode") {
+        whereParts.push(`
+          EXISTS (
+            SELECT 1
+            FROM purchaseorderitems AS poi
+            INNER JOIN requestitems AS ri ON ri.id = poi.requestItemId
+            INNER JOIN requests AS req ON req.requestNo = ri.requestNo
+            WHERE (
+              poi.id = shipment.purchaseOrderItemId
+              OR (
+                NULLIF(shipment.poNo, '') IS NOT NULL
+                AND NULLIF(shipment.deviceCode, '') IS NOT NULL
+                AND poi.poNo = shipment.poNo
+                AND ri.deviceCode = shipment.deviceCode
+              )
+            )
+            AND UPPER(TRIM(SUBSTRING_INDEX(req.countryCode, '-', 1))) = UPPER(:countryCode)
+          )
+        `);
+        params.countryCode = normalizeCountryCodeFilter(value);
+        continue;
+      }
+      whereParts.push(`${fieldReference(filter.key)} = :${filter.key}`);
       params[filter.key] = value;
     }
   }
@@ -95,36 +131,94 @@ export async function listEntityRows(config: EntityConfig, searchParams: URLSear
   }
 
   const where = whereParts.length ? `WHERE ${whereParts.join(" AND ")}` : "";
-  const orderBy = config.defaultSort ? `ORDER BY ${config.defaultSort}` : "";
-  const table = quoteIdentifier(config.table);
+  const orderBy = getEntityOrderBy(config, shipmentAlias);
   const [{ total }] = await queryRows<{ total: number }>(
-    `SELECT COUNT(*) AS total FROM ${table} ${where}`,
+    `SELECT COUNT(*) AS total FROM ${tableSource} ${where}`,
     params,
   );
+  const normalizedTotal = Number(total ?? 0);
+  const totalPages = Math.max(1, Math.ceil(normalizedTotal / pageSize));
+  const page = Math.min(requestedPage, totalPages);
+  params.limit = pageSize;
+  params.offset = (page - 1) * pageSize;
   const rows = await queryRows(
-    `SELECT ${selectedFields} FROM ${table} ${where} ${orderBy} LIMIT :limit OFFSET :offset`,
+    `SELECT ${selectedFields} FROM ${tableSource} ${where} ${orderBy} LIMIT :limit OFFSET :offset`,
     params,
   );
 
   const enrichedRows = config.key === "shipments"
     ? await enrichShipmentRows(rows)
+    : config.key === "service-fee-snapshots"
+      ? await enrichServiceFeeSnapshotParties(rows)
     : await enrichFinancialPartyRows(config.key, rows);
   return {
     rows: enrichedRows,
-    total,
+    total: normalizedTotal,
     page,
     pageSize,
+    totalPages,
   };
 }
 
-const financePartyEntityKeys = new Set(["billing-ledgers", "prepayment-contract-items", "monthly-billing-writeoffs", "monthly-prepayment-writeoffs", "service-fee-snapshot-items"]);
+function normalizeCountryCodeFilter(value: string) {
+  return value.split(/\s*-\s*/, 1)[0].trim();
+}
+
+export function getEntityOrderBy(config: EntityConfig, shipmentAlias = "shipment") {
+  if (config.key === "shipments") {
+    const prefix = shipmentAlias ? `${shipmentAlias}.` : "";
+    return `
+      ORDER BY
+        CASE WHEN TRIM(COALESCE(${prefix}\`batchName\`, '')) REGEXP '^[A-Za-z]+-[0-9]+$' THEN 0 ELSE 1 END,
+        CAST(SUBSTRING_INDEX(TRIM(${prefix}\`batchName\`), '-', -1) AS UNSIGNED) DESC,
+        UPPER(SUBSTRING_INDEX(TRIM(${prefix}\`batchName\`), '-', 1)) ASC,
+        ${prefix}\`createdAt\` DESC
+    `;
+  }
+  if (config.key === "request-items") {
+    const batchName = `(
+      SELECT requestSort.batchName
+      FROM requests AS requestSort
+      WHERE requestSort.requestNo = requestitems.requestNo
+      LIMIT 1
+    )`;
+    return getBatchOrderBy(batchName, "requestitems.requestNo ASC, requestitems.id ASC");
+  }
+  if (config.key === "purchase-order-items") {
+    const batchName = `(
+      SELECT requestSort.batchName
+      FROM requestitems AS requestItemSort
+      LEFT JOIN requests AS requestSort ON requestSort.requestNo = requestItemSort.requestNo
+      WHERE requestItemSort.id = purchaseorderitems.requestItemId
+        OR (
+          NULLIF(purchaseorderitems.requestNo, '') IS NOT NULL
+          AND requestItemSort.requestNo = purchaseorderitems.requestNo
+        )
+      LIMIT 1
+    )`;
+    return getBatchOrderBy(batchName, "purchaseorderitems.poNo ASC, purchaseorderitems.id ASC");
+  }
+  return config.defaultSort ? `ORDER BY ${config.defaultSort}` : "";
+}
+
+function getBatchOrderBy(batchName: string, tieBreakers: string) {
+  return `
+    ORDER BY
+      CASE WHEN TRIM(COALESCE(${batchName}, '')) REGEXP '^[A-Za-z]+-[0-9]+$' THEN 0 ELSE 1 END,
+      CAST(SUBSTRING_INDEX(TRIM(COALESCE(${batchName}, '')), '-', -1) AS UNSIGNED) DESC,
+      UPPER(SUBSTRING_INDEX(TRIM(COALESCE(${batchName}, '')), '-', 1)) ASC,
+      ${tieBreakers}
+  `;
+}
+
+const financePartyEntityKeys = new Set(["request-items", "billing-ledgers", "prepayment-contract-items", "monthly-billing-writeoffs", "monthly-prepayment-writeoffs", "service-fee-snapshot-items", "internal-service-fees"]);
 
 async function enrichFinancialPartyRows(entityKey: string, rows: Row[]) {
   if (!financePartyEntityKeys.has(entityKey) || !rows.length) return rows;
   const requestNos = uniqueValues(rows, "requestNo");
   const requestItems = requestNos.length
     ? await queryRows<Row>(
-      "SELECT requestNo, deviceCode, supplierId, undertakingUnitId FROM requestitems WHERE requestNo IN (:requestNos)",
+      "SELECT requestNo, deviceCode, supplierId, undertakingUnitId, customerId FROM requestitems WHERE requestNo IN (:requestNos)",
       { requestNos },
     )
     : [];
@@ -137,9 +231,31 @@ async function enrichFinancialPartyRows(entityKey: string, rows: Row[]) {
       ...row,
       supplierId: row.supplierId || party?.supplierId || "",
       undertakingUnitId: row.undertakingUnitId || party?.undertakingUnitId || "",
+      customerId: row.customerId || party?.customerId || "",
     };
   });
   return attachPartyCodes(enrichedRows);
+}
+
+async function enrichServiceFeeSnapshotParties(rows: Row[]) {
+  if (!rows.length) return rows;
+  const receivingUnitIds = uniqueValues(rows, "receivingUnitId");
+  const payerCustomerIds = uniqueValues(rows, "payerCustomerId");
+  const [units, customers] = await Promise.all([
+    receivingUnitIds.length
+      ? queryRows("SELECT undertakingUnitId, undertakingUnitCode FROM undertakingunits WHERE undertakingUnitId IN (:receivingUnitIds)", { receivingUnitIds })
+      : [],
+    payerCustomerIds.length
+      ? queryRows("SELECT customerId, customerCode FROM customers WHERE customerId IN (:payerCustomerIds)", { payerCustomerIds })
+      : [],
+  ]);
+  const unitCodeById = new Map(units.map((row) => [String(row.undertakingUnitId), String(row.undertakingUnitCode ?? row.undertakingUnitId ?? "")]));
+  const customerCodeById = new Map(customers.map((row) => [String(row.customerId), String(row.customerCode ?? row.customerId ?? "")]));
+  return rows.map((row) => ({
+    ...row,
+    receivingUnitCode: unitCodeById.get(String(row.receivingUnitId ?? "")) ?? String(row.receivingUnitId ?? ""),
+    payerCustomerCode: customerCodeById.get(String(row.payerCustomerId ?? "")) ?? String(row.payerCustomerId ?? ""),
+  }));
 }
 
 export async function getEntityRow(config: EntityConfig, id: string) {
@@ -211,7 +327,7 @@ async function enrichShipmentRows(rows: Row[]): Promise<Row[]> {
     contactIds.length ? queryRows("SELECT contactId, name FROM deliverycontacts WHERE contactId IN (:contactIds)", { contactIds }) : [],
     poNos.length ? queryRows("SELECT purchaseOrderId, poNo FROM purchaseorders WHERE poNo IN (:poNos)", { poNos }) : [],
     poNos.length
-      ? queryRows("SELECT poi.id AS purchaseOrderItemId, poi.poNo, ri.deviceCode, ri.supplierId, ri.undertakingUnitId FROM purchaseorderitems poi LEFT JOIN requestitems ri ON ri.id = poi.requestItemId WHERE poi.poNo IN (:poNos)", { poNos })
+      ? queryRows("SELECT poi.id AS purchaseOrderItemId, poi.poNo, ri.deviceCode, ri.supplierId, ri.undertakingUnitId, ri.customerId, req.countryCode, req.batchName FROM purchaseorderitems poi LEFT JOIN requestitems ri ON ri.id = poi.requestItemId LEFT JOIN requests req ON req.requestNo = ri.requestNo WHERE poi.poNo IN (:poNos)", { poNos })
       : [],
     deviceCodes.length
       ? queryRows("SELECT deviceCode, nameEn FROM instancemodels WHERE deviceCode IN (:deviceCodes)", { deviceCodes })
@@ -244,12 +360,15 @@ async function enrichShipmentRows(rows: Row[]): Promise<Row[]> {
       ...row,
       // The logistics record keeps its original value, while the list and export always show the current model name.
       nameEn: instanceModel?.nameEn ?? row.nameEn,
+      countryCode: purchaseLine?.countryCode ?? row.countryCode ?? "",
+      batchName: purchaseLine?.batchName ?? row.batchName ?? "",
       dcNameZh: datacenter?.nameZh ?? row.dcNameZh ?? row.dcCode,
       destinationAddress: location?.fullAddress ?? row.snapshotDestinationAddress ?? row.destinationLocationId,
       recipientName: contact?.name ?? row.snapshotRecipientName ?? row.recipientContactId,
       purchaseOrderId: purchaseOrderByPoNo.get(String(row.poNo ?? ""))?.purchaseOrderId ?? null,
       supplierId: purchaseLine?.supplierId ?? row.supplierId ?? "",
       undertakingUnitId: purchaseLine?.undertakingUnitId ?? row.undertakingUnitId ?? "",
+      customerId: purchaseLine?.customerId ?? row.customerId ?? "",
       isReceived: isShipmentDelivered(row.deliveredAt),
     };
   });

@@ -17,6 +17,7 @@ export const LOGICAL_TABLE_NAMES = [
   "instancemodels",
   "suppliers",
   "undertakingunits",
+  "customers",
   "instancecontracts",
   "contractitems",
   "requests",
@@ -38,12 +39,26 @@ export const LOGICAL_TABLE_NAMES = [
   "billingstatementsnapshotitems",
   "servicefeesnapshots",
   "servicefeesnapshotitems",
+  "internalserviceledgers",
+  "monthlyinternalservicefees",
+  "internalservicefeeadjustments",
+  "internalservicefeesnapshots",
+  "internalservicefeesnapshotitems",
+  "capexpricingversions",
+  "capexpricingitems",
+  "balancesettlements",
+  "balancesettlementitems",
+  "balancesettlementfinals",
+  "balancesettlementfinalsources",
   "writeoffitems",
   "shipments",
   "documentfolders",
   "documentfiles",
   "importjobs",
   "appusers",
+  "userpreferences",
+  "modulefeatures",
+  "b6typeconfigs",
 ] as const;
 
 const LOGICAL_TABLE_SET = new Set<string>(LOGICAL_TABLE_NAMES);
@@ -64,7 +79,7 @@ export function rewriteSqlTables(sql: string) {
   return sql.replace(tablePattern, (tableName) => physicalTableName(tableName));
 }
 
-export function buildDbConfig(env: NodeJS.ProcessEnv) {
+export function buildDbConfig(env: Partial<NodeJS.ProcessEnv>) {
   return {
     host: env.DB_HOST ?? "localhost",
     port: Number(env.DB_PORT ?? 3306),
@@ -110,5 +125,30 @@ export async function execute(sql: string, params: Row = {}) {
 
 export async function executeRaw(sql: string, params: Row = {}) {
   const [result] = await getDb().execute(sql, params as any);
+  return result;
+}
+
+export async function withTransaction<T>(callback: (connection: mysql.PoolConnection) => Promise<T>) {
+  const connection = await getDb().getConnection();
+  try {
+    await connection.beginTransaction();
+    const result = await callback(connection);
+    await connection.commit();
+    return result;
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+}
+
+export async function queryRowsInTransaction<T extends Row>(connection: mysql.PoolConnection, sql: string, params: Row = {}): Promise<T[]> {
+  const [rows] = await connection.query<QueryResult>(rewriteSqlTables(sql), params as any);
+  return rows as T[];
+}
+
+export async function executeInTransaction(connection: mysql.PoolConnection, sql: string, params: Row = {}) {
+  const [result] = await connection.execute(rewriteSqlTables(sql), params as any);
   return result;
 }

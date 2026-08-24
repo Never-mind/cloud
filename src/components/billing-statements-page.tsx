@@ -1,17 +1,20 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { CheckCircle2, Download, RefreshCw, Search } from "lucide-react";
+import { CheckCircle2, Download, RefreshCw, Search, Trash2 } from "lucide-react";
 import { formatDisplayValue } from "@/lib/display-format";
 import { DEFAULT_PAGE_SIZE } from "@/lib/pagination";
+import { postWorkspaceMessage } from "@/lib/tab-workspace";
 import { Button, Input, Panel } from "./ui";
 import { PaginationBar } from "./pagination-bar";
+import { WorkspaceNavigationDialog } from "./workspace-navigation-dialog";
 
 type Row = Record<string, string | number | boolean | null>;
 type SnapshotListResponse = { rows: Row[]; total: number; page: number; pageSize: number; totalPages: number };
 
 const snapshotColumns: Array<{ key: string; label: string; type?: string }> = [
-  { key: "snapshotNo", label: "快照编号" },
+  { key: "snapshotNo", label: "对账单号" },
+  { key: "status", label: "状态" },
   { key: "countryCode", label: "国家" },
   { key: "startDate", label: "起始日期", type: "date" },
   { key: "endDate", label: "终止日期", type: "date" },
@@ -20,6 +23,7 @@ const snapshotColumns: Array<{ key: string; label: string; type?: string }> = [
   { key: "totalAmount", label: "总金额", type: "number" },
   { key: "itemCount", label: "明细数量", type: "number" },
   { key: "createdAt", label: "创建时间", type: "date" },
+  { key: "confirmedAt", label: "确认时间", type: "date" },
 ];
 
 const previewColumns: Array<{ key: string; label: string; type?: string }> = [
@@ -37,6 +41,7 @@ export function BillingStatementsPage() {
   const [snapshots, setSnapshots] = useState<Row[]>([]);
   const [previewRows, setPreviewRows] = useState<Row[]>([]);
   const [keyword, setKeyword] = useState("");
+  const [status, setStatus] = useState("");
   const [countryCode, setCountryCode] = useState("BR");
   const [currency, setCurrency] = useState("");
   const [startDate, setStartDate] = useState("");
@@ -47,6 +52,7 @@ export function BillingStatementsPage() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [total, setTotal] = useState(0);
+  const [navigationPrompt, setNavigationPrompt] = useState<{ route: string; detail: string } | null>(null);
   const pageSizeRef = useRef(pageSize);
   const skipNextPageChangeRef = useRef(false);
 
@@ -54,12 +60,13 @@ export function BillingStatementsPage() {
     setLoading(true);
     const params = new URLSearchParams();
     if (keyword.trim()) params.set("keyword", keyword.trim());
+    if (status) params.set("status", status);
     params.set("page", String(nextPage));
     params.set("pageSize", String(nextPageSize));
     try {
       const response = await fetch(`/api/billing-statements?${params.toString()}`);
       const data = await response.json();
-      if (!response.ok) throw new Error(data.error ?? "月账单对账单快照加载失败");
+      if (!response.ok) throw new Error(data.error ?? "月账单对账单加载失败");
       const result = data as SnapshotListResponse;
       setSnapshots(result.rows ?? []);
       setTotal(Number(result.total ?? 0));
@@ -67,7 +74,7 @@ export function BillingStatementsPage() {
     } catch (error) {
       setSnapshots([]);
       setTotal(0);
-      alert(error instanceof Error ? error.message : "月账单对账单快照加载失败");
+      alert(error instanceof Error ? error.message : "月账单对账单加载失败");
     } finally {
       setLoading(false);
     }
@@ -94,13 +101,36 @@ export function BillingStatementsPage() {
     const data = await response.json();
     setCreating(false);
     if (!response.ok) {
-      alert(data.error ?? "生成快照失败");
+      alert(data.error ?? "生成对账单草稿失败");
       return;
     }
     setSnapshotNo(data.snapshotNo ?? "");
     setPreviewRows(data.rows ?? []);
     await loadSnapshots();
-    alert(`已生成月账单对账单快照：${data.snapshotNo}`);
+    alert(`已生成月账单对账单草稿：${data.snapshotNo}`);
+  }
+
+  async function changeSnapshot(snapshotNo: string, action: "confirm" | "delete") {
+    const message = action === "confirm"
+      ? "确认该月账单对账单？确认后不能删除或退回。"
+      : "确认删除该未确认月账单对账单？其快照明细也会同时删除。";
+    if (!confirm(message)) return;
+    const response = await fetch(
+      `/api/billing-statements/${encodeURIComponent(snapshotNo)}${action === "confirm" ? "/confirm" : ""}`,
+      { method: action === "confirm" ? "POST" : "DELETE" },
+    );
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      alert(data.error ?? (action === "confirm" ? "确认失败" : "删除失败"));
+      return;
+    }
+    await loadSnapshots();
+    if (action === "confirm") {
+      setNavigationPrompt({
+        route: `/finance/billing-statements/${encodeURIComponent(snapshotNo)}`,
+        detail: `对账单号：${snapshotNo}`,
+      });
+    }
   }
 
   useEffect(() => {
@@ -123,7 +153,7 @@ export function BillingStatementsPage() {
     <div className="space-y-5">
       <div>
         <h1 className="text-xl font-medium text-[#303133]">月账单对账单</h1>
-        <p className="mt-1 text-sm text-[#909399]">按国家和期间生成月账单对账单快照，快照生成后不受后续月账单调整影响。</p>
+        <p className="mt-1 text-sm text-[#909399]">按国家和期间生成月账单对账单草稿，确认后冻结且不受后续月账单调整影响。</p>
       </div>
 
       <Panel>
@@ -156,7 +186,7 @@ export function BillingStatementsPage() {
             <Input className="w-full" type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} />
           </label>
           <label className="md:col-span-2">
-            <span className="mb-1 block text-sm font-medium text-[#606266]">快照编号</span>
+            <span className="mb-1 block text-sm font-medium text-[#606266]">对账单号</span>
             <Input className="w-full" placeholder="不填自动生成" value={snapshotNo} onChange={(event) => setSnapshotNo(event.target.value)} />
           </label>
         </div>
@@ -167,7 +197,7 @@ export function BillingStatementsPage() {
           </Button>
           <Button disabled={creating} tone="success" onClick={() => void createSnapshot()}>
             <CheckCircle2 size={15} />
-            {creating ? "生成中" : "生成快照"}
+            {creating ? "生成中" : "生成对账单草稿"}
           </Button>
           <span className="text-sm text-[#909399]">
             预览 {previewRows.length} 条，数量 {formatValue(previewSummary.totalQuantity, "number")}，金额 {formatValue(previewSummary.totalAmount, "number")}
@@ -208,7 +238,12 @@ export function BillingStatementsPage() {
 
       <Panel>
         <div className="flex flex-wrap items-center gap-2 border-b border-[#ebeef5] p-4">
-          <Input placeholder="搜索快照编号/国家/币种" value={keyword} onChange={(event) => setKeyword(event.target.value)} />
+          <Input placeholder="搜索对账单号/国家/币种" value={keyword} onChange={(event) => setKeyword(event.target.value)} />
+          <select className="h-9 min-w-28 rounded border border-[#dcdfe6] bg-white px-3 text-sm" value={status} onChange={(event) => setStatus(event.target.value)}>
+            <option value="">全部状态</option>
+            <option value="未确认">未确认</option>
+            <option value="已确认">已确认</option>
+          </select>
           <Button tone="primary" onClick={() => void loadSnapshots()}>
             <Search size={15} />
             查询
@@ -233,20 +268,35 @@ export function BillingStatementsPage() {
             <tbody>
               {snapshots.map((row) => {
                 const snapshot = String(row.snapshotNo ?? "");
+                const confirmed = row.status === "已确认";
                 return (
                   <tr className="hover:bg-[#fafafa]" key={snapshot}>
                     {snapshotColumns.map((column) => (
                       <td className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3" key={column.key}>
-                        {formatValue(row[column.key], column.type)}
+                        {column.key === "snapshotNo" ? (
+                          <button
+                            className="font-medium text-[#1890ff] hover:underline"
+                            onClick={() => postWorkspaceMessage({
+                              type: "cloud-power:open-tab",
+                              route: `/finance/billing-statements/${encodeURIComponent(snapshot)}`,
+                              title: "月账单对账单明细",
+                            })}
+                            title="在新标签查看对账单明细"
+                            type="button"
+                          >
+                            {snapshot}
+                          </button>
+                        ) : formatValue(row[column.key], column.type)}
                       </td>
                     ))}
                     <td className="sticky right-0 whitespace-nowrap border-b border-[#ebeef5] bg-white px-3 py-3">
-                      <a href={`/api/billing-statements/${encodeURIComponent(snapshot)}/export`}>
-                        <Button tone="warning">
-                          <Download size={15} />
-                          导出 Excel
-                        </Button>
-                      </a>
+                      <div className="flex items-center gap-2">
+                        {!confirmed ? <Button tone="success" onClick={() => void changeSnapshot(snapshot, "confirm")}><CheckCircle2 size={15} />确认</Button> : null}
+                        {!confirmed ? <Button tone="danger" onClick={() => void changeSnapshot(snapshot, "delete")}><Trash2 size={15} />删除</Button> : null}
+                        <a href={`/api/billing-statements/${encodeURIComponent(snapshot)}/export`}>
+                          <Button tone="warning"><Download size={15} />导出 Excel</Button>
+                        </a>
+                      </div>
                     </td>
                   </tr>
                 );
@@ -254,7 +304,7 @@ export function BillingStatementsPage() {
               {!snapshots.length ? (
                 <tr>
                   <td className="py-12 text-center text-[#909399]" colSpan={snapshotColumns.length + 1}>
-                    {loading ? "加载中..." : "暂无月账单对账单快照"}
+                    {loading ? "加载中..." : "暂无月账单对账单"}
                   </td>
                 </tr>
               ) : null}
@@ -282,6 +332,19 @@ export function BillingStatementsPage() {
           }}
         />
       </Panel>
+      {navigationPrompt ? (
+        <WorkspaceNavigationDialog
+          title="月账单对账单已确认"
+          message="月账单对账单已确认，是否打开对应的对账单明细？"
+          detail={navigationPrompt.detail}
+          onStay={() => setNavigationPrompt(null)}
+          onOpen={() => {
+            const target = navigationPrompt;
+            setNavigationPrompt(null);
+            postWorkspaceMessage({ type: "cloud-power:open-tab", route: target.route, title: "月账单对账单明细" });
+          }}
+        />
+      ) : null}
     </div>
   );
 }

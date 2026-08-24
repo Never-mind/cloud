@@ -1,11 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
-import { confirmServiceFeeSnapshot } from "@/lib/service-fee-service";
+import { createServiceFeeStatementDraft, listServiceFeeStatements } from "@/lib/service-fee-service";
+
+export async function GET(request: NextRequest) {
+  try {
+    return NextResponse.json(await listServiceFeeStatements(request.nextUrl.searchParams));
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : "服务费对账单加载失败" }, { status: 400 });
+  }
+}
 
 export async function POST(request: NextRequest) {
-  const body = await request.json();
-  const data = await confirmServiceFeeSnapshot({
-    snapshotNo: body.snapshotNo,
-    filters: body.filters ?? {},
-  });
-  return NextResponse.json(data, { status: 201 });
+  try {
+    const body = await request.json();
+    const data = await createServiceFeeStatementDraft({
+      snapshotNo: body.snapshotNo,
+      filters: body.filters ?? {},
+    });
+    return NextResponse.json(data, { status: 201 });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : "服务费对账单生成失败" }, { status: 400 });
+  }
 }

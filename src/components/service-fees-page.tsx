@@ -29,6 +29,7 @@ const columns: Array<{ key: string; label: string; type?: string }> = [
   { key: "nameEn", label: "英文名称" },
   { key: "undertakingUnitCode", label: "承接单位" },
   { key: "supplierCode", label: "供应商" },
+  { key: "customerCode", label: "客户" },
   { key: "quantity", label: "数量", type: "number" },
   { key: "lineType", label: "明细类型", type: "lineType" },
   { key: "billingCurrency", label: "月账单币种" },
@@ -76,24 +77,30 @@ export function ServiceFeesPage() {
     lineType,
   ]);
 
-  async function fetchData(nextPage: number, nextPageSize: number, exportAll = false): Promise<ListResponse> {
+  async function fetchData(nextPage: number, nextPageSize: number, exportAll = false, includeSummary = true): Promise<ListResponse> {
     const requestParams = new URLSearchParams(params);
     requestParams.set("page", String(nextPage));
     requestParams.set("pageSize", String(nextPageSize));
     if (exportAll) requestParams.set("export", "1");
+    if (!includeSummary) {
+      requestParams.set("includeSummary", "0");
+      requestParams.set("knownTotal", String(total));
+    }
     const response = await fetch(`/api/service-fees/calculate?${requestParams.toString()}`);
     const data = await response.json();
     if (!response.ok) throw new Error(data.error ?? "服务费数据加载失败");
     return data as ListResponse;
   }
 
-  async function loadData(nextPage = page, nextPageSize = pageSizeRef.current) {
+  async function loadData(nextPage = page, nextPageSize = pageSizeRef.current, includeSummary = true) {
     setLoading(true);
     try {
-      const data = await fetchData(nextPage, nextPageSize);
+      const data = await fetchData(nextPage, nextPageSize, false, includeSummary);
       setRows(data.rows ?? []);
-      setSummary(data.summary ?? emptySummary);
-      setTotal(Number(data.total ?? 0));
+      if (includeSummary) {
+        setSummary(data.summary ?? emptySummary);
+        setTotal(Number(data.total ?? 0));
+      }
       if (data.page !== nextPage) setPage(data.page);
     } catch (error) {
       setRows([]);
@@ -109,9 +116,17 @@ export function ServiceFeesPage() {
     void loadData();
   }, []);
 
-  async function confirmSnapshot() {
-    if (!total) {
-      alert("当前没有可确认的服务费核算明细");
+  async function createStatementDraft() {
+    if (!countryCode.trim()) {
+      alert("生成服务费对账单前请选择国家");
+      return;
+    }
+    if (!startMonth || !endMonth) {
+      alert("请在上方选择起始月份和结束月份");
+      return;
+    }
+    if (startMonth !== endMonth) {
+      alert("服务费对账单仅能按单一核销月份生成，请将起始月份与结束月份选为同一个月");
       return;
     }
     setConfirming(true);
@@ -120,17 +135,17 @@ export function ServiceFeesPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         snapshotNo: snapshotNo.trim() || undefined,
-        filters: Object.fromEntries(params.entries()),
+        filters: { startMonth, endMonth, countryCode: countryCode.trim() },
       }),
     });
     const data = await response.json();
     setConfirming(false);
     if (!response.ok) {
-      alert(data.error ?? "确认服务费核算快照失败");
+      alert(data.error ?? "服务费对账单草稿生成失败");
       return;
     }
     setSnapshotNo(data.snapshotNo ?? "");
-    alert(`已生成服务费核算快照：${data.snapshotNo}`);
+    alert(`已生成服务费对账单草稿：${data.snapshotNo}`);
   }
 
   async function exportCsv() {
@@ -165,8 +180,8 @@ export function ServiceFeesPage() {
       <Panel>
         <div className="flex flex-wrap items-center gap-2 border-b border-[#ebeef5] p-4">
           <Input placeholder="国家/批次/需求单/PO/实例编码" value={keyword} onChange={(event) => setKeyword(event.target.value)} />
-          <Input type="date" value={startMonth} onChange={(event) => setStartMonth(event.target.value)} />
-          <Input type="date" value={endMonth} onChange={(event) => setEndMonth(event.target.value)} />
+          <label className="text-xs text-[#606266]">起始月份<Input className="ml-2" type="month" value={startMonth} onChange={(event) => setStartMonth(event.target.value)} /></label>
+          <label className="text-xs text-[#606266]">结束月份<Input className="ml-2" type="month" value={endMonth} onChange={(event) => setEndMonth(event.target.value)} /></label>
           <Input placeholder="国家" value={countryCode} onChange={(event) => setCountryCode(event.target.value)} />
           <Input placeholder="批次" value={batchName} onChange={(event) => setBatchName(event.target.value)} />
           <select
@@ -201,12 +216,12 @@ export function ServiceFeesPage() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2 border-b border-[#ebeef5] p-4">
-          <Input placeholder="快照编号，不填自动生成" value={snapshotNo} onChange={(event) => setSnapshotNo(event.target.value)} />
-          <Button tone="success" disabled={confirming || loading} onClick={() => void confirmSnapshot()}>
+          <Input placeholder="对账单号，不填自动生成" value={snapshotNo} onChange={(event) => setSnapshotNo(event.target.value)} />
+          <Button tone="success" disabled={confirming || loading} onClick={() => void createStatementDraft()}>
             <CheckCircle2 size={15} />
-            {confirming ? "确认中" : "确认生成快照"}
+            {confirming ? "生成中" : "生成对账单草稿"}
           </Button>
-          <span className="text-sm text-[#909399]">当前筛选共 {total} 条，确认后会保存为历史快照。</span>
+          <span className="text-sm text-[#909399]">请在上方将起始月份与结束月份选为同一个月；对账单将汇总所选国家当月的全部批次。</span>
         </div>
 
         <div className="table-scroll overflow-auto">
@@ -250,14 +265,14 @@ export function ServiceFeesPage() {
               return;
             }
             setPage(nextPage);
-            void loadData(nextPage, pageSizeRef.current);
+      void loadData(nextPage, pageSizeRef.current, false);
           }}
           onPageSizeChange={(nextPageSize) => {
             pageSizeRef.current = nextPageSize;
             skipNextPageChangeRef.current = true;
             setPageSize(nextPageSize);
             setPage(1);
-            void loadData(1, nextPageSize);
+            void loadData(1, nextPageSize, false);
           }}
         />
       </Panel>

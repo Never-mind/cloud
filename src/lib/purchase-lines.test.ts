@@ -42,6 +42,8 @@ describe("purchase product lines", () => {
         taxExcludedUnitPrice: 88,
         taxSurcharge: 0,
         unitPrice: 88,
+        capexUnitPrice: 0,
+        opexUnitPrice: 0,
         totalAmount: 264,
       },
     ]);
@@ -129,6 +131,8 @@ describe("purchase product lines", () => {
         taxExcludedUnitPrice: 88,
         taxSurcharge: 0,
         unitPrice: 88,
+        capexUnitPrice: 0,
+        opexUnitPrice: 0,
         totalAmount: 264,
       }),
     ).toEqual({
@@ -144,6 +148,8 @@ describe("purchase product lines", () => {
       不含税单价: 88,
       税费加成: 0,
       含税单价: 88,
+      采购CAPEX单价: 0,
+      采购OPEX单价: 0,
       含税总价: 264,
     });
   });
@@ -162,7 +168,11 @@ describe("purchase product lines", () => {
         nameZh: "计算增强型",
         nameEn: "Compute Enhanced",
         quantity: 3,
+        taxExcludedUnitPrice: 88,
+        taxSurcharge: 0,
         unitPrice: 88,
+        capexUnitPrice: 0,
+        opexUnitPrice: 0,
         totalAmount: 264,
       },
     ];

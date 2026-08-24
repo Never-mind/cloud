@@ -13,17 +13,19 @@ type OrderListResult = {
 export async function listOrderRows(searchParams: URLSearchParams): Promise<OrderListResult> {
   const mode = searchParams.get("mode") === "purchase" ? "purchase" : "requests";
   const keyword = searchParams.get("keyword")?.trim();
+  const countryCode = normalizeCountryCode(searchParams.get("countryCode"));
   const statusTab = searchParams.get("statusTab") === "confirmed" ? "confirmed" : "draft";
   const exportAll = searchParams.get("export") === "1";
   const requestedPage = Math.max(1, Math.floor(Number(searchParams.get("page") ?? 1) || 1));
   const pageSize = normalizePageSize(Number(searchParams.get("pageSize") ?? DEFAULT_PAGE_SIZE));
   return mode === "purchase"
-    ? listPurchaseOrders({ keyword, statusTab, exportAll, requestedPage, pageSize })
-    : listRequests({ keyword, statusTab, exportAll, requestedPage, pageSize });
+    ? listPurchaseOrders({ keyword, countryCode, statusTab, exportAll, requestedPage, pageSize })
+    : listRequests({ keyword, countryCode, statusTab, exportAll, requestedPage, pageSize });
 }
 
 async function listRequests(options: {
   keyword?: string;
+  countryCode?: string;
   statusTab: "draft" | "confirmed";
   exportAll: boolean;
   requestedPage: number;
@@ -31,10 +33,12 @@ async function listRequests(options: {
 }): Promise<OrderListResult> {
   const params: Row = {};
   const keywordWhere = buildRequestKeywordWhere(options.keyword, params);
+  const countryWhere = buildCountryWhere("req", options.countryCode, params);
   const confirmedCondition = "req.status IN ('待下单', '已下单')";
   const statusCondition = options.statusTab === "confirmed" ? confirmedCondition : `NOT (${confirmedCondition})`;
-  const baseWhere = [keywordWhere, statusCondition].filter(Boolean).join(" AND ");
-  const allWhere = keywordWhere ? `WHERE ${keywordWhere}` : "";
+  const baseWhere = [keywordWhere, countryWhere, statusCondition].filter(Boolean).join(" AND ");
+  const allWhereParts = [keywordWhere, countryWhere].filter(Boolean);
+  const allWhere = allWhereParts.length ? `WHERE ${allWhereParts.join(" AND ")}` : "";
   const [{ total }] = await queryRows<{ total: number }>(
     `SELECT COUNT(*) AS total FROM requests AS req ${baseWhere ? `WHERE ${baseWhere}` : ""}`,
     params,
@@ -76,7 +80,11 @@ async function listRequests(options: {
       ${baseWhere ? `WHERE ${baseWhere}` : ""}
       GROUP BY req.requestNo, req.countryCode, req.contractNo, req.batchName, req.requestType, req.status,
         req.plannedDeliveryDate, req.createdAt, req.updatedAt
-      ORDER BY req.createdAt DESC
+      ORDER BY
+        CASE WHEN TRIM(COALESCE(req.batchName, '')) REGEXP '^[A-Za-z]+-[0-9]+$' THEN 0 ELSE 1 END,
+        CAST(SUBSTRING_INDEX(TRIM(COALESCE(req.batchName, '')), '-', -1) AS UNSIGNED) DESC,
+        UPPER(SUBSTRING_INDEX(TRIM(COALESCE(req.batchName, '')), '-', 1)) ASC,
+        req.createdAt DESC
       ${options.exportAll ? "" : "LIMIT :limit OFFSET :offset"}
     `,
     params,
@@ -94,6 +102,7 @@ async function listRequests(options: {
 
 async function listPurchaseOrders(options: {
   keyword?: string;
+  countryCode?: string;
   statusTab: "draft" | "confirmed";
   exportAll: boolean;
   requestedPage: number;
@@ -101,10 +110,12 @@ async function listPurchaseOrders(options: {
 }): Promise<OrderListResult> {
   const params: Row = {};
   const keywordWhere = buildPurchaseKeywordWhere(options.keyword, params);
+  const countryWhere = buildPurchaseCountryWhere(options.countryCode, params);
   const confirmedCondition = "purchase.status LIKE '%确认%'";
   const statusCondition = options.statusTab === "confirmed" ? confirmedCondition : `NOT (${confirmedCondition})`;
-  const baseWhere = [keywordWhere, statusCondition].filter(Boolean).join(" AND ");
-  const allWhere = keywordWhere ? `WHERE ${keywordWhere}` : "";
+  const baseWhere = [keywordWhere, countryWhere, statusCondition].filter(Boolean).join(" AND ");
+  const allWhereParts = [keywordWhere, countryWhere].filter(Boolean);
+  const allWhere = allWhereParts.length ? `WHERE ${allWhereParts.join(" AND ")}` : "";
   const [{ total }] = await queryRows<{ total: number }>(
     `SELECT COUNT(*) AS total FROM purchaseorders AS purchase ${baseWhere ? `WHERE ${baseWhere}` : ""}`,
     params,
@@ -134,7 +145,10 @@ async function listPurchaseOrders(options: {
         purchase.purchaseOrderId,
         purchase.poNo,
         COALESCE(NULLIF(purchase.requestNo, ''), GROUP_CONCAT(DISTINCT requestItem.requestNo ORDER BY requestItem.requestNo SEPARATOR ',')) AS requestNo,
-        GROUP_CONCAT(DISTINCT requestMaster.batchName ORDER BY requestMaster.batchName SEPARATOR ',') AS batchName,
+        GROUP_CONCAT(DISTINCT requestMaster.batchName ORDER BY
+          CAST(SUBSTRING_INDEX(TRIM(COALESCE(requestMaster.batchName, '')), '-', -1) AS UNSIGNED) DESC,
+          UPPER(SUBSTRING_INDEX(TRIM(COALESCE(requestMaster.batchName, '')), '-', 1)) ASC
+          SEPARATOR ',') AS batchName,
         purchase.status,
         purchase.currency,
         COALESCE(SUM(requestItem.quantity), 0) AS totalQuantity,
@@ -150,7 +164,12 @@ async function listPurchaseOrders(options: {
       ${baseWhere ? `WHERE ${baseWhere}` : ""}
       GROUP BY purchase.purchaseOrderId, purchase.poNo, purchase.requestNo, purchase.status, purchase.currency,
         purchase.createdAt, purchase.updatedAt
-      ORDER BY purchase.createdAt DESC
+      ORDER BY
+        MAX(CASE WHEN TRIM(COALESCE(requestMaster.batchName, '')) REGEXP '^[A-Za-z]+-[0-9]+$' THEN 0 ELSE 1 END) ASC,
+        MAX(CASE WHEN TRIM(COALESCE(requestMaster.batchName, '')) REGEXP '^[A-Za-z]+-[0-9]+$'
+          THEN CAST(SUBSTRING_INDEX(TRIM(requestMaster.batchName), '-', -1) AS UNSIGNED) ELSE -1 END) DESC,
+        MIN(UPPER(SUBSTRING_INDEX(TRIM(COALESCE(requestMaster.batchName, '')), '-', 1))) ASC,
+        purchase.createdAt DESC
       ${options.exportAll ? "" : "LIMIT :limit OFFSET :offset"}
     `,
     params,
@@ -164,6 +183,32 @@ async function listPurchaseOrders(options: {
     totalPages,
     statusCounts: { draft: Number(counts?.draft ?? 0), confirmed: Number(counts?.confirmed ?? 0) },
   };
+}
+
+function normalizeCountryCode(value: string | null) {
+  const text = String(value ?? "").trim();
+  if (!text) return undefined;
+  return text.split(/\s*-\s*/, 1)[0].trim() || undefined;
+}
+
+function buildCountryWhere(alias: string, countryCode: string | undefined, params: Row) {
+  if (!countryCode) return "";
+  params.countryCode = countryCode;
+  return `UPPER(TRIM(SUBSTRING_INDEX(${alias}.countryCode, '-', 1))) = UPPER(:countryCode)`;
+}
+
+function buildPurchaseCountryWhere(countryCode: string | undefined, params: Row) {
+  if (!countryCode) return "";
+  params.countryCode = countryCode;
+  return `EXISTS (
+    SELECT 1
+    FROM purchaseorderitems AS countryItem
+    LEFT JOIN requestitems AS countryRequestItem ON countryRequestItem.id = countryItem.requestItemId
+    LEFT JOIN requests AS countryRequest
+      ON countryRequest.requestNo = COALESCE(NULLIF(countryItem.requestNo, ''), countryRequestItem.requestNo)
+    WHERE countryItem.poNo = purchase.poNo
+      AND UPPER(TRIM(SUBSTRING_INDEX(countryRequest.countryCode, '-', 1))) = UPPER(:countryCode)
+  )`;
 }
 
 function buildRequestKeywordWhere(keyword: string | undefined, params: Row) {

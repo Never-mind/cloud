@@ -71,7 +71,13 @@ export async function listRequestProductLines(searchParams: URLSearchParams): Pr
       LEFT JOIN instancemodels AS model ON model.deviceCode = ri.deviceCode
       LEFT JOIN suppliers AS supplier ON supplier.supplierId = ri.supplierId
       ${where}
-      ORDER BY req.updatedAt DESC, req.createdAt DESC, ri.id
+      ORDER BY
+        CASE WHEN TRIM(COALESCE(req.batchName, '')) REGEXP '^[A-Za-z]+[[:space:]]*-[[:space:]]*[0-9]+$' THEN 0 ELSE 1 END,
+        CAST(SUBSTRING_INDEX(TRIM(req.batchName), '-', -1) AS UNSIGNED) DESC,
+        UPPER(TRIM(SUBSTRING_INDEX(TRIM(req.batchName), '-', 1))) ASC,
+        req.updatedAt DESC,
+        req.createdAt DESC,
+        ri.id
       ${options.exportAll ? "" : "LIMIT :limit OFFSET :offset"}
     `,
     params,
@@ -147,7 +153,13 @@ export async function listPurchaseProductLines(searchParams: URLSearchParams): P
         ON requestMaster.requestNo = COALESCE(NULLIF(item.requestNo, ''), requestItem.requestNo)
       LEFT JOIN instancemodels AS model ON model.deviceCode = requestItem.deviceCode
       ${where}
-      ORDER BY purchase.createdAt DESC, item.id
+      ORDER BY
+        CASE WHEN TRIM(COALESCE(requestMaster.batchName, '')) REGEXP '^[A-Za-z]+[[:space:]]*-[[:space:]]*[0-9]+$' THEN 0 ELSE 1 END,
+        CAST(SUBSTRING_INDEX(TRIM(requestMaster.batchName), '-', -1) AS UNSIGNED) DESC,
+        UPPER(TRIM(SUBSTRING_INDEX(TRIM(requestMaster.batchName), '-', 1))) ASC,
+        purchase.createdAt DESC,
+        purchase.poNo ASC,
+        item.id
       ${options.exportAll ? "" : "LIMIT :limit OFFSET :offset"}
     `,
     params,

@@ -51,6 +51,24 @@ textarea {
 }
 
 .table-scroll {
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
   scrollbar-color: #a0a7b0 #eef1f5;
   scrollbar-width: thin;
+}
+
+/* Normal tables fill the content area; only explicitly wide tables keep a fixed content width. */
+.table-scroll > table {
+  width: 100%;
+  table-layout: auto;
+}
+
+.table-scroll > table[class*="min-w-["] {
+  width: max-content;
+}
+
+.table-scroll > table > thead > tr > th,
+.table-scroll > table > tbody > tr > td {
+  min-width: 7rem;
 }

@@ -264,6 +264,7 @@ export async function listAvailableBillingLines(options: { page?: number; pageSi
           im.nameEn,
           ri.supplierId,
           ri.undertakingUnitId,
+          ri.customerId,
           ri.quantity,
           po.currency AS actualCurrency,
           poi.unitPrice AS actualUnitPrice,
@@ -493,6 +494,7 @@ export async function listMonthlyBillingWriteOffs(searchParams: URLSearchParams)
         mbw.nameEn,
         COALESCE(NULLIF(mbw.supplierId, ''), ri.linkedSupplierId, riByBusinessKey.fallbackSupplierId) AS supplierId,
         COALESCE(NULLIF(mbw.undertakingUnitId, ''), ri.linkedUndertakingUnitId, riByBusinessKey.fallbackUndertakingUnitId) AS undertakingUnitId,
+        COALESCE(NULLIF(mbw.customerId, ''), ri.linkedCustomerId, riByBusinessKey.fallbackCustomerId) AS customerId,
         mbw.quantity,
         purchaseItem.purchaseOrderId,
         mbw.instanceContractNo,
@@ -512,11 +514,11 @@ export async function listMonthlyBillingWriteOffs(searchParams: URLSearchParams)
       ) AS ledger ON ledger.linkedLedgerId = mbw.ledgerId
       LEFT JOIN purchaseorderitems AS purchaseItem ON purchaseItem.id = ledger.linkedPurchaseOrderItemId
       LEFT JOIN (
-        SELECT id AS linkedRequestItemId, supplierId AS linkedSupplierId, undertakingUnitId AS linkedUndertakingUnitId
+        SELECT id AS linkedRequestItemId, supplierId AS linkedSupplierId, undertakingUnitId AS linkedUndertakingUnitId, customerId AS linkedCustomerId
         FROM requestitems
-      ) AS ri ON ri.linkedRequestItemId = ledger.linkedPurchaseOrderItemId
+      ) AS ri ON ri.linkedRequestItemId = purchaseItem.requestItemId
       LEFT JOIN (
-        SELECT requestNo AS keyRequestNo, deviceCode AS keyDeviceCode, supplierId AS fallbackSupplierId, undertakingUnitId AS fallbackUndertakingUnitId
+        SELECT requestNo AS keyRequestNo, deviceCode AS keyDeviceCode, supplierId AS fallbackSupplierId, undertakingUnitId AS fallbackUndertakingUnitId, customerId AS fallbackCustomerId
         FROM requestitems
       ) AS riByBusinessKey
         ON riByBusinessKey.keyRequestNo = mbw.requestNo
@@ -594,13 +596,13 @@ async function insertBillingLedger(ledger: BillingLedgerDraft) {
     `
       INSERT INTO billinginstanceledgers
         (ledgerId, purchaseOrderItemId, countryCode, batchName, requestNo, poNo, deviceCode,
-         modelCode, nameEn, supplierId, undertakingUnitId, quantity, actualCurrency, actualUnitPrice,
+         modelCode, nameEn, supplierId, undertakingUnitId, customerId, quantity, actualCurrency, actualUnitPrice,
          taxExcludedUnitPrice, taxSurcharge, vatRate, selfCalculatedUnitPrice, instanceContractNo,
          contractCurrency, first24MonthPrice, next36MonthPrice, differenceUnitPrice, differenceTotalPrice,
          startMonth, status, confirmedAt)
       VALUES
         (:ledgerId, :purchaseOrderItemId, :countryCode, :batchName, :requestNo, :poNo, :deviceCode,
-         :modelCode, :nameEn, :supplierId, :undertakingUnitId, :quantity, :actualCurrency, :actualUnitPrice,
+         :modelCode, :nameEn, :supplierId, :undertakingUnitId, :customerId, :quantity, :actualCurrency, :actualUnitPrice,
          :taxExcludedUnitPrice, :taxSurcharge, :vatRate, :selfCalculatedUnitPrice, :instanceContractNo,
          :contractCurrency, :first24MonthPrice, :next36MonthPrice, :differenceUnitPrice, :differenceTotalPrice,
          :startMonth, :status, CURRENT_TIMESTAMP)
@@ -704,12 +706,12 @@ async function replaceMonthlyBillingRows(ledgerId: string, rows: MonthlyBillingR
       `
         INSERT INTO monthlybillingwriteoffs
           (id, ledgerId, writeOffMonth, monthIndex, stage, countryCode, batchName, requestNo,
-           poNo, deviceCode, modelCode, nameEn, supplierId, undertakingUnitId, quantity,
+           poNo, deviceCode, modelCode, nameEn, supplierId, undertakingUnitId, customerId, quantity,
            instanceContractNo, currency, monthlyAmount, monthlyTotalAmount, selfCalculatedUnitPrice,
            differenceUnitPrice, differenceTotalPrice, sourceType, adjustmentNo)
         VALUES
           (:id, :ledgerId, :writeOffMonth, :monthIndex, :stage, :countryCode, :batchName, :requestNo,
-           :poNo, :deviceCode, :modelCode, :nameEn, :supplierId, :undertakingUnitId, :quantity,
+           :poNo, :deviceCode, :modelCode, :nameEn, :supplierId, :undertakingUnitId, :customerId, :quantity,
            :instanceContractNo, :currency, :monthlyAmount, :monthlyTotalAmount, :selfCalculatedUnitPrice,
            :differenceUnitPrice, :differenceTotalPrice, :sourceType, :adjustmentNo)
       `,

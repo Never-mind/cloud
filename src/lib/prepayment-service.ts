@@ -68,6 +68,7 @@ export async function listAvailablePrepaymentLines(options: { page?: number; pag
         im.nameEn,
         ri.supplierId,
         ri.undertakingUnitId,
+        ri.customerId,
         ri.quantity,
         po.currency,
         poi.unitPrice,
@@ -163,6 +164,7 @@ export async function getPrepaymentContract(contractNo: string) {
             contractItem.nameEn AS nameEn,
             COALESCE(NULLIF(contractItem.supplierId, ''), ri.supplierId) AS supplierId,
             COALESCE(NULLIF(contractItem.undertakingUnitId, ''), ri.undertakingUnitId) AS undertakingUnitId,
+            COALESCE(NULLIF(contractItem.customerId, ''), ri.customerId) AS customerId,
             contractItem.quantity,
             contractItem.actualCurrency,
             contractItem.actualUnitPrice,
@@ -254,11 +256,11 @@ export async function confirmPrepaymentContract(contractNo: string) {
         INSERT INTO monthlyprepaymentwriteoffs
           (id, contractNo, contractLineId, writeOffMonth, monthIndex, totalMonths, currency,
            originalAmount, monthlyAmount, lineType, countryCode, batchName, requestNo, poNo, deviceCode,
-           modelCode, nameEn, supplierId, undertakingUnitId, quantity)
+           modelCode, nameEn, supplierId, undertakingUnitId, customerId, quantity)
         VALUES
           (:id, :contractNo, :contractLineId, :writeOffMonth, :monthIndex, :totalMonths, :currency,
            :originalAmount, :monthlyAmount, :lineType, :countryCode, :batchName, :requestNo, :poNo, :deviceCode,
-           :modelCode, :nameEn, :supplierId, :undertakingUnitId, :quantity)
+           :modelCode, :nameEn, :supplierId, :undertakingUnitId, :customerId, :quantity)
       `,
       row,
     );
@@ -279,22 +281,7 @@ export async function confirmPrepaymentContract(contractNo: string) {
 export async function rollbackPrepaymentContract(contractNo: string) {
   const { contract } = await getPrepaymentContract(contractNo);
   if (!contract) throw new Error("预付款合同不存在");
-  if (String(contract.status) !== "已确认") throw new Error("仅已确认的预付款合同可以回退草稿");
-
-  const [{ total: confirmedAdjustmentCount }] = await queryRows<{ total: number }>(
-    "SELECT COUNT(*) AS total FROM prepaymentwriteoffadjustments WHERE contractNo = :contractNo AND status = '已确认'",
-    { contractNo },
-  );
-  if (Number(confirmedAdjustmentCount ?? 0) > 0) {
-    throw new Error("该合同存在已确认的预付款核销调整单，请先处理调整单后再回退");
-  }
-
-  await execute("DELETE FROM monthlyprepaymentwriteoffs WHERE contractNo = :contractNo", { contractNo });
-  await execute(
-    "UPDATE prepaymentcontracts SET status = '草稿', confirmedAt = NULL WHERE contractNo = :contractNo",
-    { contractNo },
-  );
-  return getPrepaymentContract(contractNo);
+  throw new Error("已确认的预付款合同不能删除或退回；如需更正，请通过预付款核销调整单处理");
 }
 
 export async function assertPrepaymentInstanceOwnership(lines: Array<Pick<PrepaymentContractLineDraft, "contractNo" | "lineType" | "purchaseOrderItemId">>) {
@@ -405,6 +392,7 @@ export async function listMonthlyPrepaymentWriteOffs(searchParams: URLSearchPara
         mpw.nameEn,
         COALESCE(NULLIF(mpw.supplierId, ''), ri.linkedSupplierId, riByBusinessKey.fallbackSupplierId) AS supplierId,
         COALESCE(NULLIF(mpw.undertakingUnitId, ''), ri.linkedUndertakingUnitId, riByBusinessKey.fallbackUndertakingUnitId) AS undertakingUnitId,
+        COALESCE(NULLIF(mpw.customerId, ''), ri.linkedCustomerId, riByBusinessKey.fallbackCustomerId) AS customerId,
         mpw.quantity,
         mpw.sourceType,
         mpw.adjustmentNo,
@@ -416,11 +404,11 @@ export async function listMonthlyPrepaymentWriteOffs(searchParams: URLSearchPara
       ) AS contractItem ON contractItem.linkedContractLineId = mpw.contractLineId
       LEFT JOIN purchaseorderitems AS purchaseItem ON purchaseItem.id = contractItem.linkedPurchaseOrderItemId
       LEFT JOIN (
-        SELECT id AS linkedRequestItemId, supplierId AS linkedSupplierId, undertakingUnitId AS linkedUndertakingUnitId
+        SELECT id AS linkedRequestItemId, supplierId AS linkedSupplierId, undertakingUnitId AS linkedUndertakingUnitId, customerId AS linkedCustomerId
         FROM requestitems
       ) AS ri ON ri.linkedRequestItemId = contractItem.linkedRequestItemId
       LEFT JOIN (
-        SELECT requestNo AS keyRequestNo, deviceCode AS keyDeviceCode, supplierId AS fallbackSupplierId, undertakingUnitId AS fallbackUndertakingUnitId
+        SELECT requestNo AS keyRequestNo, deviceCode AS keyDeviceCode, supplierId AS fallbackSupplierId, undertakingUnitId AS fallbackUndertakingUnitId, customerId AS fallbackCustomerId
         FROM requestitems
       ) AS riByBusinessKey
         ON riByBusinessKey.keyRequestNo = mpw.requestNo
@@ -447,12 +435,12 @@ async function insertPrepaymentLine(line: PrepaymentContractLineDraft) {
     `
       INSERT INTO prepaymentcontractitems
         (id, contractNo, lineType, purchaseOrderItemId, requestItemId, countryCode, batchName, requestNo, poNo,
-         deviceCode, modelCode, nameEn, supplierId, undertakingUnitId, quantity, actualCurrency, actualUnitPrice, actualTotalAmount,
+         deviceCode, modelCode, nameEn, supplierId, undertakingUnitId, customerId, quantity, actualCurrency, actualUnitPrice, actualTotalAmount,
          contractCurrency, contractUnitPrice, contractTotalAmount, writeOffStartMonth, feeName, feeDescription,
          prepaymentAmount, currency)
       VALUES
         (:id, :contractNo, :lineType, :purchaseOrderItemId, :requestItemId, :countryCode, :batchName, :requestNo, :poNo,
-        :deviceCode, :modelCode, :nameEn, :supplierId, :undertakingUnitId, :quantity, :actualCurrency, :actualUnitPrice, :actualTotalAmount,
+        :deviceCode, :modelCode, :nameEn, :supplierId, :undertakingUnitId, :customerId, :quantity, :actualCurrency, :actualUnitPrice, :actualTotalAmount,
          :contractCurrency, :contractUnitPrice, :contractTotalAmount, :writeOffStartMonth, :feeName, :feeDescription,
          :contractTotalAmount, :contractCurrency)
     `,

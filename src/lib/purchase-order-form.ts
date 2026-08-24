@@ -4,6 +4,8 @@ export type PurchaseDetailDraft = {
   taxExcludedUnitPrice?: number;
   taxSurcharge?: number;
   unitPrice: number;
+  capexUnitPrice?: number;
+  opexUnitPrice?: number;
   hardwareCoefficient: number;
   softwareCoefficient: number;
 };
@@ -39,6 +41,8 @@ export function buildPurchaseOrderItemRows({
       taxExcludedUnitPrice,
       taxSurcharge,
       unitPrice,
+      capexUnitPrice: detail.capexUnitPrice ?? 0,
+      opexUnitPrice: detail.opexUnitPrice ?? 0,
       hardwareCoefficient: detail.hardwareCoefficient,
       softwareCoefficient: detail.softwareCoefficient,
       totalCoefficient,

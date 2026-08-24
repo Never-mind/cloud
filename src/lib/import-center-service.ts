@@ -44,7 +44,7 @@ const EXECUTION_PLAN: Array<{
     key: "requestItems",
     table: "requestitems",
     primaryKey: "id",
-    fields: ["id", "requestNo", "deviceCode", "supplierId", "undertakingUnitId", "requestedAt", "quantity"],
+    fields: ["id", "requestNo", "deviceCode", "supplierId", "undertakingUnitId", "customerId", "requestedAt", "quantity"],
   },
   {
     key: "purchaseOrders",

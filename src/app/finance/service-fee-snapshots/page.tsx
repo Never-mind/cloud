@@ -1,6 +1,5 @@
-import { EntityPage } from "@/components/entity-page";
-import { getEntityConfig } from "@/lib/modules";
+import { ServiceFeeStatementsPage } from "@/components/service-fee-statements-page";
 
 export default function Page() {
-  return <EntityPage config={getEntityConfig("service-fee-snapshots")!} hideCreateImportTemplate />;
+  return <ServiceFeeStatementsPage />;
 }

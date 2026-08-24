@@ -2,5 +2,5 @@ import { EntityPage } from "@/components/entity-page";
 import { getEntityConfig } from "@/lib/modules";
 
 export default function Page() {
-  return <EntityPage config={getEntityConfig("service-fee-snapshot-items")!} hideCreateImportTemplate />;
+  return <EntityPage config={getEntityConfig("service-fee-snapshot-items")!} hideCreateImportTemplate readOnly />;
 }

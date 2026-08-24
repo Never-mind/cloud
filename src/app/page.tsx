@@ -1,8 +1,18 @@
 import Link from "next/link";
 import { HomeDashboardPanel } from "@/components/home-dashboard-panel";
 import { navGroups } from "@/lib/modules";
+import { filterNavGroupsByModuleFeatures } from "@/lib/module-feature-definitions";
+import { getModuleFeatureState } from "@/lib/module-feature-service";
 
-export default function HomePage() {
+export const dynamic = "force-dynamic";
+
+export default async function HomePage() {
+  let enabledNavGroups = navGroups;
+  try {
+    enabledNavGroups = filterNavGroupsByModuleFeatures(navGroups, await getModuleFeatureState());
+  } catch {
+    // Keep the page available when the new configuration table has not been initialized yet.
+  }
   return (
     <>
       <div className="mb-5">
@@ -11,7 +21,7 @@ export default function HomePage() {
       </div>
       <HomeDashboardPanel />
       <div className="grid grid-cols-5 gap-4">
-        {navGroups.map((group) => (
+        {enabledNavGroups.map((group) => (
           <div className="border border-[#ebeef5] bg-white p-4 shadow-sm" key={group.title}>
             <div className="mb-3 text-base font-medium text-[#303133]">{group.title}</div>
             <div className="space-y-2">

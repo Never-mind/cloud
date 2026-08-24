@@ -1,4 +1,7 @@
+import { navGroups } from "./modules";
+
 export type WorkspaceTab = {
+  id?: string;
   route: string;
   title: string;
   closable: boolean;
@@ -10,16 +13,38 @@ export type WorkspaceState = {
 };
 
 export const HOME_TAB: WorkspaceTab = {
+  id: "workspace-home",
   route: "/",
   title: "首页",
   closable: false,
 };
 
+export type WorkspaceMessage =
+  | { type: "cloud-power:route"; route: string; title: string }
+  | { type: "cloud-power:open-tab"; route: string; title: string };
+
+const workspaceModuleTitles = new Map(
+  navGroups
+    .flatMap((group) => group.children?.flatMap((child) => child.items) ?? group.items)
+    .map((item) => [item.route, item.title]),
+);
+
+export function getWorkspaceTabId(tab: WorkspaceTab) {
+  return tab.id ?? `workspace-route:${tab.route}`;
+}
+
+export function normalizeWorkspaceState(state: WorkspaceState): WorkspaceState {
+  return {
+    tabs: state.tabs.map((tab) => ({ ...tab, id: getWorkspaceTabId(tab) })),
+    activeRoute: state.activeRoute,
+  };
+}
+
 export function createInitialWorkspace(route = "/", title = "首页"): WorkspaceState {
   if (route === "/") {
     return { tabs: [HOME_TAB], activeRoute: "/" };
   }
-  const tab = { route, title, closable: true };
+  const tab = { id: `workspace-route:${route}`, route, title, closable: true };
   return { tabs: [HOME_TAB, tab], activeRoute: route };
 }
 
@@ -28,10 +53,34 @@ export function openWorkspaceTab(state: WorkspaceState, tab: WorkspaceTab): Work
   if (existing) {
     return { ...state, activeRoute: existing.route };
   }
+  const nextTab = { ...tab, id: tab.id ?? `workspace-route:${tab.route}` };
   return {
-    tabs: [...state.tabs, tab],
-    activeRoute: tab.route,
+    tabs: [...state.tabs, nextTab],
+    activeRoute: nextTab.route,
   };
+}
+
+export function updateWorkspaceTabRoute(
+  state: WorkspaceState,
+  tabId: string,
+  route: string,
+  title: string,
+): WorkspaceState {
+  const index = state.tabs.findIndex((tab) => getWorkspaceTabId(tab) === tabId);
+  if (index < 0) return state;
+
+  const duplicate = state.tabs.find((tab, tabIndex) => tabIndex !== index && tab.route === route);
+  if (duplicate) {
+    return {
+      ...state,
+      activeRoute: duplicate.route,
+      tabs: state.tabs.filter((_, tabIndex) => tabIndex !== index),
+    };
+  }
+
+  const tabs = [...state.tabs];
+  tabs[index] = { ...tabs[index], id: tabId, route, title };
+  return { tabs, activeRoute: route };
 }
 
 export function closeWorkspaceTab(state: WorkspaceState, route: string): WorkspaceState {
@@ -55,4 +104,43 @@ export function getEmbeddedRoute(route: string) {
   if (route === "/") return "/";
   const separator = route.includes("?") ? "&" : "?";
   return `${route}${separator}embed=1`;
+}
+
+export function getWorkspaceRouteFromLocation(pathname: string, search: string) {
+  const params = new URLSearchParams(search);
+  params.delete("embed");
+  const query = params.toString();
+  return query ? `${pathname}?${query}` : pathname;
+}
+
+export function getWorkspaceTabTitle(route: string) {
+  const pathname = new URL(route, "http://local").pathname.replace(/\/$/, "") || "/";
+  const exactTitles: Record<string, string> = {
+    "/": "首页",
+    "/finance/prepayment-contracts": "预付款合同",
+    "/finance/monthly-prepayment-writeoffs": "预付款每月核销明细",
+    "/finance/service-fee-snapshots": "服务费对账单",
+    "/finance/service-fee-snapshot-items": "服务费对账单明细",
+    "/finance/billing-statements": "月账单对账单",
+  };
+  if (exactTitles[pathname]) return exactTitles[pathname];
+  const moduleTitle = workspaceModuleTitles.get(pathname);
+  if (moduleTitle) return moduleTitle;
+  if (/^\/finance\/prepayment-contracts\/[^/]+$/.test(pathname)) return "预付款合同明细";
+  if (/^\/finance\/billing-statements\/[^/]+$/.test(pathname)) return "月账单对账单明细";
+  if (/^\/requests\/orders\/[^/]+$/.test(pathname)) return "需求单明细";
+  if (/^\/purchase\/orders\/[^/]+$/.test(pathname)) return "采购订单明细";
+  if (/^\/finance\/billing-adjustments\/[^/]+$/.test(pathname)) return "月账单调整单明细";
+  if (/^\/finance\/prepayment-writeoff-adjustments\/[^/]+$/.test(pathname)) return "预付款核销调整单明细";
+  if (/^\/finance\/balance-settlements\/[^/]+$/.test(pathname)) return "实例结差明细";
+  return "业务明细";
+}
+
+export function postWorkspaceMessage(message: WorkspaceMessage) {
+  if (typeof window === "undefined") return;
+  if (window.parent === window) {
+    window.location.assign(message.route);
+    return;
+  }
+  window.parent.postMessage(message, window.location.origin);
 }

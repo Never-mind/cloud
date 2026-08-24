@@ -1,12 +1,23 @@
-import { execute, queryRows, type Row } from "./db";
+import { randomUUID } from "node:crypto";
+import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
+import path from "node:path";
+import type { PoolConnection } from "mysql2/promise";
+import {
+  execute,
+  executeInTransaction,
+  queryRows,
+  queryRowsInTransaction,
+  withTransaction,
+  type Row,
+} from "./db";
 import { attachPartyCodes } from "./party-display";
 import { firstDayOfMonth } from "./billing-workflow";
 import { DEFAULT_PAGE_SIZE, normalizePageSize } from "./pagination";
+import { sanitizeDocumentFileName } from "./document-utils";
 import {
   type ServiceFeeBillingRow,
   type ServiceFeePrepaymentRow,
   type ServiceFeeRow,
-  type ServiceFeeSummary,
 } from "./service-fee-workflow";
 
 export type ServiceFeeFilters = {
@@ -18,47 +29,188 @@ export type ServiceFeeFilters = {
   lineType?: string;
 };
 
+export type ServiceFeeStatementFilters = {
+  keyword?: string;
+  writeOffMonth?: string;
+  countryCode?: string;
+  status?: string;
+  invoiceStatus?: string;
+  repaymentStatus?: string;
+};
+
+const invoiceUploadRoot = path.join(process.cwd(), "uploads", "service-fee-invoices");
+const allowedInvoiceExtensions = new Set([".pdf", ".doc", ".docx", ".xls", ".xlsx", ".jpg", ".jpeg", ".png"]);
+const maxInvoiceFileSize = 25 * 1024 * 1024;
+
 export async function calculateServiceFees(searchParams: URLSearchParams) {
   const filters = getFilters(searchParams);
   const exportAll = searchParams.get("export") === "1";
+  const includeSummary = searchParams.get("includeSummary") !== "0";
   // Snapshot confirmation omits `page`, so it deliberately persists every
   // filtered row instead of silently saving only the first result page.
   const shouldPaginate = !exportAll && searchParams.has("page");
   const requestedPage = Math.max(1, Math.floor(Number(searchParams.get("page") ?? 1) || 1));
   const pageSize = normalizePageSize(Number(searchParams.get("pageSize") ?? DEFAULT_PAGE_SIZE));
   const { sql, params } = buildServiceFeeQuery(filters);
-  const [{ total: totalValue }] = await queryRows<{ total: number }>(`SELECT COUNT(*) AS total FROM (${sql}) serviceFeeRows`, params);
-  const total = Number(totalValue ?? 0);
+  const loadPage = (targetPage: number) => queryRows<ServiceFeeRow>(
+    `
+      SELECT serviceFeeRows.*
+      FROM (${sql}) serviceFeeRows
+      ORDER BY writeOffMonth, countryCode, batchName, requestNo, poNo, deviceCode, nameEn
+      ${shouldPaginate ? "LIMIT :limit OFFSET :offset" : ""}
+    `,
+    shouldPaginate ? { ...params, limit: pageSize, offset: (targetPage - 1) * pageSize } : params,
+  );
+  const queryRowsWithSummary = shouldPaginate
+    ? await loadPage(requestedPage)
+    : await loadPage(1);
+  const rows = queryRowsWithSummary;
+  let total = shouldPaginate ? Number(searchParams.get("knownTotal") ?? 0) : rows.length;
+  let summary = shouldPaginate ? null : summarizeServiceFeeRows(rows);
+
+  if (shouldPaginate && includeSummary) {
+    const summaryQuery = canUseLightweightServiceFeeSummary(filters)
+      ? buildLightweightServiceFeeSummaryQuery(filters)
+      : {
+        sql: `
+          SELECT COUNT(*) AS total,
+            COALESCE(SUM(serviceFeeRows.billingAmount), 0) AS billingTotal,
+            COALESCE(SUM(serviceFeeRows.prepaymentAmount), 0) AS prepaymentTotal,
+            COALESCE(SUM(serviceFeeRows.serviceFeeAmount), 0) AS serviceFeeTotal,
+            COALESCE(SUM(CASE WHEN serviceFeeRows.lineType = 'instance' THEN serviceFeeRows.serviceFeeAmount ELSE 0 END), 0) AS instanceServiceFeeTotal,
+            COALESCE(SUM(CASE WHEN serviceFeeRows.lineType = 'fee' THEN serviceFeeRows.serviceFeeAmount ELSE 0 END), 0) AS feeServiceFeeTotal
+          FROM (${sql}) serviceFeeRows
+        `,
+        params,
+      };
+    const summaryRows = await queryRows<ServiceFeeSummaryRow>(summaryQuery.sql, summaryQuery.params);
+    const nextSummary = summaryRows[0];
+    total = Number(nextSummary?.total ?? 0);
+    summary = nextSummary ? normalizeServiceFeeSummary(nextSummary) : summarizeServiceFeeRows(rows);
+  }
+
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const page = shouldPaginate ? Math.min(requestedPage, totalPages) : 1;
-  const rows = await queryRows<ServiceFeeRow>(
-    `${sql} ORDER BY writeOffMonth, countryCode, batchName, requestNo, poNo, deviceCode, nameEn ${shouldPaginate ? "LIMIT :limit OFFSET :offset" : ""}`,
-    shouldPaginate ? { ...params, limit: pageSize, offset: (page - 1) * pageSize } : params,
-  );
-  const [summary] = await queryRows<ServiceFeeSummary>(
-    `SELECT
-       COALESCE(SUM(billingAmount), 0) AS billingTotal,
-       COALESCE(SUM(prepaymentAmount), 0) AS prepaymentTotal,
-       COALESCE(SUM(serviceFeeAmount), 0) AS serviceFeeTotal,
-       COALESCE(SUM(CASE WHEN lineType = 'instance' THEN serviceFeeAmount ELSE 0 END), 0) AS instanceServiceFeeTotal,
-       COALESCE(SUM(CASE WHEN lineType = 'fee' THEN serviceFeeAmount ELSE 0 END), 0) AS feeServiceFeeTotal
-     FROM (${sql}) serviceFeeRows`,
-    params,
-  );
+  if (shouldPaginate && !rows.length && requestedPage > 1 && page !== requestedPage) {
+    const correctedParams = new URLSearchParams(searchParams);
+    correctedParams.set("page", String(page));
+    return calculateServiceFees(correctedParams);
+  }
 
   return {
     rows: await attachPartyCodes(rows),
-    summary: {
-      billingTotal: Number(summary?.billingTotal ?? 0),
-      prepaymentTotal: Number(summary?.prepaymentTotal ?? 0),
-      serviceFeeTotal: Number(summary?.serviceFeeTotal ?? 0),
-      instanceServiceFeeTotal: Number(summary?.instanceServiceFeeTotal ?? 0),
-      feeServiceFeeTotal: Number(summary?.feeServiceFeeTotal ?? 0),
-    },
+    summary: summary ?? emptyServiceFeeSummary(),
     total,
     page,
     pageSize,
     totalPages,
+  };
+}
+
+type ServiceFeeSummaryRow = {
+  total?: number | string | null;
+  billingTotal?: number | string | null;
+  prepaymentTotal?: number | string | null;
+  serviceFeeTotal?: number | string | null;
+  instanceServiceFeeTotal?: number | string | null;
+  feeServiceFeeTotal?: number | string | null;
+};
+
+function emptyServiceFeeSummary() {
+  return { billingTotal: 0, prepaymentTotal: 0, serviceFeeTotal: 0, instanceServiceFeeTotal: 0, feeServiceFeeTotal: 0 };
+}
+
+function normalizeServiceFeeSummary(row: ServiceFeeSummaryRow) {
+  return {
+    billingTotal: Number(row.billingTotal ?? 0),
+    prepaymentTotal: Number(row.prepaymentTotal ?? 0),
+    serviceFeeTotal: Number(row.serviceFeeTotal ?? 0),
+    instanceServiceFeeTotal: Number(row.instanceServiceFeeTotal ?? 0),
+    feeServiceFeeTotal: Number(row.feeServiceFeeTotal ?? 0),
+  };
+}
+
+function summarizeServiceFeeRows(rows: ServiceFeeRow[]) {
+  return rows.reduce((summary, row) => {
+    const billingAmount = Number(row.billingAmount ?? 0);
+    const prepaymentAmount = Number(row.prepaymentAmount ?? 0);
+    const serviceFeeAmount = Number(row.serviceFeeAmount ?? 0);
+    summary.billingTotal += billingAmount;
+    summary.prepaymentTotal += prepaymentAmount;
+    summary.serviceFeeTotal += serviceFeeAmount;
+    if (row.lineType === "fee") summary.feeServiceFeeTotal += serviceFeeAmount;
+    else summary.instanceServiceFeeTotal += serviceFeeAmount;
+    return summary;
+  }, emptyServiceFeeSummary());
+}
+
+function canUseLightweightServiceFeeSummary(filters: ServiceFeeFilters) {
+  return !filters.keyword;
+}
+
+function buildLightweightServiceFeeSummaryQuery(filters: ServiceFeeFilters) {
+  const params: Row = {};
+  const billingWhere: string[] = [];
+  const prepaymentWhere: string[] = [];
+  for (const [column, value] of [["startMonth", filters.startMonth], ["endMonth", filters.endMonth]] as const) {
+    if (!value) continue;
+    const paramName = column;
+    params[paramName] = firstDayOfMonth(value);
+    const operator = column === "startMonth" ? ">=" : "<=";
+    billingWhere.push(`m.writeOffMonth ${operator} :${paramName}`);
+    prepaymentWhere.push(`p.writeOffMonth ${operator} :${paramName}`);
+  }
+  if (filters.countryCode) {
+    params.countryCode = filters.countryCode;
+    billingWhere.push("m.countryCode = :countryCode");
+    prepaymentWhere.push("p.countryCode = :countryCode");
+  }
+  if (filters.batchName) {
+    params.batchName = filters.batchName;
+    billingWhere.push("m.batchName = :batchName");
+    prepaymentWhere.push("p.batchName = :batchName");
+  }
+  if (filters.lineType) params.lineType = filters.lineType;
+  const billingFilter = billingWhere.length ? `WHERE ${billingWhere.join(" AND ")}` : "";
+  const prepaymentFilter = prepaymentWhere.length ? `WHERE ${prepaymentWhere.join(" AND ")}` : "";
+  const lineFilter = filters.lineType ? "WHERE combined.lineType = :lineType" : "";
+  return {
+    sql: `
+      WITH billing AS (
+        SELECT CONCAT_WS('::', DATE_FORMAT(m.writeOffMonth, '%Y-%m-%d'), m.countryCode, m.batchName, m.requestNo, m.poNo, m.deviceCode, 'instance') AS rowKey,
+               SUM(COALESCE(m.monthlyTotalAmount, m.quantity * m.monthlyAmount, 0)) AS billingAmount
+        FROM monthlybillingwriteoffs m
+        ${billingFilter}
+        GROUP BY rowKey
+      ), prepayment AS (
+        SELECT CASE WHEN p.lineType = 'fee'
+                 THEN CONCAT_WS('::', DATE_FORMAT(p.writeOffMonth, '%Y-%m-%d'), p.countryCode, p.batchName, p.requestNo, p.poNo, p.contractNo, COALESCE(p.contractLineId, p.id), 'fee')
+                 ELSE CONCAT_WS('::', DATE_FORMAT(p.writeOffMonth, '%Y-%m-%d'), p.countryCode, p.batchName, p.requestNo, p.poNo, p.deviceCode, 'instance') END AS rowKey,
+               CASE WHEN p.lineType = 'fee' THEN 'fee' ELSE 'instance' END AS lineType,
+               SUM(COALESCE(p.monthlyAmount, 0)) AS prepaymentAmount
+        FROM monthlyprepaymentwriteoffs p
+        ${prepaymentFilter}
+        GROUP BY rowKey, lineType
+      ), rowKeys AS (
+        SELECT rowKey FROM billing UNION SELECT rowKey FROM prepayment
+      ), combined AS (
+        SELECT rk.rowKey, COALESCE(b.billingAmount, 0) AS billingAmount,
+               COALESCE(p.prepaymentAmount, 0) AS prepaymentAmount,
+               COALESCE(p.lineType, 'instance') AS lineType
+        FROM rowKeys rk
+        LEFT JOIN billing b ON b.rowKey = rk.rowKey
+        LEFT JOIN prepayment p ON p.rowKey = rk.rowKey
+      )
+      SELECT COUNT(*) AS total,
+             COALESCE(SUM(combined.billingAmount), 0) AS billingTotal,
+             COALESCE(SUM(combined.prepaymentAmount), 0) AS prepaymentTotal,
+             COALESCE(SUM(combined.billingAmount - combined.prepaymentAmount), 0) AS serviceFeeTotal,
+             COALESCE(SUM(CASE WHEN combined.lineType = 'instance' THEN combined.billingAmount - combined.prepaymentAmount ELSE 0 END), 0) AS instanceServiceFeeTotal,
+             COALESCE(SUM(CASE WHEN combined.lineType = 'fee' THEN combined.billingAmount - combined.prepaymentAmount ELSE 0 END), 0) AS feeServiceFeeTotal
+      FROM combined
+      ${lineFilter}
+    `,
+    params,
   };
 }
 
@@ -105,12 +257,14 @@ function buildServiceFeeQuery(filters: ServiceFeeFilters) {
         MAX(m.modelCode) AS modelCode, MAX(m.nameEn) AS nameEn,
         MAX(COALESCE(NULLIF(m.supplierId, ''), ri.supplierId, fallback.supplierId)) AS supplierId,
         MAX(COALESCE(NULLIF(m.undertakingUnitId, ''), ri.undertakingUnitId, fallback.undertakingUnitId)) AS undertakingUnitId,
+        MAX(COALESCE(NULLIF(m.customerId, ''), ri.customerId, fallback.customerId)) AS customerId,
         MAX(m.quantity) AS quantity, MAX(m.currency) AS currency, MAX(COALESCE(country.vatRate, 0)) AS vatRate,
         SUM(COALESCE(m.monthlyTotalAmount, m.quantity * m.monthlyAmount, 0)) AS billingAmount,
         GROUP_CONCAT(m.id ORDER BY m.id SEPARATOR ',') AS billingSourceIds
       FROM monthlybillingwriteoffs m
       LEFT JOIN billinginstanceledgers ledger ON ledger.ledgerId = m.ledgerId
-      LEFT JOIN requestitems ri ON ri.id = ledger.purchaseOrderItemId
+      LEFT JOIN purchaseorderitems purchaseItem ON purchaseItem.id = ledger.purchaseOrderItemId
+      LEFT JOIN requestitems ri ON ri.id = purchaseItem.requestItemId
       LEFT JOIN requestitems fallback ON fallback.requestNo = m.requestNo AND fallback.deviceCode = m.deviceCode
       LEFT JOIN countries country ON country.code = m.countryCode
       ${whereBilling}
@@ -124,6 +278,7 @@ function buildServiceFeeQuery(filters: ServiceFeeFilters) {
         MAX(p.modelCode) AS modelCode, MAX(p.nameEn) AS nameEn,
         MAX(COALESCE(NULLIF(p.supplierId, ''), ri.supplierId, fallback.supplierId)) AS supplierId,
         MAX(COALESCE(NULLIF(p.undertakingUnitId, ''), ri.undertakingUnitId, fallback.undertakingUnitId)) AS undertakingUnitId,
+        MAX(COALESCE(NULLIF(p.customerId, ''), ri.customerId, fallback.customerId)) AS customerId,
         MAX(p.quantity) AS quantity, MAX(p.currency) AS currency, MAX(COALESCE(country.vatRate, 0)) AS vatRate,
         MAX(CASE WHEN p.lineType = 'fee' THEN 'fee' ELSE 'instance' END) AS lineType,
         SUM(COALESCE(p.monthlyAmount, 0)) AS prepaymentAmount,
@@ -151,6 +306,7 @@ function buildServiceFeeQuery(filters: ServiceFeeFilters) {
         COALESCE(b.nameEn, p.nameEn) AS nameEn,
         COALESCE(b.supplierId, p.supplierId) AS supplierId,
         COALESCE(b.undertakingUnitId, p.undertakingUnitId) AS undertakingUnitId,
+        COALESCE(b.customerId, p.customerId) AS customerId,
         COALESCE(b.quantity, p.quantity, 0) AS quantity,
         COALESCE(b.currency, p.currency) AS currency,
         b.currency AS billingCurrency,
@@ -174,61 +330,418 @@ function buildServiceFeeQuery(filters: ServiceFeeFilters) {
   return { sql, params };
 }
 
-export async function confirmServiceFeeSnapshot({
+export async function createServiceFeeStatementDraft({
   snapshotNo,
   filters,
 }: {
   snapshotNo?: string;
   filters: ServiceFeeFilters;
 }) {
+  const statementFilters = normalizeServiceFeeStatementFilters(filters);
   const params = new URLSearchParams();
-  for (const [key, value] of Object.entries(filters)) {
+  for (const [key, value] of Object.entries(statementFilters)) {
     if (value) params.set(key, value);
   }
   const calculated = await calculateServiceFees(params);
-  const finalSnapshotNo = snapshotNo?.trim() || buildSnapshotNo();
-
-  await execute("DELETE FROM servicefeesnapshotitems WHERE snapshotNo = :snapshotNo", {
-    snapshotNo: finalSnapshotNo,
-  });
-  await execute(
-    `
-      INSERT INTO servicefeesnapshots
-        (snapshotNo, status, startMonth, endMonth, countryCode, batchName, keyword,
-         billingTotal, prepaymentTotal, serviceFeeTotal, instanceServiceFeeTotal, feeServiceFeeTotal, confirmedAt)
-      VALUES
-        (:snapshotNo, '已确认', :startMonth, :endMonth, :countryCode, :batchName, :keyword,
-         :billingTotal, :prepaymentTotal, :serviceFeeTotal, :instanceServiceFeeTotal, :feeServiceFeeTotal, CURRENT_TIMESTAMP)
-      ON DUPLICATE KEY UPDATE
-        status = '已确认',
-        startMonth = VALUES(startMonth),
-        endMonth = VALUES(endMonth),
-        countryCode = VALUES(countryCode),
-        batchName = VALUES(batchName),
-        keyword = VALUES(keyword),
-        billingTotal = VALUES(billingTotal),
-        prepaymentTotal = VALUES(prepaymentTotal),
-        serviceFeeTotal = VALUES(serviceFeeTotal),
-        instanceServiceFeeTotal = VALUES(instanceServiceFeeTotal),
-        feeServiceFeeTotal = VALUES(feeServiceFeeTotal),
-        confirmedAt = CURRENT_TIMESTAMP
-    `,
-    {
-      snapshotNo: finalSnapshotNo,
-      startMonth: filters.startMonth ? firstDayOfMonth(filters.startMonth) : null,
-      endMonth: filters.endMonth ? firstDayOfMonth(filters.endMonth) : null,
-      countryCode: filters.countryCode || null,
-      batchName: filters.batchName || null,
-      keyword: filters.keyword || null,
-      ...calculated.summary,
-    },
-  );
-
-  for (const [index, row] of calculated.rows.entries()) {
-    await insertSnapshotItem(finalSnapshotNo, index + 1, row);
+  if (!calculated.rows.length) throw new Error("该国家和核销月份没有可生成的服务费明细");
+  if (calculated.rows.some((row) => row.countryCode !== statementFilters.countryCode)) {
+    throw new Error("服务费对账单只能包含一个国家的数据");
+  }
+  if (calculated.rows.some((row) => firstDayOfMonth(row.writeOffMonth) !== statementFilters.startMonth)) {
+    throw new Error("服务费对账单只能包含一个核销月份的数据");
   }
 
+  const finalSnapshotNo = snapshotNo?.trim() || buildSnapshotNo();
+
+  await withTransaction(async (connection) => {
+    const existingRows = await queryRowsInTransaction<{ snapshotNo: string; status: string }>(
+      connection,
+      "SELECT snapshotNo, status FROM servicefeesnapshots WHERE snapshotNo = :snapshotNo LIMIT 1 FOR UPDATE",
+      { snapshotNo: finalSnapshotNo },
+    );
+    if (existingRows[0]?.status === "已确认") throw new Error("已确认的服务费对账单不能重新生成");
+
+    const duplicateRows = await queryRowsInTransaction<{ snapshotNo: string }>(
+      connection,
+      `
+        SELECT snapshotNo
+        FROM servicefeesnapshots
+        WHERE countryCode = :countryCode
+          AND COALESCE(writeOffMonth, startMonth, endMonth) = :writeOffMonth
+          AND snapshotNo <> :snapshotNo
+        LIMIT 1
+        FOR UPDATE
+      `,
+      {
+        countryCode: statementFilters.countryCode,
+        writeOffMonth: statementFilters.startMonth,
+        snapshotNo: finalSnapshotNo,
+      },
+    );
+    if (duplicateRows[0]) {
+      throw new Error(`该国家和核销月份已存在服务费对账单 ${duplicateRows[0].snapshotNo}`);
+    }
+
+    await executeInTransaction(connection, "DELETE FROM servicefeesnapshotitems WHERE snapshotNo = :snapshotNo", {
+      snapshotNo: finalSnapshotNo,
+    });
+    await executeInTransaction(
+      connection,
+      `
+        INSERT INTO servicefeesnapshots
+          (snapshotNo, status, writeOffMonth, startMonth, endMonth, countryCode, batchName, keyword,
+           billingTotal, prepaymentTotal, serviceFeeTotal, instanceServiceFeeTotal, feeServiceFeeTotal, confirmedAt)
+        VALUES
+          (:snapshotNo, '未确认', :writeOffMonth, :writeOffMonth, :writeOffMonth, :countryCode, NULL, NULL,
+           :billingTotal, :prepaymentTotal, :serviceFeeTotal, :instanceServiceFeeTotal, :feeServiceFeeTotal, NULL)
+        ON DUPLICATE KEY UPDATE
+          status = '未确认',
+          writeOffMonth = VALUES(writeOffMonth),
+          startMonth = VALUES(startMonth),
+          endMonth = VALUES(endMonth),
+          countryCode = VALUES(countryCode),
+          batchName = NULL,
+          keyword = NULL,
+          billingTotal = VALUES(billingTotal),
+          prepaymentTotal = VALUES(prepaymentTotal),
+          serviceFeeTotal = VALUES(serviceFeeTotal),
+          instanceServiceFeeTotal = VALUES(instanceServiceFeeTotal),
+          feeServiceFeeTotal = VALUES(feeServiceFeeTotal),
+          confirmedAt = NULL
+      `,
+      {
+        snapshotNo: finalSnapshotNo,
+        writeOffMonth: statementFilters.startMonth,
+        countryCode: statementFilters.countryCode,
+        ...calculated.summary,
+      },
+    );
+
+    for (const [index, row] of calculated.rows.entries()) {
+      await insertSnapshotItem(connection, finalSnapshotNo, index + 1, row);
+    }
+  });
+
   return { snapshotNo: finalSnapshotNo, ...calculated };
+}
+
+export async function listServiceFeeStatements(searchParams: URLSearchParams) {
+  const filters: ServiceFeeStatementFilters = {
+    keyword: searchParams.get("keyword")?.trim() || "",
+    writeOffMonth: searchParams.get("writeOffMonth")?.trim() || "",
+    countryCode: searchParams.get("countryCode")?.trim() || "",
+    status: searchParams.get("status")?.trim() || "",
+    invoiceStatus: searchParams.get("invoiceStatus")?.trim() || "",
+    repaymentStatus: searchParams.get("repaymentStatus")?.trim() || "",
+  };
+  const exportAll = searchParams.get("export") === "1";
+  const requestedPage = Math.max(1, Math.floor(Number(searchParams.get("page") ?? 1) || 1));
+  const pageSize = normalizePageSize(Number(searchParams.get("pageSize") ?? DEFAULT_PAGE_SIZE));
+  const whereParts: string[] = [];
+  const params: Row = {};
+  if (filters.keyword) {
+    whereParts.push("CONCAT_WS(' ', snapshotNo, countryCode, status, invoiceStatus, repaymentStatus, invoiceOriginalName) LIKE :keyword");
+    params.keyword = `%${filters.keyword}%`;
+  }
+  if (filters.writeOffMonth) {
+    whereParts.push("COALESCE(writeOffMonth, startMonth, endMonth) = :writeOffMonth");
+    params.writeOffMonth = firstDayOfMonth(filters.writeOffMonth);
+  }
+  for (const key of ["countryCode", "status", "invoiceStatus", "repaymentStatus"] as const) {
+    if (!filters[key]) continue;
+    whereParts.push(`${key} = :${key}`);
+    params[key] = filters[key];
+  }
+  const where = whereParts.length ? `WHERE ${whereParts.join(" AND ")}` : "";
+  const [{ total: totalValue }] = await queryRows<{ total: number }>(
+    `SELECT COUNT(*) AS total FROM servicefeesnapshots ${where}`,
+    params,
+  );
+  const total = Number(totalValue ?? 0);
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const page = exportAll ? 1 : Math.min(requestedPage, totalPages);
+  const rows = await queryRows<Row>(
+    `
+      SELECT snapshotNo,
+             status,
+             DATE_FORMAT(COALESCE(writeOffMonth, startMonth, endMonth), '%Y-%m-%d') AS writeOffMonth,
+             countryCode,
+             billingTotal,
+             prepaymentTotal,
+             serviceFeeTotal,
+             instanceServiceFeeTotal,
+             feeServiceFeeTotal,
+             repaymentStatus,
+             receivingUnitId,
+             payerCustomerId,
+             repaymentCurrency,
+             repaymentAmount,
+             DATE_FORMAT(repaymentDate, '%Y-%m-%d') AS repaymentDate,
+             DATE_FORMAT(repaymentUpdatedAt, '%Y-%m-%d') AS repaymentUpdatedAt,
+             invoiceStatus,
+             invoiceOriginalName,
+             invoiceMimeType,
+             invoiceFileSize,
+             invoiceUploadedBy,
+             DATE_FORMAT(invoiceUploadedAt, '%Y-%m-%d') AS invoiceUploadedAt,
+             DATE_FORMAT(confirmedAt, '%Y-%m-%d') AS confirmedAt,
+             DATE_FORMAT(createdAt, '%Y-%m-%d') AS createdAt
+      FROM servicefeesnapshots
+      ${where}
+      ORDER BY COALESCE(writeOffMonth, startMonth, endMonth) DESC, createdAt DESC
+      ${exportAll ? "" : "LIMIT :limit OFFSET :offset"}
+    `,
+    exportAll ? params : { ...params, limit: pageSize, offset: (page - 1) * pageSize },
+  );
+  const defaultsBySnapshot = new Map<string, Row>();
+  if (rows.length) {
+    const snapshotNos = rows.map((row) => String(row.snapshotNo));
+    const defaults = await queryRows<Row>(
+      `
+        SELECT snapshotNo,
+          CASE WHEN COUNT(DISTINCT NULLIF(undertakingUnitId, '')) = 1 THEN MAX(NULLIF(undertakingUnitId, '')) ELSE NULL END AS defaultReceivingUnitId,
+          CASE WHEN COUNT(DISTINCT NULLIF(customerId, '')) = 1 THEN MAX(NULLIF(customerId, '')) ELSE NULL END AS defaultPayerCustomerId,
+          CASE WHEN COUNT(DISTINCT NULLIF(COALESCE(NULLIF(billingCurrency, ''), NULLIF(prepaymentCurrency, ''), NULLIF(currency, '')), '')) = 1
+            THEN MAX(NULLIF(COALESCE(NULLIF(billingCurrency, ''), NULLIF(prepaymentCurrency, ''), NULLIF(currency, '')), '')) ELSE NULL END AS defaultRepaymentCurrency
+        FROM servicefeesnapshotitems
+        WHERE snapshotNo IN (:snapshotNos)
+        GROUP BY snapshotNo
+      `,
+      { snapshotNos },
+    );
+    defaults.forEach((row) => defaultsBySnapshot.set(String(row.snapshotNo), row));
+  }
+  const rowsWithDefaults = rows.map((row) => ({
+    ...defaultsBySnapshot.get(String(row.snapshotNo)),
+    ...row,
+    defaultRepaymentAmount: Number(row.serviceFeeTotal ?? 0),
+  }));
+  return { rows: await attachRepaymentPartyCodes(rowsWithDefaults), total, page, pageSize, totalPages };
+}
+
+async function attachRepaymentPartyCodes(rows: Row[]) {
+  const receivingIds = Array.from(new Set(rows.map((row) => String(row.receivingUnitId ?? row.defaultReceivingUnitId ?? "")).filter(Boolean)));
+  const payerIds = Array.from(new Set(rows.map((row) => String(row.payerCustomerId ?? row.defaultPayerCustomerId ?? "")).filter(Boolean)));
+  const [units, customers] = await Promise.all([
+    receivingIds.length ? queryRows<Row>("SELECT undertakingUnitId, undertakingUnitCode FROM undertakingunits WHERE undertakingUnitId IN (:receivingIds)", { receivingIds }) : [],
+    payerIds.length ? queryRows<Row>("SELECT customerId, customerCode FROM customers WHERE customerId IN (:payerIds)", { payerIds }) : [],
+  ]);
+  const unitCodes = new Map(units.map((row) => [String(row.undertakingUnitId), String(row.undertakingUnitCode ?? row.undertakingUnitId ?? "")]));
+  const customerCodes = new Map(customers.map((row) => [String(row.customerId), String(row.customerCode ?? row.customerId ?? "")]));
+  return rows.map((row) => {
+    const receivingId = String(row.receivingUnitId ?? row.defaultReceivingUnitId ?? "");
+    const payerId = String(row.payerCustomerId ?? row.defaultPayerCustomerId ?? "");
+    return {
+      ...row,
+      receivingUnitCode: unitCodes.get(receivingId) ?? receivingId,
+      payerCustomerCode: customerCodes.get(payerId) ?? payerId,
+    };
+  });
+}
+
+export async function updateServiceFeeRepayment(snapshotNo: string, input: Row) {
+  const repaymentStatus = String(input.repaymentStatus ?? "").trim();
+  if (!new Set(["未回款", "已回款"]).has(repaymentStatus)) throw new Error("回款状态无效");
+  const receivingUnitId = String(input.receivingUnitId ?? "").trim();
+  const payerCustomerId = String(input.payerCustomerId ?? "").trim();
+  const repaymentCurrency = String(input.repaymentCurrency ?? "").trim();
+  const repaymentAmount = Number(input.repaymentAmount ?? 0);
+  const repaymentDate = String(input.repaymentDate ?? "").slice(0, 10);
+  if (repaymentStatus === "已回款") {
+    if (!receivingUnitId) throw new Error("请选择收款单位");
+    if (!payerCustomerId) throw new Error("请选择付款单位");
+    if (!repaymentCurrency) throw new Error("请选择回款币种");
+    if (!Number.isFinite(repaymentAmount)) throw new Error("回款金额不正确");
+    if (!repaymentDate) throw new Error("请选择回款日期");
+  }
+  const existing = await queryRows<Row>("SELECT snapshotNo FROM servicefeesnapshots WHERE snapshotNo = :snapshotNo LIMIT 1", { snapshotNo });
+  if (!existing[0]) throw new Error("服务费对账单不存在");
+  await execute(
+    `UPDATE servicefeesnapshots
+     SET repaymentStatus = :repaymentStatus, receivingUnitId = :receivingUnitId, payerCustomerId = :payerCustomerId,
+         repaymentCurrency = :repaymentCurrency, repaymentAmount = :repaymentAmount, repaymentDate = :repaymentDate,
+         repaymentUpdatedAt = CURRENT_TIMESTAMP
+     WHERE snapshotNo = :snapshotNo`,
+    {
+      snapshotNo,
+      repaymentStatus,
+      receivingUnitId: receivingUnitId || null,
+      payerCustomerId: payerCustomerId || null,
+      repaymentCurrency: repaymentCurrency || null,
+      repaymentAmount: Number.isFinite(repaymentAmount) ? repaymentAmount : null,
+      repaymentDate: repaymentDate || null,
+    },
+  );
+  return { snapshotNo, repaymentStatus, receivingUnitId, payerCustomerId, repaymentCurrency, repaymentAmount, repaymentDate };
+}
+
+export async function confirmServiceFeeStatement(snapshotNo: string) {
+  return withTransaction(async (connection) => {
+    const rows = await queryRowsInTransaction<{ status: string; countryCode: string | null; writeOffMonth: string | null }>(
+      connection,
+      "SELECT status, countryCode, COALESCE(writeOffMonth, startMonth, endMonth) AS writeOffMonth FROM servicefeesnapshots WHERE snapshotNo = :snapshotNo LIMIT 1 FOR UPDATE",
+      { snapshotNo },
+    );
+    const statement = rows[0];
+    if (!statement) throw new Error("服务费对账单不存在");
+    if (statement.status === "已确认") return { snapshotNo, status: "已确认" };
+    if (!statement.countryCode || !statement.writeOffMonth) throw new Error("对账单缺少国家或核销月份，不能确认");
+    const [{ total }] = await queryRowsInTransaction<{ total: number }>(
+      connection,
+      "SELECT COUNT(*) AS total FROM servicefeesnapshotitems WHERE snapshotNo = :snapshotNo",
+      { snapshotNo },
+    );
+    if (Number(total ?? 0) === 0) throw new Error("对账单没有明细，不能确认");
+    await executeInTransaction(
+      connection,
+      "UPDATE servicefeesnapshots SET status = '已确认', confirmedAt = CURRENT_TIMESTAMP WHERE snapshotNo = :snapshotNo",
+      { snapshotNo },
+    );
+    return { snapshotNo, status: "已确认" };
+  });
+}
+
+export async function deleteServiceFeeStatementDraft(snapshotNo: string) {
+  const invoiceFilePath = await withTransaction(async (connection) => {
+    const rows = await queryRowsInTransaction<{ status: string; invoiceFilePath: string | null }>(
+      connection,
+      "SELECT status, invoiceFilePath FROM servicefeesnapshots WHERE snapshotNo = :snapshotNo LIMIT 1 FOR UPDATE",
+      { snapshotNo },
+    );
+    if (!rows[0]) throw new Error("服务费对账单不存在");
+    if (rows[0].status === "已确认") throw new Error("已确认的服务费对账单不能删除或退回");
+    await executeInTransaction(connection, "DELETE FROM servicefeesnapshotitems WHERE snapshotNo = :snapshotNo", { snapshotNo });
+    await executeInTransaction(connection, "DELETE FROM servicefeesnapshots WHERE snapshotNo = :snapshotNo", { snapshotNo });
+    return rows[0].invoiceFilePath;
+  });
+  if (invoiceFilePath) await unlink(invoiceFilePath).catch(() => undefined);
+  return { snapshotNo };
+}
+
+export async function updateServiceFeeInvoiceStatus(snapshotNo: string, invoiceStatus: string) {
+  if (!new Set(["未开票", "已开票"]).has(invoiceStatus)) throw new Error("开票状态无效");
+  const rows = await queryRows<{ snapshotNo: string }>(
+    "SELECT snapshotNo FROM servicefeesnapshots WHERE snapshotNo = :snapshotNo LIMIT 1",
+    { snapshotNo },
+  );
+  if (!rows[0]) throw new Error("服务费对账单不存在");
+  await execute(
+    "UPDATE servicefeesnapshots SET invoiceStatus = :invoiceStatus WHERE snapshotNo = :snapshotNo",
+    { snapshotNo, invoiceStatus },
+  );
+  return { snapshotNo, invoiceStatus };
+}
+
+export async function saveServiceFeeInvoice({
+  snapshotNo,
+  originalName,
+  mimeType,
+  bytes,
+  uploadedBy,
+}: {
+  snapshotNo: string;
+  originalName: string;
+  mimeType: string;
+  bytes: Buffer;
+  uploadedBy?: string | null;
+}) {
+  const extension = path.extname(originalName).toLowerCase();
+  if (!allowedInvoiceExtensions.has(extension)) throw new Error("仅支持 PDF、Word、Excel 和常见图片格式");
+  if (!bytes.length) throw new Error("上传文件不能为空");
+  if (bytes.length > maxInvoiceFileSize) throw new Error("发票附件不能超过 25MB");
+  const existingRows = await queryRows<{ invoiceFilePath: string | null }>(
+    "SELECT invoiceFilePath FROM servicefeesnapshots WHERE snapshotNo = :snapshotNo LIMIT 1",
+    { snapshotNo },
+  );
+  if (!existingRows[0]) throw new Error("服务费对账单不存在");
+
+  await mkdir(invoiceUploadRoot, { recursive: true });
+  const safeName = sanitizeDocumentFileName(originalName);
+  const storedName = `${randomUUID()}-${safeName}`;
+  const filePath = path.join(invoiceUploadRoot, storedName);
+  await writeFile(filePath, bytes);
+  try {
+    await execute(
+      `
+        UPDATE servicefeesnapshots
+        SET invoiceOriginalName = :invoiceOriginalName,
+            invoiceStoredName = :invoiceStoredName,
+            invoiceFilePath = :invoiceFilePath,
+            invoiceMimeType = :invoiceMimeType,
+            invoiceFileSize = :invoiceFileSize,
+            invoiceUploadedBy = :invoiceUploadedBy,
+            invoiceUploadedAt = CURRENT_TIMESTAMP
+        WHERE snapshotNo = :snapshotNo
+      `,
+      {
+        snapshotNo,
+        invoiceOriginalName: safeName,
+        invoiceStoredName: storedName,
+        invoiceFilePath: filePath,
+        invoiceMimeType: mimeType || "application/octet-stream",
+        invoiceFileSize: bytes.length,
+        invoiceUploadedBy: uploadedBy || null,
+      },
+    );
+  } catch (error) {
+    await unlink(filePath).catch(() => undefined);
+    throw error;
+  }
+  const previousFilePath = existingRows[0].invoiceFilePath;
+  if (previousFilePath && previousFilePath !== filePath) await unlink(previousFilePath).catch(() => undefined);
+  return { snapshotNo, invoiceOriginalName: safeName, invoiceMimeType: mimeType, invoiceFileSize: bytes.length };
+}
+
+export async function getServiceFeeInvoice(snapshotNo: string) {
+  const rows = await queryRows<{
+    invoiceOriginalName: string | null;
+    invoiceFilePath: string | null;
+    invoiceMimeType: string | null;
+  }>(
+    "SELECT invoiceOriginalName, invoiceFilePath, invoiceMimeType FROM servicefeesnapshots WHERE snapshotNo = :snapshotNo LIMIT 1",
+    { snapshotNo },
+  );
+  const invoice = rows[0];
+  if (!invoice?.invoiceFilePath || !invoice.invoiceOriginalName) throw new Error("该对账单没有发票附件");
+  return {
+    bytes: await readFile(invoice.invoiceFilePath),
+    fileName: invoice.invoiceOriginalName,
+    mimeType: invoice.invoiceMimeType || "application/octet-stream",
+  };
+}
+
+export async function deleteServiceFeeInvoice(snapshotNo: string) {
+  const rows = await queryRows<{ invoiceFilePath: string | null }>(
+    "SELECT invoiceFilePath FROM servicefeesnapshots WHERE snapshotNo = :snapshotNo LIMIT 1",
+    { snapshotNo },
+  );
+  if (!rows[0]) throw new Error("服务费对账单不存在");
+  await execute(
+    `
+      UPDATE servicefeesnapshots
+      SET invoiceOriginalName = NULL,
+          invoiceStoredName = NULL,
+          invoiceFilePath = NULL,
+          invoiceMimeType = NULL,
+          invoiceFileSize = NULL,
+          invoiceUploadedBy = NULL,
+          invoiceUploadedAt = NULL
+      WHERE snapshotNo = :snapshotNo
+    `,
+    { snapshotNo },
+  );
+  if (rows[0].invoiceFilePath) await unlink(rows[0].invoiceFilePath).catch(() => undefined);
+  return { snapshotNo };
+}
+
+function normalizeServiceFeeStatementFilters(filters: ServiceFeeFilters) {
+  const countryCode = String(filters.countryCode ?? "").trim();
+  const startMonth = filters.startMonth ? firstDayOfMonth(filters.startMonth) : "";
+  const endMonth = filters.endMonth ? firstDayOfMonth(filters.endMonth) : startMonth;
+  if (!countryCode) throw new Error("请选择国家");
+  if (!startMonth) throw new Error("请选择核销月份");
+  if (startMonth !== endMonth) throw new Error("服务费对账单必须按单一核销月份生成");
+  return { countryCode, startMonth, endMonth: startMonth };
 }
 
 function getFilters(searchParams: URLSearchParams): ServiceFeeFilters {
@@ -263,6 +776,7 @@ async function listBillingRows(filters: ServiceFeeFilters) {
         monthlybillingwriteoffs.nameEn AS nameEn,
         COALESCE(NULLIF(monthlybillingwriteoffs.supplierId, ''), ri.linkedSupplierId, riByBusinessKey.fallbackSupplierId) AS supplierId,
         COALESCE(NULLIF(monthlybillingwriteoffs.undertakingUnitId, ''), ri.linkedUndertakingUnitId, riByBusinessKey.fallbackUndertakingUnitId) AS undertakingUnitId,
+        COALESCE(NULLIF(monthlybillingwriteoffs.customerId, ''), ri.linkedCustomerId, riByBusinessKey.fallbackCustomerId) AS customerId,
         quantity,
         currency,
         COALESCE(country.vatRate, 0) AS vatRate,
@@ -270,8 +784,9 @@ async function listBillingRows(filters: ServiceFeeFilters) {
         monthlyAmount
       FROM monthlybillingwriteoffs
       LEFT JOIN (SELECT ledgerId AS linkedLedgerId, purchaseOrderItemId AS linkedPurchaseOrderItemId FROM billinginstanceledgers) AS ledger ON ledger.linkedLedgerId = monthlybillingwriteoffs.ledgerId
-      LEFT JOIN (SELECT id AS linkedRequestItemId, supplierId AS linkedSupplierId, undertakingUnitId AS linkedUndertakingUnitId FROM requestitems) AS ri ON ri.linkedRequestItemId = ledger.linkedPurchaseOrderItemId
-      LEFT JOIN (SELECT requestNo AS keyRequestNo, deviceCode AS keyDeviceCode, supplierId AS fallbackSupplierId, undertakingUnitId AS fallbackUndertakingUnitId FROM requestitems) AS riByBusinessKey ON riByBusinessKey.keyRequestNo = monthlybillingwriteoffs.requestNo AND riByBusinessKey.keyDeviceCode = monthlybillingwriteoffs.deviceCode
+      LEFT JOIN purchaseorderitems AS purchaseItem ON purchaseItem.id = ledger.linkedPurchaseOrderItemId
+      LEFT JOIN (SELECT id AS linkedRequestItemId, supplierId AS linkedSupplierId, undertakingUnitId AS linkedUndertakingUnitId, customerId AS linkedCustomerId FROM requestitems) AS ri ON ri.linkedRequestItemId = purchaseItem.requestItemId
+      LEFT JOIN (SELECT requestNo AS keyRequestNo, deviceCode AS keyDeviceCode, supplierId AS fallbackSupplierId, undertakingUnitId AS fallbackUndertakingUnitId, customerId AS fallbackCustomerId FROM requestitems) AS riByBusinessKey ON riByBusinessKey.keyRequestNo = monthlybillingwriteoffs.requestNo AND riByBusinessKey.keyDeviceCode = monthlybillingwriteoffs.deviceCode
       LEFT JOIN countries AS country ON country.code = monthlybillingwriteoffs.countryCode
       ${where}
       ORDER BY writeOffMonth, countryCode, batchName, requestNo, poNo, deviceCode
@@ -302,6 +817,7 @@ async function listPrepaymentRows(filters: ServiceFeeFilters) {
         monthlyprepaymentwriteoffs.nameEn AS nameEn,
         COALESCE(NULLIF(monthlyprepaymentwriteoffs.supplierId, ''), ri.linkedSupplierId, riByBusinessKey.fallbackSupplierId) AS supplierId,
         COALESCE(NULLIF(monthlyprepaymentwriteoffs.undertakingUnitId, ''), ri.linkedUndertakingUnitId, riByBusinessKey.fallbackUndertakingUnitId) AS undertakingUnitId,
+        COALESCE(NULLIF(monthlyprepaymentwriteoffs.customerId, ''), ri.linkedCustomerId, riByBusinessKey.fallbackCustomerId) AS customerId,
         quantity,
         currency,
         COALESCE(country.vatRate, 0) AS vatRate,
@@ -309,8 +825,8 @@ async function listPrepaymentRows(filters: ServiceFeeFilters) {
         lineType
       FROM monthlyprepaymentwriteoffs
       LEFT JOIN (SELECT id AS linkedContractLineId, requestItemId AS linkedRequestItemId FROM prepaymentcontractitems) AS contractItem ON contractItem.linkedContractLineId = monthlyprepaymentwriteoffs.contractLineId
-      LEFT JOIN (SELECT id AS linkedRequestItemId, supplierId AS linkedSupplierId, undertakingUnitId AS linkedUndertakingUnitId FROM requestitems) AS ri ON ri.linkedRequestItemId = contractItem.linkedRequestItemId
-      LEFT JOIN (SELECT requestNo AS keyRequestNo, deviceCode AS keyDeviceCode, supplierId AS fallbackSupplierId, undertakingUnitId AS fallbackUndertakingUnitId FROM requestitems) AS riByBusinessKey ON riByBusinessKey.keyRequestNo = monthlyprepaymentwriteoffs.requestNo AND riByBusinessKey.keyDeviceCode = monthlyprepaymentwriteoffs.deviceCode
+      LEFT JOIN (SELECT id AS linkedRequestItemId, supplierId AS linkedSupplierId, undertakingUnitId AS linkedUndertakingUnitId, customerId AS linkedCustomerId FROM requestitems) AS ri ON ri.linkedRequestItemId = contractItem.linkedRequestItemId
+      LEFT JOIN (SELECT requestNo AS keyRequestNo, deviceCode AS keyDeviceCode, supplierId AS fallbackSupplierId, undertakingUnitId AS fallbackUndertakingUnitId, customerId AS fallbackCustomerId FROM requestitems) AS riByBusinessKey ON riByBusinessKey.keyRequestNo = monthlyprepaymentwriteoffs.requestNo AND riByBusinessKey.keyDeviceCode = monthlyprepaymentwriteoffs.deviceCode
       LEFT JOIN countries AS country ON country.code = monthlyprepaymentwriteoffs.countryCode
       ${where}
       ORDER BY writeOffMonth, countryCode, batchName, requestNo, poNo, deviceCode, contractLineId
@@ -364,16 +880,17 @@ function filterCalculatedRows(rows: ServiceFeeRow[], filters: ServiceFeeFilters)
   });
 }
 
-async function insertSnapshotItem(snapshotNo: string, index: number, row: ServiceFeeRow) {
-  await execute(
+async function insertSnapshotItem(connection: PoolConnection, snapshotNo: string, index: number, row: ServiceFeeRow) {
+  await executeInTransaction(
+    connection,
     `
       INSERT INTO servicefeesnapshotitems
         (id, snapshotNo, writeOffMonth, countryCode, batchName, requestNo, poNo, deviceCode,
-         modelCode, nameEn, supplierId, undertakingUnitId, quantity, currency, billingCurrency, prepaymentCurrency, lineType, billingAmount, prepaymentAmount,
+         modelCode, nameEn, supplierId, undertakingUnitId, customerId, quantity, currency, billingCurrency, prepaymentCurrency, lineType, billingAmount, prepaymentAmount,
          serviceFeeAmount, serviceFeeAmountExcludingTax, billingSourceIds, prepaymentSourceIds, prepaymentContractNos, sourceNote)
       VALUES
         (:id, :snapshotNo, :writeOffMonth, :countryCode, :batchName, :requestNo, :poNo, :deviceCode,
-         :modelCode, :nameEn, :supplierId, :undertakingUnitId, :quantity, :currency, :billingCurrency, :prepaymentCurrency, :lineType, :billingAmount, :prepaymentAmount,
+         :modelCode, :nameEn, :supplierId, :undertakingUnitId, :customerId, :quantity, :currency, :billingCurrency, :prepaymentCurrency, :lineType, :billingAmount, :prepaymentAmount,
          :serviceFeeAmount, :serviceFeeAmountExcludingTax, :billingSourceIds, :prepaymentSourceIds, :prepaymentContractNos, :sourceNote)
     `,
     {

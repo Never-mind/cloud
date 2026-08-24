@@ -4,6 +4,9 @@ import { deleteEntityRow, getEntityRow, updateEntityRow } from "@/lib/crud";
 import { execute } from "@/lib/db";
 import { getEntityConfig } from "@/lib/modules";
 import { deletePurchaseOrder, deleteRequestOrder } from "@/lib/order-delete-service";
+import { deleteBillingStatementDraft } from "@/lib/billing-statement-service";
+import { deletePrepaymentDraft } from "@/lib/prepayment-service";
+import { deleteServiceFeeStatementDraft } from "@/lib/service-fee-service";
 
 export async function GET(_request: NextRequest, context: { params: Promise<{ entity: string; id: string }> }) {
   const { entity, id } = await context.params;
@@ -27,6 +30,10 @@ export async function PUT(request: NextRequest, context: { params: Promise<{ ent
 
   if (!config) {
     return NextResponse.json({ error: "Unknown entity" }, { status: 404 });
+  }
+
+  if (["billing-statements", "service-fee-snapshots", "service-fee-snapshot-items", "prepayment-contracts"].includes(entity)) {
+    return NextResponse.json({ error: "该单据不能通过通用编辑接口修改" }, { status: 400 });
   }
 
   const body = await request.json();
@@ -71,6 +78,21 @@ export async function DELETE(_request: NextRequest, context: { params: Promise<{
   }
 
   try {
+    if (entity === "billing-statements") {
+      await deleteBillingStatementDraft(id);
+      return NextResponse.json({ ok: true });
+    }
+    if (entity === "service-fee-snapshots") {
+      await deleteServiceFeeStatementDraft(id);
+      return NextResponse.json({ ok: true });
+    }
+    if (entity === "service-fee-snapshot-items") {
+      return NextResponse.json({ error: "服务费对账单明细只能随未确认主单删除" }, { status: 400 });
+    }
+    if (entity === "prepayment-contracts") {
+      await deletePrepaymentDraft(id);
+      return NextResponse.json({ ok: true });
+    }
     if (entity === "requests") {
       await deleteRequestOrder(id);
       return NextResponse.json({ ok: true });

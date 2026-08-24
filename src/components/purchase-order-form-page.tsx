@@ -38,6 +38,8 @@ const emptyDetail: PurchaseDetailDraft = {
   taxExcludedUnitPrice: 0,
   taxSurcharge: 0,
   unitPrice: 0,
+  capexUnitPrice: 0,
+  opexUnitPrice: 0,
   hardwareCoefficient: 1,
   softwareCoefficient: 0,
 };
@@ -229,7 +231,7 @@ export function PurchaseOrderFormPage() {
             </select>
           </label>
           <Field label="下发日期" type="date" value={master.releasedAt} onChange={(value) => updateMaster("releasedAt", value)} />
-          <Info label="采购总金额" value={purchaseTotalAmount} />
+          <Info label="采购总金额" value={purchaseTotalAmount} type="money" />
         </div>
       </Panel>
 
@@ -242,7 +244,7 @@ export function PurchaseOrderFormPage() {
           </Button>
         </div>
         <div className="table-scroll overflow-auto">
-          <table className="min-w-full border-collapse text-sm">
+          <table className="min-w-[1900px] whitespace-nowrap border-collapse text-sm">
             <thead className="bg-[#f5f7fa] text-[#303133]">
               <tr>
                 <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">需求明细</th>
@@ -254,6 +256,8 @@ export function PurchaseOrderFormPage() {
                 <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">税费加成</th>
                 <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">含税单价</th>
                 <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">含税总价</th>
+                <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">采购CAPEX单价</th>
+                <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">采购OPEX单价</th>
                 <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">硬件系数</th>
                 <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">软件系数</th>
               </tr>
@@ -289,9 +293,15 @@ export function PurchaseOrderFormPage() {
                     <td className="border-b border-r border-[#ebeef5] px-3 py-3">
                       <NumberInput value={detail.taxSurcharge ?? 0} onChange={(value) => updateDetail(index, { taxSurcharge: value })} />
                     </td>
-                    <td className="border-b border-r border-[#ebeef5] px-3 py-3">{formatValue(detail.unitPrice)}</td>
+                    <td className="border-b border-r border-[#ebeef5] px-3 py-3">{formatValue(detail.unitPrice, "money")}</td>
                     <td className="border-b border-r border-[#ebeef5] px-3 py-3">
-                      {formatValue(Number(requestItem?.quantity ?? 0) * Number(detail.unitPrice ?? 0))}
+                      {formatValue(Number(requestItem?.quantity ?? 0) * Number(detail.unitPrice ?? 0), "money")}
+                    </td>
+                    <td className="border-b border-r border-[#ebeef5] px-3 py-3">
+                      <NumberInput value={detail.capexUnitPrice ?? 0} onChange={(value) => updateDetail(index, { capexUnitPrice: value })} />
+                    </td>
+                    <td className="border-b border-r border-[#ebeef5] px-3 py-3">
+                      <NumberInput value={detail.opexUnitPrice ?? 0} onChange={(value) => updateDetail(index, { opexUnitPrice: value })} />
                     </td>
                     <td className="border-b border-r border-[#ebeef5] px-3 py-3">
                       <NumberInput value={detail.hardwareCoefficient} onChange={(value) => updateDetail(index, { hardwareCoefficient: value })} />
@@ -341,11 +351,11 @@ function Field({
   );
 }
 
-function Info({ label, value }: { label: string; value: unknown }) {
+function Info({ label, value, type }: { label: string; value: unknown; type?: string }) {
   return (
     <div className="border border-[#ebeef5] bg-[#fafafa] p-3">
       <div className="text-xs text-[#909399]">{label}</div>
-      <div className="mt-1 truncate text-sm text-[#303133]">{formatValue(value)}</div>
+      <div className="mt-1 truncate text-sm text-[#303133]">{formatValue(value, type)}</div>
     </div>
   );
 }
@@ -353,7 +363,7 @@ function Info({ label, value }: { label: string; value: unknown }) {
 function NumberInput({ onChange, value }: { onChange: (value: number) => void; value: number }) {
   return (
     <Input
-      className="w-28 min-w-0"
+      className="w-32 min-w-[8rem] shrink-0"
       step="0.0001"
       type="number"
       value={formatNumericInputValue(value)}
@@ -362,6 +372,6 @@ function NumberInput({ onChange, value }: { onChange: (value: number) => void; v
   );
 }
 
-function formatValue(value: unknown) {
-  return formatDisplayValue(value as string | number | boolean | null | undefined);
+function formatValue(value: unknown, type?: string) {
+  return formatDisplayValue(value as string | number | boolean | null | undefined, type);
 }

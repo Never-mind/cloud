@@ -10,6 +10,7 @@ export type PrepaymentPurchaseLine = {
   nameEn?: string | null;
   supplierId?: string | null;
   undertakingUnitId?: string | null;
+  customerId?: string | null;
   quantity: number;
   currency?: string | null;
   unitPrice: number;
@@ -46,6 +47,7 @@ export type PrepaymentContractLineDraft = {
   nameEn: string;
   supplierId?: string;
   undertakingUnitId?: string;
+  customerId?: string;
   quantity: number;
   actualCurrency: string;
   actualUnitPrice: number;
@@ -71,6 +73,7 @@ export type MonthlyWriteOffSourceLine = {
   nameEn?: string | null;
   supplierId?: string | null;
   undertakingUnitId?: string | null;
+  customerId?: string | null;
   quantity?: number | string | null;
   contractCurrency?: string | null;
   contractTotalAmount?: number | string | null;
@@ -97,6 +100,7 @@ export type MonthlyWriteOffRow = {
   nameEn: string;
   supplierId: string;
   undertakingUnitId: string;
+  customerId: string;
   quantity: number;
 };
 
@@ -155,6 +159,7 @@ export function buildPrepaymentDraft({
       nameEn: available.nameEn ?? "",
       supplierId: available.supplierId ?? "",
       undertakingUnitId: available.undertakingUnitId ?? "",
+      customerId: available.customerId ?? "",
       quantity: Number(available.quantity ?? 0),
       actualCurrency: available.currency ?? "",
       actualUnitPrice: available.actualUnitPrice,
@@ -215,6 +220,7 @@ export function buildMonthlyWriteOffRows(lines: MonthlyWriteOffSourceLine[]): Mo
         nameEn: line.nameEn ?? "",
         supplierId: line.supplierId ?? "",
         undertakingUnitId: line.undertakingUnitId ?? "",
+        customerId: line.customerId ?? "",
         quantity: Number(line.quantity ?? 0),
       };
     });

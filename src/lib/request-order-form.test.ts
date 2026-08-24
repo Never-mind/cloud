@@ -8,8 +8,8 @@ describe("request order form", () => {
         requestNo: "REQ-NEW-001",
         requestedAt: "2026-07-20",
         details: [
-          { deviceCode: "DEV-1", supplierId: "SUP-1", undertakingUnitId: "UNIT-1", quantity: 2 },
-          { deviceCode: "DEV-2", supplierId: "SUP-2", undertakingUnitId: "UNIT-2", quantity: 3 },
+          { deviceCode: "DEV-1", supplierId: "SUP-1", undertakingUnitId: "UNIT-1", customerId: "CUS-1", quantity: 2 },
+          { deviceCode: "DEV-2", supplierId: "SUP-2", undertakingUnitId: "UNIT-2", customerId: "CUS-2", quantity: 3 },
         ],
       }),
     ).toEqual([
@@ -19,6 +19,7 @@ describe("request order form", () => {
         deviceCode: "DEV-1",
         supplierId: "SUP-1",
         undertakingUnitId: "UNIT-1",
+        customerId: "CUS-1",
         requestedAt: "2026-07-20",
         quantity: 2,
       },
@@ -28,6 +29,7 @@ describe("request order form", () => {
         deviceCode: "DEV-2",
         supplierId: "SUP-2",
         undertakingUnitId: "UNIT-2",
+        customerId: "CUS-2",
         requestedAt: "2026-07-20",
         quantity: 3,
       },

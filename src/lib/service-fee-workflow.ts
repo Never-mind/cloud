@@ -10,6 +10,7 @@ export type ServiceFeeBillingRow = {
   nameEn?: string | null;
   supplierId?: string | null;
   undertakingUnitId?: string | null;
+  customerId?: string | null;
   quantity?: number | string | null;
   currency?: string | null;
   vatRate?: number | string | null;
@@ -30,6 +31,7 @@ export type ServiceFeePrepaymentRow = {
   nameEn?: string | null;
   supplierId?: string | null;
   undertakingUnitId?: string | null;
+  customerId?: string | null;
   quantity?: number | string | null;
   currency?: string | null;
   vatRate?: number | string | null;
@@ -51,6 +53,7 @@ export type ServiceFeeRow = {
   nameEn: string;
   supplierId: string;
   undertakingUnitId: string;
+  customerId: string;
   quantity: number;
   currency: string;
   billingCurrency: string;
@@ -160,6 +163,7 @@ function buildServiceFeeRow(bucket: Bucket): ServiceFeeRow {
     nameEn: normalizeText(source?.nameEn),
     supplierId: normalizeText(billing?.supplierId ?? prepayment?.supplierId),
     undertakingUnitId: normalizeText(billing?.undertakingUnitId ?? prepayment?.undertakingUnitId),
+    customerId: normalizeText(billing?.customerId ?? prepayment?.customerId),
     quantity: toNumber(source?.quantity),
     currency: normalizeText(source?.currency),
     billingCurrency: normalizeText(billing?.currency),

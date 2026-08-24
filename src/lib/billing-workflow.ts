@@ -9,6 +9,7 @@ export type BillingPurchaseLine = {
   nameEn: string;
   supplierId?: string;
   undertakingUnitId?: string;
+  customerId?: string;
   quantity: number;
   actualCurrency: string;
   actualUnitPrice: number;
@@ -56,6 +57,7 @@ export type MonthlyBillingRow = {
   nameEn: string;
   supplierId: string;
   undertakingUnitId: string;
+  customerId: string;
   quantity: number;
   instanceContractNo: string;
   currency: string;
@@ -184,6 +186,7 @@ export function buildMonthlyBillingRows(ledger: BillingLedgerDraft): MonthlyBill
       nameEn: ledger.nameEn,
       supplierId: ledger.supplierId ?? "",
       undertakingUnitId: ledger.undertakingUnitId ?? "",
+      customerId: ledger.customerId ?? "",
       quantity,
       instanceContractNo: ledger.instanceContractNo,
       currency: ledger.contractCurrency,

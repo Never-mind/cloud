@@ -1,6 +1,13 @@
 import ExcelJS from "exceljs";
 import * as XLSX from "xlsx";
-import { execute, queryRows, type Row } from "./db";
+import {
+  execute,
+  executeInTransaction,
+  queryRows,
+  queryRowsInTransaction,
+  withTransaction,
+  type Row,
+} from "./db";
 import { firstDayOfMonth } from "./billing-workflow";
 import { DEFAULT_PAGE_SIZE, normalizePageSize } from "./pagination";
 import {
@@ -36,6 +43,7 @@ const COUNTRY_NAMES: Record<string, { company: string; customer: string }> = {
 export async function listBillingStatementSnapshots(searchParams: URLSearchParams) {
   const keyword = searchParams.get("keyword")?.trim();
   const countryCode = searchParams.get("countryCode")?.trim();
+  const status = searchParams.get("status")?.trim();
   const exportAll = searchParams.get("export") === "1";
   const requestedPage = Math.max(1, Math.floor(Number(searchParams.get("page") ?? 1) || 1));
   const pageSize = normalizePageSize(Number(searchParams.get("pageSize") ?? DEFAULT_PAGE_SIZE));
@@ -49,6 +57,10 @@ export async function listBillingStatementSnapshots(searchParams: URLSearchParam
   if (countryCode) {
     whereParts.push("countryCode = :countryCode");
     params.countryCode = countryCode;
+  }
+  if (status) {
+    whereParts.push("status = :status");
+    params.status = status;
   }
 
   const where = whereParts.length ? `WHERE ${whereParts.join(" AND ")}` : "";
@@ -67,6 +79,7 @@ export async function listBillingStatementSnapshots(searchParams: URLSearchParam
     `
       SELECT
         snapshotNo,
+        status,
         countryCode,
         DATE_FORMAT(startDate, '%Y-%m-%d') AS startDate,
         DATE_FORMAT(endDate, '%Y-%m-%d') AS endDate,
@@ -74,6 +87,7 @@ export async function listBillingStatementSnapshots(searchParams: URLSearchParam
         totalQuantity,
         totalAmount,
         itemCount,
+        DATE_FORMAT(confirmedAt, '%Y-%m-%d') AS confirmedAt,
         DATE_FORMAT(createdAt, '%Y-%m-%d') AS createdAt
       FROM billingstatementsnapshots
       ${where}
@@ -115,14 +129,20 @@ export async function createBillingStatementSnapshot({
   if (!preview.rows.length) throw new Error("当前筛选条件下没有月账单核销明细");
 
   const finalSnapshotNo = snapshotNo?.trim() || buildSnapshotNo(countryCode);
+  const existingRows = await queryRows<{ status: string }>(
+    "SELECT status FROM billingstatementsnapshots WHERE snapshotNo = :snapshotNo LIMIT 1",
+    { snapshotNo: finalSnapshotNo },
+  );
+  if (existingRows[0]?.status === "已确认") throw new Error("已确认的月账单对账单不能重新生成");
   await execute("DELETE FROM billingstatementsnapshotitems WHERE snapshotNo = :snapshotNo", { snapshotNo: finalSnapshotNo });
   await execute(
     `
       INSERT INTO billingstatementsnapshots
-        (snapshotNo, countryCode, startDate, endDate, currencySummary, totalQuantity, totalAmount, itemCount)
+        (snapshotNo, status, countryCode, startDate, endDate, currencySummary, totalQuantity, totalAmount, itemCount, confirmedAt)
       VALUES
-        (:snapshotNo, :countryCode, :startDate, :endDate, :currencySummary, :totalQuantity, :totalAmount, :itemCount)
+        (:snapshotNo, '未确认', :countryCode, :startDate, :endDate, :currencySummary, :totalQuantity, :totalAmount, :itemCount, NULL)
       ON DUPLICATE KEY UPDATE
+        status = '未确认',
         countryCode = VALUES(countryCode),
         startDate = VALUES(startDate),
         endDate = VALUES(endDate),
@@ -130,6 +150,7 @@ export async function createBillingStatementSnapshot({
         totalQuantity = VALUES(totalQuantity),
         totalAmount = VALUES(totalAmount),
         itemCount = VALUES(itemCount),
+        confirmedAt = NULL,
         createdAt = CURRENT_TIMESTAMP
     `,
     {
@@ -156,6 +177,7 @@ export async function getBillingStatementSnapshot(snapshotNo: string) {
     `
       SELECT
         snapshotNo,
+        status,
         countryCode,
         DATE_FORMAT(startDate, '%Y-%m-%d') AS startDate,
         DATE_FORMAT(endDate, '%Y-%m-%d') AS endDate,
@@ -163,6 +185,7 @@ export async function getBillingStatementSnapshot(snapshotNo: string) {
         totalQuantity,
         totalAmount,
         itemCount,
+        DATE_FORMAT(confirmedAt, '%Y-%m-%d') AS confirmedAt,
         DATE_FORMAT(createdAt, '%Y-%m-%d') AS createdAt
       FROM billingstatementsnapshots
       WHERE snapshotNo = :snapshotNo
@@ -198,9 +221,48 @@ export async function getBillingStatementSnapshot(snapshotNo: string) {
   return { snapshot, items };
 }
 
+export async function confirmBillingStatementSnapshot(snapshotNo: string) {
+  return withTransaction(async (connection) => {
+    const rows = await queryRowsInTransaction<{ status: string }>(
+      connection,
+      "SELECT status FROM billingstatementsnapshots WHERE snapshotNo = :snapshotNo LIMIT 1 FOR UPDATE",
+      { snapshotNo },
+    );
+    if (!rows[0]) throw new Error("月账单对账单不存在");
+    if (rows[0].status === "已确认") return { snapshotNo, status: "已确认" };
+    const [{ total }] = await queryRowsInTransaction<{ total: number }>(
+      connection,
+      "SELECT COUNT(*) AS total FROM billingstatementsnapshotitems WHERE snapshotNo = :snapshotNo",
+      { snapshotNo },
+    );
+    if (Number(total ?? 0) === 0) throw new Error("月账单对账单没有明细，不能确认");
+    await executeInTransaction(
+      connection,
+      "UPDATE billingstatementsnapshots SET status = '已确认', confirmedAt = CURRENT_TIMESTAMP WHERE snapshotNo = :snapshotNo",
+      { snapshotNo },
+    );
+    return { snapshotNo, status: "已确认" };
+  });
+}
+
+export async function deleteBillingStatementDraft(snapshotNo: string) {
+  return withTransaction(async (connection) => {
+    const rows = await queryRowsInTransaction<{ status: string }>(
+      connection,
+      "SELECT status FROM billingstatementsnapshots WHERE snapshotNo = :snapshotNo LIMIT 1 FOR UPDATE",
+      { snapshotNo },
+    );
+    if (!rows[0]) throw new Error("月账单对账单不存在");
+    if (rows[0].status === "已确认") throw new Error("已确认的月账单对账单不能删除或退回");
+    await executeInTransaction(connection, "DELETE FROM billingstatementsnapshotitems WHERE snapshotNo = :snapshotNo", { snapshotNo });
+    await executeInTransaction(connection, "DELETE FROM billingstatementsnapshots WHERE snapshotNo = :snapshotNo", { snapshotNo });
+    return { snapshotNo };
+  });
+}
+
 export async function exportBillingStatementSnapshot(snapshotNo: string) {
   const { snapshot, items } = await getBillingStatementSnapshot(snapshotNo);
-  if (!snapshot) throw new Error("月账单对账单快照不存在");
+  if (!snapshot) throw new Error("月账单对账单不存在");
   const countryCode = String(snapshot.countryCode ?? "");
   const workbook = buildPrettyStatementWorkbook({
     countryCode,

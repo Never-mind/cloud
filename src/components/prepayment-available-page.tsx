@@ -43,14 +43,20 @@ export function PrepaymentAvailablePage() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [selectedRowsById, setSelectedRowsById] = useState<Record<string, Row>>({});
   const [keyword, setKeyword] = useState("");
-  const [contractNo, setContractNo] = useState(`PPC-${formatDateInputValue(new Date()).replaceAll("-", "")}`);
-  const [effectiveDate, setEffectiveDate] = useState(formatDateInputValue(new Date()));
+  const [contractNo, setContractNo] = useState("");
+  const [effectiveDate, setEffectiveDate] = useState("");
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [total, setTotal] = useState(0);
   const pageSizeRef = useRef(pageSize);
+
+  useEffect(() => {
+    const today = formatDateInputValue(new Date());
+    setContractNo((current) => current || `PPC-${today.replaceAll("-", "")}`);
+    setEffectiveDate((current) => current || today);
+  }, []);
 
   async function loadData(nextPage = page, nextPageSize = pageSizeRef.current, nextKeyword = keyword) {
     setLoading(true);
