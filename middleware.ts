@@ -6,35 +6,49 @@ import {
   isModuleFeatureEnabled,
   MODULE_FEATURE_COOKIE_NAME,
 } from "@/lib/module-feature-definitions";
+import {
+  EMBEDDED_COOKIE_MAX_AGE,
+  EMBEDDED_COOKIE_NAME,
+  EMBEDDED_REQUEST_HEADER,
+  getEmbeddedCookiePath,
+} from "@/lib/embedded-workspace";
 
 const publicPaths = ["/login", "/api/auth/login"];
 
-function applyEmbeddedCookie(response: NextResponse, request: NextRequest) {
-  if (request.nextUrl.searchParams.get("embed") !== "1") return response;
-  response.cookies.set("cloud-power-embedded", "1", {
+function applyEmbeddedCookie(response: NextResponse, request: NextRequest, embedded = false) {
+  if (!embedded || request.cookies.get(EMBEDDED_COOKIE_NAME)?.value === "1") return response;
+  response.cookies.set(EMBEDDED_COOKIE_NAME, "1", {
     httpOnly: true,
     sameSite: "lax",
     secure: request.nextUrl.protocol === "https:",
-    path: request.nextUrl.pathname,
-    maxAge: 60,
+    path: getEmbeddedCookiePath(request.nextUrl.pathname),
+    maxAge: EMBEDDED_COOKIE_MAX_AGE,
   });
   return response;
+}
+
+function nextResponse(request: NextRequest, embedded: boolean) {
+  const requestHeaders = new Headers(request.headers);
+  if (embedded) requestHeaders.set(EMBEDDED_REQUEST_HEADER, "1");
+  return applyEmbeddedCookie(
+    NextResponse.next({ request: { headers: requestHeaders } }),
+    request,
+    embedded,
+  );
 }
 
 export function middleware(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
   const isPublicPath = publicPaths.some((path) => pathname === path || pathname.startsWith(`${path}/`));
   const isLoggedIn = request.cookies.get(AUTH_COOKIE_NAME)?.value === AUTH_SESSION_VALUE;
-
-  if (request.nextUrl.searchParams.get("embed") === "1" && request.cookies.get("cloud-power-embedded")?.value !== "1") {
-    return applyEmbeddedCookie(NextResponse.redirect(request.nextUrl), request);
-  }
+  const embedded = request.nextUrl.searchParams.get("embed") === "1"
+    || request.cookies.get(EMBEDDED_COOKIE_NAME)?.value === "1";
 
   if (isPublicPath) {
     if (pathname === "/login" && isLoggedIn) {
-      return applyEmbeddedCookie(NextResponse.redirect(new URL("/", request.url)), request);
+      return applyEmbeddedCookie(NextResponse.redirect(new URL("/", request.url)), request, embedded);
     }
-    return applyEmbeddedCookie(NextResponse.next(), request);
+    return nextResponse(request, embedded);
   }
 
   if (!isLoggedIn) {
@@ -44,7 +58,7 @@ export function middleware(request: NextRequest) {
     const loginUrl = new URL("/login", request.url);
     loginUrl.searchParams.set("next", `${pathname}${search}`);
     if (search.includes("embed=1")) loginUrl.searchParams.set("embed", "1");
-    return applyEmbeddedCookie(NextResponse.redirect(loginUrl), request);
+    return applyEmbeddedCookie(NextResponse.redirect(loginUrl), request, embedded);
   }
 
   const moduleKey = getModuleFeatureKeyForRoute(pathname);
@@ -57,11 +71,11 @@ export function middleware(request: NextRequest) {
       const disabledUrl = new URL("/module-disabled", request.url);
       disabledUrl.searchParams.set("route", pathname);
       if (search.includes("embed=1")) disabledUrl.searchParams.set("embed", "1");
-      return applyEmbeddedCookie(NextResponse.redirect(disabledUrl), request);
+      return applyEmbeddedCookie(NextResponse.redirect(disabledUrl), request, embedded);
     }
   }
 
-  return applyEmbeddedCookie(NextResponse.next(), request);
+  return nextResponse(request, embedded);
 }
 
 export const config = {

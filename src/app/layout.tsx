@@ -1,10 +1,14 @@
 import type { Metadata } from "next";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { AppShell } from "@/components/app-shell";
 import {
   decodeModuleFeatureState,
   MODULE_FEATURE_COOKIE_NAME,
 } from "@/lib/module-feature-definitions";
+import {
+  EMBEDDED_COOKIE_NAME,
+  EMBEDDED_REQUEST_HEADER,
+} from "@/lib/embedded-workspace";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -14,7 +18,9 @@ export const metadata: Metadata = {
 
 export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   const cookieStore = await cookies();
-  const embedded = cookieStore.get("cloud-power-embedded")?.value === "1";
+  const requestHeaders = await headers();
+  const embedded = requestHeaders.get(EMBEDDED_REQUEST_HEADER) === "1"
+    || cookieStore.get(EMBEDDED_COOKIE_NAME)?.value === "1";
   const initialModuleFeatureState = decodeModuleFeatureState(
     cookieStore.get(MODULE_FEATURE_COOKIE_NAME)?.value,
   );
