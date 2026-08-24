@@ -29,6 +29,7 @@ export function PrepaymentContractsPage() {
   const searchParams = useSearchParams();
   const [rows, setRows] = useState<Row[]>([]);
   const [keyword, setKeyword] = useState(() => searchParams.get("keyword") ?? "");
+  const [appliedKeyword, setAppliedKeyword] = useState(() => searchParams.get("keyword") ?? "");
   const [statusTab, setStatusTab] = useState<"draft" | "confirmed">(() => searchParams.get("statusTab") === "confirmed" ? "confirmed" : "draft");
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
@@ -42,13 +43,13 @@ export function PrepaymentContractsPage() {
   useEffect(() => {
     const params = new URLSearchParams(searchParams.toString());
     params.set("statusTab", statusTab);
-    if (keyword.trim()) params.set("keyword", keyword);
+    if (appliedKeyword.trim()) params.set("keyword", appliedKeyword);
     else params.delete("keyword");
     const nextRoute = buildListRoute(pathname, params);
     if (nextRoute !== currentRoute) router.replace(nextRoute, { scroll: false });
-  }, [currentRoute, keyword, pathname, router, searchParams, statusTab]);
+  }, [appliedKeyword, currentRoute, pathname, router, searchParams, statusTab]);
 
-  async function loadData(nextPage = page, nextPageSize = pageSizeRef.current, nextStatusTab = statusTab, nextKeyword = keyword) {
+  async function loadData(nextPage = page, nextPageSize = pageSizeRef.current, nextStatusTab = statusTab, nextKeyword = appliedKeyword) {
     setLoading(true);
     try {
       const params = new URLSearchParams({ page: String(nextPage), pageSize: String(nextPageSize), status: nextStatusTab === "confirmed" ? "已确认" : "草稿" });
@@ -103,7 +104,7 @@ export function PrepaymentContractsPage() {
 
         <div className="flex flex-wrap items-center gap-2 border-b border-[#ebeef5] p-4">
           <Input placeholder="搜索合同号/状态/币种" value={keyword} onChange={(event) => setKeyword(event.target.value)} />
-          <Button tone="primary" onClick={() => { setPage(1); void loadData(1, pageSizeRef.current); }}>
+          <Button tone="primary" onClick={() => { setAppliedKeyword(keyword); setPage(1); void loadData(1, pageSizeRef.current, statusTab, keyword); }}>
             <Search size={15} />
             查询
           </Button>

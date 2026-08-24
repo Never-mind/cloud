@@ -4,6 +4,7 @@ import {
   buildPrepaymentDraft,
   filterAvailablePrepaymentLines,
   summarizePrepaymentSelection,
+  toPrepaymentContractLineStorage,
 } from "./prepayment-workflow";
 
 const confirmedPurchaseLines = [
@@ -38,6 +39,47 @@ const confirmedPurchaseLines = [
 ];
 
 describe("prepayment workflow", () => {
+  it("stores fee lines without a purchase order item id", () => {
+    const line = buildPrepaymentDraft({
+      contractNo: "PPC-FEE",
+      effectiveDate: "2026-07-01",
+      purchaseLines: confirmedPurchaseLines.slice(0, 1),
+    }).lines[0];
+
+    expect(
+      toPrepaymentContractLineStorage({
+        ...line,
+        lineType: "fee",
+        purchaseOrderItemId: "",
+        requestItemId: "",
+      }),
+    ).toMatchObject({
+      lineType: "fee",
+      purchaseOrderItemId: null,
+      requestItemId: null,
+    });
+  });
+
+  it("preserves and trims the purchase order item id for instance lines", () => {
+    const line = buildPrepaymentDraft({
+      contractNo: "PPC-INSTANCE",
+      effectiveDate: "2026-07-01",
+      purchaseLines: confirmedPurchaseLines.slice(0, 1),
+    }).lines[0];
+
+    expect(
+      toPrepaymentContractLineStorage({
+        ...line,
+        purchaseOrderItemId: "  POI-1  ",
+        requestItemId: "  RI-1  ",
+      }),
+    ).toMatchObject({
+      lineType: "instance",
+      purchaseOrderItemId: "POI-1",
+      requestItemId: "RI-1",
+    });
+  });
+
   it("keeps only purchase lines that are not occupied by a draft or confirmed prepayment contract", () => {
     const rows = filterAvailablePrepaymentLines({
       purchaseLines: confirmedPurchaseLines,

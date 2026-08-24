@@ -4,7 +4,7 @@ import Link from "next/link";
 import * as XLSX from "xlsx";
 import { useEffect, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { CheckCircle2, FileDown, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { CheckCircle2, FileDown, Pencil, Plus, RefreshCw, Search, Trash2 } from "lucide-react";
 import { formatDisplayValue } from "@/lib/display-format";
 import type { EntityConfig } from "@/lib/modules";
 import { isConfirmedOrderStatus, type OrderStatusTab } from "@/lib/order-status";
@@ -49,6 +49,8 @@ export function OrderListPage({
   const [statusCounts, setStatusCounts] = useState({ draft: 0, confirmed: 0 });
   const [keyword, setKeyword] = useState(() => searchParams.get("keyword") ?? "");
   const [countryCode, setCountryCode] = useState(() => searchParams.get("countryCode") ?? "");
+  const [appliedKeyword, setAppliedKeyword] = useState(() => searchParams.get("keyword") ?? "");
+  const [appliedCountryCode, setAppliedCountryCode] = useState(() => searchParams.get("countryCode") ?? "");
   const [countryOptions, setCountryOptions] = useState<Array<{ code: string; nameZh: string }>>([]);
   const [statusTab, setStatusTab] = useState<OrderStatusTab>(() =>
     searchParams.get("statusTab") === "confirmed" ? "confirmed" : "draft",
@@ -70,14 +72,14 @@ export function OrderListPage({
     params.set("page", String(page));
     params.set("pageSize", String(pageSize));
     params.set("statusTab", statusTab);
-    if (keyword.trim()) params.set("keyword", keyword);
+    if (appliedKeyword.trim()) params.set("keyword", appliedKeyword);
     else params.delete("keyword");
-    if (countryCode.trim()) params.set("countryCode", countryCode);
+    if (appliedCountryCode.trim()) params.set("countryCode", appliedCountryCode);
     else params.delete("countryCode");
 
     const nextRoute = buildListRoute(pathname, params);
     if (nextRoute !== currentRoute) router.replace(nextRoute, { scroll: false });
-  }, [countryCode, currentRoute, keyword, page, pageSize, pathname, router, searchParams, statusTab]);
+  }, [appliedCountryCode, appliedKeyword, currentRoute, page, pageSize, pathname, router, searchParams, statusTab]);
 
   useEffect(() => {
     let active = true;
@@ -101,8 +103,8 @@ export function OrderListPage({
     nextPage: number,
     nextPageSize: number,
     nextStatusTab = statusTab,
-    nextKeyword = keyword,
-    nextCountryCode = countryCode,
+    nextKeyword = appliedKeyword,
+    nextCountryCode = appliedCountryCode,
     exportAll = false,
   ): Promise<OrderListResponse> {
     const params = new URLSearchParams({
@@ -120,7 +122,7 @@ export function OrderListPage({
     return data as OrderListResponse;
   }
 
-  async function loadData(nextPage = page, nextPageSize = pageSizeRef.current, nextStatusTab = statusTab, nextKeyword = keyword, nextCountryCode = countryCode) {
+  async function loadData(nextPage = page, nextPageSize = pageSizeRef.current, nextStatusTab = statusTab, nextKeyword = appliedKeyword, nextCountryCode = appliedCountryCode) {
     setLoading(true);
     try {
       const data = await fetchData(nextPage, nextPageSize, nextStatusTab, nextKeyword, nextCountryCode);
@@ -139,7 +141,7 @@ export function OrderListPage({
   }
 
   useEffect(() => {
-    void loadData(page, pageSize, statusTab, keyword, countryCode);
+    void loadData(page, pageSize, statusTab, appliedKeyword, appliedCountryCode);
   }, [mode]);
 
   async function confirmRequestOrder(requestNo: string) {
@@ -186,7 +188,7 @@ export function OrderListPage({
   async function exportOrders() {
     let exportRows: Row[];
     try {
-      const data = await fetchData(1, pageSizeRef.current, statusTab, keyword, countryCode, true);
+      const data = await fetchData(1, pageSizeRef.current, statusTab, appliedKeyword, appliedCountryCode, true);
       exportRows = data.rows;
     } catch (error) {
       alert(error instanceof Error ? error.message : "订单导出失败");
@@ -248,7 +250,14 @@ export function OrderListPage({
           <Input
             placeholder={mode === "requests" ? "搜索需求单号/状态/批次" : "搜索PO单号/需求单号/状态"}
             value={keyword}
-            onChange={(event) => { setKeyword(event.target.value); setPage(1); }}
+            onChange={(event) => setKeyword(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key !== "Enter") return;
+              setAppliedKeyword(keyword);
+              setAppliedCountryCode(countryCode);
+              setPage(1);
+              void loadData(1, pageSizeRef.current, statusTab, keyword, countryCode);
+            }}
           />
           <select
             className="h-9 min-w-32 rounded border border-[#dcdfe6] bg-white px-3 text-sm outline-none focus:border-[#1890ff]"
@@ -257,7 +266,6 @@ export function OrderListPage({
               const value = event.target.value;
               setCountryCode(value);
               setPage(1);
-              void loadData(1, pageSizeRef.current, statusTab, keyword, value);
             }}
           >
             <option value="">全部国家</option>
@@ -267,6 +275,15 @@ export function OrderListPage({
               </option>
             ))}
           </select>
+          <Button tone="primary" onClick={() => {
+            setAppliedKeyword(keyword);
+            setAppliedCountryCode(countryCode);
+            setPage(1);
+            void loadData(1, pageSizeRef.current, statusTab, keyword, countryCode);
+          }}>
+            <Search size={15} />
+            查询
+          </Button>
           <Button onClick={() => void loadData()}>
             <RefreshCw size={15} />
             刷新

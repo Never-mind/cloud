@@ -49,7 +49,15 @@ export function EntityPage({
   const [rows, setRows] = useState<Row[]>([]);
   const [total, setTotal] = useState(0);
   const [keyword, setKeyword] = useState(() => searchParams.get("keyword") ?? "");
+  const [appliedKeyword, setAppliedKeyword] = useState(() => searchParams.get("keyword") ?? "");
   const [filterValues, setFilterValues] = useState<Record<string, string>>(() =>
+    Object.fromEntries(
+      config.filters
+        .filter((filter) => filter.key !== "keyword")
+        .map((filter) => [filter.key, searchParams.get(filter.key) ?? ""]),
+    ),
+  );
+  const [appliedFilterValues, setAppliedFilterValues] = useState<Record<string, string>>(() =>
     Object.fromEntries(
       config.filters
         .filter((filter) => filter.key !== "keyword")
@@ -81,17 +89,17 @@ export function EntityPage({
     const params = new URLSearchParams(searchParams.toString());
     params.set("page", String(page));
     params.set("pageSize", String(pageSize));
-    if (keyword.trim()) params.set("keyword", keyword);
+    if (appliedKeyword.trim()) params.set("keyword", appliedKeyword);
     else params.delete("keyword");
     for (const filter of config.filters) {
       if (filter.key === "keyword") continue;
-      const value = filterValues[filter.key]?.trim();
+      const value = appliedFilterValues[filter.key]?.trim();
       if (value) params.set(filter.key, value);
       else params.delete(filter.key);
     }
     const nextRoute = buildListRoute(pathname, params);
     if (nextRoute !== currentRoute) router.replace(nextRoute, { scroll: false });
-  }, [config.filters, currentRoute, filterValues, keyword, page, pageSize, pathname, router, searchParams]);
+  }, [appliedFilterValues, appliedKeyword, config.filters, currentRoute, page, pageSize, pathname, router, searchParams]);
   const visibleColumns = useMemo(
     () => getVisibleColumns(config.listFields, visibility),
     [config.listFields, visibility],
@@ -105,22 +113,22 @@ export function EntityPage({
     [config.listFields, visibility],
   );
   const exportQuery = useMemo(() => {
-    const params = new URLSearchParams({ keyword });
-    for (const [key, value] of Object.entries(filterValues)) {
+    const params = new URLSearchParams({ keyword: appliedKeyword });
+    for (const [key, value] of Object.entries(appliedFilterValues)) {
       if (value.trim()) params.set(key, value.trim());
     }
     for (const [key, value] of Object.entries(fixedFilters)) {
       if (value.trim()) params.set(key, value.trim());
     }
     return params.toString();
-  }, [filterValues, fixedFilters, keyword]);
+  }, [appliedFilterValues, appliedKeyword, fixedFilters]);
 
   async function loadRows(next?: { page?: number; pageSize?: number; keyword?: string; filterValues?: Record<string, string> }) {
     setLoading(true);
     const nextPage = next?.page ?? page;
     const nextPageSize = next?.pageSize ?? pageSize;
-    const nextKeyword = next?.keyword ?? keyword;
-    const nextFilterValues = next?.filterValues ?? filterValues;
+    const nextKeyword = next?.keyword ?? appliedKeyword;
+    const nextFilterValues = next?.filterValues ?? appliedFilterValues;
     const params = new URLSearchParams({
       page: String(nextPage),
       pageSize: String(nextPageSize),
@@ -330,8 +338,11 @@ export function EntityPage({
             onChange={(event) => setKeyword(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === "Enter") {
+                const nextFilterValues = filterValues;
+                setAppliedKeyword(keyword);
+                setAppliedFilterValues(nextFilterValues);
                 setPage(1);
-                void loadRows({ page: 1 });
+                void loadRows({ page: 1, keyword, filterValues: nextFilterValues });
               }
             }}
           />
@@ -365,8 +376,11 @@ export function EntityPage({
                   }}
                   onKeyDown={(event) => {
                     if (event.key === "Enter") {
+                      const nextFilterValues = filterValues;
+                      setAppliedKeyword(keyword);
+                      setAppliedFilterValues(nextFilterValues);
                       setPage(1);
-                      void loadRows({ page: 1 });
+                      void loadRows({ page: 1, keyword, filterValues: nextFilterValues });
                     }
                   }}
                 />
@@ -375,8 +389,10 @@ export function EntityPage({
           <Button
             tone="primary"
             onClick={() => {
+              setAppliedKeyword(keyword);
+              setAppliedFilterValues(filterValues);
               setPage(1);
-              void loadRows({ page: 1 });
+              void loadRows({ page: 1, keyword, filterValues });
             }}
           >
             <Search size={15} />
@@ -386,6 +402,8 @@ export function EntityPage({
             onClick={() => {
               setKeyword("");
               setFilterValues({});
+              setAppliedKeyword("");
+              setAppliedFilterValues({});
               setPage(1);
               void loadRows({ page: 1, keyword: "", filterValues: {} });
             }}

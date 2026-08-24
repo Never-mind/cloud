@@ -145,6 +145,15 @@ describe("module configuration", () => {
     expect(config?.formFields.map((field) => field.key)).toContain("batchName");
   });
 
+  it("sorts monthly billing ledger rows by their natural batch sequence", () => {
+    const config = getEntityConfig("billing-ledgers");
+    const orderBy = getEntityOrderBy(config!);
+
+    expect(orderBy).toContain("billinginstanceledgers.`batchName`");
+    expect(orderBy).toContain("AS UNSIGNED) DESC");
+    expect(orderBy).toContain("billinginstanceledgers.`ledgerId` ASC");
+  });
+
   it("configures shipment display fields and a receipt status filter", () => {
     const config = getEntityConfig("shipments");
 

@@ -47,6 +47,11 @@ type InstanceContract = {
   next36MonthPriceUSD: number;
 };
 
+type Country = {
+  code: string;
+  nameZh: string;
+};
+
 const columns: Array<{ key: keyof Row; label: string; type?: string }> = [
   { key: "countryCode", label: "国家" },
   { key: "batchName", label: "批次号" },
@@ -77,6 +82,10 @@ export function BillingAvailablePage() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [selectedRowsById, setSelectedRowsById] = useState<Record<string, Row>>({});
   const [keyword, setKeyword] = useState("");
+  const [countryCode, setCountryCode] = useState("");
+  const [appliedKeyword, setAppliedKeyword] = useState("");
+  const [appliedCountryCode, setAppliedCountryCode] = useState("");
+  const [countries, setCountries] = useState<Country[]>([]);
   const [loading, setLoading] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [page, setPage] = useState(1);
@@ -84,10 +93,16 @@ export function BillingAvailablePage() {
   const [total, setTotal] = useState(0);
   const pageSizeRef = useRef(pageSize);
 
-  async function loadData(nextPage = page, nextPageSize = pageSizeRef.current, nextKeyword = keyword) {
+  async function loadData(
+    nextPage = page,
+    nextPageSize = pageSizeRef.current,
+    nextKeyword = appliedKeyword,
+    nextCountryCode = appliedCountryCode,
+  ) {
     setLoading(true);
     const params = new URLSearchParams({ page: String(nextPage), pageSize: String(nextPageSize) });
     if (nextKeyword.trim()) params.set("keyword", nextKeyword.trim());
+    if (nextCountryCode.trim()) params.set("countryCode", nextCountryCode.trim());
     const [response, contractRows] = await Promise.all([
       fetch(`/api/billing/available?${params}`),
       fetchAllEntityRows<InstanceContract>("instance-contracts"),
@@ -107,6 +122,7 @@ export function BillingAvailablePage() {
 
   useEffect(() => {
     void loadData();
+    void fetchAllEntityRows<Country>("countries").then(setCountries).catch(() => setCountries([]));
   }, []);
 
   const selectedRows = useMemo(() => Object.values(selectedRowsById), [selectedRowsById]);
@@ -198,7 +214,30 @@ export function BillingAvailablePage() {
       <Panel>
         <div className="flex flex-wrap items-center gap-2 border-b border-[#ebeef5] p-4">
           <Input placeholder="搜索国家/批次/需求单/PO/实例编码" value={keyword} onChange={(event) => setKeyword(event.target.value)} />
-          <Button tone="primary" onClick={() => void loadData(1, pageSizeRef.current)}>
+          <select
+            className="h-9 min-w-32 rounded border border-[#dcdfe6] bg-white px-3 text-sm outline-none focus:border-[#1890ff]"
+            value={countryCode}
+            onChange={(event) => setCountryCode(event.target.value)}
+          >
+            <option value="">全部国家</option>
+            {countries
+              .filter((country) => country.code)
+              .sort((left, right) => left.code.localeCompare(right.code))
+              .map((country) => (
+                <option key={country.code} value={country.code}>
+                  {country.nameZh ? `${country.code} - ${country.nameZh}` : country.code}
+                </option>
+              ))}
+          </select>
+          <Button
+            tone="primary"
+            onClick={() => {
+              setAppliedKeyword(keyword);
+              setAppliedCountryCode(countryCode);
+              setPage(1);
+              void loadData(1, pageSizeRef.current, keyword, countryCode);
+            }}
+          >
             <Search size={15} />
             查询
           </Button>

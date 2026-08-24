@@ -80,6 +80,7 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
   const [suppliers, setSuppliers] = useState<Row[]>([]);
   const [undertakingUnits, setUndertakingUnits] = useState<Row[]>([]);
   const [customers, setCustomers] = useState<Row[]>([]);
+  const [countries, setCountries] = useState<Row[]>([]);
   const editState = getPrepaymentContractEditState({
     isConfirming: confirming,
     isEditing: editing,
@@ -96,6 +97,11 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
     return String(customers.find((row) => String(row.customerId) === value)?.customerCode ?? value);
   }
 
+  function countryLabel(countryCode: string) {
+    const country = countries.find((row) => String(row.code ?? "") === countryCode);
+    return country ? `${countryCode} - ${String(country.nameZh ?? countryCode)}` : countryCode;
+  }
+
   async function loadData() {
     const response = await fetch(`/api/prepayments/contracts/${encodeURIComponent(contractNo)}`);
     const data = await response.json();
@@ -109,9 +115,18 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
       effectiveDate: formatDateInputValue(data.contract.effectiveDate),
       totalAmount: Number(data.contract.totalAmount ?? 0),
     });
+    const sourceLines = (data.lines ?? []) as Line[];
+    const instanceCountries = new Set(
+      sourceLines
+        .filter((line) => line.lineType === "instance")
+        .map((line) => String(line.countryCode ?? "").trim())
+        .filter(Boolean),
+    );
+    const defaultFeeCountry = instanceCountries.size === 1 ? Array.from(instanceCountries)[0] : "";
     setLines(
-      (data.lines ?? []).map((line: Line) => ({
+      sourceLines.map((line) => ({
         ...line,
+        countryCode: String(line.countryCode ?? "").trim() || (line.lineType === "fee" ? defaultFeeCountry : ""),
         quantity: Number(line.quantity ?? 0),
         actualUnitPrice: Number(line.actualUnitPrice ?? 0),
         actualTotalAmount: Number(line.actualTotalAmount ?? 0),
@@ -124,10 +139,16 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
   }
 
   useEffect(() => {
-    void Promise.all([fetchAllEntityRows<Row>("suppliers"), fetchAllEntityRows<Row>("undertaking-units"), fetchAllEntityRows<Row>("customers")]).then(([supplierRows, unitRows, customerRows]) => {
+    void Promise.all([
+      fetchAllEntityRows<Row>("suppliers"),
+      fetchAllEntityRows<Row>("undertaking-units"),
+      fetchAllEntityRows<Row>("customers"),
+      fetchAllEntityRows<Row>("countries"),
+    ]).then(([supplierRows, unitRows, customerRows, countryRows]) => {
       setSuppliers(supplierRows);
       setUndertakingUnits(unitRows);
       setCustomers(customerRows);
+      setCountries(countryRows);
     });
   }, []);
 
@@ -161,6 +182,10 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
 
   function addFeeLine() {
     if (!contract) return;
+    const instanceCountries = new Set(
+      instanceLines.map((line) => String(line.countryCode ?? "").trim()).filter(Boolean),
+    );
+    const defaultCountryCode = instanceCountries.size === 1 ? Array.from(instanceCountries)[0] : "";
     setLines((current) => [
       ...current,
       {
@@ -169,7 +194,7 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
         lineType: "fee",
         purchaseOrderItemId: "",
         requestItemId: "",
-        countryCode: "",
+        countryCode: defaultCountryCode,
         batchName: "",
         requestNo: "",
         poNo: "",
@@ -199,6 +224,13 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
 
   async function saveDraft() {
     if (!contract) return false;
+    const missingFeeCountry = lines.some(
+      (line) => line.lineType === "fee" && !String(line.countryCode ?? "").trim(),
+    );
+    if (missingFeeCountry) {
+      alert("费用明细必须选择国家后才能保存");
+      return false;
+    }
     setSaving(true);
     const response = await fetch(`/api/prepayments/contracts/${encodeURIComponent(contract.contractNo)}`, {
       method: "PUT",
@@ -353,6 +385,7 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
             <thead className="bg-[#f5f7fa] text-[#303133]">
               <tr>
                 <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">费用名称</th>
+                <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">国家</th>
                 <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">批次号</th>
                 <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">说明</th>
                 <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">承接单位</th>
@@ -369,6 +402,28 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
                 <tr key={line.id}>
                   <td className="border-b border-r border-[#ebeef5] px-3 py-3">
                     <Input disabled={!canEdit} value={line.feeName ?? ""} onChange={(event) => updateLine(line.id, { feeName: event.target.value, nameEn: event.target.value })} />
+                  </td>
+                  <td className="border-b border-r border-[#ebeef5] px-3 py-3">
+                    <select
+                      className="h-9 min-w-[150px] rounded border border-[#dcdfe6] bg-white px-2"
+                      disabled={!canEdit}
+                      value={line.countryCode ?? ""}
+                      onChange={(event) => updateLine(line.id, { countryCode: event.target.value })}
+                    >
+                      <option value="">请选择国家</option>
+                      {countries
+                        .map((country) => ({
+                          code: String(country.code ?? "").trim(),
+                          nameZh: String(country.nameZh ?? "").trim(),
+                        }))
+                        .filter((country) => country.code)
+                        .sort((left, right) => left.code.localeCompare(right.code))
+                        .map((country) => (
+                          <option key={country.code} value={country.code}>
+                            {countryLabel(country.code)}
+                          </option>
+                        ))}
+                    </select>
                   </td>
                   <td className="border-b border-r border-[#ebeef5] px-3 py-3">
                     <Input disabled={!canEdit} value={line.batchName ?? ""} onChange={(event) => updateLine(line.id, { batchName: event.target.value })} />
@@ -413,7 +468,7 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
               ))}
               {!feeLines.length ? (
                 <tr>
-                  <td className="py-8 text-center text-[#909399]" colSpan={9}>暂无费用明细</td>
+                  <td className="py-8 text-center text-[#909399]" colSpan={10}>暂无费用明细</td>
                 </tr>
               ) : null}
             </tbody>

@@ -218,7 +218,13 @@ export async function deleteBillingAdjustmentDraft(adjustmentNo: string) {
   await execute("DELETE FROM billingadjustments WHERE adjustmentNo = :adjustmentNo", { adjustmentNo });
 }
 
-export async function listAvailableBillingLines(options: { page?: number; pageSize?: number; keyword?: string; purchaseOrderItemIds?: string[] } = {}) {
+export async function listAvailableBillingLines(options: {
+  page?: number;
+  pageSize?: number;
+  keyword?: string;
+  countryCode?: string;
+  purchaseOrderItemIds?: string[];
+} = {}) {
   const requestedPage = Math.max(1, Math.floor(Number(options.page ?? 1) || 1));
   const conditions = [
     "po.status LIKE :purchaseStatus",
@@ -226,6 +232,10 @@ export async function listAvailableBillingLines(options: { page?: number; pageSi
     "NOT EXISTS (SELECT 1 FROM billinginstanceledgers occupied WHERE occupied.purchaseOrderItemId = poi.id)",
   ];
   const params: Row = { purchaseStatus: "%确认%", requestDraftStatus: "草稿" };
+  if (options.countryCode?.trim()) {
+    conditions.push("req.countryCode = :countryCode");
+    params.countryCode = options.countryCode.trim();
+  }
   if (options.keyword?.trim()) {
     conditions.push("(req.countryCode LIKE :keyword OR req.batchName LIKE :keyword OR COALESCE(poi.requestNo, po.requestNo, ri.requestNo) LIKE :keyword OR poi.poNo LIKE :keyword OR ri.deviceCode LIKE :keyword OR im.modelCode LIKE :keyword OR im.nameEn LIKE :keyword)");
     params.keyword = `%${options.keyword.trim()}%`;
@@ -274,7 +284,12 @@ export async function listAvailableBillingLines(options: { page?: number; pageSi
           po.status AS purchaseStatus,
           req.status AS requestStatus
         ${sourceFrom}
-        ORDER BY req.countryCode, req.batchName, poi.id
+        ORDER BY
+          CASE WHEN TRIM(COALESCE(req.batchName, '')) REGEXP '^[A-Za-z]+[[:space:]]*-[[:space:]]*[0-9]+$' THEN 0 ELSE 1 END,
+          CAST(SUBSTRING_INDEX(TRIM(req.batchName), '-', -1) AS UNSIGNED) DESC,
+          UPPER(TRIM(SUBSTRING_INDEX(TRIM(req.batchName), '-', 1))) ASC,
+          req.countryCode ASC,
+          poi.id
         LIMIT :limit OFFSET :offset
       `,
       { ...params, limit: pageSize, offset: (page - 1) * pageSize },
@@ -524,7 +539,12 @@ export async function listMonthlyBillingWriteOffs(searchParams: URLSearchParams)
         ON riByBusinessKey.keyRequestNo = mbw.requestNo
         AND riByBusinessKey.keyDeviceCode = mbw.deviceCode
       ${where}
-      ORDER BY mbw.writeOffMonth DESC, mbw.ledgerId
+      ORDER BY
+        mbw.writeOffMonth DESC,
+        CASE WHEN TRIM(COALESCE(mbw.batchName, '')) REGEXP '^[A-Za-z]+[[:space:]]*-[[:space:]]*[0-9]+$' THEN 0 ELSE 1 END,
+        CAST(SUBSTRING_INDEX(TRIM(mbw.batchName), '-', -1) AS UNSIGNED) DESC,
+        UPPER(TRIM(SUBSTRING_INDEX(TRIM(mbw.batchName), '-', 1))) ASC,
+        mbw.ledgerId
       ${exportAll ? "" : "LIMIT :limit OFFSET :offset"}
     `,
     params,

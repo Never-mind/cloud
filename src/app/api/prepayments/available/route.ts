@@ -6,5 +6,6 @@ export async function GET(request: NextRequest) {
     page: Number(request.nextUrl.searchParams.get("page") ?? 1),
     pageSize: Number(request.nextUrl.searchParams.get("pageSize") ?? 20),
     keyword: request.nextUrl.searchParams.get("keyword") ?? "",
+    countryCode: request.nextUrl.searchParams.get("countryCode") ?? "",
   }));
 }

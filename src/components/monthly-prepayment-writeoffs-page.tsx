@@ -44,6 +44,7 @@ export function MonthlyPrepaymentWriteOffsPage() {
   const [batchName, setBatchName] = useState(() => searchParams.get("batchName") ?? "");
   const [startMonth, setStartMonth] = useState(() => searchParams.get("startMonth") ?? "");
   const [endMonth, setEndMonth] = useState(() => searchParams.get("endMonth") ?? "");
+  const [appliedFilters, setAppliedFilters] = useState(() => ({ keyword, countryCode, batchName, startMonth, endMonth }));
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(() => getPositiveNumber(searchParams.get("page"), 1));
   const [pageSize, setPageSize] = useState(() => getPositiveNumber(searchParams.get("pageSize"), DEFAULT_PAGE_SIZE));
@@ -57,7 +58,7 @@ export function MonthlyPrepaymentWriteOffsPage() {
 
   useEffect(() => {
     const params = new URLSearchParams(searchParams.toString());
-    for (const [key, value] of Object.entries({ keyword, countryCode, batchName, startMonth, endMonth })) {
+    for (const [key, value] of Object.entries(appliedFilters)) {
       if (value.trim()) params.set(key, value);
       else params.delete(key);
     }
@@ -65,32 +66,32 @@ export function MonthlyPrepaymentWriteOffsPage() {
     params.set("pageSize", String(pageSize));
     const nextRoute = buildListRoute(pathname, params);
     if (nextRoute !== currentRoute) router.replace(nextRoute, { scroll: false });
-  }, [batchName, countryCode, currentRoute, endMonth, keyword, page, pageSize, pathname, router, searchParams, startMonth]);
+  }, [appliedFilters, currentRoute, page, pageSize, pathname, router, searchParams]);
 
-  function buildRequestParams(nextPage: number, nextPageSize: number, exportAll = false) {
+  function buildRequestParams(nextPage: number, nextPageSize: number, exportAll = false, filters = appliedFilters) {
     const params = new URLSearchParams();
-    if (keyword.trim()) params.set("keyword", keyword.trim());
-    if (countryCode.trim()) params.set("countryCode", countryCode.trim());
-    if (batchName.trim()) params.set("batchName", batchName.trim());
-    if (startMonth) params.set("startMonth", startMonth);
-    if (endMonth) params.set("endMonth", endMonth);
+    if (filters.keyword.trim()) params.set("keyword", filters.keyword.trim());
+    if (filters.countryCode.trim()) params.set("countryCode", filters.countryCode.trim());
+    if (filters.batchName.trim()) params.set("batchName", filters.batchName.trim());
+    if (filters.startMonth) params.set("startMonth", filters.startMonth);
+    if (filters.endMonth) params.set("endMonth", filters.endMonth);
     params.set("page", String(nextPage));
     params.set("pageSize", String(nextPageSize));
     if (exportAll) params.set("export", "1");
     return params;
   }
 
-  async function fetchData(nextPage: number, nextPageSize: number, exportAll = false): Promise<ListResponse> {
-    const response = await fetch(`/api/prepayments/monthly-writeoffs?${buildRequestParams(nextPage, nextPageSize, exportAll).toString()}`);
+  async function fetchData(nextPage: number, nextPageSize: number, exportAll = false, filters = appliedFilters): Promise<ListResponse> {
+    const response = await fetch(`/api/prepayments/monthly-writeoffs?${buildRequestParams(nextPage, nextPageSize, exportAll, filters).toString()}`);
     const data = await response.json();
     if (!response.ok) throw new Error(data.error ?? "预付款核销明细加载失败");
     return data as ListResponse;
   }
 
-  async function loadData(nextPage = page, nextPageSize = pageSizeRef.current) {
+  async function loadData(nextPage = page, nextPageSize = pageSizeRef.current, filters = appliedFilters) {
     setLoading(true);
     try {
-      const data = await fetchData(nextPage, nextPageSize);
+      const data = await fetchData(nextPage, nextPageSize, false, filters);
       setRows(data.rows ?? []);
       setTotal(Number(data.total ?? 0));
       setTotalAmount(Number(data.totalAmount ?? 0));
@@ -112,7 +113,7 @@ export function MonthlyPrepaymentWriteOffsPage() {
   async function exportCsv() {
     let exportRows: Row[];
     try {
-      const data = await fetchData(1, pageSizeRef.current, true);
+      const data = await fetchData(1, pageSizeRef.current, true, appliedFilters);
       exportRows = data.rows ?? [];
     } catch (error) {
       alert(error instanceof Error ? error.message : "预付款核销明细导出失败");
@@ -141,12 +142,12 @@ export function MonthlyPrepaymentWriteOffsPage() {
 
       <Panel>
         <div className="flex flex-wrap items-center gap-2 border-b border-[#ebeef5] p-4">
-          <Input placeholder="搜索合同/批次/需求单/PO/实例编码" value={keyword} onChange={(event) => setKeyword(event.target.value)} />
+          <Input placeholder="搜索合同/批次/需求单/PO/实例编码" value={keyword} onChange={(event) => setKeyword(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { setAppliedFilters({ keyword, countryCode, batchName, startMonth, endMonth }); setPage(1); void loadData(1, pageSizeRef.current, { keyword, countryCode, batchName, startMonth, endMonth }); } }} />
           <Input placeholder="国家" value={countryCode} onChange={(event) => setCountryCode(event.target.value)} />
           <Input placeholder="批次" value={batchName} onChange={(event) => setBatchName(event.target.value)} />
           <Input type="date" value={startMonth} onChange={(event) => setStartMonth(event.target.value)} />
           <Input type="date" value={endMonth} onChange={(event) => setEndMonth(event.target.value)} />
-          <Button tone="primary" onClick={() => { setPage(1); void loadData(1, pageSizeRef.current); }}>
+          <Button tone="primary" onClick={() => { const filters = { keyword, countryCode, batchName, startMonth, endMonth }; setAppliedFilters(filters); setPage(1); void loadData(1, pageSizeRef.current, filters); }}>
             <Search size={15} />
             查询
           </Button>

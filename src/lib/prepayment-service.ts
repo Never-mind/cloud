@@ -1,4 +1,11 @@
-import { execute, queryRows, type Row } from "./db";
+import type { PoolConnection } from "mysql2/promise";
+import {
+  execute,
+  executeInTransaction,
+  queryRows,
+  withTransaction,
+  type Row,
+} from "./db";
 import { attachPartyCodes } from "./party-display";
 import { DEFAULT_PAGE_SIZE, normalizePageSize } from "./pagination";
 import {
@@ -6,6 +13,7 @@ import {
   buildPrepaymentDraft,
   filterAvailablePrepaymentLines,
   firstDayOfMonth,
+  toPrepaymentContractLineStorage,
   type MonthlyWriteOffSourceLine,
   type PrepaymentContractLineDraft,
   type PrepaymentPurchaseLine,
@@ -20,7 +28,13 @@ type PrepaymentLineRow = PrepaymentContractLineDraft & {
   status?: string | null;
 };
 
-export async function listAvailablePrepaymentLines(options: { page?: number; pageSize?: number; keyword?: string; purchaseOrderItemIds?: string[] } = {}) {
+export async function listAvailablePrepaymentLines(options: {
+  page?: number;
+  pageSize?: number;
+  keyword?: string;
+  countryCode?: string;
+  purchaseOrderItemIds?: string[];
+} = {}) {
   const requestedPage = Math.max(1, Math.floor(Number(options.page ?? 1) || 1));
   const conditions = [
     "po.status LIKE :purchaseStatus",
@@ -32,6 +46,10 @@ export async function listAvailablePrepaymentLines(options: { page?: number; pag
     )`,
   ];
   const params: Row = { purchaseStatus: "%确认%", requestDraftStatus: "草稿" };
+  if (options.countryCode?.trim()) {
+    conditions.push("req.countryCode = :countryCode");
+    params.countryCode = options.countryCode.trim();
+  }
   if (options.keyword?.trim()) {
     conditions.push("(req.countryCode LIKE :keyword OR req.batchName LIKE :keyword OR COALESCE(poi.requestNo, po.requestNo, ri.requestNo) LIKE :keyword OR poi.poNo LIKE :keyword OR ri.deviceCode LIKE :keyword OR im.modelCode LIKE :keyword OR im.nameEn LIKE :keyword)");
     params.keyword = `%${options.keyword.trim()}%`;
@@ -75,7 +93,13 @@ export async function listAvailablePrepaymentLines(options: { page?: number; pag
         po.status AS purchaseStatus,
         req.status AS requestStatus
       ${sourceFrom}
-      ORDER BY req.batchName, po.poNo, poi.id
+      ORDER BY
+        CASE WHEN TRIM(COALESCE(req.batchName, '')) REGEXP '^[A-Za-z]+[[:space:]]*-[[:space:]]*[0-9]+$' THEN 0 ELSE 1 END,
+        CAST(SUBSTRING_INDEX(TRIM(req.batchName), '-', -1) AS UNSIGNED) DESC,
+        UPPER(TRIM(SUBSTRING_INDEX(TRIM(req.batchName), '-', 1))) ASC,
+        req.countryCode ASC,
+        po.poNo ASC,
+        poi.id
       LIMIT :limit OFFSET :offset
     `,
     { ...params, limit: pageSize, offset: (page - 1) * pageSize },
@@ -110,19 +134,22 @@ export async function createPrepaymentDraft({
   });
   await assertPrepaymentInstanceOwnership(draft.lines);
 
-  await execute(
-    `
-      INSERT INTO prepaymentcontracts
-        (contractNo, status, currency, effectiveDate, totalAmount)
-      VALUES
-        (:contractNo, :status, :currency, :effectiveDate, :totalAmount)
-    `,
-    draft.contract,
-  );
+  await withTransaction(async (connection) => {
+    await executeInTransaction(
+      connection,
+      `
+        INSERT INTO prepaymentcontracts
+          (contractNo, status, currency, effectiveDate, totalAmount)
+        VALUES
+          (:contractNo, :status, :currency, :effectiveDate, :totalAmount)
+      `,
+      draft.contract,
+    );
 
-  for (const line of draft.lines) {
-    await insertPrepaymentLine(line);
-  }
+    for (const line of draft.lines) {
+      await insertPrepaymentLine(line, connection);
+    }
+  });
 
   return draft.contract;
 }
@@ -178,7 +205,12 @@ export async function getPrepaymentContract(contractNo: string) {
           FROM prepaymentcontractitems AS contractItem
           LEFT JOIN requestitems AS ri ON ri.id = contractItem.requestItemId
           WHERE contractItem.contractNo = :contractNo
-          ORDER BY contractItem.id
+          ORDER BY
+            CASE WHEN TRIM(COALESCE(contractItem.batchName, '')) REGEXP '^[A-Za-z]+[[:space:]]*-[[:space:]]*[0-9]+$' THEN 0 ELSE 1 END,
+            CAST(SUBSTRING_INDEX(TRIM(contractItem.batchName), '-', -1) AS UNSIGNED) DESC,
+            UPPER(TRIM(SUBSTRING_INDEX(TRIM(contractItem.batchName), '-', 1))) ASC,
+            contractItem.countryCode ASC,
+            contractItem.id
         `,
         { contractNo },
       )
@@ -214,20 +246,27 @@ export async function updatePrepaymentDraft({
   );
   const currency = normalizedLines[0]?.contractCurrency ?? String(contract.currency ?? "USD");
 
-  await execute(
-    `
-      UPDATE prepaymentcontracts
-      SET effectiveDate = :effectiveDate,
-          currency = :currency,
-          totalAmount = :totalAmount
-      WHERE contractNo = :contractNo
-    `,
-    { contractNo, effectiveDate: firstDayOfMonth(effectiveDate), currency, totalAmount },
-  );
-  await execute("DELETE FROM prepaymentcontractitems WHERE contractNo = :contractNo", { contractNo });
-  for (const line of normalizedLines) {
-    await insertPrepaymentLine(line);
-  }
+  await withTransaction(async (connection) => {
+    await executeInTransaction(
+      connection,
+      `
+        UPDATE prepaymentcontracts
+        SET effectiveDate = :effectiveDate,
+            currency = :currency,
+            totalAmount = :totalAmount
+        WHERE contractNo = :contractNo
+      `,
+      { contractNo, effectiveDate: firstDayOfMonth(effectiveDate), currency, totalAmount },
+    );
+    await executeInTransaction(
+      connection,
+      "DELETE FROM prepaymentcontractitems WHERE contractNo = :contractNo",
+      { contractNo },
+    );
+    for (const line of normalizedLines) {
+      await insertPrepaymentLine(line, connection);
+    }
+  });
 
   return getPrepaymentContract(contractNo);
 }
@@ -414,7 +453,13 @@ export async function listMonthlyPrepaymentWriteOffs(searchParams: URLSearchPara
         ON riByBusinessKey.keyRequestNo = mpw.requestNo
         AND riByBusinessKey.keyDeviceCode = mpw.deviceCode
       ${where}
-      ORDER BY mpw.writeOffMonth DESC, mpw.contractNo, mpw.contractLineId
+      ORDER BY
+        mpw.writeOffMonth DESC,
+        CASE WHEN TRIM(COALESCE(mpw.batchName, '')) REGEXP '^[A-Za-z]+[[:space:]]*-[[:space:]]*[0-9]+$' THEN 0 ELSE 1 END,
+        CAST(SUBSTRING_INDEX(TRIM(mpw.batchName), '-', -1) AS UNSIGNED) DESC,
+        UPPER(TRIM(SUBSTRING_INDEX(TRIM(mpw.batchName), '-', 1))) ASC,
+        mpw.contractNo,
+        mpw.contractLineId
       ${exportAll ? "" : "LIMIT :limit OFFSET :offset"}
     `,
     params,
@@ -430,8 +475,12 @@ export async function listMonthlyPrepaymentWriteOffs(searchParams: URLSearchPara
   };
 }
 
-async function insertPrepaymentLine(line: PrepaymentContractLineDraft) {
-  await execute(
+async function insertPrepaymentLine(
+  line: PrepaymentContractLineDraft,
+  connection?: PoolConnection,
+) {
+  const storageLine = toPrepaymentContractLineStorage(line);
+  const sql =
     `
       INSERT INTO prepaymentcontractitems
         (id, contractNo, lineType, purchaseOrderItemId, requestItemId, countryCode, batchName, requestNo, poNo,
@@ -443,9 +492,13 @@ async function insertPrepaymentLine(line: PrepaymentContractLineDraft) {
         :deviceCode, :modelCode, :nameEn, :supplierId, :undertakingUnitId, :customerId, :quantity, :actualCurrency, :actualUnitPrice, :actualTotalAmount,
          :contractCurrency, :contractUnitPrice, :contractTotalAmount, :writeOffStartMonth, :feeName, :feeDescription,
          :contractTotalAmount, :contractCurrency)
-    `,
-    line,
-  );
+    `;
+
+  if (connection) {
+    await executeInTransaction(connection, sql, storageLine);
+    return;
+  }
+  await execute(sql, storageLine);
 }
 
 function roundMoney(value: number) {

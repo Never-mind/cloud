@@ -288,7 +288,7 @@ CREATE TABLE IF NOT EXISTS `power_prepaymentcontractitems` (
   `paymentDate` DATE NULL COMMENT 'contract payment date',
   PRIMARY KEY (`id`),
   KEY `idx_PrepaymentContractItems_contractNo` (`contractNo`),
-  KEY `idx_PrepaymentContractItems_purchaseOrderItemId` (`purchaseOrderItemId`)
+  UNIQUE KEY `uk_PrepaymentContractItems_purchaseOrderItemId` (`purchaseOrderItemId`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='PrepaymentContractItems';
 
 CREATE TABLE IF NOT EXISTS `power_monthlyprepaymentwriteoffs` (

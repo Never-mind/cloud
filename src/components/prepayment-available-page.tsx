@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { FilePlus2, RefreshCw, Search } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { formatDateInputValue, formatDisplayValue } from "@/lib/display-format";
+import { fetchAllEntityRows } from "@/lib/client-entity-fetch";
 import { DEFAULT_PAGE_SIZE } from "@/lib/pagination";
 import { PaginationBar } from "./pagination-bar";
 import { Button, Input, Panel } from "./ui";
@@ -21,6 +22,11 @@ type Row = {
   currency: string;
   actualUnitPrice: number;
   actualTotalAmount: number;
+};
+
+type Country = {
+  code: string;
+  nameZh: string;
 };
 
 const columns = [
@@ -43,6 +49,10 @@ export function PrepaymentAvailablePage() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [selectedRowsById, setSelectedRowsById] = useState<Record<string, Row>>({});
   const [keyword, setKeyword] = useState("");
+  const [countryCode, setCountryCode] = useState("");
+  const [appliedKeyword, setAppliedKeyword] = useState("");
+  const [appliedCountryCode, setAppliedCountryCode] = useState("");
+  const [countries, setCountries] = useState<Country[]>([]);
   const [contractNo, setContractNo] = useState("");
   const [effectiveDate, setEffectiveDate] = useState("");
   const [loading, setLoading] = useState(false);
@@ -56,12 +66,19 @@ export function PrepaymentAvailablePage() {
     const today = formatDateInputValue(new Date());
     setContractNo((current) => current || `PPC-${today.replaceAll("-", "")}`);
     setEffectiveDate((current) => current || today);
+    void fetchAllEntityRows<Country>("countries").then(setCountries).catch(() => setCountries([]));
   }, []);
 
-  async function loadData(nextPage = page, nextPageSize = pageSizeRef.current, nextKeyword = keyword) {
+  async function loadData(
+    nextPage = page,
+    nextPageSize = pageSizeRef.current,
+    nextKeyword = appliedKeyword,
+    nextCountryCode = appliedCountryCode,
+  ) {
     setLoading(true);
     const params = new URLSearchParams({ page: String(nextPage), pageSize: String(nextPageSize) });
     if (nextKeyword.trim()) params.set("keyword", nextKeyword.trim());
+    if (nextCountryCode.trim()) params.set("countryCode", nextCountryCode.trim());
     const response = await fetch(`/api/prepayments/available?${params}`);
     const data = await response.json();
     setRows(data.rows ?? []);
@@ -154,7 +171,30 @@ export function PrepaymentAvailablePage() {
             value={keyword}
             onChange={(event) => setKeyword(event.target.value)}
           />
-          <Button tone="primary" onClick={() => void loadData(1, pageSizeRef.current)}>
+          <select
+            className="h-9 min-w-32 rounded border border-[#dcdfe6] bg-white px-3 text-sm outline-none focus:border-[#1890ff]"
+            value={countryCode}
+            onChange={(event) => setCountryCode(event.target.value)}
+          >
+            <option value="">全部国家</option>
+            {countries
+              .filter((country) => country.code)
+              .sort((left, right) => left.code.localeCompare(right.code))
+              .map((country) => (
+                <option key={country.code} value={country.code}>
+                  {country.nameZh ? `${country.code} - ${country.nameZh}` : country.code}
+                </option>
+              ))}
+          </select>
+          <Button
+            tone="primary"
+            onClick={() => {
+              setAppliedKeyword(keyword);
+              setAppliedCountryCode(countryCode);
+              setPage(1);
+              void loadData(1, pageSizeRef.current, keyword, countryCode);
+            }}
+          >
             <Search size={15} />
             查询
           </Button>

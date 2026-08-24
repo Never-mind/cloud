@@ -60,6 +60,14 @@ export type PrepaymentContractLineDraft = {
   feeDescription: string;
 };
 
+export type PrepaymentContractLineStorage = Omit<
+  PrepaymentContractLineDraft,
+  "purchaseOrderItemId" | "requestItemId"
+> & {
+  purchaseOrderItemId: string | null;
+  requestItemId: string | null;
+};
+
 export type MonthlyWriteOffSourceLine = {
   id: string;
   contractNo: string;
@@ -105,6 +113,24 @@ export type MonthlyWriteOffRow = {
 };
 
 const WRITE_OFF_MONTHS = 24;
+
+export function toPrepaymentContractLineStorage(
+  line: PrepaymentContractLineDraft,
+): PrepaymentContractLineStorage {
+  const lineType = line.lineType === "fee" ? "fee" : "instance";
+  const requestItemId = String(line.requestItemId ?? "").trim() || null;
+  const purchaseOrderItemId =
+    lineType === "fee"
+      ? null
+      : String(line.purchaseOrderItemId ?? "").trim() || null;
+
+  return {
+    ...line,
+    lineType,
+    purchaseOrderItemId,
+    requestItemId,
+  };
+}
 
 export function filterAvailablePrepaymentLines({
   occupiedPurchaseOrderItemIds,

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { FileDown, RefreshCw, Search } from "lucide-react";
 import { formatDisplayValue } from "@/lib/display-format";
 import { exportRowsToXlsx } from "@/lib/client-xlsx-export";
+import { fetchAllEntityRows } from "@/lib/client-entity-fetch";
 import { DEFAULT_PAGE_SIZE } from "@/lib/pagination";
 import { PaginationBar } from "./pagination-bar";
 import { Button, Input, Panel } from "./ui";
@@ -28,6 +29,8 @@ const columns = [
 export function RequestProductLinesPage() {
   const [rows, setRows] = useState<Row[]>([]);
   const [keyword, setKeyword] = useState("");
+  const [countryCode, setCountryCode] = useState("");
+  const [countries, setCountries] = useState<Row[]>([]);
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
@@ -35,24 +38,25 @@ export function RequestProductLinesPage() {
   const pageSizeRef = useRef(pageSize);
   const skipNextPageChangeRef = useRef(false);
 
-  function buildParams(nextPage: number, nextPageSize: number, exportAll = false) {
+  function buildParams(nextPage: number, nextPageSize: number, exportAll = false, nextCountryCode = countryCode) {
     const params = new URLSearchParams({ page: String(nextPage), pageSize: String(nextPageSize) });
     if (keyword.trim()) params.set("keyword", keyword.trim());
+    if (nextCountryCode.trim()) params.set("countryCode", nextCountryCode.trim());
     if (exportAll) params.set("export", "1");
     return params;
   }
 
-  async function fetchData(nextPage: number, nextPageSize: number, exportAll = false): Promise<ListResponse> {
-    const response = await fetch(`/api/requests/product-lines?${buildParams(nextPage, nextPageSize, exportAll)}`);
+  async function fetchData(nextPage: number, nextPageSize: number, exportAll = false, nextCountryCode = countryCode): Promise<ListResponse> {
+    const response = await fetch(`/api/requests/product-lines?${buildParams(nextPage, nextPageSize, exportAll, nextCountryCode)}`);
     const data = await response.json();
     if (!response.ok) throw new Error(data.error ?? "需求明细加载失败");
     return data as ListResponse;
   }
 
-  async function loadData(nextPage = page, nextPageSize = pageSizeRef.current) {
+  async function loadData(nextPage = page, nextPageSize = pageSizeRef.current, nextCountryCode = countryCode) {
     setLoading(true);
     try {
-      const data = await fetchData(nextPage, nextPageSize);
+      const data = await fetchData(nextPage, nextPageSize, false, nextCountryCode);
       setRows(data.rows ?? []);
       setTotal(Number(data.total ?? 0));
       if (data.page !== nextPage) setPage(data.page);
@@ -69,9 +73,13 @@ export function RequestProductLinesPage() {
     void loadData(1, pageSizeRef.current);
   }, []);
 
+  useEffect(() => {
+    void fetchAllEntityRows<Row>("countries").then(setCountries).catch(() => setCountries([]));
+  }, []);
+
   async function exportRows() {
     try {
-      const data = await fetchData(1, pageSizeRef.current, true);
+      const data = await fetchData(1, pageSizeRef.current, true, countryCode);
       exportRowsToXlsx({
         columns: columns.map((column) => ({ ...column, format: (value) => formatValue(value) })),
         rows: data.rows,
@@ -93,7 +101,15 @@ export function RequestProductLinesPage() {
       <Panel>
         <div className="flex flex-wrap items-center gap-2 border-b border-[#ebeef5] p-4">
           <Input placeholder="搜索国家/批次/需求单号/设备编码/机型/供应商" value={keyword} onChange={(event) => setKeyword(event.target.value)} />
-          <Button tone="primary" onClick={() => { setPage(1); void loadData(1, pageSizeRef.current); }}>
+          <select className="h-9 min-w-32 rounded border border-[#dcdfe6] bg-white px-3 text-sm outline-none focus:border-[#1890ff]" value={countryCode} onChange={(event) => setCountryCode(event.target.value)}>
+            <option value="">全部国家</option>
+            {countries
+              .map((country) => ({ code: String(country.code ?? "").trim(), nameZh: String(country.nameZh ?? "").trim() }))
+              .filter((country) => country.code)
+              .sort((left, right) => left.code.localeCompare(right.code))
+              .map((country) => <option key={country.code} value={country.code}>{country.nameZh ? `${country.code} - ${country.nameZh}` : country.code}</option>)}
+          </select>
+          <Button tone="primary" onClick={() => { setPage(1); void loadData(1, pageSizeRef.current, countryCode); }}>
             <Search size={15} />
             查询
           </Button>

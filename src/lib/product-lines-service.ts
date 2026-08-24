@@ -17,9 +17,14 @@ type PageOptions = {
 
 export async function listRequestProductLines(searchParams: URLSearchParams): Promise<ProductLineListResult> {
   const keyword = searchParams.get("keyword")?.trim();
+  const countryCode = searchParams.get("countryCode")?.trim();
   const options = getPageOptions(searchParams);
   const params: Row = {};
   const whereParts = ["req.status IN ('待下单', '已下单')"];
+  if (countryCode) {
+    whereParts.push("req.countryCode = :countryCode");
+    params.countryCode = countryCode;
+  }
 
   if (keyword) {
     whereParts.push(`(
@@ -88,9 +93,14 @@ export async function listRequestProductLines(searchParams: URLSearchParams): Pr
 
 export async function listPurchaseProductLines(searchParams: URLSearchParams): Promise<ProductLineListResult> {
   const keyword = searchParams.get("keyword")?.trim();
+  const countryCode = searchParams.get("countryCode")?.trim();
   const options = getPageOptions(searchParams);
   const params: Row = {};
   const whereParts = ["purchase.status LIKE '%确认%'"];
+  if (countryCode) {
+    whereParts.push("requestMaster.countryCode = :countryCode");
+    params.countryCode = countryCode;
+  }
 
   if (keyword) {
     whereParts.push(`(
@@ -131,6 +141,7 @@ export async function listPurchaseProductLines(searchParams: URLSearchParams): P
         item.id,
         purchase.poNo,
         COALESCE(NULLIF(item.requestNo, ''), requestItem.requestNo, purchase.requestNo, '') AS requestNo,
+        requestMaster.countryCode,
         requestMaster.batchName,
         purchase.status,
         requestItem.deviceCode,

@@ -198,6 +198,12 @@ export function getEntityOrderBy(config: EntityConfig, shipmentAlias = "shipment
     )`;
     return getBatchOrderBy(batchName, "purchaseorderitems.poNo ASC, purchaseorderitems.id ASC");
   }
+  if (config.key === "billing-ledgers") {
+    return getBatchOrderBy(
+      "billinginstanceledgers.`batchName`",
+      "billinginstanceledgers.`countryCode` ASC, billinginstanceledgers.`requestNo` ASC, billinginstanceledgers.`ledgerId` ASC",
+    );
+  }
   return config.defaultSort ? `ORDER BY ${config.defaultSort}` : "";
 }
 
