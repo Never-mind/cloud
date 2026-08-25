@@ -23,6 +23,7 @@ const snapshotColumns: Array<{ key: string; label: string; type?: string }> = [
   { key: "totalAmount", label: "总金额", type: "number" },
   { key: "itemCount", label: "明细数量", type: "number" },
   { key: "createdAt", label: "创建时间", type: "date" },
+  { key: "updatedAt", label: "更新时间", type: "date" },
   { key: "confirmedAt", label: "确认时间", type: "date" },
 ];
 

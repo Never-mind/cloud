@@ -104,7 +104,9 @@ export async function listInternalServiceAdjustments(searchParams: URLSearchPara
       SELECT adjustmentNo, ledgerId, countryCode, batchName, requestNo, poNo, deviceCode,
         supplierId, undertakingUnitId, customerId, DATE_FORMAT(startMonth, '%Y-%m-%d') AS startMonth,
         DATE_FORMAT(endMonth, '%Y-%m-%d') AS endMonth, monthlyAmount, reason, status,
-        DATE_FORMAT(confirmedAt, '%Y-%m-%d') AS confirmedAt, DATE_FORMAT(createdAt, '%Y-%m-%d') AS createdAt
+        DATE_FORMAT(confirmedAt, '%Y-%m-%d') AS confirmedAt,
+        DATE_FORMAT(createdAt, '%Y-%m-%d') AS createdAt,
+        DATE_FORMAT(updatedAt, '%Y-%m-%d') AS updatedAt
       FROM internalservicefeeadjustments
       ${where}
       ORDER BY confirmedAt DESC, adjustmentNo DESC
@@ -127,7 +129,10 @@ export async function listInternalServiceSnapshots(searchParams: URLSearchParams
   const page = Math.min(requestedPage, totalPages);
   const snapshots = await queryRows<Row>(
     `SELECT snapshotNo, DATE_FORMAT(archiveMonth, '%Y-%m-%d') AS archiveMonth, countryCode, itemCount, totalAmount,
-       DATE_FORMAT(confirmedAt, '%Y-%m-%d') AS confirmedAt FROM internalservicefeesnapshots ORDER BY archiveMonth DESC, snapshotNo DESC LIMIT :limit OFFSET :offset`,
+       DATE_FORMAT(confirmedAt, '%Y-%m-%d') AS confirmedAt,
+       DATE_FORMAT(createdAt, '%Y-%m-%d') AS createdAt,
+       DATE_FORMAT(updatedAt, '%Y-%m-%d') AS updatedAt
+       FROM internalservicefeesnapshots ORDER BY archiveMonth DESC, snapshotNo DESC LIMIT :limit OFFSET :offset`,
     { limit: pageSize, offset: (page - 1) * pageSize },
   );
   const [{ total: itemTotalValue }] = snapshotNo ? await queryRows<{ total: number }>("SELECT COUNT(*) AS total FROM internalservicefeesnapshotitems WHERE snapshotNo = :snapshotNo", { snapshotNo }) : [{ total: 0 }];
@@ -135,7 +140,10 @@ export async function listInternalServiceSnapshots(searchParams: URLSearchParams
   const itemTotalPages = Math.max(1, Math.ceil(itemTotal / itemPageSize));
   const itemPage = Math.min(requestedItemPage, itemTotalPages);
   const items = snapshotNo ? await queryRows<Row>(
-    `SELECT *, DATE_FORMAT(writeOffMonth, '%Y-%m-%d') AS writeOffMonth FROM internalservicefeesnapshotitems WHERE snapshotNo = :snapshotNo ORDER BY id LIMIT :limit OFFSET :offset`,
+    `SELECT *, DATE_FORMAT(writeOffMonth, '%Y-%m-%d') AS writeOffMonth,
+       DATE_FORMAT(createdAt, '%Y-%m-%d') AS createdAt,
+       DATE_FORMAT(updatedAt, '%Y-%m-%d') AS updatedAt
+       FROM internalservicefeesnapshotitems WHERE snapshotNo = :snapshotNo ORDER BY id LIMIT :limit OFFSET :offset`,
     { snapshotNo, limit: itemPageSize, offset: (itemPage - 1) * itemPageSize },
   ) : [];
   return { snapshots, items: await attachPartyCodes(items), total, page, pageSize, totalPages, itemTotal, itemPage, itemPageSize, itemTotalPages };

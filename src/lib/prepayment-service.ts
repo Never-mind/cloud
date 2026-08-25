@@ -435,7 +435,8 @@ export async function listMonthlyPrepaymentWriteOffs(searchParams: URLSearchPara
         mpw.quantity,
         mpw.sourceType,
         mpw.adjustmentNo,
-        mpw.createdAt
+        DATE_FORMAT(mpw.createdAt, '%Y-%m-%d') AS createdAt,
+        DATE_FORMAT(mpw.updatedAt, '%Y-%m-%d') AS updatedAt
       FROM monthlyprepaymentwriteoffs AS mpw
       LEFT JOIN (
         SELECT id AS linkedContractLineId, requestItemId AS linkedRequestItemId, purchaseOrderItemId AS linkedPurchaseOrderItemId

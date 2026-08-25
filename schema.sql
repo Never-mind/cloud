@@ -10,6 +10,8 @@ CREATE TABLE IF NOT EXISTS `power_countries` (
   `nameEn` VARCHAR(255) NULL COMMENT 'country name en',
   `nameLocal` VARCHAR(255) NULL COMMENT 'country name local',
   `vatRate` DECIMAL(10, 6) NULL COMMENT 'VAT rate as decimal',
+  `createdAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'created time',
+  `updatedAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'updated time',
   PRIMARY KEY (`code`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Countries';
 
@@ -20,6 +22,8 @@ CREATE TABLE IF NOT EXISTS `power_deliverylocations` (
   `nameZh` VARCHAR(255) NULL COMMENT 'location name zh',
   `nameEn` VARCHAR(255) NULL COMMENT 'location name en',
   `fullAddress` TEXT NULL COMMENT 'full delivery address',
+  `createdAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'created time',
+  `updatedAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'updated time',
   PRIMARY KEY (`locationId`),
   KEY `idx_DeliveryLocations_countryCode` (`countryCode`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='DeliveryLocations';
@@ -30,6 +34,8 @@ CREATE TABLE IF NOT EXISTS `power_deliverycontacts` (
   `name` VARCHAR(255) NULL COMMENT 'name',
   `phone` VARCHAR(64) NULL COMMENT 'phone',
   `email` VARCHAR(255) NULL COMMENT 'email',
+  `createdAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'created time',
+  `updatedAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'updated time',
   PRIMARY KEY (`contactId`),
   KEY `idx_DeliveryContacts_locationId` (`locationId`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='DeliveryContacts';
@@ -39,6 +45,8 @@ CREATE TABLE IF NOT EXISTS `power_datacenters` (
   `locationId` VARCHAR(512) NOT NULL COMMENT 'physical address or location id',
   `nameZh` VARCHAR(512) NULL COMMENT 'datacenter name zh',
   `nameEn` VARCHAR(512) NULL COMMENT 'datacenter name en',
+  `createdAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'created time',
+  `updatedAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'updated time',
   PRIMARY KEY (`dcCode`),
   UNIQUE KEY `uk_Datacenters_locationId` (`locationId`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Datacenters';
@@ -50,6 +58,8 @@ CREATE TABLE IF NOT EXISTS `power_instancemodels` (
   `nameZh` VARCHAR(255) NULL COMMENT 'instance model name zh',
   `nameEn` VARCHAR(255) NULL COMMENT 'instance model name en',
   `b6Type` VARCHAR(64) NULL COMMENT 'default B6 type',
+  `createdAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'created time',
+  `updatedAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'updated time',
   PRIMARY KEY (`deviceCode`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='InstanceModels';
 
@@ -57,6 +67,8 @@ CREATE TABLE IF NOT EXISTS `power_suppliers` (
   `supplierId` VARCHAR(64) NOT NULL COMMENT 'supplier id PK',
   `supplierCode` VARCHAR(128) NOT NULL COMMENT 'ODM supplier code UK',
   `name` VARCHAR(255) NULL COMMENT 'name',
+  `createdAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'created time',
+  `updatedAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'updated time',
   PRIMARY KEY (`supplierId`),
   UNIQUE KEY `uk_Suppliers_supplierCode` (`supplierCode`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Suppliers';
@@ -65,6 +77,8 @@ CREATE TABLE IF NOT EXISTS `power_undertakingunits` (
   `undertakingUnitId` VARCHAR(64) NOT NULL COMMENT 'undertaking unit id PK',
   `undertakingUnitCode` VARCHAR(128) NOT NULL COMMENT 'undertaking unit code UK',
   `name` VARCHAR(255) NULL COMMENT 'name',
+  `createdAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'created time',
+  `updatedAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'updated time',
   PRIMARY KEY (`undertakingUnitId`),
   UNIQUE KEY `uk_UndertakingUnits_code` (`undertakingUnitCode`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='UndertakingUnits';
@@ -73,6 +87,8 @@ CREATE TABLE IF NOT EXISTS `power_customers` (
   `customerId` VARCHAR(64) NOT NULL COMMENT 'customer id PK',
   `customerCode` VARCHAR(128) NOT NULL COMMENT 'customer code UK',
   `name` VARCHAR(255) NULL COMMENT 'name',
+  `createdAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'created time',
+  `updatedAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'updated time',
   PRIMARY KEY (`customerId`),
   UNIQUE KEY `uk_Customers_customerCode` (`customerCode`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Customers';
@@ -104,6 +120,8 @@ CREATE TABLE IF NOT EXISTS `power_contractitems` (
   `deviceCode` VARCHAR(64) NOT NULL COMMENT 'device code',
   `basePrice` DECIMAL(18, 4) NULL COMMENT 'contract base price',
   `currency` VARCHAR(16) NULL COMMENT 'currency',
+  `createdAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'created time',
+  `updatedAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'updated time',
   PRIMARY KEY (`id`),
   KEY `idx_ContractItems_contractNo` (`contractNo`),
   KEY `idx_ContractItems_deviceCode` (`deviceCode`)
@@ -133,6 +151,8 @@ CREATE TABLE IF NOT EXISTS `power_requestitems` (
   `customerId` VARCHAR(64) NULL COMMENT 'customer id',
   `requestedAt` DATE NULL COMMENT 'requested date',
   `quantity` INT NOT NULL DEFAULT 0 COMMENT 'device node quantity',
+  `createdAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'created time',
+  `updatedAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'updated time',
   PRIMARY KEY (`id`),
   KEY `idx_RequestItems_requestNo` (`requestNo`),
   KEY `idx_RequestItems_requestNo_deviceCode` (`requestNo`, `deviceCode`),
@@ -175,6 +195,8 @@ CREATE TABLE IF NOT EXISTS `power_purchaseorderitems` (
   `hardwareCoefficient` DECIMAL(18, 6) NULL COMMENT 'hardware coefficient',
   `softwareCoefficient` DECIMAL(18, 6) NULL COMMENT 'software coefficient',
   `totalCoefficient` DECIMAL(18, 6) NULL COMMENT 'total coefficient',
+  `createdAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'created time',
+  `updatedAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'updated time',
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_PurchaseOrderItems_requestItemId` (`requestItemId`),
   KEY `idx_PurchaseOrderItems_purchaseOrderId` (`purchaseOrderId`),
@@ -286,6 +308,8 @@ CREATE TABLE IF NOT EXISTS `power_prepaymentcontractitems` (
   `currency` VARCHAR(16) NULL COMMENT 'currency',
   `usdRate` DECIMAL(18, 8) NULL COMMENT 'USD rate',
   `paymentDate` DATE NULL COMMENT 'contract payment date',
+  `createdAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'created time',
+  `updatedAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'updated time',
   PRIMARY KEY (`id`),
   KEY `idx_PrepaymentContractItems_contractNo` (`contractNo`),
   UNIQUE KEY `uk_PrepaymentContractItems_purchaseOrderItemId` (`purchaseOrderItemId`)
@@ -316,6 +340,7 @@ CREATE TABLE IF NOT EXISTS `power_monthlyprepaymentwriteoffs` (
   `sourceType` VARCHAR(64) NULL COMMENT 'source type',
   `adjustmentNo` VARCHAR(128) NULL COMMENT 'adjustment no',
   `createdAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'created time',
+  `updatedAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'updated time',
   PRIMARY KEY (`id`),
   KEY `idx_MonthlyPrepaymentWriteOffs_contractNo` (`contractNo`),
   KEY `idx_MonthlyPrepaymentWriteOffs_contractLineId` (`contractLineId`),
@@ -362,6 +387,7 @@ CREATE TABLE IF NOT EXISTS `power_prepaymentwriteoffadjustmentitems` (
   `adjustedMonthlyAmount` DECIMAL(18, 4) NULL COMMENT 'adjusted monthly amount',
   `differenceAmount` DECIMAL(18, 4) NULL COMMENT 'difference amount',
   `createdAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'created time',
+  `updatedAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'updated time',
   PRIMARY KEY (`id`),
   KEY `idx_PrepaymentWriteOffAdjustmentItems_adjustmentNo` (`adjustmentNo`),
   KEY `idx_PrepaymentWriteOffAdjustmentItems_monthlyWriteOffId` (`monthlyWriteOffId`)
@@ -431,6 +457,7 @@ CREATE TABLE IF NOT EXISTS `power_monthlybillingwriteoffs` (
   `sourceType` VARCHAR(32) NULL COMMENT 'initial/adjustment',
   `adjustmentNo` VARCHAR(128) NULL COMMENT 'adjustment no',
   `createdAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'created time',
+  `updatedAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'updated time',
   PRIMARY KEY (`id`),
   KEY `idx_MonthlyBillingWriteOffs_ledgerId` (`ledgerId`),
   KEY `idx_MonthlyBillingWriteOffs_writeOffMonth` (`writeOffMonth`),
@@ -478,6 +505,7 @@ CREATE TABLE IF NOT EXISTS `power_billingadjustmentitems` (
   `adjustedFirst24MonthPrice` DECIMAL(18, 4) NULL COMMENT 'adjusted first 24 month price',
   `adjustedNext36MonthPrice` DECIMAL(18, 4) NULL COMMENT 'adjusted next 36 month price',
   `createdAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'created time',
+  `updatedAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'updated time',
   PRIMARY KEY (`id`),
   KEY `idx_BillingAdjustmentItems_adjustmentNo` (`adjustmentNo`),
   KEY `idx_BillingAdjustmentItems_target` (`countryCode`, `batchName`, `deviceCode`),
@@ -518,6 +546,7 @@ CREATE TABLE IF NOT EXISTS `power_billingstatementsnapshotitems` (
   `endTime` DATE NOT NULL COMMENT 'end of charge time',
   `sourceIds` TEXT NULL COMMENT 'monthly billing source ids',
   `createdAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'created time',
+  `updatedAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'updated time',
   PRIMARY KEY (`id`),
   KEY `idx_BillingStatementSnapshotItems_snapshotNo` (`snapshotNo`),
   KEY `idx_BillingStatementSnapshotItems_currency` (`currency`)
@@ -535,6 +564,8 @@ CREATE TABLE IF NOT EXISTS `power_servicefeesnapshots` (
   `billingTotal` DECIMAL(18, 4) NULL COMMENT 'billing total',
   `prepaymentTotal` DECIMAL(18, 4) NULL COMMENT 'prepayment total',
   `serviceFeeTotal` DECIMAL(18, 4) NULL COMMENT 'service fee total',
+  `serviceFeeTotalExcludingTax` DECIMAL(18, 4) NULL COMMENT 'service fee total VAT excluded',
+  `vatRate` DECIMAL(10, 6) NULL COMMENT 'VAT rate snapshot',
   `instanceServiceFeeTotal` DECIMAL(18, 4) NULL COMMENT 'instance service fee total',
   `feeServiceFeeTotal` DECIMAL(18, 4) NULL COMMENT 'non-instance fee service fee total',
   `repaymentStatus` VARCHAR(32) NOT NULL DEFAULT '未回款' COMMENT 'repayment status',
@@ -568,6 +599,7 @@ CREATE TABLE IF NOT EXISTS `power_servicefeesnapshotitems` (
   `snapshotNo` VARCHAR(128) NOT NULL COMMENT 'service fee snapshot no',
   `writeOffMonth` DATE NOT NULL COMMENT 'write-off month',
   `countryCode` VARCHAR(32) NULL COMMENT 'country code',
+  `vatRate` DECIMAL(10, 6) NULL COMMENT 'VAT rate snapshot',
   `batchName` VARCHAR(255) NULL COMMENT 'batch name',
   `requestNo` VARCHAR(128) NULL COMMENT 'request no',
   `poNo` VARCHAR(128) NULL COMMENT 'PO no',
@@ -591,6 +623,7 @@ CREATE TABLE IF NOT EXISTS `power_servicefeesnapshotitems` (
   `prepaymentContractNos` TEXT NULL COMMENT 'prepayment contract nos',
   `sourceNote` VARCHAR(255) NULL COMMENT 'source note',
   `createdAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'created time',
+  `updatedAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'updated time',
   PRIMARY KEY (`id`),
   KEY `idx_ServiceFeeSnapshotItems_snapshotNo` (`snapshotNo`),
   KEY `idx_ServiceFeeSnapshotItems_writeOffMonth` (`writeOffMonth`),
@@ -606,6 +639,8 @@ CREATE TABLE IF NOT EXISTS `power_writeoffitems` (
   `writeOffRate` DECIMAL(18, 8) NULL COMMENT 'write-off rate',
   `startMonth` DATE NULL COMMENT 'start month first day',
   `totalMonths` INT NULL COMMENT 'total write-off months',
+  `createdAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'created time',
+  `updatedAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'updated time',
   PRIMARY KEY (`id`),
   KEY `idx_WriteOffItems_requestItemId` (`requestItemId`),
   KEY `idx_WriteOffItems_prepaymentContractItemId` (`prepaymentContractItemId`),
@@ -692,6 +727,7 @@ CREATE TABLE IF NOT EXISTS `power_importjobs` (
   `previewJson` LONGTEXT NULL COMMENT 'preview payload json',
   `reportJson` LONGTEXT NULL COMMENT 'report json',
   `createdAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'created time',
+  `updatedAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'updated time',
   `confirmedAt` DATETIME NULL COMMENT 'confirmed time',
   PRIMARY KEY (`jobId`),
   KEY `idx_ImportJobs_targetKey` (`targetKey`),
@@ -718,6 +754,7 @@ CREATE TABLE IF NOT EXISTS `power_userpreferences` (
   `userId` VARCHAR(80) NOT NULL COMMENT 'app user id',
   `preferenceKey` VARCHAR(80) NOT NULL COMMENT 'preference key',
   `preferenceValue` LONGTEXT NOT NULL COMMENT 'preference JSON value',
+  `createdAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'created time',
   `updatedAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'updated time',
   PRIMARY KEY (`userId`, `preferenceKey`),
   KEY `idx_UserPreferences_updatedAt` (`updatedAt`)
@@ -731,6 +768,7 @@ CREATE TABLE IF NOT EXISTS `power_modulefeatures` (
   `sortOrder` INT NOT NULL DEFAULT 0 COMMENT 'display order',
   `remark` VARCHAR(500) NULL COMMENT 'remark',
   `updatedBy` VARCHAR(255) NULL COMMENT 'last updater',
+  `createdAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'created time',
   `updatedAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'updated time',
   PRIMARY KEY (`moduleKey`),
   KEY `idx_ModuleFeatures_enabled_sort` (`enabled`, `sortOrder`)
@@ -968,6 +1006,7 @@ CREATE TABLE IF NOT EXISTS `power_balancesettlementfinalsources` (
   `differenceTotal` DECIMAL(18, 4) NOT NULL DEFAULT 0 COMMENT 'difference total snapshot',
   `sourceSnapshotJson` LONGTEXT NULL COMMENT 'source settlement snapshot JSON',
   `createdAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'created time',
+  `updatedAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'updated time',
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_BalanceSettlementFinalSources_final_source` (`finalSettlementNo`, `sourceSettlementNo`),
   KEY `idx_BalanceSettlementFinalSources_source` (`sourceSettlementNo`),
@@ -1006,6 +1045,7 @@ CREATE TABLE IF NOT EXISTS `power_internalservicefeeadjustments` (
   `supplierId` VARCHAR(64) NULL, `undertakingUnitId` VARCHAR(64) NULL, `customerId` VARCHAR(64) NULL, `startMonth` DATE NOT NULL, `endMonth` DATE NOT NULL,
   `monthlyAmount` DECIMAL(18,2) NOT NULL, `reason` TEXT NULL, `status` VARCHAR(32) NOT NULL DEFAULT '已确认',
   `confirmedAt` DATETIME NULL, `createdAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updatedAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`adjustmentNo`), KEY `idx_InternalServiceFeeAdjustments_ledger` (`ledgerId`), KEY `idx_InternalServiceFeeAdjustments_range` (`startMonth`, `endMonth`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='InternalServiceFeeAdjustments';
 
@@ -1013,6 +1053,7 @@ CREATE TABLE IF NOT EXISTS `power_internalservicefeesnapshots` (
   `snapshotNo` VARCHAR(128) NOT NULL, `archiveMonth` DATE NOT NULL, `countryCode` VARCHAR(32) NULL,
   `itemCount` INT NOT NULL DEFAULT 0, `totalAmount` DECIMAL(18,2) NOT NULL DEFAULT 0, `confirmedAt` DATETIME NULL,
   `createdAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updatedAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`snapshotNo`), KEY `idx_InternalServiceFeeSnapshots_month` (`archiveMonth`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='InternalServiceFeeSnapshots';
 
@@ -1022,5 +1063,6 @@ CREATE TABLE IF NOT EXISTS `power_internalservicefeesnapshotitems` (
   `poNo` VARCHAR(128) NULL, `deviceCode` VARCHAR(64) NULL, `supplierId` VARCHAR(64) NULL, `undertakingUnitId` VARCHAR(64) NULL, `customerId` VARCHAR(64) NULL,
   `currency` VARCHAR(16) NULL, `internalServiceFeeAmount` DECIMAL(18,2) NOT NULL, `sourceType` VARCHAR(32) NULL,
   `adjustmentNo` VARCHAR(128) NULL, `createdAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updatedAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`), KEY `idx_InternalServiceFeeSnapshotItems_snapshot` (`snapshotNo`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='InternalServiceFeeSnapshotItems';

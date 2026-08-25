@@ -146,7 +146,9 @@ export async function getBillingAdjustment(adjustmentNo: string) {
             currency,
             DATE_FORMAT(effectiveMonth, '%Y-%m-%d') AS effectiveMonth,
             adjustedFirst24MonthPrice,
-            adjustedNext36MonthPrice
+            adjustedNext36MonthPrice,
+            DATE_FORMAT(createdAt, '%Y-%m-%d') AS createdAt,
+            DATE_FORMAT(updatedAt, '%Y-%m-%d') AS updatedAt
           FROM billingadjustmentitems
           WHERE adjustmentNo = :adjustmentNo
           ORDER BY countryCode, batchName, deviceCode, id
@@ -521,7 +523,8 @@ export async function listMonthlyBillingWriteOffs(searchParams: URLSearchParams)
         mbw.differenceTotalPrice,
         mbw.sourceType,
         mbw.adjustmentNo,
-        mbw.createdAt
+        DATE_FORMAT(mbw.createdAt, '%Y-%m-%d') AS createdAt,
+        DATE_FORMAT(mbw.updatedAt, '%Y-%m-%d') AS updatedAt
       FROM monthlybillingwriteoffs AS mbw
       LEFT JOIN (
         SELECT ledgerId AS linkedLedgerId, purchaseOrderItemId AS linkedPurchaseOrderItemId

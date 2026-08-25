@@ -148,7 +148,8 @@ export async function getPrepaymentWriteOffAdjustment(adjustmentNo: string) {
             originalMonthlyAmount,
             adjustedMonthlyAmount,
             differenceAmount,
-            createdAt
+            DATE_FORMAT(createdAt, '%Y-%m-%d') AS createdAt,
+            DATE_FORMAT(updatedAt, '%Y-%m-%d') AS updatedAt
           FROM prepaymentwriteoffadjustmentitems
           WHERE adjustmentNo = :adjustmentNo
           ORDER BY writeOffMonth, id

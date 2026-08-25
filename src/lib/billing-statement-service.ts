@@ -88,7 +88,8 @@ export async function listBillingStatementSnapshots(searchParams: URLSearchParam
         totalAmount,
         itemCount,
         DATE_FORMAT(confirmedAt, '%Y-%m-%d') AS confirmedAt,
-        DATE_FORMAT(createdAt, '%Y-%m-%d') AS createdAt
+        DATE_FORMAT(createdAt, '%Y-%m-%d') AS createdAt,
+        DATE_FORMAT(updatedAt, '%Y-%m-%d') AS updatedAt
       FROM billingstatementsnapshots
       ${where}
       ORDER BY createdAt DESC
@@ -186,7 +187,8 @@ export async function getBillingStatementSnapshot(snapshotNo: string) {
         totalAmount,
         itemCount,
         DATE_FORMAT(confirmedAt, '%Y-%m-%d') AS confirmedAt,
-        DATE_FORMAT(createdAt, '%Y-%m-%d') AS createdAt
+        DATE_FORMAT(createdAt, '%Y-%m-%d') AS createdAt,
+        DATE_FORMAT(updatedAt, '%Y-%m-%d') AS updatedAt
       FROM billingstatementsnapshots
       WHERE snapshotNo = :snapshotNo
       LIMIT 1

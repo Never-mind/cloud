@@ -30,6 +30,8 @@ const itemColumns: Array<{ key: string; label: string; type?: string }> = [
   { key: "effectiveMonth", label: "生效月份", type: "date" },
   { key: "adjustedFirst24MonthPrice", label: "调整后前24个月价", type: "number" },
   { key: "adjustedNext36MonthPrice", label: "调整后后36个月价", type: "number" },
+  { key: "createdAt", label: "创建日期", type: "date" },
+  { key: "updatedAt", label: "更新日期", type: "date" },
 ];
 
 const emptyItem = {

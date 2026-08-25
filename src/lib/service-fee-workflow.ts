@@ -17,6 +17,8 @@ export type ServiceFeeBillingRow = {
   monthlyAmount?: number | string | null;
   monthlyTotalAmount?: number | string | null;
   ledgerId?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
 };
 
 export type ServiceFeePrepaymentRow = {
@@ -39,6 +41,8 @@ export type ServiceFeePrepaymentRow = {
   contractNo?: string | null;
   contractLineId?: string | null;
   lineType?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
 };
 
 export type ServiceFeeRow = {
@@ -56,6 +60,7 @@ export type ServiceFeeRow = {
   customerId: string;
   quantity: number;
   currency: string;
+  vatRate: number;
   billingCurrency: string;
   prepaymentCurrency: string;
   lineType: "instance" | "fee";
@@ -63,6 +68,8 @@ export type ServiceFeeRow = {
   prepaymentAmount: number;
   serviceFeeAmount: number;
   serviceFeeAmountExcludingTax: number;
+  createdAt?: string | null;
+  updatedAt?: string | null;
   billingSourceIds: string;
   prepaymentSourceIds: string;
   prepaymentContractNos: string;
@@ -73,6 +80,7 @@ export type ServiceFeeSummary = {
   billingTotal: number;
   prepaymentTotal: number;
   serviceFeeTotal: number;
+  serviceFeeTotalExcludingTax: number;
   instanceServiceFeeTotal: number;
   feeServiceFeeTotal: number;
 };
@@ -119,12 +127,20 @@ export function buildServiceFeeRows({
     );
 }
 
-export function summarizeServiceFeeRows(rows: Array<Pick<ServiceFeeRow, "billingAmount" | "prepaymentAmount" | "serviceFeeAmount" | "lineType">>): ServiceFeeSummary {
+export function summarizeServiceFeeRows(
+  rows: Array<
+    Pick<ServiceFeeRow, "billingAmount" | "prepaymentAmount" | "serviceFeeAmount" | "lineType">
+    & Partial<Pick<ServiceFeeRow, "serviceFeeAmountExcludingTax">>
+  >,
+): ServiceFeeSummary {
   return rows.reduce<ServiceFeeSummary>(
     (summary, row) => ({
       billingTotal: roundMoney(summary.billingTotal + Number(row.billingAmount ?? 0)),
       prepaymentTotal: roundMoney(summary.prepaymentTotal + Number(row.prepaymentAmount ?? 0)),
       serviceFeeTotal: roundMoney(summary.serviceFeeTotal + Number(row.serviceFeeAmount ?? 0)),
+      serviceFeeTotalExcludingTax: roundMoney(
+        summary.serviceFeeTotalExcludingTax + Number(row.serviceFeeAmountExcludingTax ?? 0),
+      ),
       instanceServiceFeeTotal: roundMoney(
         summary.instanceServiceFeeTotal + (row.lineType === "instance" ? Number(row.serviceFeeAmount ?? 0) : 0),
       ),
@@ -134,6 +150,7 @@ export function summarizeServiceFeeRows(rows: Array<Pick<ServiceFeeRow, "billing
       billingTotal: 0,
       prepaymentTotal: 0,
       serviceFeeTotal: 0,
+      serviceFeeTotalExcludingTax: 0,
       instanceServiceFeeTotal: 0,
       feeServiceFeeTotal: 0,
     },
@@ -166,6 +183,7 @@ function buildServiceFeeRow(bucket: Bucket): ServiceFeeRow {
     customerId: normalizeText(billing?.customerId ?? prepayment?.customerId),
     quantity: toNumber(source?.quantity),
     currency: normalizeText(source?.currency),
+    vatRate,
     billingCurrency: normalizeText(billing?.currency),
     prepaymentCurrency: normalizeText(prepayment?.currency),
     lineType,
@@ -173,6 +191,8 @@ function buildServiceFeeRow(bucket: Bucket): ServiceFeeRow {
     prepaymentAmount,
     serviceFeeAmount,
     serviceFeeAmountExcludingTax,
+    createdAt: billing?.createdAt ?? prepayment?.createdAt ?? null,
+    updatedAt: billing?.updatedAt ?? prepayment?.updatedAt ?? null,
     billingSourceIds: bucket.billingRows.map((row) => normalizeText(row.id)).filter(Boolean).join(","),
     prepaymentSourceIds: bucket.prepaymentRows.map((row) => normalizeText(row.id)).filter(Boolean).join(","),
     prepaymentContractNos: Array.from(new Set(bucket.prepaymentRows.map((row) => normalizeText(row.contractNo)).filter(Boolean))).join(","),

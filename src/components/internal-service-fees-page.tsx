@@ -28,6 +28,8 @@ const columns: Array<{ key: string; label: string; type?: string }> = [
   { key: "sourceType", label: "计算来源" },
   { key: "adjustmentNo", label: "调整单号" },
   { key: "archived", label: "归档状态" },
+  { key: "createdAt", label: "创建日期", type: "date" },
+  { key: "updatedAt", label: "更新日期", type: "date" },
 ];
 
 export function InternalServiceFeesPage() {

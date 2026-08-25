@@ -32,6 +32,8 @@ const columns: Array<{ key: string; label: string; type?: string }> = [
   { key: "lineType", label: "明细类型", type: "lineType" },
   { key: "sourceType", label: "来源" },
   { key: "adjustmentNo", label: "调整单号" },
+  { key: "createdAt", label: "创建日期", type: "date" },
+  { key: "updatedAt", label: "更新日期", type: "date" },
 ] as const;
 
 export function MonthlyPrepaymentWriteOffsPage() {

@@ -14,6 +14,7 @@ type Summary = {
   billingTotal: number;
   prepaymentTotal: number;
   serviceFeeTotal: number;
+  serviceFeeTotalExcludingTax: number;
   instanceServiceFeeTotal: number;
   feeServiceFeeTotal: number;
 };
@@ -21,6 +22,7 @@ type Summary = {
 const columns: Array<{ key: string; label: string; type?: string }> = [
   { key: "writeOffMonth", label: "核销月份", type: "date" },
   { key: "countryCode", label: "国家" },
+  { key: "vatRate", label: "增值税税率（%）", type: "percentage" },
   { key: "batchName", label: "批次" },
   { key: "requestNo", label: "需求单号" },
   { key: "poNo", label: "PO单号" },
@@ -40,12 +42,15 @@ const columns: Array<{ key: string; label: string; type?: string }> = [
   { key: "serviceFeeAmountExcludingTax", label: "月度服务费（未税）", type: "money" },
   { key: "prepaymentContractNos", label: "预付款合同号" },
   { key: "sourceNote", label: "来源说明" },
+  { key: "createdAt", label: "创建日期", type: "date" },
+  { key: "updatedAt", label: "更新日期", type: "date" },
 ];
 
 const emptySummary: Summary = {
   billingTotal: 0,
   prepaymentTotal: 0,
   serviceFeeTotal: 0,
+  serviceFeeTotalExcludingTax: 0,
   instanceServiceFeeTotal: 0,
   feeServiceFeeTotal: 0,
 };
@@ -211,6 +216,7 @@ export function ServiceFeesPage() {
           <SummaryItem label="月账单合计" value={summary.billingTotal} />
           <SummaryItem label="预付款合计" value={summary.prepaymentTotal} />
           <SummaryItem label="服务费合计" value={summary.serviceFeeTotal} />
+          <SummaryItem label="服务费未税合计" value={summary.serviceFeeTotalExcludingTax} />
           <SummaryItem label="实例服务费" value={summary.instanceServiceFeeTotal} />
           <SummaryItem label="非实例费用" value={summary.feeServiceFeeTotal} />
         </div>

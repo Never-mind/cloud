@@ -40,7 +40,7 @@ const RATE_REASON = "请填写采购币种兑USD的结差汇率";
 const SETTLEMENT_EXPORT_COLUMNS = [
   ["settlementNo", "结差来源单号"], ["title", "结差单名称"], ["itemTypes", "来源类型"], ["countryCode", "国家"], ["pricingVersionNo", "锚定价格版本"],
   ["currency", "结差币种"], ["status", "状态"], ["itemCount", "明细数量"], ["capexDifferenceTotal", "CAPEX结差总额"],
-  ["opexDifferenceTotal", "OPEX结差总额"], ["differenceTotal", "结差合计"], ["confirmedAt", "确认日期"], ["createdAt", "创建日期"],
+  ["opexDifferenceTotal", "OPEX结差总额"], ["differenceTotal", "结差合计"], ["confirmedAt", "确认日期"], ["createdAt", "创建日期"], ["updatedAt", "更新日期"],
 ] as const;
 const DETAIL_EXPORT_COLUMNS = [
   ["lineNo", "序号"], ["itemType", "结差类型"], ["countryCode", "国家"], ["batchName", "批次"], ["requestNo", "需求单号"], ["poNo", "PO单号"],
@@ -448,16 +448,16 @@ export function BalanceSettlementPage() {
               <Button tone="primary" onClick={() => void loadSettlements()}><Search size={15} />查询</Button><Button onClick={() => void loadSettlements()}><RefreshCw size={15} />刷新</Button>
               <Button onClick={() => exportRows(SETTLEMENT_EXPORT_COLUMNS, settlements, "结差来源单.xlsx", "结差来源单")}><Download size={15} />导出</Button>
             </div>
-            <div className="table-scroll overflow-auto"><table className="w-full min-w-[1460px] border-collapse text-sm"><thead className="bg-[#f5f7fa] text-[#303133]"><tr>{["结差来源单号", "结差单名称", "来源类型", "国家", "锚定价格版本", "币种", "状态", "明细数量", "CAPEX结差总额", "OPEX结差总额", "结差合计", "确认日期", "创建日期"].map((label) => <th className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium" key={label}>{label}</th>)}</tr></thead><tbody>
+            <div className="table-scroll overflow-auto"><table className="w-full min-w-[1460px] border-collapse text-sm"><thead className="bg-[#f5f7fa] text-[#303133]"><tr>{["结差来源单号", "结差单名称", "来源类型", "国家", "锚定价格版本", "币种", "状态", "明细数量", "CAPEX结差总额", "OPEX结差总额", "结差合计", "确认日期", "创建日期", "更新日期"].map((label) => <th className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium" key={label}>{label}</th>)}</tr></thead><tbody>
               {settlements.map((row) => <tr className="hover:bg-[#fafafa]" key={row.settlementNo}>
                 <td className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3"><button className="text-[#1890ff] hover:underline" onClick={() => void openSettlement(row.settlementNo)}>{row.settlementNo}</button></td>
                 {[["title"], ["itemTypes"], ["countryCode"], ["pricingVersionNo"], ["currency"]].map(([key]) => <td className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3" key={key}>{asText(row[key]) || "-"}</td>)}
                 <td className="border-b border-r border-[#ebeef5] px-3 py-3"><span className={`rounded px-2 py-1 text-xs ${statusClass(row.status)}`}>{asText(row.status)}</span></td>
                 <td className="border-b border-r border-[#ebeef5] px-3 py-3">{asNumber(row.itemCount)}</td>
                 {[["capexDifferenceTotal"], ["opexDifferenceTotal"], ["differenceTotal"]].map(([key]) => <td className={`whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3 ${isNegative(row[key]) ? "text-[#f56c6c]" : ""}`} key={key}>{formatMoney(row[key])}</td>)}
-                <td className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3">{formatDate(row.confirmedAt)}</td><td className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3">{formatDate(row.createdAt)}</td>
+                <td className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3">{formatDate(row.confirmedAt)}</td><td className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3">{formatDate(row.createdAt)}</td><td className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3">{formatDate(row.updatedAt)}</td>
               </tr>)}
-              {!settlements.length && <tr><td className="py-12 text-center text-[#909399]" colSpan={13}>{loading ? "加载中..." : "暂无结差来源单"}</td></tr>}
+              {!settlements.length && <tr><td className="py-12 text-center text-[#909399]" colSpan={15}>{loading ? "加载中..." : "暂无结差来源单"}</td></tr>}
             </tbody></table></div>
             <PaginationBar page={settlementPage} pageSize={settlementPageSize} total={settlementTotal} onPageChange={(next) => void loadSettlements(next)} onPageSizeChange={(next) => void loadSettlements(1, next)} />
           </Panel>

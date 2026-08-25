@@ -34,6 +34,7 @@ type DocumentFile = {
   category: string;
   fileSize: number;
   createdAt: string;
+  updatedAt: string;
 };
 
 type Breadcrumb = Pick<DocumentFolder, "folderId" | "name">;
@@ -311,7 +312,7 @@ export function DocumentManagerPage() {
                     onRenameChange={setRenameValue}
                     onRenameSubmit={submitRename}
                     renameValue={renameValue}
-                    subText={`${formatFileSize(file.fileSize)} · ${formatDate(file.createdAt)}`}
+                    subText={`大小 ${formatFileSize(file.fileSize)} · 创建 ${formatDate(file.createdAt)} · 更新 ${formatDate(file.updatedAt)}`}
                   />
                 ))}
               </div>

@@ -23,6 +23,7 @@ const columns: Array<{ key: string; label: string; type?: string }> = [
   { key: "reason", label: "调整原因" },
   { key: "confirmedAt", label: "确认时间", type: "datetime" },
   { key: "createdAt", label: "创建时间", type: "datetime" },
+  { key: "updatedAt", label: "更新时间", type: "datetime" },
 ];
 
 export function PrepaymentWriteOffAdjustmentsPage() {

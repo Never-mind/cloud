@@ -8,7 +8,7 @@ import { PaginationBar } from "./pagination-bar";
 import { Button, Input, Panel } from "./ui";
 
 type Row = Record<string, string | number | boolean | null>;
-const columns: Array<[string, string, string?]> = [["adjustmentNo", "调整单号"], ["countryCode", "国家"], ["undertakingUnitCode", "承接单位"], ["supplierCode", "供应商"], ["customerCode", "客户"], ["batchName", "批次"], ["requestNo", "需求单号"], ["poNo", "PO单号"], ["deviceCode", "实例编码"], ["startMonth", "起始月", "date"], ["endMonth", "结束月", "date"], ["monthlyAmount", "每月内部服务费（未税）", "money"], ["reason", "调整原因"], ["confirmedAt", "确认日期", "date"]];
+const columns: Array<[string, string, string?]> = [["adjustmentNo", "调整单号"], ["countryCode", "国家"], ["undertakingUnitCode", "承接单位"], ["supplierCode", "供应商"], ["customerCode", "客户"], ["batchName", "批次"], ["requestNo", "需求单号"], ["poNo", "PO单号"], ["deviceCode", "实例编码"], ["startMonth", "起始月", "date"], ["endMonth", "结束月", "date"], ["monthlyAmount", "每月内部服务费（未税）", "money"], ["reason", "调整原因"], ["confirmedAt", "确认日期", "date"], ["createdAt", "创建日期", "date"], ["updatedAt", "更新日期", "date"]];
 
 export function InternalServiceFeeAdjustmentsPage() {
   const [rows, setRows] = useState<Row[]>([]); const [keyword, setKeyword] = useState(""); const [loading, setLoading] = useState(false); const [page, setPage] = useState(1); const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE); const [total, setTotal] = useState(0); const pageSizeRef = useRef(pageSize);

@@ -21,6 +21,7 @@ const summaryFields: Array<{ key: string; label: string; type?: string }> = [
   { key: "totalAmount", label: "总金额", type: "money" },
   { key: "itemCount", label: "明细数量", type: "number" },
   { key: "createdAt", label: "创建日期", type: "date" },
+  { key: "updatedAt", label: "更新日期", type: "date" },
   { key: "confirmedAt", label: "确认日期", type: "date" },
 ];
 

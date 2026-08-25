@@ -150,14 +150,15 @@ describe("service fee workflow", () => {
 
   it("summarizes billing, prepayment, service fee, instance fee and non-instance fee totals", () => {
     const summary = summarizeServiceFeeRows([
-      { billingAmount: 1000, prepaymentAmount: 120, serviceFeeAmount: 880, lineType: "instance" },
-      { billingAmount: 0, prepaymentAmount: 50, serviceFeeAmount: -50, lineType: "fee" },
+      { billingAmount: 1000, prepaymentAmount: 120, serviceFeeAmount: 880, serviceFeeAmountExcludingTax: 758.6207, lineType: "instance" },
+      { billingAmount: 0, prepaymentAmount: 50, serviceFeeAmount: -50, serviceFeeAmountExcludingTax: -50, lineType: "fee" },
     ]);
 
     expect(summary).toEqual({
       billingTotal: 1000,
       prepaymentTotal: 170,
       serviceFeeTotal: 830,
+      serviceFeeTotalExcludingTax: 708.6207,
       instanceServiceFeeTotal: 880,
       feeServiceFeeTotal: -50,
     });

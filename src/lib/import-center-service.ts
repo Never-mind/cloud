@@ -25,6 +25,7 @@ type ImportJobRow = Row & {
   previewJson: string;
   reportJson: string;
   createdAt: string;
+  updatedAt: string;
   confirmedAt: string | null;
 };
 
@@ -421,7 +422,7 @@ export async function listImportJobs(searchParams = new URLSearchParams()): Prom
     `
       SELECT
         jobId, targetKey, targetTitle, fileName, status, totalRows, successRows, failedRows,
-        masterCount, detailCount, createdAt, confirmedAt
+        masterCount, detailCount, createdAt, updatedAt, confirmedAt
       FROM importjobs
       ORDER BY createdAt DESC
       LIMIT :limit OFFSET :offset

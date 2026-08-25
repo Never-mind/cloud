@@ -196,8 +196,16 @@ describe("module configuration", () => {
     expect(snConfig?.primaryKey).toBe("id");
     expect(snConfig?.showSequence).toBe(true);
     expect(planConfig?.showSequence).toBe(true);
-    expect(snConfig?.listFields).toEqual(purchaseOrderSnFieldSpecs);
-    expect(planConfig?.listFields).toEqual(purchaseOrderPlanFieldSpecs);
+    expect(snConfig?.listFields).toEqual([
+      ...purchaseOrderSnFieldSpecs,
+      { key: "createdAt", label: "创建时间", type: "datetime" },
+      { key: "updatedAt", label: "更新时间", type: "datetime" },
+    ]);
+    expect(planConfig?.listFields).toEqual([
+      ...purchaseOrderPlanFieldSpecs,
+      { key: "createdAt", label: "创建时间", type: "datetime" },
+      { key: "updatedAt", label: "更新时间", type: "datetime" },
+    ]);
     expect(snConfig?.formFields.map((field) => field.key)).toEqual(
       expect.arrayContaining([
         "purchaseOrderId",

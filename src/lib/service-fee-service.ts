@@ -112,12 +112,20 @@ type ServiceFeeSummaryRow = {
   billingTotal?: number | string | null;
   prepaymentTotal?: number | string | null;
   serviceFeeTotal?: number | string | null;
+  serviceFeeTotalExcludingTax?: number | string | null;
   instanceServiceFeeTotal?: number | string | null;
   feeServiceFeeTotal?: number | string | null;
 };
 
 function emptyServiceFeeSummary() {
-  return { billingTotal: 0, prepaymentTotal: 0, serviceFeeTotal: 0, instanceServiceFeeTotal: 0, feeServiceFeeTotal: 0 };
+  return {
+    billingTotal: 0,
+    prepaymentTotal: 0,
+    serviceFeeTotal: 0,
+    serviceFeeTotalExcludingTax: 0,
+    instanceServiceFeeTotal: 0,
+    feeServiceFeeTotal: 0,
+  };
 }
 
 function normalizeServiceFeeSummary(row: ServiceFeeSummaryRow) {
@@ -125,6 +133,7 @@ function normalizeServiceFeeSummary(row: ServiceFeeSummaryRow) {
     billingTotal: Number(row.billingTotal ?? 0),
     prepaymentTotal: Number(row.prepaymentTotal ?? 0),
     serviceFeeTotal: Number(row.serviceFeeTotal ?? 0),
+    serviceFeeTotalExcludingTax: Number(row.serviceFeeTotalExcludingTax ?? 0),
     instanceServiceFeeTotal: Number(row.instanceServiceFeeTotal ?? 0),
     feeServiceFeeTotal: Number(row.feeServiceFeeTotal ?? 0),
   };
@@ -135,9 +144,11 @@ function summarizeServiceFeeRows(rows: ServiceFeeRow[]) {
     const billingAmount = Number(row.billingAmount ?? 0);
     const prepaymentAmount = Number(row.prepaymentAmount ?? 0);
     const serviceFeeAmount = Number(row.serviceFeeAmount ?? 0);
+    const serviceFeeAmountExcludingTax = Number(row.serviceFeeAmountExcludingTax ?? 0);
     summary.billingTotal += billingAmount;
     summary.prepaymentTotal += prepaymentAmount;
     summary.serviceFeeTotal += serviceFeeAmount;
+    summary.serviceFeeTotalExcludingTax += serviceFeeAmountExcludingTax;
     if (row.lineType === "fee") summary.feeServiceFeeTotal += serviceFeeAmount;
     else summary.instanceServiceFeeTotal += serviceFeeAmount;
     return summary;
@@ -178,8 +189,10 @@ function buildLightweightServiceFeeSummaryQuery(filters: ServiceFeeFilters) {
     sql: `
       WITH billing AS (
         SELECT CONCAT_WS('::', DATE_FORMAT(m.writeOffMonth, '%Y-%m-%d'), m.countryCode, m.batchName, m.requestNo, m.poNo, m.deviceCode, 'instance') AS rowKey,
-               SUM(COALESCE(m.monthlyTotalAmount, m.quantity * m.monthlyAmount, 0)) AS billingAmount
+               SUM(COALESCE(m.monthlyTotalAmount, m.quantity * m.monthlyAmount, 0)) AS billingAmount,
+               MAX(COALESCE(country.vatRate, 0)) AS vatRate
         FROM monthlybillingwriteoffs m
+        LEFT JOIN countries country ON country.code = m.countryCode
         ${billingFilter}
         GROUP BY rowKey
       ), prepayment AS (
@@ -187,8 +200,10 @@ function buildLightweightServiceFeeSummaryQuery(filters: ServiceFeeFilters) {
                  THEN CONCAT_WS('::', DATE_FORMAT(p.writeOffMonth, '%Y-%m-%d'), p.countryCode, p.batchName, p.requestNo, p.poNo, p.contractNo, COALESCE(p.contractLineId, p.id), 'fee')
                  ELSE CONCAT_WS('::', DATE_FORMAT(p.writeOffMonth, '%Y-%m-%d'), p.countryCode, p.batchName, p.requestNo, p.poNo, p.deviceCode, 'instance') END AS rowKey,
                CASE WHEN p.lineType = 'fee' THEN 'fee' ELSE 'instance' END AS lineType,
-               SUM(COALESCE(p.monthlyAmount, 0)) AS prepaymentAmount
+               SUM(COALESCE(p.monthlyAmount, 0)) AS prepaymentAmount,
+               MAX(COALESCE(country.vatRate, 0)) AS vatRate
         FROM monthlyprepaymentwriteoffs p
+        LEFT JOIN countries country ON country.code = p.countryCode
         ${prepaymentFilter}
         GROUP BY rowKey, lineType
       ), rowKeys AS (
@@ -196,6 +211,7 @@ function buildLightweightServiceFeeSummaryQuery(filters: ServiceFeeFilters) {
       ), combined AS (
         SELECT rk.rowKey, COALESCE(b.billingAmount, 0) AS billingAmount,
                COALESCE(p.prepaymentAmount, 0) AS prepaymentAmount,
+               COALESCE(b.vatRate, p.vatRate, 0) AS vatRate,
                COALESCE(p.lineType, 'instance') AS lineType
         FROM rowKeys rk
         LEFT JOIN billing b ON b.rowKey = rk.rowKey
@@ -205,6 +221,7 @@ function buildLightweightServiceFeeSummaryQuery(filters: ServiceFeeFilters) {
              COALESCE(SUM(combined.billingAmount), 0) AS billingTotal,
              COALESCE(SUM(combined.prepaymentAmount), 0) AS prepaymentTotal,
              COALESCE(SUM(combined.billingAmount - combined.prepaymentAmount), 0) AS serviceFeeTotal,
+             COALESCE(SUM((combined.billingAmount - combined.prepaymentAmount) / (1 + combined.vatRate)), 0) AS serviceFeeTotalExcludingTax,
              COALESCE(SUM(CASE WHEN combined.lineType = 'instance' THEN combined.billingAmount - combined.prepaymentAmount ELSE 0 END), 0) AS instanceServiceFeeTotal,
              COALESCE(SUM(CASE WHEN combined.lineType = 'fee' THEN combined.billingAmount - combined.prepaymentAmount ELSE 0 END), 0) AS feeServiceFeeTotal
       FROM combined
@@ -255,6 +272,8 @@ function buildServiceFeeQuery(filters: ServiceFeeFilters) {
         CONCAT_WS('::', DATE_FORMAT(m.writeOffMonth, '%Y-%m-%d'), m.countryCode, m.batchName, m.requestNo, m.poNo, m.deviceCode, 'instance') AS rowKey,
         DATE_FORMAT(m.writeOffMonth, '%Y-%m-%d') AS writeOffMonth, m.countryCode, m.batchName, m.requestNo, m.poNo, m.deviceCode,
         MAX(m.modelCode) AS modelCode, MAX(m.nameEn) AS nameEn,
+        MIN(DATE_FORMAT(m.createdAt, '%Y-%m-%d')) AS createdAt,
+        MAX(DATE_FORMAT(m.updatedAt, '%Y-%m-%d')) AS updatedAt,
         MAX(COALESCE(NULLIF(m.supplierId, ''), ri.supplierId, fallback.supplierId)) AS supplierId,
         MAX(COALESCE(NULLIF(m.undertakingUnitId, ''), ri.undertakingUnitId, fallback.undertakingUnitId)) AS undertakingUnitId,
         MAX(COALESCE(NULLIF(m.customerId, ''), ri.customerId, fallback.customerId)) AS customerId,
@@ -276,6 +295,8 @@ function buildServiceFeeQuery(filters: ServiceFeeFilters) {
           ELSE CONCAT_WS('::', DATE_FORMAT(p.writeOffMonth, '%Y-%m-%d'), p.countryCode, p.batchName, p.requestNo, p.poNo, p.deviceCode, 'instance') END AS rowKey,
         DATE_FORMAT(p.writeOffMonth, '%Y-%m-%d') AS writeOffMonth, p.countryCode, p.batchName, p.requestNo, p.poNo, p.deviceCode,
         MAX(p.modelCode) AS modelCode, MAX(p.nameEn) AS nameEn,
+        MIN(DATE_FORMAT(p.createdAt, '%Y-%m-%d')) AS createdAt,
+        MAX(DATE_FORMAT(p.updatedAt, '%Y-%m-%d')) AS updatedAt,
         MAX(COALESCE(NULLIF(p.supplierId, ''), ri.supplierId, fallback.supplierId)) AS supplierId,
         MAX(COALESCE(NULLIF(p.undertakingUnitId, ''), ri.undertakingUnitId, fallback.undertakingUnitId)) AS undertakingUnitId,
         MAX(COALESCE(NULLIF(p.customerId, ''), ri.customerId, fallback.customerId)) AS customerId,
@@ -307,8 +328,13 @@ function buildServiceFeeQuery(filters: ServiceFeeFilters) {
         COALESCE(b.supplierId, p.supplierId) AS supplierId,
         COALESCE(b.undertakingUnitId, p.undertakingUnitId) AS undertakingUnitId,
         COALESCE(b.customerId, p.customerId) AS customerId,
+        CASE WHEN COALESCE(b.createdAt, '9999-12-31') <= COALESCE(p.createdAt, '9999-12-31')
+          THEN b.createdAt ELSE p.createdAt END AS createdAt,
+        CASE WHEN COALESCE(b.updatedAt, '') >= COALESCE(p.updatedAt, '')
+          THEN b.updatedAt ELSE p.updatedAt END AS updatedAt,
         COALESCE(b.quantity, p.quantity, 0) AS quantity,
         COALESCE(b.currency, p.currency) AS currency,
+        COALESCE(b.vatRate, p.vatRate, 0) AS vatRate,
         b.currency AS billingCurrency,
         p.currency AS prepaymentCurrency,
         COALESCE(p.lineType, 'instance') AS lineType,
@@ -390,10 +416,12 @@ export async function createServiceFeeStatementDraft({
       `
         INSERT INTO servicefeesnapshots
           (snapshotNo, status, writeOffMonth, startMonth, endMonth, countryCode, batchName, keyword,
-           billingTotal, prepaymentTotal, serviceFeeTotal, instanceServiceFeeTotal, feeServiceFeeTotal, confirmedAt)
+           billingTotal, prepaymentTotal, serviceFeeTotal, serviceFeeTotalExcludingTax, vatRate,
+           instanceServiceFeeTotal, feeServiceFeeTotal, confirmedAt)
         VALUES
           (:snapshotNo, '未确认', :writeOffMonth, :writeOffMonth, :writeOffMonth, :countryCode, NULL, NULL,
-           :billingTotal, :prepaymentTotal, :serviceFeeTotal, :instanceServiceFeeTotal, :feeServiceFeeTotal, NULL)
+           :billingTotal, :prepaymentTotal, :serviceFeeTotal, :serviceFeeTotalExcludingTax, :vatRate,
+           :instanceServiceFeeTotal, :feeServiceFeeTotal, NULL)
         ON DUPLICATE KEY UPDATE
           status = '未确认',
           writeOffMonth = VALUES(writeOffMonth),
@@ -402,10 +430,12 @@ export async function createServiceFeeStatementDraft({
           countryCode = VALUES(countryCode),
           batchName = NULL,
           keyword = NULL,
-          billingTotal = VALUES(billingTotal),
-          prepaymentTotal = VALUES(prepaymentTotal),
-          serviceFeeTotal = VALUES(serviceFeeTotal),
-          instanceServiceFeeTotal = VALUES(instanceServiceFeeTotal),
+           billingTotal = VALUES(billingTotal),
+           prepaymentTotal = VALUES(prepaymentTotal),
+           serviceFeeTotal = VALUES(serviceFeeTotal),
+           serviceFeeTotalExcludingTax = VALUES(serviceFeeTotalExcludingTax),
+           vatRate = VALUES(vatRate),
+           instanceServiceFeeTotal = VALUES(instanceServiceFeeTotal),
           feeServiceFeeTotal = VALUES(feeServiceFeeTotal),
           confirmedAt = NULL
       `,
@@ -413,6 +443,7 @@ export async function createServiceFeeStatementDraft({
         snapshotNo: finalSnapshotNo,
         writeOffMonth: statementFilters.startMonth,
         countryCode: statementFilters.countryCode,
+        vatRate: Number(calculated.rows[0]?.vatRate ?? 0),
         ...calculated.summary,
       },
     );
@@ -469,6 +500,8 @@ export async function listServiceFeeStatements(searchParams: URLSearchParams) {
              billingTotal,
              prepaymentTotal,
              serviceFeeTotal,
+             serviceFeeTotalExcludingTax,
+             vatRate,
              instanceServiceFeeTotal,
              feeServiceFeeTotal,
              repaymentStatus,
@@ -485,7 +518,8 @@ export async function listServiceFeeStatements(searchParams: URLSearchParams) {
              invoiceUploadedBy,
              DATE_FORMAT(invoiceUploadedAt, '%Y-%m-%d') AS invoiceUploadedAt,
              DATE_FORMAT(confirmedAt, '%Y-%m-%d') AS confirmedAt,
-             DATE_FORMAT(createdAt, '%Y-%m-%d') AS createdAt
+             DATE_FORMAT(createdAt, '%Y-%m-%d') AS createdAt,
+             DATE_FORMAT(updatedAt, '%Y-%m-%d') AS updatedAt
       FROM servicefeesnapshots
       ${where}
       ORDER BY COALESCE(writeOffMonth, startMonth, endMonth) DESC, createdAt DESC
@@ -781,7 +815,9 @@ async function listBillingRows(filters: ServiceFeeFilters) {
         currency,
         COALESCE(country.vatRate, 0) AS vatRate,
         monthlyTotalAmount,
-        monthlyAmount
+        monthlyAmount,
+        DATE_FORMAT(monthlybillingwriteoffs.createdAt, '%Y-%m-%d') AS createdAt,
+        DATE_FORMAT(monthlybillingwriteoffs.updatedAt, '%Y-%m-%d') AS updatedAt
       FROM monthlybillingwriteoffs
       LEFT JOIN (SELECT ledgerId AS linkedLedgerId, purchaseOrderItemId AS linkedPurchaseOrderItemId FROM billinginstanceledgers) AS ledger ON ledger.linkedLedgerId = monthlybillingwriteoffs.ledgerId
       LEFT JOIN purchaseorderitems AS purchaseItem ON purchaseItem.id = ledger.linkedPurchaseOrderItemId
@@ -822,7 +858,9 @@ async function listPrepaymentRows(filters: ServiceFeeFilters) {
         currency,
         COALESCE(country.vatRate, 0) AS vatRate,
         monthlyAmount,
-        lineType
+        lineType,
+        DATE_FORMAT(monthlyprepaymentwriteoffs.createdAt, '%Y-%m-%d') AS createdAt,
+        DATE_FORMAT(monthlyprepaymentwriteoffs.updatedAt, '%Y-%m-%d') AS updatedAt
       FROM monthlyprepaymentwriteoffs
       LEFT JOIN (SELECT id AS linkedContractLineId, requestItemId AS linkedRequestItemId FROM prepaymentcontractitems) AS contractItem ON contractItem.linkedContractLineId = monthlyprepaymentwriteoffs.contractLineId
       LEFT JOIN (SELECT id AS linkedRequestItemId, supplierId AS linkedSupplierId, undertakingUnitId AS linkedUndertakingUnitId, customerId AS linkedCustomerId FROM requestitems) AS ri ON ri.linkedRequestItemId = contractItem.linkedRequestItemId
@@ -885,11 +923,11 @@ async function insertSnapshotItem(connection: PoolConnection, snapshotNo: string
     connection,
     `
       INSERT INTO servicefeesnapshotitems
-        (id, snapshotNo, writeOffMonth, countryCode, batchName, requestNo, poNo, deviceCode,
+        (id, snapshotNo, writeOffMonth, countryCode, vatRate, batchName, requestNo, poNo, deviceCode,
          modelCode, nameEn, supplierId, undertakingUnitId, customerId, quantity, currency, billingCurrency, prepaymentCurrency, lineType, billingAmount, prepaymentAmount,
          serviceFeeAmount, serviceFeeAmountExcludingTax, billingSourceIds, prepaymentSourceIds, prepaymentContractNos, sourceNote)
       VALUES
-        (:id, :snapshotNo, :writeOffMonth, :countryCode, :batchName, :requestNo, :poNo, :deviceCode,
+        (:id, :snapshotNo, :writeOffMonth, :countryCode, :vatRate, :batchName, :requestNo, :poNo, :deviceCode,
          :modelCode, :nameEn, :supplierId, :undertakingUnitId, :customerId, :quantity, :currency, :billingCurrency, :prepaymentCurrency, :lineType, :billingAmount, :prepaymentAmount,
          :serviceFeeAmount, :serviceFeeAmountExcludingTax, :billingSourceIds, :prepaymentSourceIds, :prepaymentContractNos, :sourceNote)
     `,

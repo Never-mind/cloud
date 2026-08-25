@@ -26,6 +26,7 @@ type ImportJob = {
   masterCount: number;
   detailCount: number;
   createdAt: string;
+  updatedAt: string;
   confirmedAt?: string | null;
 };
 
@@ -299,7 +300,7 @@ export function ImportCenterPage() {
               <table className="min-w-full border-collapse text-sm">
                 <thead className="bg-[#f5f7fa]">
                   <tr>
-                    {["任务编号", "导入类型", "文件名", "状态", "总行数", "成功", "失败", "主单", "明细", "创建时间", "操作"].map((label) => (
+                    {["任务编号", "导入类型", "文件名", "状态", "总行数", "成功", "失败", "主单", "明细", "创建时间", "更新时间", "操作"].map((label) => (
                       <th className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3 text-left" key={label}>{label}</th>
                     ))}
                   </tr>
@@ -317,6 +318,7 @@ export function ImportCenterPage() {
                       <td className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3">{job.masterCount}</td>
                       <td className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3">{job.detailCount}</td>
                       <td className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3">{formatDisplayValue(job.createdAt)}</td>
+                      <td className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3">{formatDisplayValue(job.updatedAt)}</td>
                       <td className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3">
                         <a className="text-[#1890ff] hover:underline" href={`/api/import-center/jobs/${encodeURIComponent(job.jobId)}/errors`}>
                           错误报告
@@ -326,7 +328,7 @@ export function ImportCenterPage() {
                   ))}
                   {!jobs.length ? (
                     <tr>
-                      <td className="py-10 text-center text-[#909399]" colSpan={11}>暂无导入历史</td>
+                      <td className="py-10 text-center text-[#909399]" colSpan={12}>暂无导入历史</td>
                     </tr>
                   ) : null}
                 </tbody>

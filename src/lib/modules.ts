@@ -750,6 +750,8 @@ export const entityConfigs: EntityConfig[] = [
       { key: "billingTotal", label: "月账单总额（含税）", type: "money" },
       { key: "prepaymentTotal", label: "预付款核销金额（含税）", type: "money" },
       { key: "serviceFeeTotal", label: "月度服务费（含税）", type: "money" },
+      { key: "serviceFeeTotalExcludingTax", label: "月度服务费（未税）", type: "money" },
+      { key: "vatRate", label: "增值税税率（%）", type: "percentage" },
       { key: "instanceServiceFeeTotal", label: "实例服务费合计", type: "money" },
       { key: "feeServiceFeeTotal", label: "非实例费用合计", type: "money" },
       { key: "repaymentStatus", label: "是否回款", type: "switch" },
@@ -770,6 +772,8 @@ export const entityConfigs: EntityConfig[] = [
       { key: "billingTotal", label: "月账单总额（含税）", type: "money" },
       { key: "prepaymentTotal", label: "预付款核销金额（含税）", type: "money" },
       { key: "serviceFeeTotal", label: "月度服务费（含税）", type: "money" },
+      { key: "serviceFeeTotalExcludingTax", label: "月度服务费（未税）", type: "money" },
+      { key: "vatRate", label: "增值税税率（%）", type: "percentage" },
       { key: "instanceServiceFeeTotal", label: "实例服务费合计", type: "money" },
       { key: "feeServiceFeeTotal", label: "非实例费用合计", type: "money" },
       { key: "repaymentStatus", label: "是否回款", type: "switch" },
@@ -802,6 +806,7 @@ export const entityConfigs: EntityConfig[] = [
       { key: "snapshotNo", label: "对账单号" },
       { key: "writeOffMonth", label: "核销月份", type: "date" },
       { key: "countryCode", label: "国家" },
+      { key: "vatRate", label: "增值税税率（%）", type: "percentage" },
       { key: "batchName", label: "批次" },
       { key: "requestNo", label: "需求单号" },
       { key: "poNo", label: "PO单号" },
@@ -826,6 +831,7 @@ export const entityConfigs: EntityConfig[] = [
       { key: "snapshotNo", label: "对账单号", required: true },
       { key: "writeOffMonth", label: "核销月份", type: "date", required: true },
       { key: "countryCode", label: "国家" },
+      { key: "vatRate", label: "增值税税率（%）", type: "percentage" },
       { key: "batchName", label: "批次" },
       { key: "requestNo", label: "需求单号" },
       { key: "poNo", label: "PO单号" },
@@ -1400,6 +1406,19 @@ entityConfigs.push({
   listFields: [],
   formFields: [],
 });
+
+const auditListFields: EntityField[] = [
+  { key: "createdAt", label: "创建时间", type: "datetime" },
+  { key: "updatedAt", label: "更新时间", type: "datetime" },
+];
+
+for (const config of entityConfigs) {
+  const existingKeys = new Set(config.listFields.map((field) => field.key));
+  config.listFields = [
+    ...config.listFields,
+    ...auditListFields.filter((field) => !existingKeys.has(field.key)),
+  ];
+}
 
 const financeChildren: NonNullable<NavGroup["children"]> = [
   {

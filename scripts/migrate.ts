@@ -129,6 +129,22 @@ async function tableExists(tableName: string) {
   return Number(rows[0]?.count ?? 0) > 0;
 }
 
+async function ensureAuditColumns() {
+  for (const tableName of LOGICAL_TABLE_NAMES) {
+    if (!(await tableExists(physicalTableName(tableName)))) continue;
+    await addColumnIfMissing(
+      tableName,
+      "createdAt",
+      "`createdAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'created time'",
+    );
+    await addColumnIfMissing(
+      tableName,
+      "updatedAt",
+      "`updatedAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'updated time'",
+    );
+  }
+}
+
 async function renameLegacyTables() {
   for (const tableName of LOGICAL_TABLE_NAMES) {
     const physicalName = physicalTableName(tableName);
@@ -1134,6 +1150,8 @@ async function main() {
         \`billingTotal\` DECIMAL(18, 4) NULL COMMENT 'billing total',
         \`prepaymentTotal\` DECIMAL(18, 4) NULL COMMENT 'prepayment total',
         \`serviceFeeTotal\` DECIMAL(18, 4) NULL COMMENT 'service fee total',
+        \`serviceFeeTotalExcludingTax\` DECIMAL(18, 4) NULL COMMENT 'service fee total VAT excluded',
+        \`vatRate\` DECIMAL(10, 6) NULL COMMENT 'VAT rate snapshot',
         \`instanceServiceFeeTotal\` DECIMAL(18, 4) NULL COMMENT 'instance service fee total',
         \`feeServiceFeeTotal\` DECIMAL(18, 4) NULL COMMENT 'non-instance fee service fee total',
         \`invoiceStatus\` VARCHAR(32) NOT NULL DEFAULT '未开票' COMMENT 'manual invoice status',
@@ -1209,6 +1227,8 @@ async function main() {
   await addColumnIfMissing("servicefeesnapshots", "repaymentAmount", "`repaymentAmount` DECIMAL(18, 4) NULL COMMENT 'repayment amount' AFTER `repaymentCurrency`");
   await addColumnIfMissing("servicefeesnapshots", "repaymentDate", "`repaymentDate` DATE NULL COMMENT 'repayment date' AFTER `repaymentAmount`");
   await addColumnIfMissing("servicefeesnapshots", "repaymentUpdatedAt", "`repaymentUpdatedAt` DATETIME NULL COMMENT 'repayment updated time' AFTER `repaymentDate`");
+  await addColumnIfMissing("servicefeesnapshots", "serviceFeeTotalExcludingTax", "`serviceFeeTotalExcludingTax` DECIMAL(18, 4) NULL COMMENT 'service fee total VAT excluded' AFTER `serviceFeeTotal`");
+  await addColumnIfMissing("servicefeesnapshots", "vatRate", "`vatRate` DECIMAL(10, 6) NULL COMMENT 'VAT rate snapshot' AFTER `serviceFeeTotalExcludingTax`");
   await modifyColumnIfPresent(
     "servicefeesnapshots",
     "status",
@@ -1237,6 +1257,7 @@ async function main() {
         \`snapshotNo\` VARCHAR(128) NOT NULL COMMENT 'service fee snapshot no',
         \`writeOffMonth\` DATE NOT NULL COMMENT 'write-off month',
         \`countryCode\` VARCHAR(32) NULL COMMENT 'country code',
+        \`vatRate\` DECIMAL(10, 6) NULL COMMENT 'VAT rate snapshot',
         \`batchName\` VARCHAR(255) NULL COMMENT 'batch name',
         \`requestNo\` VARCHAR(128) NULL COMMENT 'request no',
         \`poNo\` VARCHAR(128) NULL COMMENT 'PO no',
@@ -1251,11 +1272,13 @@ async function main() {
         \`billingAmount\` DECIMAL(18, 4) NULL COMMENT 'monthly billing amount',
         \`prepaymentAmount\` DECIMAL(18, 4) NULL COMMENT 'monthly prepayment amount',
         \`serviceFeeAmount\` DECIMAL(18, 4) NULL COMMENT 'monthly service fee amount',
+        \`serviceFeeAmountExcludingTax\` DECIMAL(18, 4) NULL COMMENT 'monthly service fee amount VAT excluded',
         \`billingSourceIds\` TEXT NULL COMMENT 'billing source ids',
         \`prepaymentSourceIds\` TEXT NULL COMMENT 'prepayment source ids',
         \`prepaymentContractNos\` TEXT NULL COMMENT 'prepayment contract nos',
         \`sourceNote\` VARCHAR(255) NULL COMMENT 'source note',
         \`createdAt\` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'created time',
+        \`updatedAt\` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'updated time',
         PRIMARY KEY (\`id\`),
         KEY \`idx_ServiceFeeSnapshotItems_snapshotNo\` (\`snapshotNo\`),
         KEY \`idx_ServiceFeeSnapshotItems_writeOffMonth\` (\`writeOffMonth\`),
@@ -1269,6 +1292,7 @@ async function main() {
     "`billingCurrency` VARCHAR(16) NULL COMMENT 'monthly billing currency' AFTER `currency`",
   );
   await addColumnIfMissing("servicefeesnapshotitems", "supplierId", "`supplierId` VARCHAR(64) NULL COMMENT 'supplier id' AFTER `nameEn`");
+  await addColumnIfMissing("servicefeesnapshotitems", "vatRate", "`vatRate` DECIMAL(10, 6) NULL COMMENT 'VAT rate snapshot' AFTER `countryCode`");
   await addColumnIfMissing("servicefeesnapshotitems", "undertakingUnitId", "`undertakingUnitId` VARCHAR(64) NULL COMMENT 'undertaking unit id' AFTER `supplierId`");
   await addColumnIfMissing("servicefeesnapshotitems", "customerId", "`customerId` VARCHAR(64) NULL COMMENT 'customer id' AFTER `undertakingUnitId`");
   await addColumnIfMissing(
@@ -1280,6 +1304,30 @@ async function main() {
     "servicefeesnapshotitems",
     "serviceFeeAmountExcludingTax",
     "`serviceFeeAmountExcludingTax` DECIMAL(18, 4) NULL COMMENT 'monthly service fee amount VAT excluded' AFTER `serviceFeeAmount`",
+  );
+  await execute(
+    `
+      UPDATE servicefeesnapshots snapshot
+      LEFT JOIN (
+        SELECT snapshotNo,
+               SUM(COALESCE(serviceFeeAmountExcludingTax, 0)) AS serviceFeeTotalExcludingTax,
+               CASE WHEN COUNT(DISTINCT countryCode) = 1 THEN MAX(countryCode) ELSE NULL END AS countryCode
+        FROM servicefeesnapshotitems
+        GROUP BY snapshotNo
+      ) items ON items.snapshotNo = snapshot.snapshotNo
+      LEFT JOIN countries country ON country.code = COALESCE(NULLIF(snapshot.countryCode, ''), items.countryCode)
+      SET snapshot.serviceFeeTotalExcludingTax = COALESCE(snapshot.serviceFeeTotalExcludingTax, items.serviceFeeTotalExcludingTax),
+          snapshot.vatRate = COALESCE(snapshot.vatRate, country.vatRate)
+      WHERE snapshot.serviceFeeTotalExcludingTax IS NULL OR snapshot.vatRate IS NULL
+    `,
+  );
+  await execute(
+    `
+      UPDATE servicefeesnapshotitems item
+      INNER JOIN servicefeesnapshots snapshot ON snapshot.snapshotNo = item.snapshotNo
+      SET item.vatRate = snapshot.vatRate
+      WHERE item.vatRate IS NULL AND snapshot.vatRate IS NOT NULL
+    `,
   );
   await execute(
     `
@@ -1415,6 +1463,7 @@ async function main() {
         \`previewJson\` LONGTEXT NULL COMMENT 'preview payload json',
         \`reportJson\` LONGTEXT NULL COMMENT 'report json',
         \`createdAt\` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'created time',
+        \`updatedAt\` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'updated time',
         \`confirmedAt\` DATETIME NULL COMMENT 'confirmed time',
         PRIMARY KEY (\`jobId\`),
         KEY \`idx_ImportJobs_targetKey\` (\`targetKey\`),
@@ -1733,7 +1782,7 @@ async function main() {
         \`monthIndex\` INT NOT NULL, \`countryCode\` VARCHAR(32) NULL, \`batchName\` VARCHAR(255) NULL,
         \`requestNo\` VARCHAR(128) NULL, \`poNo\` VARCHAR(128) NULL, \`deviceCode\` VARCHAR(64) NULL,
         \`modelCode\` VARCHAR(128) NULL, \`nameEn\` VARCHAR(255) NULL, \`supplierId\` VARCHAR(64) NULL,
-        \`undertakingUnitId\` VARCHAR(64) NULL, \`quantity\` INT NULL, \`currency\` VARCHAR(16) NULL,
+        \`undertakingUnitId\` VARCHAR(64) NULL, \`customerId\` VARCHAR(64) NULL, \`quantity\` INT NULL, \`currency\` VARCHAR(16) NULL,
         \`internalServiceFeeAmount\` DECIMAL(18,2) NOT NULL DEFAULT 0, \`sourceType\` VARCHAR(32) NOT NULL DEFAULT 'auto',
         \`adjustmentNo\` VARCHAR(128) NULL, \`archived\` BOOLEAN NOT NULL DEFAULT FALSE,
         \`archiveSnapshotNo\` VARCHAR(128) NULL, \`archivedAt\` DATETIME NULL,
@@ -1751,9 +1800,10 @@ async function main() {
         \`adjustmentNo\` VARCHAR(128) NOT NULL, \`ledgerId\` VARCHAR(96) NOT NULL,
         \`countryCode\` VARCHAR(32) NULL, \`batchName\` VARCHAR(255) NULL, \`requestNo\` VARCHAR(128) NULL,
         \`poNo\` VARCHAR(128) NULL, \`deviceCode\` VARCHAR(64) NULL, \`supplierId\` VARCHAR(64) NULL,
-        \`undertakingUnitId\` VARCHAR(64) NULL, \`startMonth\` DATE NOT NULL, \`endMonth\` DATE NOT NULL,
+        \`undertakingUnitId\` VARCHAR(64) NULL, \`customerId\` VARCHAR(64) NULL, \`startMonth\` DATE NOT NULL, \`endMonth\` DATE NOT NULL,
         \`monthlyAmount\` DECIMAL(18,2) NOT NULL, \`reason\` TEXT NULL, \`status\` VARCHAR(32) NOT NULL DEFAULT '已确认',
         \`confirmedAt\` DATETIME NULL, \`createdAt\` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        \`updatedAt\` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         PRIMARY KEY (\`adjustmentNo\`), KEY \`idx_InternalServiceFeeAdjustments_ledger\` (\`ledgerId\`),
         KEY \`idx_InternalServiceFeeAdjustments_range\` (\`startMonth\`, \`endMonth\`)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='InternalServiceFeeAdjustments'
@@ -1766,6 +1816,7 @@ async function main() {
         \`snapshotNo\` VARCHAR(128) NOT NULL, \`archiveMonth\` DATE NOT NULL, \`countryCode\` VARCHAR(32) NULL,
         \`itemCount\` INT NOT NULL DEFAULT 0, \`totalAmount\` DECIMAL(18,2) NOT NULL DEFAULT 0,
         \`confirmedAt\` DATETIME NULL, \`createdAt\` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        \`updatedAt\` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         PRIMARY KEY (\`snapshotNo\`), KEY \`idx_InternalServiceFeeSnapshots_month\` (\`archiveMonth\`)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='InternalServiceFeeSnapshots'
     `,
@@ -1777,9 +1828,10 @@ async function main() {
         \`id\` VARCHAR(160) NOT NULL, \`snapshotNo\` VARCHAR(128) NOT NULL, \`monthlyFeeId\` VARCHAR(128) NOT NULL,
         \`ledgerId\` VARCHAR(96) NOT NULL, \`writeOffMonth\` DATE NOT NULL, \`countryCode\` VARCHAR(32) NULL,
         \`batchName\` VARCHAR(255) NULL, \`requestNo\` VARCHAR(128) NULL, \`poNo\` VARCHAR(128) NULL,
-        \`deviceCode\` VARCHAR(64) NULL, \`supplierId\` VARCHAR(64) NULL, \`undertakingUnitId\` VARCHAR(64) NULL,
+        \`deviceCode\` VARCHAR(64) NULL, \`supplierId\` VARCHAR(64) NULL, \`undertakingUnitId\` VARCHAR(64) NULL, \`customerId\` VARCHAR(64) NULL,
         \`currency\` VARCHAR(16) NULL, \`internalServiceFeeAmount\` DECIMAL(18,2) NOT NULL,
         \`sourceType\` VARCHAR(32) NULL, \`adjustmentNo\` VARCHAR(128) NULL, \`createdAt\` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        \`updatedAt\` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         PRIMARY KEY (\`id\`), KEY \`idx_InternalServiceFeeSnapshotItems_snapshot\` (\`snapshotNo\`)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='InternalServiceFeeSnapshotItems'
     `,
@@ -1841,6 +1893,7 @@ async function main() {
       WHERE NULLIF(item.customerId, '') IS NULL
     `);
   }
+  await ensureAuditColumns();
   await addIndexIfMissing(
     "documentfolders",
     "uk_DocumentFolders_parent_name",
