@@ -49,19 +49,26 @@ export async function PUT(request: NextRequest, context: { params: Promise<{ ent
     }
   }
 
-  const before = entity === "purchase-orders" ? await getEntityRow(config, id) : null;
-  const row = await updateEntityRow(config, id, body);
-  if (entity === "purchase-orders" && before && body.poNo && String(before.poNo ?? "") !== String(body.poNo)) {
-    await execute("UPDATE purchaseorderitems SET poNo = :poNo WHERE purchaseOrderId = :purchaseOrderId", {
-      poNo: body.poNo,
-      purchaseOrderId: id,
-    });
-    await execute("UPDATE shipments SET poNo = :poNo WHERE poNo = :oldPoNo", {
-      poNo: body.poNo,
-      oldPoNo: before.poNo,
-    });
+  try {
+    const before = entity === "purchase-orders" ? await getEntityRow(config, id) : null;
+    const row = await updateEntityRow(config, id, body);
+    if (entity === "purchase-orders" && before && body.poNo && String(before.poNo ?? "") !== String(body.poNo)) {
+      await execute("UPDATE purchaseorderitems SET poNo = :poNo WHERE purchaseOrderId = :purchaseOrderId", {
+        poNo: body.poNo,
+        purchaseOrderId: id,
+      });
+      await execute("UPDATE shipments SET poNo = :poNo WHERE poNo = :oldPoNo", {
+        poNo: body.poNo,
+        oldPoNo: before.poNo,
+      });
+    }
+    return NextResponse.json(row);
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "保存失败" },
+      { status: 400 },
+    );
   }
-  return NextResponse.json(row);
 }
 
 export async function DELETE(_request: NextRequest, context: { params: Promise<{ entity: string; id: string }> }) {

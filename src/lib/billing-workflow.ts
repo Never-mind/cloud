@@ -1,5 +1,6 @@
 export type BillingPurchaseLine = {
   purchaseOrderItemId: string;
+  requestType?: string | null;
   countryCode: string;
   batchName: string;
   requestNo: string;
@@ -53,6 +54,7 @@ export type MonthlyBillingRow = {
   requestNo: string;
   poNo: string;
   deviceCode: string;
+  requestType: string;
   modelCode: string;
   nameEn: string;
   supplierId: string;
@@ -182,6 +184,7 @@ export function buildMonthlyBillingRows(ledger: BillingLedgerDraft): MonthlyBill
       requestNo: ledger.requestNo,
       poNo: ledger.poNo,
       deviceCode: ledger.deviceCode,
+      requestType: ledger.requestType ?? "整机",
       modelCode: ledger.modelCode,
       nameEn: ledger.nameEn,
       supplierId: ledger.supplierId ?? "",

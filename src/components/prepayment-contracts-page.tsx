@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { RefreshCw, Search, Trash2 } from "lucide-react";
+import { Plus, RefreshCw, Search, Trash2, X } from "lucide-react";
 import { formatDisplayValue } from "@/lib/display-format";
 import { DEFAULT_PAGE_SIZE } from "@/lib/pagination";
 import { buildDetailRoute, buildListRoute, getCurrentRoute, useListScrollPosition } from "@/lib/client-list-navigation";
@@ -35,6 +35,11 @@ export function PrepaymentContractsPage() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [total, setTotal] = useState(0);
+  const [showCreate, setShowCreate] = useState(false);
+  const [newContractNo, setNewContractNo] = useState("");
+  const [newEffectiveDate, setNewEffectiveDate] = useState("");
+  const [newCurrency, setNewCurrency] = useState("USD");
+  const [creating, setCreating] = useState(false);
   const pageSizeRef = useRef(pageSize);
   const currentRoute = getCurrentRoute(pathname, searchParams.toString());
 
@@ -79,6 +84,46 @@ export function PrepaymentContractsPage() {
     await loadData();
   }
 
+  function openCreateDialog() {
+    const today = new Date().toISOString().slice(0, 10);
+    setNewContractNo(`PPC-${today.replaceAll("-", "")}`);
+    setNewEffectiveDate(today);
+    setNewCurrency("USD");
+    setShowCreate(true);
+  }
+
+  async function createBlankDraft() {
+    if (!newContractNo.trim()) {
+      alert("预付款合同号不能为空");
+      return;
+    }
+    if (!newEffectiveDate) {
+      alert("合同生效日期不能为空");
+      return;
+    }
+    setCreating(true);
+    try {
+      const response = await fetch("/api/prepayments/drafts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contractNo: newContractNo.trim(),
+          effectiveDate: newEffectiveDate,
+          currency: newCurrency,
+          purchaseOrderItemIds: [],
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error ?? "预付款合同草稿创建失败");
+      setShowCreate(false);
+      router.push(`/finance/prepayment-contracts/${encodeURIComponent(String(data.contractNo))}`);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "预付款合同草稿创建失败");
+    } finally {
+      setCreating(false);
+    }
+  }
+
   return (
     <div className="space-y-5">
       <div>
@@ -112,7 +157,11 @@ export function PrepaymentContractsPage() {
             <RefreshCw size={15} />
             刷新
           </Button>
-          <Link className="ml-auto" href="/finance/prepayment-available">
+          <Button className="ml-auto" onClick={openCreateDialog}>
+            <Plus size={15} />
+            新建空白合同
+          </Button>
+          <Link href="/finance/prepayment-available">
             <Button tone="primary">去生成预付款草稿</Button>
           </Link>
         </div>
@@ -172,6 +221,41 @@ export function PrepaymentContractsPage() {
         </div>
         <PaginationBar page={page} pageSize={pageSize} total={total} onPageChange={(next) => { setPage(next); void loadData(next, pageSizeRef.current); }} onPageSizeChange={(next) => { pageSizeRef.current = next; setPageSize(next); setPage(1); void loadData(1, next); }} />
       </Panel>
+      {showCreate ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 p-4">
+          <div className="w-full max-w-xl border border-[#dcdfe6] bg-white shadow-xl">
+            <div className="flex items-center border-b border-[#ebeef5] px-5 py-4">
+              <div>
+                <h2 className="font-medium text-[#303133]">新建空白预付款合同</h2>
+                <p className="mt-1 text-xs text-[#909399]">适用于没有实例、仅登记费用明细的预付款合同。</p>
+              </div>
+              <button className="ml-auto text-[#909399] hover:text-[#303133]" onClick={() => setShowCreate(false)} type="button">
+                <X size={18} />
+              </button>
+            </div>
+            <div className="grid gap-4 p-5 sm:grid-cols-2">
+              <label className="sm:col-span-2">
+                <span className="mb-1 block text-sm text-[#606266]">预付款合同号</span>
+                <Input className="w-full" value={newContractNo} onChange={(event) => setNewContractNo(event.target.value)} />
+              </label>
+              <label>
+                <span className="mb-1 block text-sm text-[#606266]">合同币种</span>
+                <select className="h-9 w-full rounded border border-[#dcdfe6] bg-white px-3 text-sm" value={newCurrency} onChange={(event) => setNewCurrency(event.target.value)}>
+                  {["CNY", "MXN", "CLP", "USD", "BRL"].map((currency) => <option key={currency} value={currency}>{currency}</option>)}
+                </select>
+              </label>
+              <label>
+                <span className="mb-1 block text-sm text-[#606266]">生效日期</span>
+                <Input className="w-full" type="date" value={newEffectiveDate} onChange={(event) => setNewEffectiveDate(event.target.value)} />
+              </label>
+            </div>
+            <div className="flex justify-end gap-2 border-t border-[#ebeef5] px-5 py-4">
+              <Button disabled={creating} onClick={() => setShowCreate(false)}>取消</Button>
+              <Button disabled={creating} tone="primary" onClick={() => void createBlankDraft()}>{creating ? "创建中" : "创建并进入明细"}</Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

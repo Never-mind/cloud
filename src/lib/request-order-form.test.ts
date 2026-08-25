@@ -16,6 +16,7 @@ describe("request order form", () => {
       {
         id: "RI-REQ-NEW-001-001",
         requestNo: "REQ-NEW-001",
+        requestType: "整机",
         deviceCode: "DEV-1",
         supplierId: "SUP-1",
         undertakingUnitId: "UNIT-1",
@@ -26,6 +27,7 @@ describe("request order form", () => {
       {
         id: "RI-REQ-NEW-001-002",
         requestNo: "REQ-NEW-001",
+        requestType: "整机",
         deviceCode: "DEV-2",
         supplierId: "SUP-2",
         undertakingUnitId: "UNIT-2",
@@ -34,5 +36,18 @@ describe("request order form", () => {
         quantity: 3,
       },
     ]);
+  });
+
+  it("propagates the spare-parts type to every request detail", () => {
+    const rows = buildRequestItemRows({
+      requestNo: "REQ-SPARE-001",
+      requestedAt: "2026-08-25",
+      requestType: "备件",
+      details: [
+        { deviceCode: "SPARE-1", supplierId: "SUP-1", undertakingUnitId: "UNIT-1", customerId: "", quantity: 2 },
+      ],
+    });
+
+    expect(rows[0]).toMatchObject({ requestNo: "REQ-SPARE-001", requestType: "备件" });
   });
 });

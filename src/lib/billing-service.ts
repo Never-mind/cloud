@@ -226,14 +226,20 @@ export async function listAvailableBillingLines(options: {
   keyword?: string;
   countryCode?: string;
   purchaseOrderItemIds?: string[];
+  requestType?: string;
 } = {}) {
   const requestedPage = Math.max(1, Math.floor(Number(options.page ?? 1) || 1));
   const conditions = [
     "po.status LIKE :purchaseStatus",
     "req.status <> :requestDraftStatus",
     "NOT EXISTS (SELECT 1 FROM billinginstanceledgers occupied WHERE occupied.purchaseOrderItemId = poi.id)",
+    "COALESCE(NULLIF(poi.requestType, ''), NULLIF(ri.requestType, ''), NULLIF(req.requestType, ''), '整机') <> :sparePartType",
   ];
-  const params: Row = { purchaseStatus: "%确认%", requestDraftStatus: "草稿" };
+  const params: Row = { purchaseStatus: "%确认%", requestDraftStatus: "草稿", sparePartType: "备件" };
+  if (options.requestType?.trim() && options.requestType.trim() !== "备件") {
+    conditions.push("COALESCE(NULLIF(poi.requestType, ''), NULLIF(ri.requestType, ''), NULLIF(req.requestType, ''), '整机') = :requestType");
+    params.requestType = options.requestType.trim();
+  }
   if (options.countryCode?.trim()) {
     conditions.push("req.countryCode = :countryCode");
     params.countryCode = options.countryCode.trim();
@@ -271,7 +277,8 @@ export async function listAvailableBillingLines(options: {
           req.batchName,
           COALESCE(poi.requestNo, po.requestNo, ri.requestNo) AS requestNo,
           poi.poNo,
-          ri.deviceCode,
+           ri.deviceCode,
+           COALESCE(NULLIF(poi.requestType, ''), NULLIF(ri.requestType, ''), NULLIF(req.requestType, ''), '整机') AS requestType,
           im.modelCode,
           im.nameEn,
           ri.supplierId,
@@ -447,6 +454,7 @@ export async function listMonthlyBillingWriteOffs(searchParams: URLSearchParams)
   const keyword = searchParams.get("keyword")?.trim();
   const countryCode = searchParams.get("countryCode")?.trim();
   const batchName = searchParams.get("batchName")?.trim();
+  const requestType = searchParams.get("requestType")?.trim();
   const startMonth = searchParams.get("startMonth")?.trim();
   const endMonth = searchParams.get("endMonth")?.trim();
   const exportAll = searchParams.get("export") === "1";
@@ -468,6 +476,10 @@ export async function listMonthlyBillingWriteOffs(searchParams: URLSearchParams)
   if (batchName) {
     whereParts.push("mbw.batchName = :batchName");
     params.batchName = batchName;
+  }
+  if (requestType) {
+    whereParts.push("mbw.requestType = :requestType");
+    params.requestType = requestType;
   }
   if (startMonth) {
     whereParts.push("mbw.writeOffMonth >= :startMonth");
@@ -507,6 +519,7 @@ export async function listMonthlyBillingWriteOffs(searchParams: URLSearchParams)
         mbw.requestNo,
         mbw.poNo,
         mbw.deviceCode,
+        mbw.requestType,
         mbw.modelCode,
         mbw.nameEn,
         COALESCE(NULLIF(mbw.supplierId, ''), ri.linkedSupplierId, riByBusinessKey.fallbackSupplierId) AS supplierId,
@@ -619,13 +632,15 @@ async function insertBillingLedger(ledger: BillingLedgerDraft) {
     `
       INSERT INTO billinginstanceledgers
         (ledgerId, purchaseOrderItemId, countryCode, batchName, requestNo, poNo, deviceCode,
-         modelCode, nameEn, supplierId, undertakingUnitId, customerId, quantity, actualCurrency, actualUnitPrice,
+          modelCode, nameEn, supplierId, undertakingUnitId, customerId, quantity, actualCurrency, actualUnitPrice,
+          requestType,
          taxExcludedUnitPrice, taxSurcharge, vatRate, selfCalculatedUnitPrice, instanceContractNo,
          contractCurrency, first24MonthPrice, next36MonthPrice, differenceUnitPrice, differenceTotalPrice,
          startMonth, status, confirmedAt)
       VALUES
         (:ledgerId, :purchaseOrderItemId, :countryCode, :batchName, :requestNo, :poNo, :deviceCode,
-         :modelCode, :nameEn, :supplierId, :undertakingUnitId, :customerId, :quantity, :actualCurrency, :actualUnitPrice,
+          :modelCode, :nameEn, :supplierId, :undertakingUnitId, :customerId, :quantity, :actualCurrency, :actualUnitPrice,
+          :requestType,
          :taxExcludedUnitPrice, :taxSurcharge, :vatRate, :selfCalculatedUnitPrice, :instanceContractNo,
          :contractCurrency, :first24MonthPrice, :next36MonthPrice, :differenceUnitPrice, :differenceTotalPrice,
          :startMonth, :status, CURRENT_TIMESTAMP)
@@ -645,6 +660,7 @@ async function getBillingLedgerDraft(ledgerId: string) {
         requestNo,
         poNo,
         deviceCode,
+        requestType,
         modelCode,
         nameEn,
         supplierId,
@@ -729,12 +745,12 @@ async function replaceMonthlyBillingRows(ledgerId: string, rows: MonthlyBillingR
       `
         INSERT INTO monthlybillingwriteoffs
           (id, ledgerId, writeOffMonth, monthIndex, stage, countryCode, batchName, requestNo,
-           poNo, deviceCode, modelCode, nameEn, supplierId, undertakingUnitId, customerId, quantity,
+           poNo, deviceCode, requestType, modelCode, nameEn, supplierId, undertakingUnitId, customerId, quantity,
            instanceContractNo, currency, monthlyAmount, monthlyTotalAmount, selfCalculatedUnitPrice,
            differenceUnitPrice, differenceTotalPrice, sourceType, adjustmentNo)
         VALUES
           (:id, :ledgerId, :writeOffMonth, :monthIndex, :stage, :countryCode, :batchName, :requestNo,
-           :poNo, :deviceCode, :modelCode, :nameEn, :supplierId, :undertakingUnitId, :customerId, :quantity,
+           :poNo, :deviceCode, :requestType, :modelCode, :nameEn, :supplierId, :undertakingUnitId, :customerId, :quantity,
            :instanceContractNo, :currency, :monthlyAmount, :monthlyTotalAmount, :selfCalculatedUnitPrice,
            :differenceUnitPrice, :differenceTotalPrice, :sourceType, :adjustmentNo)
       `,

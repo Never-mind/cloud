@@ -16,6 +16,7 @@ type Row = {
   requestNo: string;
   poNo: string;
   deviceCode: string;
+  requestType: string;
   modelCode: string;
   nameEn: string;
   supplierId: string;
@@ -57,6 +58,7 @@ const columns: Array<{ key: keyof Row; label: string; type?: string }> = [
   { key: "batchName", label: "批次号" },
   { key: "requestNo", label: "需求单号" },
   { key: "deviceCode", label: "实例编码" },
+  { key: "requestType", label: "类型" },
   { key: "modelCode", label: "机型" },
   { key: "nameEn", label: "英文名称" },
   { key: "undertakingUnitCode", label: "承接单位" },
@@ -83,8 +85,10 @@ export function BillingAvailablePage() {
   const [selectedRowsById, setSelectedRowsById] = useState<Record<string, Row>>({});
   const [keyword, setKeyword] = useState("");
   const [countryCode, setCountryCode] = useState("");
+  const [requestType, setRequestType] = useState("");
   const [appliedKeyword, setAppliedKeyword] = useState("");
   const [appliedCountryCode, setAppliedCountryCode] = useState("");
+  const [appliedRequestType, setAppliedRequestType] = useState("");
   const [countries, setCountries] = useState<Country[]>([]);
   const [loading, setLoading] = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -98,11 +102,13 @@ export function BillingAvailablePage() {
     nextPageSize = pageSizeRef.current,
     nextKeyword = appliedKeyword,
     nextCountryCode = appliedCountryCode,
+    nextRequestType = appliedRequestType,
   ) {
     setLoading(true);
     const params = new URLSearchParams({ page: String(nextPage), pageSize: String(nextPageSize) });
     if (nextKeyword.trim()) params.set("keyword", nextKeyword.trim());
     if (nextCountryCode.trim()) params.set("countryCode", nextCountryCode.trim());
+    if (nextRequestType.trim()) params.set("requestType", nextRequestType.trim());
     const [response, contractRows] = await Promise.all([
       fetch(`/api/billing/available?${params}`),
       fetchAllEntityRows<InstanceContract>("instance-contracts"),
@@ -229,14 +235,24 @@ export function BillingAvailablePage() {
                 </option>
               ))}
           </select>
+          <select
+            className="h-9 min-w-28 rounded border border-[#dcdfe6] bg-white px-3 text-sm outline-none focus:border-[#1890ff]"
+            value={requestType}
+            onChange={(event) => setRequestType(event.target.value)}
+          >
+            <option value="">全部类型</option>
+            <option value="整机">整机</option>
+            <option value="备件">备件（不参与月账单）</option>
+          </select>
           <Button
             tone="primary"
             onClick={() => {
               setAppliedKeyword(keyword);
               setAppliedCountryCode(countryCode);
-              setPage(1);
-              void loadData(1, pageSizeRef.current, keyword, countryCode);
-            }}
+               setAppliedRequestType(requestType);
+               setPage(1);
+               void loadData(1, pageSizeRef.current, keyword, countryCode, requestType);
+             }}
           >
             <Search size={15} />
             查询

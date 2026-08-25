@@ -6,6 +6,7 @@ export type ServiceFeeBillingRow = {
   requestNo?: string | null;
   poNo?: string | null;
   deviceCode?: string | null;
+  requestType?: string | null;
   modelCode?: string | null;
   nameEn?: string | null;
   supplierId?: string | null;
@@ -29,6 +30,7 @@ export type ServiceFeePrepaymentRow = {
   requestNo?: string | null;
   poNo?: string | null;
   deviceCode?: string | null;
+  requestType?: string | null;
   modelCode?: string | null;
   nameEn?: string | null;
   supplierId?: string | null;
@@ -53,6 +55,7 @@ export type ServiceFeeRow = {
   requestNo: string;
   poNo: string;
   deviceCode: string;
+  requestType: string;
   modelCode: string;
   nameEn: string;
   supplierId: string;
@@ -176,6 +179,7 @@ function buildServiceFeeRow(bucket: Bucket): ServiceFeeRow {
     requestNo: normalizeText(source?.requestNo),
     poNo: normalizeText(source?.poNo),
     deviceCode: normalizeText(source?.deviceCode),
+    requestType: normalizeText(billing?.requestType ?? prepayment?.requestType) || (lineType === "fee" ? "费用" : "整机"),
     modelCode: normalizeText(source?.modelCode),
     nameEn: normalizeText(source?.nameEn),
     supplierId: normalizeText(billing?.supplierId ?? prepayment?.supplierId),

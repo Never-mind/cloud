@@ -34,6 +34,7 @@ export async function listAvailablePrepaymentLines(options: {
   keyword?: string;
   countryCode?: string;
   purchaseOrderItemIds?: string[];
+  requestType?: string;
 } = {}) {
   const requestedPage = Math.max(1, Math.floor(Number(options.page ?? 1) || 1));
   const conditions = [
@@ -44,8 +45,9 @@ export async function listAvailablePrepaymentLines(options: {
       INNER JOIN prepaymentcontracts pc ON pc.contractNo = pci.contractNo
       WHERE pci.purchaseOrderItemId = poi.id AND pc.status IN ('草稿', '已确认')
     )`,
+    "COALESCE(NULLIF(poi.requestType, ''), NULLIF(ri.requestType, ''), NULLIF(req.requestType, ''), '整机') = COALESCE(NULLIF(:requestType, ''), COALESCE(NULLIF(poi.requestType, ''), NULLIF(ri.requestType, ''), NULLIF(req.requestType, ''), '整机'))",
   ];
-  const params: Row = { purchaseStatus: "%确认%", requestDraftStatus: "草稿" };
+  const params: Row = { purchaseStatus: "%确认%", requestDraftStatus: "草稿", requestType: options.requestType?.trim() || null };
   if (options.countryCode?.trim()) {
     conditions.push("req.countryCode = :countryCode");
     params.countryCode = options.countryCode.trim();
@@ -82,6 +84,7 @@ export async function listAvailablePrepaymentLines(options: {
         req.batchName,
         poi.requestItemId,
         ri.deviceCode,
+        COALESCE(NULLIF(poi.requestType, ''), NULLIF(ri.requestType, ''), NULLIF(req.requestType, ''), '整机') AS requestType,
         im.modelCode,
         im.nameEn,
         ri.supplierId,
@@ -117,15 +120,38 @@ export async function createPrepaymentDraft({
   contractNo,
   effectiveDate,
   purchaseOrderItemIds,
+  currency = "USD",
 }: {
   contractNo: string;
   effectiveDate: string;
   purchaseOrderItemIds: string[];
+  currency?: string;
 }) {
+  if (!contractNo.trim()) throw new Error("预付款合同号不能为空");
+  if (!effectiveDate.trim()) throw new Error("合同生效日期不能为空");
+  if (!purchaseOrderItemIds.length) {
+    const contract = {
+      contractNo: contractNo.trim(),
+      status: "草稿",
+      currency: currency.trim() || "USD",
+      effectiveDate: firstDayOfMonth(effectiveDate),
+      totalAmount: 0,
+    };
+    await execute(
+      `
+        INSERT INTO prepaymentcontracts
+          (contractNo, status, currency, effectiveDate, totalAmount)
+        VALUES
+          (:contractNo, :status, :currency, :effectiveDate, :totalAmount)
+      `,
+      contract,
+    );
+    return contract;
+  }
+
   const availableLines = await listAvailablePrepaymentLines({ purchaseOrderItemIds, pageSize: Math.max(purchaseOrderItemIds.length, 1) });
   const selected = availableLines.rows.filter((line) => purchaseOrderItemIds.includes(line.id));
-  if (!contractNo.trim()) throw new Error("预付款合同号不能为空");
-  if (!selected.length) throw new Error("请选择可生成预付款合同的实例");
+  if (!selected.length) throw new Error("所选实例已被占用或不满足预付款合同生成条件");
 
   const draft = buildPrepaymentDraft({
     contractNo,
@@ -180,6 +206,7 @@ export async function getPrepaymentContract(contractNo: string) {
             contractItem.id,
             contractItem.contractNo,
             contractItem.lineType,
+            contractItem.requestType,
             contractItem.purchaseOrderItemId,
             contractItem.requestItemId,
             contractItem.countryCode,
@@ -294,11 +321,11 @@ export async function confirmPrepaymentContract(contractNo: string) {
       `
         INSERT INTO monthlyprepaymentwriteoffs
           (id, contractNo, contractLineId, writeOffMonth, monthIndex, totalMonths, currency,
-           originalAmount, monthlyAmount, lineType, countryCode, batchName, requestNo, poNo, deviceCode,
+           originalAmount, monthlyAmount, lineType, requestType, countryCode, batchName, requestNo, poNo, deviceCode,
            modelCode, nameEn, supplierId, undertakingUnitId, customerId, quantity)
         VALUES
           (:id, :contractNo, :contractLineId, :writeOffMonth, :monthIndex, :totalMonths, :currency,
-           :originalAmount, :monthlyAmount, :lineType, :countryCode, :batchName, :requestNo, :poNo, :deviceCode,
+           :originalAmount, :monthlyAmount, :lineType, :requestType, :countryCode, :batchName, :requestNo, :poNo, :deviceCode,
            :modelCode, :nameEn, :supplierId, :undertakingUnitId, :customerId, :quantity)
       `,
       row,
@@ -361,6 +388,7 @@ export async function listMonthlyPrepaymentWriteOffs(searchParams: URLSearchPara
   const keyword = searchParams.get("keyword")?.trim();
   const countryCode = searchParams.get("countryCode")?.trim();
   const batchName = searchParams.get("batchName")?.trim();
+  const requestType = searchParams.get("requestType")?.trim();
   const startMonth = searchParams.get("startMonth")?.trim();
   const endMonth = searchParams.get("endMonth")?.trim();
   const exportAll = searchParams.get("export") === "1";
@@ -382,6 +410,10 @@ export async function listMonthlyPrepaymentWriteOffs(searchParams: URLSearchPara
   if (batchName) {
     whereParts.push("mpw.batchName = :batchName");
     params.batchName = batchName;
+  }
+  if (requestType) {
+    whereParts.push("mpw.requestType = :requestType");
+    params.requestType = requestType;
   }
   if (startMonth) {
     whereParts.push("mpw.writeOffMonth >= :startMonth");
@@ -427,6 +459,7 @@ export async function listMonthlyPrepaymentWriteOffs(searchParams: URLSearchPara
         mpw.poNo,
         purchaseItem.purchaseOrderId,
         mpw.deviceCode,
+        mpw.requestType,
         mpw.modelCode,
         mpw.nameEn,
         COALESCE(NULLIF(mpw.supplierId, ''), ri.linkedSupplierId, riByBusinessKey.fallbackSupplierId) AS supplierId,
@@ -485,12 +518,12 @@ async function insertPrepaymentLine(
     `
       INSERT INTO prepaymentcontractitems
         (id, contractNo, lineType, purchaseOrderItemId, requestItemId, countryCode, batchName, requestNo, poNo,
-         deviceCode, modelCode, nameEn, supplierId, undertakingUnitId, customerId, quantity, actualCurrency, actualUnitPrice, actualTotalAmount,
+         requestType, deviceCode, modelCode, nameEn, supplierId, undertakingUnitId, customerId, quantity, actualCurrency, actualUnitPrice, actualTotalAmount,
          contractCurrency, contractUnitPrice, contractTotalAmount, writeOffStartMonth, feeName, feeDescription,
          prepaymentAmount, currency)
       VALUES
         (:id, :contractNo, :lineType, :purchaseOrderItemId, :requestItemId, :countryCode, :batchName, :requestNo, :poNo,
-        :deviceCode, :modelCode, :nameEn, :supplierId, :undertakingUnitId, :customerId, :quantity, :actualCurrency, :actualUnitPrice, :actualTotalAmount,
+        :requestType, :deviceCode, :modelCode, :nameEn, :supplierId, :undertakingUnitId, :customerId, :quantity, :actualCurrency, :actualUnitPrice, :actualTotalAmount,
          :contractCurrency, :contractUnitPrice, :contractTotalAmount, :writeOffStartMonth, :feeName, :feeDescription,
          :contractTotalAmount, :contractCurrency)
     `;

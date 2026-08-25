@@ -22,7 +22,14 @@ export async function POST(request: NextRequest, context: { params: Promise<{ en
     return NextResponse.json({ error: "Unknown entity" }, { status: 404 });
   }
 
-  const body = await request.json();
-  const row = await createEntityRow(config, body);
-  return NextResponse.json(row, { status: 201 });
+  try {
+    const body = await request.json();
+    const row = await createEntityRow(config, body);
+    return NextResponse.json(row, { status: 201 });
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "保存失败" },
+      { status: 400 },
+    );
+  }
 }

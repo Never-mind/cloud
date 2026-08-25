@@ -477,6 +477,30 @@ describe("import center workflow", () => {
     ]);
   });
 
+  it("rejects unsupported and mixed request types", () => {
+    const invalid = buildImportPreview("request-orders", [
+      {
+        requestNo: "REQ-TYPE-INVALID",
+        countryCode: "BR",
+        contractNo: "IC-1",
+        batchName: "BR-1",
+        requestType: "其他",
+        deviceCode: "DEV-A",
+        supplierId: "SUP-A",
+        undertakingUnitId: "UNIT-A",
+        quantity: 1,
+      },
+    ]);
+    expect(invalid.report.failed[0].error).toContain("只能选择整机或备件");
+
+    const mixed = buildImportPreview("request-orders", [
+      { requestNo: "REQ-MIXED", countryCode: "BR", contractNo: "IC-1", batchName: "BR-1", requestType: "整机", deviceCode: "DEV-A", supplierId: "SUP-A", undertakingUnitId: "UNIT-A", quantity: 1 },
+      { requestNo: "REQ-MIXED", countryCode: "BR", contractNo: "IC-1", batchName: "BR-1", requestType: "备件", deviceCode: "DEV-B", supplierId: "SUP-A", undertakingUnitId: "UNIT-A", quantity: 1 },
+    ]);
+    expect(mixed.report.success).toBe(1);
+    expect(mixed.report.failed[0].error).toContain("同一需求单只能选择一种类型");
+  });
+
   it("normalizes boolean labels in generic entity imports", () => {
     const config = {
       primaryKey: "shipmentId",

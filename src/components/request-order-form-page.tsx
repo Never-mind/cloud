@@ -7,6 +7,7 @@ import { formatDateInputValue, formatDisplayValue } from "@/lib/display-format";
 import { formatNumericInputValue, parseNumericInputValue } from "@/lib/numeric-input";
 import { isConfirmedOrderStatus } from "@/lib/order-status";
 import { buildRequestItemRows, type RequestDetailDraft } from "@/lib/request-order-form";
+import { REQUEST_TYPE_OPTIONS } from "@/lib/request-type";
 import { fetchAllEntityRows } from "@/lib/client-entity-fetch";
 import { buildDetailRoute, getReturnTo } from "@/lib/client-list-navigation";
 import { Button, Input, Panel } from "./ui";
@@ -159,6 +160,7 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
     const requestItems = buildRequestItemRows({
       requestNo: master.requestNo,
       requestedAt: master.plannedDeliveryDate || formatDateInputValue(new Date()),
+      requestType: master.requestType,
       details: details.filter((detail) => detail.deviceCode && detail.supplierId && detail.undertakingUnitId),
     });
 
@@ -298,7 +300,23 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
           </label>
           <Field disabled={!canEdit} label="合同号" required value={master.contractNo} onChange={(value) => updateMaster("contractNo", value)} />
           <Field disabled={!canEdit} label="批次名称" required value={master.batchName} onChange={(value) => updateMaster("batchName", value)} />
-          <Field disabled={!canEdit} label="类型" value={master.requestType} onChange={(value) => updateMaster("requestType", value)} />
+          <label>
+            <span className="mb-1 block text-sm font-medium text-[#606266]">
+              <span className="text-[#f56c6c]">*</span>
+              类型
+            </span>
+            <select
+              className="h-9 w-full rounded border border-[#dcdfe6] bg-white px-3 text-sm outline-none focus:border-[#1890ff] disabled:bg-[#f5f7fa] disabled:text-[#909399]"
+              required
+              disabled={!canEdit}
+              value={master.requestType}
+              onChange={(event) => updateMaster("requestType", event.target.value)}
+            >
+              {REQUEST_TYPE_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+          </label>
           <Field disabled={!canEdit} label="计划交付日期" type="date" value={master.plannedDeliveryDate} onChange={(value) => updateMaster("plannedDeliveryDate", value)} />
         </div>
       </Panel>

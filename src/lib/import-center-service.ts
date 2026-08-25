@@ -45,7 +45,7 @@ const EXECUTION_PLAN: Array<{
     key: "requestItems",
     table: "requestitems",
     primaryKey: "id",
-    fields: ["id", "requestNo", "deviceCode", "supplierId", "undertakingUnitId", "customerId", "requestedAt", "quantity"],
+    fields: ["id", "requestNo", "requestType", "deviceCode", "supplierId", "undertakingUnitId", "customerId", "requestedAt", "quantity"],
   },
   {
     key: "purchaseOrders",
@@ -57,7 +57,7 @@ const EXECUTION_PLAN: Array<{
     key: "purchaseOrderItems",
     table: "purchaseorderitems",
     primaryKey: "id",
-    fields: ["id", "purchaseOrderId", "poNo", "requestNo", "requestItemId", "taxExcludedUnitPrice", "taxSurcharge", "unitPrice", "hardwareCoefficient", "softwareCoefficient", "totalCoefficient"],
+    fields: ["id", "purchaseOrderId", "poNo", "requestNo", "requestItemId", "requestType", "taxExcludedUnitPrice", "taxSurcharge", "unitPrice", "hardwareCoefficient", "softwareCoefficient", "totalCoefficient"],
   },
   {
     key: "instanceContracts",
@@ -77,6 +77,7 @@ const EXECUTION_PLAN: Array<{
       "requestNo",
       "poNo",
       "deviceCode",
+      "requestType",
       "modelCode",
       "nameEn",
       "supplierId",
@@ -108,6 +109,7 @@ const EXECUTION_PLAN: Array<{
       "requestNo",
       "poNo",
       "deviceCode",
+      "requestType",
       "modelCode",
       "nameEn",
       "supplierId",
@@ -142,6 +144,7 @@ const EXECUTION_PLAN: Array<{
       "requestNo",
       "poNo",
       "deviceCode",
+      "requestType",
       "modelCode",
       "nameEn",
       "supplierId",
@@ -177,6 +180,7 @@ const EXECUTION_PLAN: Array<{
       "originalAmount",
       "monthlyAmount",
       "lineType",
+      "requestType",
       "countryCode",
       "batchName",
       "requestNo",
@@ -206,7 +210,7 @@ export async function createImportPreviewJob({
   if (!target) throw new Error("未知导入类型");
   const requestItems =
     targetKey === "purchase-orders"
-      ? await queryRows("SELECT id, requestNo, deviceCode FROM requestitems")
+      ? await queryRows("SELECT id, requestNo, deviceCode, requestType FROM requestitems")
       : [];
   const purchaseOrders =
     targetKey === "purchase-orders"
@@ -226,6 +230,7 @@ export async function createImportPreviewJob({
             req.countryCode,
             req.batchName,
             ri.deviceCode,
+            COALESCE(NULLIF(poi.requestType, ''), NULLIF(ri.requestType, ''), NULLIF(req.requestType, ''), '整机') AS requestType,
             im.modelCode,
             im.nameEn,
             ri.supplierId,
@@ -257,6 +262,7 @@ export async function createImportPreviewJob({
             req.countryCode,
             req.batchName,
             ri.deviceCode,
+            COALESCE(NULLIF(poi.requestType, ''), NULLIF(ri.requestType, ''), NULLIF(req.requestType, ''), '整机') AS requestType,
             im.modelCode,
             im.nameEn,
             ri.supplierId,

@@ -1,5 +1,6 @@
 export type PurchaseDetailDraft = {
   requestNo?: string;
+  requestType?: string;
   requestItemId: string;
   taxExcludedUnitPrice?: number;
   taxSurcharge?: number;
@@ -38,6 +39,7 @@ export function buildPurchaseOrderItemRows({
       poNo,
       requestNo: detail.requestNo ?? "",
       requestItemId: detail.requestItemId,
+      requestType: detail.requestType ?? "整机",
       taxExcludedUnitPrice,
       taxSurcharge,
       unitPrice,

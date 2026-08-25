@@ -26,6 +26,7 @@ type Line = {
   id: string;
   contractNo: string;
   lineType: "instance" | "fee";
+  requestType?: string;
   purchaseOrderItemId: string;
   requestItemId: string;
   countryCode: string;
@@ -56,6 +57,7 @@ const instanceColumns: Array<{ key: keyof Line; label: string; type?: string }> 
   { key: "requestNo", label: "需求单号" },
   { key: "poNo", label: "PO单号" },
   { key: "deviceCode", label: "实例编码" },
+  { key: "requestType", label: "类型" },
   { key: "modelCode", label: "机型" },
   { key: "nameEn", label: "英文名称" },
   { key: "undertakingUnitId", label: "承接单位" },
@@ -192,6 +194,7 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
         id: `PPCI-${contract.contractNo}-FEE-${Date.now()}`,
         contractNo: contract.contractNo,
         lineType: "fee",
+        requestType: "",
         purchaseOrderItemId: "",
         requestItemId: "",
         countryCode: defaultCountryCode,

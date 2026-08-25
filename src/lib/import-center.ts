@@ -5,6 +5,7 @@ import { buildMonthlyWriteOffRows, firstDayOfMonth as firstPrepaymentMonth } fro
 import { buildPurchaseOrderItemRows, PURCHASE_CURRENCY_OPTIONS } from "./purchase-order-form";
 import { buildAutoPurchaseOrderId, normalizeRequestNos } from "./procurement-workflow";
 import { buildRequestItemRows } from "./request-order-form";
+import { isRequestType } from "./request-type";
 
 export type ImportTargetKey =
   | "request-orders"
@@ -104,6 +105,7 @@ export const IMPORT_TARGETS: ImportTarget[] = [
       { key: "currency", label: "币种", required: true, note: PURCHASE_CURRENCY_OPTIONS.join("/") },
       { key: "releasedAt", label: "下发日期", type: "date" },
       { key: "requestItemId", label: "需求明细ID", note: "与产品编码二选一" },
+      { key: "requestType", label: "需求类型", note: "为空时按需求明细自动带出" },
       { key: "taxExcludedUnitPrice", label: "不含税单价", type: "number" },
       { key: "taxSurcharge", label: "税费加成", type: "number" },
       { key: "unitPrice", label: "含税单价", required: true, type: "number" },
@@ -149,6 +151,7 @@ export const IMPORT_TARGETS: ImportTarget[] = [
       { key: "next36MonthPrice", label: "后36个月合同价", type: "number", note: "按实例合同自动带出并覆盖不一致值" },
       { key: "startMonth", label: "起始核销月份", required: true, type: "date" },
       { key: "status", label: "台账状态", note: "为空默认核销中" },
+      { key: "requestType", label: "需求类型", note: "按采购明细自动带出；备件不参与月账单" },
     ],
   },
   {
@@ -161,13 +164,14 @@ export const IMPORT_TARGETS: ImportTarget[] = [
       { key: "currency", label: "合同币种", required: true, note: PURCHASE_CURRENCY_OPTIONS.join("/") },
       { key: "effectiveDate", label: "生效日期", required: true, type: "date" },
       { key: "lineType", label: "明细类型", note: "instance/fee，默认instance" },
+      { key: "requestType", label: "需求类型", note: "实例行为空时按采购明细自动带出；费用行可为空" },
       { key: "purchaseOrderItemId", label: "采购明细ID" },
       { key: "requestItemId", label: "需求明细ID" },
       { key: "countryCode", label: "国家" },
       { key: "batchName", label: "批次号" },
-      { key: "requestNo", label: "需求单号", required: true },
-      { key: "poNo", label: "PO订单号", required: true },
-      { key: "deviceCode", label: "实例编码", required: true },
+      { key: "requestNo", label: "需求单号", note: "实例行必填；费用行可为空" },
+      { key: "poNo", label: "PO订单号", note: "实例行必填；费用行可为空" },
+      { key: "deviceCode", label: "实例编码", note: "实例行必填；费用行可为空" },
       { key: "modelCode", label: "机型" },
       { key: "nameEn", label: "实例名称（英文）" },
       { key: "quantity", label: "数量", type: "number" },
@@ -230,17 +234,29 @@ export function buildImportPreview(
   const target = getRequiredTarget(targetKey);
   const validRows: Array<{ row: Row; rowNumber: number }> = [];
   const failed: ImportFailure[] = [];
+  const requestTypeByRequestNo = new Map<string, string>();
 
   inputRows.forEach((row, index) => {
     const rowNumber = index + 2;
     const normalized = normalizeRow(target, row);
-    const error =
+    let error =
       validateRow(target, normalized) ||
       normalizeInstanceContractModel(targetKey, normalized, options.instanceModels ?? []) ||
       normalizePurchaseRequestItemId(targetKey, normalized, options.requestItems ?? []) ||
       normalizeBillingPurchaseLine(targetKey, normalized, options.billingPurchaseLines ?? []) ||
+      normalizeBillingRequestType(targetKey, normalized) ||
       normalizeBillingInstanceContract(targetKey, normalized, options.instanceContracts ?? []) ||
       normalizePrepaymentPurchaseLine(targetKey, normalized, options.prepaymentPurchaseLines ?? []);
+    if (!error && targetKey === "request-orders") {
+      const requestNo = String(normalized.requestNo ?? "").trim();
+      const requestType = String(normalized.requestType ?? "").trim();
+      const existingType = requestTypeByRequestNo.get(requestNo);
+      if (existingType && existingType !== requestType) {
+        error = `同一需求单只能选择一种类型，当前同时存在${existingType}和${requestType}`;
+      } else {
+        requestTypeByRequestNo.set(requestNo, requestType);
+      }
+    }
     if (error) {
       failed.push({
         rowNumber,
@@ -322,6 +338,7 @@ function buildRequestOperations(rows: Row[], operations: ImportPreview["operatio
           supplierId: String(row.supplierId),
           undertakingUnitId: String(row.undertakingUnitId ?? ""),
           customerId: String(row.customerId ?? ""),
+          requestType: String(row.requestType ?? "整机"),
           quantity: Number(row.quantity),
         })),
       }),
@@ -369,6 +386,7 @@ function buildPurchaseOperations(rows: Row[], operations: ImportPreview["operati
           return {
             requestNo: String(row.requestNo),
             requestItemId: String(row.requestItemId),
+            requestType: String(row.requestType ?? "整机"),
             taxExcludedUnitPrice,
             taxSurcharge,
             unitPrice: importedUnitPrice || taxExcludedUnitPrice + taxSurcharge,
@@ -419,6 +437,7 @@ function buildPrepaymentContractOperations(rows: Row[], operations: ImportPrevie
         id: String(row.id || `PPCI-${contractNo}-${String(index + 1).padStart(3, "0")}`),
         contractNo,
         lineType,
+        requestType: lineType === "fee" ? String(row.requestType ?? "") : String(row.requestType ?? "整机"),
         purchaseOrderItemId: String(row.purchaseOrderItemId ?? ""),
         requestItemId: String(row.requestItemId ?? ""),
         countryCode: String(row.countryCode ?? ""),
@@ -515,6 +534,16 @@ function validateRow(target: ImportTarget, row: Row) {
     }
   }
 
+  if (target.key === "request-orders" && !isRequestType(row.requestType)) {
+    return "需求类型只能选择整机或备件";
+  }
+
+  if (target.key === "prepayment-contracts" && String(row.lineType || "instance") !== "fee") {
+    for (const [key, label] of [["requestNo", "需求单号"], ["poNo", "PO订单号"], ["deviceCode", "实例编码"]] as const) {
+      if (isBlank(row[key])) return `${label}不能为空（实例行）`;
+    }
+  }
+
   if (["purchase-orders", "instance-contracts", "billing-ledgers", "prepayment-contracts"].includes(target.key)) {
     const currencyKeys = ["currency", "actualCurrency", "contractCurrency"].filter((key) => !isBlank(row[key]));
     const invalidCurrencyKey = currencyKeys.find((key) => !PURCHASE_CURRENCY_OPTIONS.includes(String(row[key])));
@@ -526,7 +555,11 @@ function validateRow(target: ImportTarget, row: Row) {
 
 function normalizePurchaseRequestItemId(targetKey: ImportTargetKey, row: Row, requestItems: Row[]) {
   if (targetKey !== "purchase-orders") return "";
-  if (!isBlank(row.requestItemId)) return "";
+  if (!isBlank(row.requestItemId)) {
+    const matched = requestItems.find((item) => String(item.id ?? "").trim() === String(row.requestItemId).trim());
+    if (matched) row.requestType = String(matched.requestType ?? "整机");
+    return "";
+  }
   if (isBlank(row.deviceCode)) return "需求明细ID或产品编码必须填写一项";
 
   const requestNo = String(row.requestNo ?? "").trim();
@@ -537,6 +570,7 @@ function normalizePurchaseRequestItemId(targetKey: ImportTargetKey, row: Row, re
 
   if (matches.length === 1) {
     row.requestItemId = matches[0].id;
+    row.requestType = String(matches[0].requestType ?? "整机");
     return "";
   }
 
@@ -599,6 +633,14 @@ function normalizeBillingPurchaseLine(targetKey: ImportTargetKey, row: Row, purc
   return `未找到匹配的采购明细：${requestNo}/${poNo}/${deviceCode}`;
 }
 
+function normalizeBillingRequestType(targetKey: ImportTargetKey, row: Row) {
+  if (targetKey !== "billing-ledgers") return "";
+  if (isBlank(row.requestType)) row.requestType = "整机";
+  return String(row.requestType).trim() === "备件"
+    ? "备件不参与月账单台账和月账单明细生成，请改用预付款合同导入"
+    : "";
+}
+
 function applyBillingPurchaseLine(row: Row, line: Row) {
   const fields = [
     "purchaseOrderItemId",
@@ -607,6 +649,7 @@ function applyBillingPurchaseLine(row: Row, line: Row) {
     "requestNo",
     "poNo",
     "deviceCode",
+    "requestType",
     "modelCode",
     "nameEn",
     "supplierId",
@@ -621,6 +664,7 @@ function applyBillingPurchaseLine(row: Row, line: Row) {
       row[field] = line[field];
     }
   }
+  if (!isBlank(line.requestType)) row.requestType = line.requestType;
 }
 
 function normalizeBillingInstanceContract(targetKey: ImportTargetKey, row: Row, instanceContracts: Row[]) {
@@ -646,6 +690,7 @@ function normalizeBillingInstanceContract(targetKey: ImportTargetKey, row: Row, 
   row.contractCurrency = contract.currency;
   row.first24MonthPrice = contract.first24MonthPriceUSD;
   row.next36MonthPrice = contract.next36MonthPriceUSD;
+  if (isBlank(row.requestType)) row.requestType = "整机";
   return "";
 }
 
@@ -705,6 +750,7 @@ function applyPrepaymentPurchaseLine(row: Row, line: Row) {
     "actualCurrency",
     "actualUnitPrice",
     "actualTotalAmount",
+    "requestType",
   ];
 
   for (const field of fields) {
@@ -712,6 +758,7 @@ function applyPrepaymentPurchaseLine(row: Row, line: Row) {
       row[field] = line[field];
     }
   }
+  if (!isBlank(line.requestType)) row.requestType = line.requestType;
 }
 
 function getRequiredTarget(targetKey: ImportTargetKey) {

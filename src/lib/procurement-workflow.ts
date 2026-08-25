@@ -5,6 +5,7 @@ type QuantityRow = {
 type RequestDetail = {
   id: string;
   requestNo?: string | null;
+  requestType?: string | null;
 };
 
 type ShipmentLine = {
@@ -32,6 +33,7 @@ export type PurchaseDraft = {
     poNo: string;
     requestNo: string;
     requestItemId: string;
+    requestType: string;
     unitPrice: number;
     hardwareCoefficient: number;
     softwareCoefficient: number;
@@ -89,6 +91,7 @@ export function buildPurchaseDraft({
       poNo,
       requestNo: detail.requestNo ?? requestNo,
       requestItemId: detail.id,
+      requestType: detail.requestType ?? "整机",
       unitPrice: 0,
       hardwareCoefficient: 1,
       softwareCoefficient: 0,

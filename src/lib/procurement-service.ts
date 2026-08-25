@@ -10,6 +10,7 @@ import {
 type RequestItemRow = {
   id: string;
   requestNo?: string | null;
+  requestType?: string | null;
 };
 
 type ShipmentLineRow = {
@@ -57,7 +58,7 @@ export async function createPurchaseOrderFromRequest(requestNo: string, poNo?: s
   const nextPoNo = poNo?.trim() || buildAutoPurchaseOrderNo(requestNo);
 
   const details = await queryRows<RequestItemRow>(
-    "SELECT id, requestNo FROM requestitems WHERE requestNo = :requestNo ORDER BY id",
+    "SELECT id, requestNo, requestType FROM requestitems WHERE requestNo = :requestNo ORDER BY id",
     { requestNo },
   );
   const draft = buildPurchaseDraft({
@@ -82,9 +83,9 @@ export async function createPurchaseOrderFromRequest(requestNo: string, poNo?: s
     await execute(
       `
         INSERT INTO purchaseorderitems
-          (id, purchaseOrderId, poNo, requestNo, requestItemId, unitPrice, hardwareCoefficient, softwareCoefficient, totalCoefficient)
+          (id, purchaseOrderId, poNo, requestNo, requestItemId, requestType, unitPrice, hardwareCoefficient, softwareCoefficient, totalCoefficient)
         VALUES
-          (:id, :purchaseOrderId, :poNo, :requestNo, :requestItemId, :unitPrice, :hardwareCoefficient, :softwareCoefficient, :totalCoefficient)
+          (:id, :purchaseOrderId, :poNo, :requestNo, :requestItemId, :requestType, :unitPrice, :hardwareCoefficient, :softwareCoefficient, :totalCoefficient)
       `,
       item,
     );

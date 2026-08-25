@@ -1,5 +1,6 @@
 export type PrepaymentPurchaseLine = {
   id: string;
+  requestType?: string | null;
   poNo: string;
   requestNo: string;
   countryCode?: string | null;
@@ -36,6 +37,7 @@ export type PrepaymentContractLineDraft = {
   id: string;
   contractNo: string;
   lineType: "instance" | "fee";
+  requestType?: string | null;
   purchaseOrderItemId: string;
   requestItemId: string;
   batchName: string;
@@ -72,6 +74,7 @@ export type MonthlyWriteOffSourceLine = {
   id: string;
   contractNo: string;
   lineType: "instance" | "fee";
+  requestType?: string | null;
   batchName?: string | null;
   requestNo?: string | null;
   countryCode?: string | null;
@@ -99,6 +102,7 @@ export type MonthlyWriteOffRow = {
   originalAmount: number;
   monthlyAmount: number;
   lineType: "instance" | "fee";
+  requestType?: string | null;
   batchName: string;
   requestNo: string;
   countryCode: string;
@@ -174,6 +178,7 @@ export function buildPrepaymentDraft({
       id: `PPCI-${contractNo}-${String(index + 1).padStart(3, "0")}`,
       contractNo,
       lineType: "instance" as const,
+      requestType: available.requestType ?? "整机",
       purchaseOrderItemId: available.id,
       requestItemId: available.requestItemId,
       batchName: available.batchName,
@@ -237,6 +242,7 @@ export function buildMonthlyWriteOffRows(lines: MonthlyWriteOffSourceLine[]): Mo
         originalAmount,
         monthlyAmount: amount,
         lineType: line.lineType,
+        requestType: line.requestType ?? (line.lineType === "fee" ? null : "整机"),
         batchName: line.batchName ?? "",
         requestNo: line.requestNo ?? "",
         countryCode: line.countryCode ?? "",

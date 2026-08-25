@@ -23,6 +23,7 @@ const columns: Array<{ key: string; label: string; type?: string }> = [
   { key: "requestNo", label: "需求单号" },
   { key: "poNo", label: "PO单号" },
   { key: "deviceCode", label: "实例编码" },
+  { key: "requestType", label: "类型" },
   { key: "modelCode", label: "机型" },
   { key: "nameEn", label: "英文名称" },
   { key: "quantity", label: "数量" },
@@ -46,7 +47,8 @@ export function MonthlyPrepaymentWriteOffsPage() {
   const [batchName, setBatchName] = useState(() => searchParams.get("batchName") ?? "");
   const [startMonth, setStartMonth] = useState(() => searchParams.get("startMonth") ?? "");
   const [endMonth, setEndMonth] = useState(() => searchParams.get("endMonth") ?? "");
-  const [appliedFilters, setAppliedFilters] = useState(() => ({ keyword, countryCode, batchName, startMonth, endMonth }));
+  const [requestType, setRequestType] = useState(() => searchParams.get("requestType") ?? "");
+  const [appliedFilters, setAppliedFilters] = useState(() => ({ keyword, countryCode, batchName, startMonth, endMonth, requestType }));
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(() => getPositiveNumber(searchParams.get("page"), 1));
   const [pageSize, setPageSize] = useState(() => getPositiveNumber(searchParams.get("pageSize"), DEFAULT_PAGE_SIZE));
@@ -75,6 +77,7 @@ export function MonthlyPrepaymentWriteOffsPage() {
     if (filters.keyword.trim()) params.set("keyword", filters.keyword.trim());
     if (filters.countryCode.trim()) params.set("countryCode", filters.countryCode.trim());
     if (filters.batchName.trim()) params.set("batchName", filters.batchName.trim());
+    if (filters.requestType.trim()) params.set("requestType", filters.requestType.trim());
     if (filters.startMonth) params.set("startMonth", filters.startMonth);
     if (filters.endMonth) params.set("endMonth", filters.endMonth);
     params.set("page", String(nextPage));
@@ -144,12 +147,17 @@ export function MonthlyPrepaymentWriteOffsPage() {
 
       <Panel>
         <div className="flex flex-wrap items-center gap-2 border-b border-[#ebeef5] p-4">
-          <Input placeholder="搜索合同/批次/需求单/PO/实例编码" value={keyword} onChange={(event) => setKeyword(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { setAppliedFilters({ keyword, countryCode, batchName, startMonth, endMonth }); setPage(1); void loadData(1, pageSizeRef.current, { keyword, countryCode, batchName, startMonth, endMonth }); } }} />
+          <Input placeholder="搜索合同/批次/需求单/PO/实例编码" value={keyword} onChange={(event) => setKeyword(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { const filters = { keyword, countryCode, batchName, startMonth, endMonth, requestType }; setAppliedFilters(filters); setPage(1); void loadData(1, pageSizeRef.current, filters); } }} />
           <Input placeholder="国家" value={countryCode} onChange={(event) => setCountryCode(event.target.value)} />
           <Input placeholder="批次" value={batchName} onChange={(event) => setBatchName(event.target.value)} />
           <Input type="date" value={startMonth} onChange={(event) => setStartMonth(event.target.value)} />
           <Input type="date" value={endMonth} onChange={(event) => setEndMonth(event.target.value)} />
-          <Button tone="primary" onClick={() => { const filters = { keyword, countryCode, batchName, startMonth, endMonth }; setAppliedFilters(filters); setPage(1); void loadData(1, pageSizeRef.current, filters); }}>
+          <select className="h-9 rounded border border-[#dcdfe6] bg-white px-3 text-sm" value={requestType} onChange={(event) => setRequestType(event.target.value)}>
+            <option value="">全部类型</option>
+            <option value="整机">整机</option>
+            <option value="备件">备件</option>
+          </select>
+          <Button tone="primary" onClick={() => { const filters = { keyword, countryCode, batchName, startMonth, endMonth, requestType }; setAppliedFilters(filters); setPage(1); void loadData(1, pageSizeRef.current, filters); }}>
             <Search size={15} />
             查询
           </Button>

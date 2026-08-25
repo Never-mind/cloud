@@ -3,6 +3,7 @@ import { execute, queryRows, type Row } from "./db";
 import { attachPartyCodes } from "./party-display";
 import type { EntityConfig } from "./modules";
 import { DEFAULT_PAGE_SIZE, normalizePageSize } from "./pagination";
+import { requireRequestType } from "./request-type";
 
 function quoteIdentifier(identifier: string) {
   return `\`${identifier.replace(/`/g, "``")}\``;
@@ -30,6 +31,16 @@ function withShipmentReceiptStatus(config: EntityConfig, body: Row) {
 
 function normalizeEntityBody(config: EntityConfig, body: Row) {
   const nextBody = withShipmentReceiptStatus(config, body);
+  if (["requests", "request-items", "purchase-order-items"].includes(config.key)) {
+    return normalizePurchasePrices(config, {
+      ...nextBody,
+      requestType: requireRequestType(nextBody.requestType ?? "整机"),
+    });
+  }
+  return normalizePurchasePrices(config, nextBody);
+}
+
+function normalizePurchasePrices(config: EntityConfig, nextBody: Row) {
   if (config.key !== "purchase-order-items") return nextBody;
 
   const taxExcludedUnitPrice = Number(nextBody.taxExcludedUnitPrice ?? nextBody.unitPrice ?? 0);
@@ -64,16 +75,29 @@ export async function listEntityRows(config: EntityConfig, searchParams: URLSear
   ]));
   const displayOnlyFields = config.key === "request-items"
     ? new Set(["customerCode"])
-    : config.key === "service-fee-snapshots"
-      ? new Set(["receivingUnitCode", "payerCustomerCode"])
+    : config.key === "purchase-orders"
+      ? new Set(["requestType"])
+      : config.key === "service-fee-snapshots"
+        ? new Set(["receivingUnitCode", "payerCustomerCode"])
     : config.key === "shipments"
-    ? shipmentDisplayFields
+    ? new Set([...shipmentDisplayFields, "requestType"])
     : financePartyEntityKeys.has(config.key)
       ? partyCodeDisplayFields
       : new Set<string>();
   const storageFields = fields.filter((field) => !displayOnlyFields.has(field));
   const selectedFields = storageFields
     .map((field) => shipmentAlias ? `${fieldReference(field)} AS ${quoteIdentifier(field)}` : quoteIdentifier(field))
+    .concat(config.key === "purchase-orders"
+      ? [`
+          COALESCE((
+            SELECT GROUP_CONCAT(DISTINCT COALESCE(NULLIF(poi.requestType, ''), NULLIF(ri.requestType, ''), NULLIF(req.requestType, ''), '整机') ORDER BY COALESCE(NULLIF(poi.requestType, ''), NULLIF(ri.requestType, ''), NULLIF(req.requestType, ''), '整机') SEPARATOR ' / ')
+            FROM purchaseorderitems AS poi
+            LEFT JOIN requestitems AS ri ON ri.id = poi.requestItemId
+            LEFT JOIN requests AS req ON req.requestNo = COALESCE(poi.requestNo, ri.requestNo)
+            WHERE poi.purchaseOrderId = purchaseorders.purchaseOrderId
+          ), '整机') AS \`requestType\`
+        `]
+      : [])
     .join(", ");
   const whereParts: string[] = [];
   const params: Row = {};
@@ -115,6 +139,42 @@ export async function listEntityRows(config: EntityConfig, searchParams: URLSear
           )
         `);
         params.countryCode = normalizeCountryCodeFilter(value);
+        continue;
+      }
+      if (filter.key === "requestType" && config.key === "purchase-orders") {
+        whereParts.push(`
+          EXISTS (
+            SELECT 1
+            FROM purchaseorderitems AS poi
+            LEFT JOIN requestitems AS ri ON ri.id = poi.requestItemId
+            LEFT JOIN requests AS req ON req.requestNo = COALESCE(poi.requestNo, ri.requestNo)
+            WHERE poi.purchaseOrderId = purchaseorders.purchaseOrderId
+              AND COALESCE(NULLIF(poi.requestType, ''), NULLIF(ri.requestType, ''), NULLIF(req.requestType, ''), '整机') = :requestType
+          )
+        `);
+        params.requestType = value;
+        continue;
+      }
+      if (filter.key === "requestType" && config.key === "shipments") {
+        whereParts.push(`
+          EXISTS (
+            SELECT 1
+            FROM purchaseorderitems AS poi
+            LEFT JOIN requestitems AS ri ON ri.id = poi.requestItemId
+            LEFT JOIN requests AS req ON req.requestNo = COALESCE(poi.requestNo, ri.requestNo)
+            WHERE (
+              poi.id = shipment.purchaseOrderItemId
+              OR (
+                NULLIF(shipment.poNo, '') IS NOT NULL
+                AND NULLIF(shipment.deviceCode, '') IS NOT NULL
+                AND poi.poNo = shipment.poNo
+                AND ri.deviceCode = shipment.deviceCode
+              )
+            )
+            AND COALESCE(NULLIF(poi.requestType, ''), NULLIF(ri.requestType, ''), NULLIF(req.requestType, ''), '整机') = :requestType
+          )
+        `);
+        params.requestType = value;
         continue;
       }
       whereParts.push(`${fieldReference(filter.key)} = :${filter.key}`);
@@ -289,6 +349,7 @@ export async function updateEntityRow(config: EntityConfig, id: string, body: Ro
   const primaryKey = quoteIdentifier(config.primaryKey);
   const assignments = fields.map((field) => `${quoteIdentifier(field)} = :${field}`).join(", ");
   const nextBody = normalizeEntityBody(config, body);
+  if (config.key === "requests") await assertRequestTypeCanChange(id, String(nextBody.requestType));
   const params = Object.fromEntries(fields.map((field) => [field, nextBody[field] ?? null]));
 
   await execute(`UPDATE ${table} SET ${assignments} WHERE ${primaryKey} = :id`, {
@@ -296,6 +357,39 @@ export async function updateEntityRow(config: EntityConfig, id: string, body: Ro
     id,
   });
   return getEntityRow(config, id);
+}
+
+async function assertRequestTypeCanChange(requestNo: string, nextRequestType: string) {
+  const current = await getEntityRow(getRequestConfig(), requestNo);
+  if (!current || String(current.requestType ?? "整机") === nextRequestType) return;
+
+  const rows = await queryRows<{ count: number }>(
+    `
+      SELECT COUNT(*) AS count
+      FROM purchaseorderitems poi
+      LEFT JOIN requestitems ri ON ri.id = poi.requestItemId
+      WHERE COALESCE(NULLIF(poi.requestNo, ''), ri.requestNo) = :requestNo
+    `,
+    { requestNo },
+  );
+  if (Number(rows[0]?.count ?? 0) > 0) {
+    throw new Error("该需求单已产生采购数据，不能直接修改整机/备件类型");
+  }
+}
+
+function getRequestConfig(): EntityConfig {
+  return {
+    key: "requests",
+    title: "需求单",
+    table: "requests",
+    primaryKey: "requestNo",
+    navGroup: "客户需求",
+    route: "/requests/orders",
+    description: "",
+    filters: [],
+    listFields: [],
+    formFields: [],
+  };
 }
 
 export async function deleteEntityRow(config: EntityConfig, id: string) {
@@ -333,7 +427,7 @@ async function enrichShipmentRows(rows: Row[]): Promise<Row[]> {
     contactIds.length ? queryRows("SELECT contactId, name FROM deliverycontacts WHERE contactId IN (:contactIds)", { contactIds }) : [],
     poNos.length ? queryRows("SELECT purchaseOrderId, poNo FROM purchaseorders WHERE poNo IN (:poNos)", { poNos }) : [],
     poNos.length
-      ? queryRows("SELECT poi.id AS purchaseOrderItemId, poi.poNo, ri.deviceCode, ri.supplierId, ri.undertakingUnitId, ri.customerId, req.countryCode, req.batchName FROM purchaseorderitems poi LEFT JOIN requestitems ri ON ri.id = poi.requestItemId LEFT JOIN requests req ON req.requestNo = ri.requestNo WHERE poi.poNo IN (:poNos)", { poNos })
+      ? queryRows("SELECT poi.id AS purchaseOrderItemId, poi.poNo, COALESCE(NULLIF(poi.requestType, ''), NULLIF(ri.requestType, ''), NULLIF(req.requestType, ''), '整机') AS requestType, ri.deviceCode, ri.supplierId, ri.undertakingUnitId, ri.customerId, req.countryCode, req.batchName FROM purchaseorderitems poi LEFT JOIN requestitems ri ON ri.id = poi.requestItemId LEFT JOIN requests req ON req.requestNo = ri.requestNo WHERE poi.poNo IN (:poNos)", { poNos })
       : [],
     deviceCodes.length
       ? queryRows("SELECT deviceCode, nameEn FROM instancemodels WHERE deviceCode IN (:deviceCodes)", { deviceCodes })
@@ -368,6 +462,7 @@ async function enrichShipmentRows(rows: Row[]): Promise<Row[]> {
       nameEn: instanceModel?.nameEn ?? row.nameEn,
       countryCode: purchaseLine?.countryCode ?? row.countryCode ?? "",
       batchName: purchaseLine?.batchName ?? row.batchName ?? "",
+      requestType: purchaseLine?.requestType ?? row.requestType ?? "整机",
       dcNameZh: datacenter?.nameZh ?? row.dcNameZh ?? row.dcCode,
       destinationAddress: location?.fullAddress ?? row.snapshotDestinationAddress ?? row.destinationLocationId,
       recipientName: contact?.name ?? row.snapshotRecipientName ?? row.recipientContactId,

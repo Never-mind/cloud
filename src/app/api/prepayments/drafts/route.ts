@@ -10,6 +10,7 @@ export async function POST(request: NextRequest) {
       purchaseOrderItemIds: Array.isArray(body.purchaseOrderItemIds)
         ? body.purchaseOrderItemIds.map(String)
         : [],
+      currency: String(body.currency ?? "USD"),
     });
 
     return NextResponse.json(contract, { status: 201 });

@@ -1,5 +1,6 @@
 import type { TableColumn } from "./table-utils";
 import { PURCHASE_CURRENCY_OPTIONS } from "./purchase-order-form";
+import { REQUEST_TYPE_OPTIONS } from "./request-type";
 import { purchaseOrderPlanFieldSpecs, purchaseOrderSnFieldSpecs } from "./purchase-order-demand-plan-fields";
 
 export type FieldType = "text" | "number" | "money" | "percentage" | "date" | "datetime" | "boolean" | "switch" | "textarea" | "select" | "lineType";
@@ -277,6 +278,7 @@ export const entityConfigs: EntityConfig[] = [
     filters: [
       { key: "keyword", label: "需求单", placeholder: "请输入需求单号、合同号或批次" },
       { key: "status", label: "状态", placeholder: "请选择状态" },
+      { key: "requestType", label: "类型", type: "select", options: REQUEST_TYPE_OPTIONS },
     ],
     listFields: [
       { key: "requestNo", label: "需求单号" },
@@ -294,7 +296,7 @@ export const entityConfigs: EntityConfig[] = [
       { key: "countryCode", label: "国家", required: true },
       { key: "contractNo", label: "合同号", required: true },
       { key: "batchName", label: "批次名称", required: true },
-      { key: "requestType", label: "类型", required: true },
+      { key: "requestType", label: "类型", type: "select", options: REQUEST_TYPE_OPTIONS, required: true },
       { key: "status", label: "状态", required: true },
       { key: "plannedDeliveryDate", label: "计划交付日期", type: "date" },
     ],
@@ -310,10 +312,12 @@ export const entityConfigs: EntityConfig[] = [
     description: "跨批次集中查看所有需求明细。",
     filters: [
       { key: "keyword", label: "需求明细", placeholder: "请输入需求单号、设备编码或供应商" },
+      { key: "requestType", label: "类型", type: "select", options: REQUEST_TYPE_OPTIONS },
     ],
     listFields: [
       { key: "id", label: "明细ID" },
       { key: "requestNo", label: "需求单号" },
+      { key: "requestType", label: "类型" },
       { key: "deviceCode", label: "设备编码" },
       { key: "supplierId", label: "供应商" },
       { key: "undertakingUnitId", label: "承接单位" },
@@ -324,6 +328,7 @@ export const entityConfigs: EntityConfig[] = [
     formFields: [
       { key: "id", label: "明细ID", required: true },
       { key: "requestNo", label: "需求单号", required: true },
+      { key: "requestType", label: "类型", readonly: true },
       { key: "deviceCode", label: "设备编码", required: true },
       { key: "supplierId", label: "供应商ID", required: true },
       { key: "undertakingUnitId", label: "承接单位ID", required: true },
@@ -340,7 +345,10 @@ export const entityConfigs: EntityConfig[] = [
     navGroup: "采购管理",
     route: "/purchase/orders",
     description: "以主从表单维护 PO 主单和采购明细。",
-    filters: [{ key: "keyword", label: "采购订单", placeholder: "请输入PO订单号或币种" }],
+    filters: [
+      { key: "keyword", label: "采购订单", placeholder: "请输入PO订单号或币种" },
+      { key: "requestType", label: "类型", type: "select", options: REQUEST_TYPE_OPTIONS },
+    ],
     listFields: [
       { key: "poNo", label: "PO订单号" },
       { key: "requestNo", label: "来源需求单号" },
@@ -366,11 +374,15 @@ export const entityConfigs: EntityConfig[] = [
     navGroup: "采购管理",
     route: "/purchase/items",
     description: "集中查看所有 PO 采购明细。",
-    filters: [{ key: "keyword", label: "采购明细", placeholder: "请输入PO订单号或需求明细ID" }],
+    filters: [
+      { key: "keyword", label: "采购明细", placeholder: "请输入PO订单号或需求明细ID" },
+      { key: "requestType", label: "类型", type: "select", options: REQUEST_TYPE_OPTIONS },
+    ],
     listFields: [
       { key: "id", label: "明细ID" },
       { key: "poNo", label: "PO订单号" },
       { key: "requestItemId", label: "需求明细" },
+      { key: "requestType", label: "类型" },
       { key: "taxExcludedUnitPrice", label: "不含税单价", type: "money" },
       { key: "taxSurcharge", label: "税费加成", type: "money" },
       { key: "unitPrice", label: "含税单价", type: "money" },
@@ -416,6 +428,7 @@ export const entityConfigs: EntityConfig[] = [
           { label: "未签收", value: "unreceived" },
         ],
       },
+      { key: "requestType", label: "类型", type: "select", options: REQUEST_TYPE_OPTIONS },
     ],
     listFields: [
       { key: "shipmentId", label: "物流ID" },
@@ -478,7 +491,10 @@ export const entityConfigs: EntityConfig[] = [
     navGroup: "财务管理",
     route: "/finance/billing-available",
     description: "从已确认下单且尚未生成月账单台账的实例中生成60个月账单。",
-    filters: [{ key: "keyword", label: "待生成月账单", placeholder: "请输入国家、批次、需求单、PO或实例编码" }],
+    filters: [
+      { key: "keyword", label: "待生成月账单", placeholder: "请输入国家、批次、需求单、PO或实例编码" },
+      { key: "requestType", label: "类型", type: "select", options: REQUEST_TYPE_OPTIONS },
+    ],
     listFields: [
       { key: "id", label: "采购明细ID" },
       { key: "poNo", label: "PO单号" },
@@ -500,7 +516,10 @@ export const entityConfigs: EntityConfig[] = [
     navGroup: "财务管理",
     route: "/finance/billing-ledgers",
     description: "查看已确认月账单实例的合同价格锁定信息。",
-    filters: [{ key: "keyword", label: "月账单台账", placeholder: "请输入国家、批次、需求单、PO或实例编码" }],
+    filters: [
+      { key: "keyword", label: "月账单台账", placeholder: "请输入国家、批次、需求单、PO或实例编码" },
+      { key: "requestType", label: "类型", type: "select", options: REQUEST_TYPE_OPTIONS },
+    ],
     listFields: [
       { key: "ledgerId", label: "台账ID" },
       { key: "countryCode", label: "国家" },
@@ -508,6 +527,7 @@ export const entityConfigs: EntityConfig[] = [
       { key: "requestNo", label: "需求单号" },
       { key: "poNo", label: "PO单号" },
       { key: "deviceCode", label: "实例编码" },
+      { key: "requestType", label: "类型" },
       { key: "modelCode", label: "机型" },
       { key: "nameEn", label: "英文名称" },
       { key: "undertakingUnitCode", label: "承接单位" },
@@ -529,6 +549,7 @@ export const entityConfigs: EntityConfig[] = [
       { key: "requestNo", label: "需求单号" },
       { key: "poNo", label: "PO单号" },
       { key: "deviceCode", label: "实例编码" },
+      { key: "requestType", label: "类型" },
       { key: "modelCode", label: "机型" },
       { key: "nameEn", label: "英文名称" },
       { key: "quantity", label: "数量", type: "number" },
@@ -551,7 +572,10 @@ export const entityConfigs: EntityConfig[] = [
     navGroup: "财务管理",
     route: "/finance/monthly-billing-writeoffs",
     description: "查看月账单台账生成的60个月实例核销明细。",
-    filters: [{ key: "keyword", label: "月账单明细", placeholder: "请输入国家、批次、需求单、PO或实例编码" }],
+    filters: [
+      { key: "keyword", label: "月账单明细", placeholder: "请输入国家、批次、需求单、PO或实例编码" },
+      { key: "requestType", label: "类型", type: "select", options: REQUEST_TYPE_OPTIONS },
+    ],
     listFields: [
       { key: "writeOffMonth", label: "核销月份", type: "date" },
       { key: "countryCode", label: "国家" },
@@ -559,6 +583,7 @@ export const entityConfigs: EntityConfig[] = [
       { key: "requestNo", label: "需求单号" },
       { key: "poNo", label: "PO单号" },
       { key: "deviceCode", label: "实例编码" },
+      { key: "requestType", label: "类型" },
       { key: "modelCode", label: "机型" },
       { key: "nameEn", label: "英文名称" },
       { key: "undertakingUnitCode", label: "承接单位" },
@@ -587,6 +612,7 @@ export const entityConfigs: EntityConfig[] = [
       { key: "requestNo", label: "需求单号" },
       { key: "poNo", label: "PO单号" },
       { key: "deviceCode", label: "实例编码" },
+      { key: "requestType", label: "类型" },
       { key: "modelCode", label: "机型" },
       { key: "nameEn", label: "英文名称" },
       { key: "quantity", label: "数量", type: "number" },
@@ -674,7 +700,10 @@ export const entityConfigs: EntityConfig[] = [
     navGroup: "财务管理",
     route: "/finance/service-fees",
     description: "按月度月账单核销总额减预付款核销金额，实时核算服务费并生成服务费对账单草稿。",
-    filters: [{ key: "keyword", label: "服务费核算", placeholder: "请输入国家、批次、需求单、PO或实例编码" }],
+    filters: [
+      { key: "keyword", label: "服务费核算", placeholder: "请输入国家、批次、需求单、PO或实例编码" },
+      { key: "requestType", label: "类型", type: "select", options: REQUEST_TYPE_OPTIONS },
+    ],
     listFields: [
       { key: "writeOffMonth", label: "核销月份", type: "date" },
       { key: "countryCode", label: "国家" },
@@ -682,6 +711,7 @@ export const entityConfigs: EntityConfig[] = [
       { key: "requestNo", label: "需求单号" },
       { key: "poNo", label: "PO单号" },
       { key: "deviceCode", label: "实例编码" },
+      { key: "requestType", label: "类型" },
       { key: "modelCode", label: "机型" },
       { key: "nameEn", label: "英文名称" },
       { key: "undertakingUnitCode", label: "承接单位" },
@@ -707,6 +737,7 @@ export const entityConfigs: EntityConfig[] = [
       { key: "requestNo", label: "需求单号" },
       { key: "poNo", label: "PO单号" },
       { key: "deviceCode", label: "实例编码" },
+      { key: "requestType", label: "类型" },
       { key: "modelCode", label: "机型" },
       { key: "nameEn", label: "英文名称" },
       { key: "undertakingUnitId", label: "承接单位" },
@@ -801,6 +832,7 @@ export const entityConfigs: EntityConfig[] = [
       { key: "snapshotNo", label: "对账单号", placeholder: "对账单号" },
       { key: "countryCode", label: "国家", placeholder: "国家" },
       { key: "batchName", label: "批次", placeholder: "批次" },
+      { key: "requestType", label: "类型", type: "select", options: REQUEST_TYPE_OPTIONS },
     ],
     listFields: [
       { key: "snapshotNo", label: "对账单号" },
@@ -811,6 +843,7 @@ export const entityConfigs: EntityConfig[] = [
       { key: "requestNo", label: "需求单号" },
       { key: "poNo", label: "PO单号" },
       { key: "deviceCode", label: "实例编码" },
+      { key: "requestType", label: "类型" },
       { key: "modelCode", label: "机型" },
       { key: "nameEn", label: "英文名称" },
       { key: "undertakingUnitCode", label: "承接单位" },
@@ -836,6 +869,7 @@ export const entityConfigs: EntityConfig[] = [
       { key: "requestNo", label: "需求单号" },
       { key: "poNo", label: "PO单号" },
       { key: "deviceCode", label: "实例编码" },
+      { key: "requestType", label: "类型" },
       { key: "modelCode", label: "机型" },
       { key: "nameEn", label: "英文名称" },
       { key: "quantity", label: "数量", type: "number" },
@@ -861,12 +895,16 @@ export const entityConfigs: EntityConfig[] = [
     navGroup: "财务管理",
     route: "/finance/prepayment-available",
     description: "从已下单采购实例中勾选生成预付款合同草稿。",
-    filters: [{ key: "keyword", label: "待生成实例", placeholder: "请输入批次、需求单、PO或实例编码" }],
+    filters: [
+      { key: "keyword", label: "待生成实例", placeholder: "请输入批次、需求单、PO或实例编码" },
+      { key: "requestType", label: "类型", type: "select", options: REQUEST_TYPE_OPTIONS },
+    ],
     listFields: [
       { key: "id", label: "采购明细ID" },
       { key: "countryCode", label: "国家" },
       { key: "poNo", label: "PO单号" },
       { key: "requestItemId", label: "需求明细ID" },
+      { key: "requestType", label: "类型" },
       { key: "unitPrice", label: "实际单价", type: "number" },
     ],
     formFields: [
@@ -874,6 +912,7 @@ export const entityConfigs: EntityConfig[] = [
       { key: "countryCode", label: "国家" },
       { key: "poNo", label: "PO单号", required: true },
       { key: "requestItemId", label: "需求明细ID", required: true },
+      { key: "requestType", label: "类型" },
       { key: "unitPrice", label: "实际单价", type: "number" },
     ],
   },
@@ -919,6 +958,7 @@ export const entityConfigs: EntityConfig[] = [
     description: "按月份查看已确认预付款合同生成的核销金额。",
     filters: [
       { key: "keyword", label: "月度核销", placeholder: "请输入合同号、批次、需求单、PO或实例编码" },
+      { key: "requestType", label: "类型", type: "select", options: REQUEST_TYPE_OPTIONS },
     ],
     listFields: [
       { key: "writeOffMonth", label: "核销月份", type: "date" },
@@ -931,6 +971,7 @@ export const entityConfigs: EntityConfig[] = [
       { key: "requestNo", label: "需求单号" },
       { key: "poNo", label: "PO单号" },
       { key: "deviceCode", label: "实例编码" },
+      { key: "requestType", label: "类型" },
       { key: "modelCode", label: "机型" },
       { key: "nameEn", label: "英文名称" },
       { key: "quantity", label: "数量", type: "number" },
@@ -957,6 +998,7 @@ export const entityConfigs: EntityConfig[] = [
       { key: "requestNo", label: "需求单号" },
       { key: "poNo", label: "PO单号" },
       { key: "deviceCode", label: "实例编码" },
+      { key: "requestType", label: "类型" },
       { key: "modelCode", label: "机型" },
       { key: "nameEn", label: "英文名称" },
       { key: "quantity", label: "数量", type: "number" },
@@ -1007,10 +1049,14 @@ export const entityConfigs: EntityConfig[] = [
     navGroup: "隐藏",
     route: "/finance/prepayment-contract-items",
     description: "管理预付款合同下的支付明细。",
-    filters: [{ key: "keyword", label: "预付款", placeholder: "请输入合同号、币种或明细ID" }],
+    filters: [
+      { key: "keyword", label: "预付款", placeholder: "请输入合同号、币种或明细ID" },
+      { key: "requestType", label: "类型", type: "select", options: REQUEST_TYPE_OPTIONS },
+    ],
     listFields: [
       { key: "id", label: "明细ID" },
       { key: "contractNo", label: "合同号" },
+      { key: "requestType", label: "类型" },
       { key: "prepaymentAmount", label: "预付款金额", type: "money" },
       { key: "currency", label: "币种" },
       { key: "usdRate", label: "美元汇率", type: "number" },
@@ -1019,6 +1065,7 @@ export const entityConfigs: EntityConfig[] = [
     formFields: [
       { key: "id", label: "明细ID", required: true },
       { key: "contractNo", label: "合同号", required: true },
+      { key: "requestType", label: "类型", readonly: true },
       { key: "prepaymentAmount", label: "预付款金额", type: "money" },
       { key: "currency", label: "币种" },
       { key: "usdRate", label: "美元汇率", type: "number" },
@@ -1064,6 +1111,7 @@ if (purchaseOrderConfig) {
     { key: "purchaseOrderId", label: "系统采购ID", defaultVisible: false },
     { key: "poNo", label: "PO订单号" },
     { key: "requestNo", label: "来源需求单号" },
+    { key: "requestType", label: "类型" },
     { key: "status", label: "采购状态" },
     { key: "currency", label: "币种", type: "select", options: PURCHASE_CURRENCY_OPTIONS.map((currency) => ({ label: currency, value: currency })) },
     { key: "releasedAt", label: "下发日期", type: "date" },
@@ -1089,6 +1137,7 @@ if (purchaseOrderItemConfig) {
     { key: "poNo", label: "PO订单号" },
     { key: "requestNo", label: "来源需求单号" },
     { key: "requestItemId", label: "需求明细" },
+    { key: "requestType", label: "类型" },
     { key: "taxExcludedUnitPrice", label: "不含税单价", type: "money" },
     { key: "taxSurcharge", label: "税费加成", type: "money" },
     { key: "unitPrice", label: "含税单价", type: "money" },
@@ -1104,6 +1153,7 @@ if (purchaseOrderItemConfig) {
     { key: "poNo", label: "PO订单号", required: true },
     { key: "requestNo", label: "来源需求单号" },
     { key: "requestItemId", label: "需求明细ID", required: true },
+    { key: "requestType", label: "类型", readonly: true },
     { key: "taxExcludedUnitPrice", label: "不含税单价", type: "money" },
     { key: "taxSurcharge", label: "税费加成", type: "money" },
     { key: "unitPrice", label: "含税单价", type: "money" },

@@ -242,6 +242,16 @@ async function main() {
     "KEY `idx_RequestItems_undertakingUnitId` (`undertakingUnitId`)",
   );
   await addColumnIfMissing(
+    "requestitems",
+    "requestType",
+    "`requestType` VARCHAR(64) NULL COMMENT 'whole machine/spare parts snapshot' AFTER `deviceCode`",
+  );
+  await addIndexIfMissing(
+    "requestitems",
+    "idx_RequestItems_requestType",
+    "KEY `idx_RequestItems_requestType` (`requestType`)",
+  );
+  await addColumnIfMissing(
     "purchaseorderitems",
     "taxExcludedUnitPrice",
     "`taxExcludedUnitPrice` DECIMAL(18, 4) NULL COMMENT 'tax excluded unit price' AFTER `requestItemId`",
@@ -253,6 +263,16 @@ async function main() {
   );
   await execute(
     "UPDATE purchaseorderitems SET taxExcludedUnitPrice = COALESCE(taxExcludedUnitPrice, unitPrice), taxSurcharge = COALESCE(taxSurcharge, 0) WHERE taxExcludedUnitPrice IS NULL OR taxSurcharge IS NULL",
+  );
+  await addColumnIfMissing(
+    "purchaseorderitems",
+    "requestType",
+    "`requestType` VARCHAR(64) NULL COMMENT 'whole machine/spare parts snapshot' AFTER `requestItemId`",
+  );
+  await addIndexIfMissing(
+    "purchaseorderitems",
+    "idx_PurchaseOrderItems_requestType",
+    "KEY `idx_PurchaseOrderItems_requestType` (`requestType`)",
   );
   await createTableIfMissing(
     "purchaseordersnitems",
@@ -433,6 +453,16 @@ async function main() {
     await addColumnIfMissing("monthlybillingwriteoffs", column, ddl);
   }
   await addColumnIfMissing(
+    "billinginstanceledgers",
+    "requestType",
+    "`requestType` VARCHAR(64) NULL COMMENT 'whole machine/spare parts snapshot' AFTER `deviceCode`",
+  );
+  await addColumnIfMissing(
+    "monthlybillingwriteoffs",
+    "requestType",
+    "`requestType` VARCHAR(64) NULL COMMENT 'whole machine/spare parts snapshot' AFTER `deviceCode`",
+  );
+  await addColumnIfMissing(
     "monthlyprepaymentwriteoffs",
     "supplierId",
     "`supplierId` VARCHAR(64) NULL COMMENT 'supplier id' AFTER `nameEn`",
@@ -441,6 +471,16 @@ async function main() {
     "monthlyprepaymentwriteoffs",
     "undertakingUnitId",
     "`undertakingUnitId` VARCHAR(64) NULL COMMENT 'undertaking unit id' AFTER `supplierId`",
+  );
+  await addColumnIfMissing(
+    "prepaymentcontractitems",
+    "requestType",
+    "`requestType` VARCHAR(64) NULL COMMENT 'whole machine/spare parts snapshot' AFTER `lineType`",
+  );
+  await addColumnIfMissing(
+    "monthlyprepaymentwriteoffs",
+    "requestType",
+    "`requestType` VARCHAR(64) NULL COMMENT 'whole machine/spare parts snapshot' AFTER `lineType`",
   );
   await addColumnIfMissing(
     "servicefeesnapshotitems",
@@ -1292,6 +1332,11 @@ async function main() {
     "`billingCurrency` VARCHAR(16) NULL COMMENT 'monthly billing currency' AFTER `currency`",
   );
   await addColumnIfMissing("servicefeesnapshotitems", "supplierId", "`supplierId` VARCHAR(64) NULL COMMENT 'supplier id' AFTER `nameEn`");
+  await addColumnIfMissing(
+    "servicefeesnapshotitems",
+    "requestType",
+    "`requestType` VARCHAR(64) NULL COMMENT 'whole machine/spare parts snapshot' AFTER `deviceCode`",
+  );
   await addColumnIfMissing("servicefeesnapshotitems", "vatRate", "`vatRate` DECIMAL(10, 6) NULL COMMENT 'VAT rate snapshot' AFTER `countryCode`");
   await addColumnIfMissing("servicefeesnapshotitems", "undertakingUnitId", "`undertakingUnitId` VARCHAR(64) NULL COMMENT 'undertaking unit id' AFTER `supplierId`");
   await addColumnIfMissing("servicefeesnapshotitems", "customerId", "`customerId` VARCHAR(64) NULL COMMENT 'customer id' AFTER `undertakingUnitId`");
@@ -1893,6 +1938,51 @@ async function main() {
       WHERE NULLIF(item.customerId, '') IS NULL
     `);
   }
+  await execute(`
+    UPDATE requestitems item
+    LEFT JOIN requests requestMaster ON requestMaster.requestNo = item.requestNo
+    SET item.requestType = COALESCE(NULLIF(item.requestType, ''), NULLIF(requestMaster.requestType, ''), '整机')
+    WHERE item.requestType IS NULL OR item.requestType = ''
+  `);
+  await execute(`
+    UPDATE purchaseorderitems item
+    LEFT JOIN requestitems requestItem ON requestItem.id = item.requestItemId
+    LEFT JOIN requests requestMaster ON requestMaster.requestNo = COALESCE(NULLIF(item.requestNo, ''), requestItem.requestNo)
+    SET item.requestType = COALESCE(NULLIF(item.requestType, ''), requestItem.requestType, requestMaster.requestType, '整机')
+    WHERE item.requestType IS NULL OR item.requestType = ''
+  `);
+  await execute(`
+    UPDATE billinginstanceledgers ledger
+    LEFT JOIN purchaseorderitems purchaseItem ON purchaseItem.id = ledger.purchaseOrderItemId
+    LEFT JOIN requestitems requestItem ON requestItem.id = purchaseItem.requestItemId
+    SET ledger.requestType = COALESCE(NULLIF(ledger.requestType, ''), purchaseItem.requestType, requestItem.requestType, '整机')
+    WHERE ledger.requestType IS NULL OR ledger.requestType = ''
+  `);
+  await execute(`
+    UPDATE monthlybillingwriteoffs monthly
+    LEFT JOIN billinginstanceledgers ledger ON ledger.ledgerId = monthly.ledgerId
+    SET monthly.requestType = COALESCE(NULLIF(monthly.requestType, ''), ledger.requestType, '整机')
+    WHERE monthly.requestType IS NULL OR monthly.requestType = ''
+  `);
+  await execute(`
+    UPDATE prepaymentcontractitems item
+    LEFT JOIN requestitems requestItem ON requestItem.id = item.requestItemId
+    SET item.requestType = COALESCE(NULLIF(item.requestType, ''), requestItem.requestType, CASE WHEN item.lineType = 'fee' THEN NULL ELSE '整机' END)
+    WHERE item.requestType IS NULL OR item.requestType = ''
+  `);
+  await execute(`
+    UPDATE monthlyprepaymentwriteoffs monthly
+    LEFT JOIN prepaymentcontractitems contractItem ON contractItem.id = monthly.contractLineId
+    SET monthly.requestType = COALESCE(NULLIF(monthly.requestType, ''), contractItem.requestType)
+    WHERE monthly.requestType IS NULL OR monthly.requestType = ''
+  `);
+  await execute(`
+    UPDATE servicefeesnapshotitems item
+    LEFT JOIN monthlybillingwriteoffs billing ON FIND_IN_SET(billing.id, COALESCE(item.billingSourceIds, '')) > 0
+    LEFT JOIN monthlyprepaymentwriteoffs prepayment ON FIND_IN_SET(prepayment.id, COALESCE(item.prepaymentSourceIds, '')) > 0
+    SET item.requestType = COALESCE(NULLIF(item.requestType, ''), billing.requestType, prepayment.requestType)
+    WHERE item.requestType IS NULL OR item.requestType = ''
+  `);
   await ensureAuditColumns();
   await addIndexIfMissing(
     "documentfolders",

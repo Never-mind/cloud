@@ -146,10 +146,11 @@ export function PurchaseOrderFormPage() {
       poNo: master.poNo,
       details: details
         .filter((detail) => detail.requestItemId)
-        .map((detail) => ({
-          ...detail,
-          requestNo: String(getRequestItem(detail.requestItemId)?.requestNo ?? detail.requestNo ?? ""),
-        })),
+          .map((detail) => ({
+            ...detail,
+            requestNo: String(getRequestItem(detail.requestItemId)?.requestNo ?? detail.requestNo ?? ""),
+            requestType: String(getRequestItem(detail.requestItemId)?.requestType ?? "整机"),
+          })),
     });
 
     for (const item of itemRows) {

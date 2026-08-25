@@ -27,6 +27,7 @@ const columns: Array<{ key: string; label: string; type?: string }> = [
   { key: "requestNo", label: "需求单号" },
   { key: "poNo", label: "PO单号" },
   { key: "deviceCode", label: "实例编码" },
+  { key: "requestType", label: "类型" },
   { key: "modelCode", label: "机型" },
   { key: "nameEn", label: "英文名称" },
   { key: "undertakingUnitCode", label: "承接单位" },
@@ -64,6 +65,7 @@ export function ServiceFeesPage() {
   const [countryCode, setCountryCode] = useState("");
   const [batchName, setBatchName] = useState("");
   const [lineType, setLineType] = useState("");
+  const [requestType, setRequestType] = useState("");
   const [snapshotNo, setSnapshotNo] = useState("");
   const [loading, setLoading] = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -73,13 +75,14 @@ export function ServiceFeesPage() {
   const pageSizeRef = useRef(pageSize);
   const skipNextPageChangeRef = useRef(false);
 
-  const params = useMemo(() => buildParams({ keyword, startMonth, endMonth, countryCode, batchName, lineType }), [
+  const params = useMemo(() => buildParams({ keyword, startMonth, endMonth, countryCode, batchName, lineType, requestType }), [
     keyword,
     startMonth,
     endMonth,
     countryCode,
     batchName,
     lineType,
+    requestType,
   ]);
 
   async function fetchData(nextPage: number, nextPageSize: number, exportAll = false, includeSummary = true): Promise<ListResponse> {
@@ -197,6 +200,15 @@ export function ServiceFeesPage() {
             <option value="">全部类型</option>
             <option value="instance">实例</option>
             <option value="fee">非实例费用</option>
+          </select>
+          <select
+            className="h-9 rounded border border-[#dcdfe6] bg-white px-3 text-sm outline-none focus:border-[#1890ff]"
+            value={requestType}
+            onChange={(event) => setRequestType(event.target.value)}
+          >
+            <option value="">全部类型</option>
+            <option value="整机">整机</option>
+            <option value="备件">备件</option>
           </select>
           <Button tone="primary" onClick={() => { setPage(1); void loadData(1, pageSizeRef.current); }}>
             <Search size={15} />
