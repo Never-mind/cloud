@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import {
   Boxes,
@@ -48,6 +48,10 @@ import { hasPermission, type PermissionState } from "@/lib/permission-definition
 
 const WORKSPACE_STORAGE_KEY = "cloud-power-workspace-tabs";
 
+// Restore the client-only workspace before the first browser paint. The server
+// still uses useEffect, so the server and hydration snapshots remain identical.
+const useIsomorphicLayoutEffect = typeof window === "undefined" ? useEffect : useLayoutEffect;
+
 const icons = {
   公共区域: FolderOpen,
   文档管理: FolderOpen,
@@ -86,6 +90,10 @@ export function AppShell({
   const [openGroups, setOpenGroups] = useState<SidebarGroupState>({});
   const [workspace, setWorkspace] = useState<WorkspaceState>(() => createInitialWorkspace());
   const [workspaceReady, setWorkspaceReady] = useState(false);
+  const [loadedTabIds, setLoadedTabIds] = useState<Set<string>>(() => new Set());
+  const [readyTabIds, setReadyTabIds] = useState<Set<string>>(() => new Set());
+  const [contentRoute, setContentRoute] = useState("/");
+  const activeRouteRef = useRef(workspace.activeRoute);
   const [sidebarGroupOrder, setSidebarGroupOrder] = useState<string[]>([...DEFAULT_SIDEBAR_GROUP_ORDER]);
   const [draggingGroupTitle, setDraggingGroupTitle] = useState<string | null>(null);
   const [moduleFeatureState, setModuleFeatureState] = useState<ModuleFeatureState>(() => initialModuleFeatureState);
@@ -110,6 +118,10 @@ export function AppShell({
   const sidebarGroups = useMemo(() => getSidebarNavGroups(visibleNavGroups, sidebarGroupOrder), [sidebarGroupOrder, visibleNavGroups]);
   const currentSectionTitle = getTopLevelTitle(pathname);
   const isEmbedded = embedded;
+
+  useEffect(() => {
+    activeRouteRef.current = workspace.activeRoute;
+  }, [workspace.activeRoute]);
 
   useEffect(() => {
     if (isEmbedded || pathname === "/login") return;
@@ -137,7 +149,7 @@ export function AppShell({
     return () => { active = false; };
   }, [isEmbedded, pathname]);
 
-  useEffect(() => {
+  useIsomorphicLayoutEffect(() => {
     if (isEmbedded) {
       setWorkspaceReady(true);
       return;
@@ -147,7 +159,12 @@ export function AppShell({
       try {
         const parsed = JSON.parse(raw) as WorkspaceState;
         if (Array.isArray(parsed.tabs) && parsed.tabs.length && parsed.activeRoute) {
-          setWorkspace(normalizeWorkspaceState(parsed));
+          const normalized = normalizeWorkspaceState(parsed);
+          activeRouteRef.current = normalized.activeRoute;
+          setWorkspace(normalized);
+          const activeTab = normalized.tabs.find((tab) => tab.route === normalized.activeRoute);
+          setLoadedTabIds(activeTab && activeTab.route !== "/" ? new Set([getWorkspaceTabId(activeTab)]) : new Set());
+          setContentRoute(normalized.activeRoute);
         }
       } catch {
         window.sessionStorage.removeItem(WORKSPACE_STORAGE_KEY);
@@ -211,6 +228,7 @@ export function AppShell({
     if (isEmbedded || workspace.activeRoute === "/") return;
     const moduleKey = getModuleFeatureKeyForRoute(workspace.activeRoute);
     if (moduleKey && !isModuleFeatureEnabled(moduleKey, moduleFeatureState)) {
+      setContentRoute("/");
       setWorkspace((current) => ({
         ...current,
         tabs: current.tabs.filter((tab) => tab.route === "/" || isModuleFeatureEnabled(getModuleFeatureKeyForRoute(tab.route) ?? "", moduleFeatureState)),
@@ -230,16 +248,40 @@ export function AppShell({
   }
 
   if (!workspaceReady) {
-    return <main className="min-h-screen bg-[var(--color-page-bg)]" data-app-shell="outer" />;
+    return (
+      <main className="min-h-screen bg-[var(--color-page-bg)]" data-app-shell="outer">
+        <div className="flex min-h-screen items-center justify-center text-sm text-[#909399]">正在加载...</div>
+      </main>
+    );
   }
 
   const openTab = (tab: WorkspaceTab) => {
+    const existing = workspace.tabs.find((item) => item.route === tab.route);
+    const tabId = getWorkspaceTabId(existing ?? tab);
+    activeRouteRef.current = tab.route;
+    setLoadedTabIds((current) => new Set(current).add(tabId));
+    if (tab.route === "/" || readyTabIds.has(tabId)) setContentRoute(tab.route);
     setWorkspace((current) => openWorkspaceTab(current, tab));
   };
 
   const closeTab = (route: string) => {
-    setWorkspace((current) => closeWorkspaceTab(current, route));
+    setWorkspace((current) => {
+      const next = closeWorkspaceTab(current, route);
+      if (current.activeRoute === route) {
+        activeRouteRef.current = next.activeRoute;
+        const nextTab = next.tabs.find((tab) => tab.route === next.activeRoute);
+        if (next.activeRoute === "/" || (nextTab && readyTabIds.has(getWorkspaceTabId(nextTab)))) {
+          setContentRoute(next.activeRoute);
+        }
+      }
+      return next;
+    });
   };
+
+  const contentTab = workspace.tabs.find((tab) => tab.route === contentRoute);
+  const contentLoading = contentRoute !== "/"
+    && contentTab !== undefined
+    && !readyTabIds.has(getWorkspaceTabId(contentTab));
 
   const saveSidebarOrder = async (order: string[]) => {
     const response = await fetch("/api/user-preferences/sidebar-order", {
@@ -396,7 +438,13 @@ export function AppShell({
               >
                 <button
                   className="min-w-0 flex-1 truncate text-left"
-                  onClick={() => setWorkspace((current) => ({ ...current, activeRoute: tab.route }))}
+                  onClick={() => {
+                    const tabId = getWorkspaceTabId(tab);
+                    activeRouteRef.current = tab.route;
+                    setLoadedTabIds((current) => new Set(current).add(tabId));
+                    if (tab.route === "/" || readyTabIds.has(tabId)) setContentRoute(tab.route);
+                    setWorkspace((current) => ({ ...current, activeRoute: tab.route }));
+                  }}
                   title={tab.title}
                   type="button"
                 >
@@ -417,21 +465,30 @@ export function AppShell({
           })}
         </div>
         <section className="relative h-[calc(100vh-88px)] overflow-hidden">
-          <div className={workspace.activeRoute === "/" ? "h-full overflow-auto p-5" : "hidden"}>{children}</div>
+          <div className={contentRoute === "/" ? "h-full overflow-auto p-5" : "hidden"}>{children}</div>
           {workspace.tabs
-            .filter((tab) => tab.route !== "/")
+            .filter((tab) => tab.route !== "/" && loadedTabIds.has(getWorkspaceTabId(tab)))
             .map((tab) => {
               const tabId = getWorkspaceTabId(tab);
               return (
                 <iframe
-                  className={tab.route === workspace.activeRoute ? "block h-full w-full border-0" : "hidden"}
+                  className={tab.route === contentRoute ? "block h-full w-full border-0" : "hidden"}
                   data-workspace-tab-id={tabId}
                   key={tabId}
+                  onLoad={() => {
+                    setReadyTabIds((current) => new Set(current).add(tabId));
+                    if (activeRouteRef.current === tab.route) setContentRoute(tab.route);
+                  }}
                   src={getEmbeddedRoute(tab.route)}
                   title={tab.title}
                 />
               );
             })}
+          {contentLoading ? (
+            <div className="absolute inset-0 flex items-center justify-center bg-[var(--color-page-bg)] text-sm text-[#909399]">
+              正在加载页面...
+            </div>
+          ) : null}
         </section>
       </main>
     </div>

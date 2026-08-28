@@ -131,13 +131,14 @@ export async function listEntityRows(config: EntityConfig, searchParams: URLSear
     .map((field) => {
       const reference = fieldReference(field);
       const type = fieldTypes.get(field);
+      const displayReference = getPartyPrimaryContactExpression(config, field, reference) ?? reference;
       const selectedReference = type === "date"
         ? formatTableDateExpression(reference)
         : type === "datetime"
           ? formatTableDateTimeExpression(reference)
         : field === "countryCode"
           ? normalizeCountryExpression(reference)
-          : reference;
+          : displayReference;
       return `${selectedReference} AS ${quoteIdentifier(field)}`;
     })
     .concat(config.key === "purchase-orders"
@@ -301,6 +302,24 @@ function normalizeQuotationPartyRow(config: EntityConfig, row: Row) {
     entityCode: firstNonBlank(row.entityCode, row.undertakingUnitCode),
     entityName: firstNonBlank(row.entityName, row.name),
   };
+}
+
+function getPartyPrimaryContactExpression(config: EntityConfig, field: string, fallback: string) {
+  const relation = config.key === "suppliers"
+    ? { table: "common_supplier_contacts", ownerColumn: "supplierId", ownerReference: `${quoteIdentifier(config.table)}.supplierId` }
+    : config.key === "customers"
+      ? { table: "common_customer_contacts", ownerColumn: "customerId", ownerReference: `${quoteIdentifier(config.table)}.customerId` }
+      : config.key === "undertaking-units"
+        ? { table: "common_undertaking_unit_contacts", ownerColumn: "undertakingUnitId", ownerReference: `${quoteIdentifier(config.table)}.undertakingUnitId` }
+        : null;
+  const contactColumn = field === "contactName" ? "name" : field === "contactPhone" ? "phone" : field === "contactEmail" ? "email" : "";
+  if (!relation || !contactColumn) return null;
+  return `COALESCE((SELECT primaryContact.${quoteIdentifier(contactColumn)}
+    FROM ${quoteIdentifier(relation.table)} AS primaryContact
+    WHERE primaryContact.${quoteIdentifier(relation.ownerColumn)} = ${relation.ownerReference}
+      AND primaryContact.isPrimary = 1
+    ORDER BY primaryContact.updatedAt DESC
+    LIMIT 1), ${fallback})`;
 }
 
 function normalizeCountryCodeFilter(value: string) {
