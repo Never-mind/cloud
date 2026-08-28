@@ -15,9 +15,12 @@ describe("auth", () => {
 
     expect(
       await validateLogin(" ADMIN@LUZCORP.COM ", "Luz@#789789", async () => ({
+        userId: "admin",
         email: "admin@luzcorp.com",
+        displayName: "管理员",
         passwordHash,
         passwordSalt,
+        role: "admin",
         status: "active",
       })),
     ).toBe(true);
@@ -29,18 +32,24 @@ describe("auth", () => {
 
     expect(
       await validateLogin("admin@luzcorp.com", "wrong", async () => ({
+        userId: "admin",
         email: "admin@luzcorp.com",
+        displayName: "管理员",
         passwordHash,
         passwordSalt,
+        role: "admin",
         status: "active",
       })),
     ).toBe(false);
     expect(await validateLogin("other@luzcorp.com", "Luz@#789789", async () => null)).toBe(false);
     expect(
       await validateLogin("admin@luzcorp.com", "Luz@#789789", async () => ({
+        userId: "admin",
         email: "admin@luzcorp.com",
+        displayName: "管理员",
         passwordHash,
         passwordSalt,
+        role: "admin",
         status: "disabled",
       })),
     ).toBe(false);

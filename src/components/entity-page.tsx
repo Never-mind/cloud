@@ -9,7 +9,7 @@ import { buildImportMessage, type ImportReport } from "@/lib/entity-import";
 import { getInstanceContractModelAutofill } from "@/lib/instance-contract-form";
 import { fetchAllEntityRows } from "@/lib/client-entity-fetch";
 import { buildListRoute, getCurrentRoute, getPositiveNumber, useListScrollPosition } from "@/lib/client-list-navigation";
-import type { EntityConfig } from "@/lib/modules";
+import type { EntityConfig, EntityField } from "@/lib/modules";
 import { DEFAULT_PAGE_SIZE } from "@/lib/pagination";
 import {
   getColumnSettingGroups,
@@ -19,12 +19,16 @@ import {
   type ColumnVisibility,
 } from "@/lib/table-utils";
 import { PaginationBar } from "./pagination-bar";
+import { StickyTable } from "./sticky-table";
+import { TableColumnMenu, type TableFilterOption, type TableSortOrder } from "./table-column-menu";
+import { useRequestGuard } from "@/lib/table-query-client";
 import { Button, Input, Panel, Textarea } from "./ui";
 
 type Row = Record<string, string | number | boolean | null>;
 
 const EMPTY_FILTERS: Record<string, string> = {};
 const EMPTY_VALUES: Row = {};
+const PARTY_ENTITY_KEYS = new Set(["suppliers", "customers", "undertaking-units"]);
 
 export function EntityPage({
   config,
@@ -34,6 +38,8 @@ export function EntityPage({
   hideHeading = false,
   enableFieldSettings = false,
   readOnly = false,
+  createRequestKey,
+  onSaved,
 }: {
   config: EntityConfig;
   hideCreateImportTemplate?: boolean;
@@ -42,6 +48,8 @@ export function EntityPage({
   hideHeading?: boolean;
   enableFieldSettings?: boolean;
   readOnly?: boolean;
+  createRequestKey?: number;
+  onSaved?: () => void;
 }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -66,6 +74,14 @@ export function EntityPage({
   );
   const [page, setPage] = useState(() => getPositiveNumber(searchParams.get("page"), 1));
   const [pageSize, setPageSize] = useState(() => getPositiveNumber(searchParams.get("pageSize"), DEFAULT_PAGE_SIZE));
+  const [sortField, setSortField] = useState(() => searchParams.get("sortField") ?? "");
+  const [sortOrder, setSortOrder] = useState<TableSortOrder>(() => {
+    const value = searchParams.get("sortOrder");
+    return value === "asc" || value === "desc" ? value : "";
+  });
+  const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>(() =>
+    Object.fromEntries(config.listFields.map((field) => [field.key, searchParams.getAll(`filter.${field.key}`)])),
+  );
   const [loading, setLoading] = useState(false);
   const [editing, setEditing] = useState<Row | null>(null);
   const [showForm, setShowForm] = useState(false);
@@ -74,6 +90,12 @@ export function EntityPage({
   const [b6TypeConfigs, setB6TypeConfigs] = useState<Row[]>([]);
   const [instanceContracts, setInstanceContracts] = useState<Row[]>([]);
   const [shipmentLookups, setShipmentLookups] = useState<Record<string, Row[]>>({});
+  const [customerPoProducts, setCustomerPoProducts] = useState<Row[]>([]);
+  const [customerPoProduct, setCustomerPoProduct] = useState<Row | null>(null);
+  const [quotationItemQuotationId, setQuotationItemQuotationId] = useState("");
+  const [quotationItemProductCode, setQuotationItemProductCode] = useState("");
+  const [quotationItemPreview, setQuotationItemPreview] = useState<{ quotation: Row | null; product: Row | null; latestHistory: Row | null } | null>(null);
+  const [quotationItemPreviewLoading, setQuotationItemPreviewLoading] = useState(false);
   const [filterOptions, setFilterOptions] = useState<Record<string, Array<{ label: string; value: string }>>>({});
   const [instanceContractDeviceCode, setInstanceContractDeviceCode] = useState("");
   const [billingContractNo, setBillingContractNo] = useState("");
@@ -82,6 +104,17 @@ export function EntityPage({
   );
   const fileRef = useRef<HTMLInputElement>(null);
   const currentRoute = getCurrentRoute(pathname, searchParams.toString());
+  const beginRequest = useRequestGuard();
+  const isPartyArchive = PARTY_ENTITY_KEYS.has(config.key);
+  const partyNameField = config.key === "suppliers" ? "nameCn" : config.key === "undertaking-units" ? "entityName" : "name";
+
+  useEffect(() => {
+    if (createRequestKey === undefined) return;
+    setEditing(null);
+    setInstanceContractDeviceCode("");
+    setBillingContractNo("");
+    setShowForm(true);
+  }, [createRequestKey]);
 
   useListScrollPosition(`${config.key}:${currentRoute}`, !loading);
 
@@ -89,6 +122,13 @@ export function EntityPage({
     const params = new URLSearchParams(searchParams.toString());
     params.set("page", String(page));
     params.set("pageSize", String(pageSize));
+    if (sortField && sortOrder) {
+      params.set("sortField", sortField);
+      params.set("sortOrder", sortOrder);
+    } else {
+      params.delete("sortField");
+      params.delete("sortOrder");
+    }
     if (appliedKeyword.trim()) params.set("keyword", appliedKeyword);
     else params.delete("keyword");
     for (const filter of config.filters) {
@@ -97,9 +137,13 @@ export function EntityPage({
       if (value) params.set(filter.key, value);
       else params.delete(filter.key);
     }
+    for (const [key, values] of Object.entries(columnFilters)) {
+      params.delete(`filter.${key}`);
+      for (const value of values) params.append(`filter.${key}`, value);
+    }
     const nextRoute = buildListRoute(pathname, params);
     if (nextRoute !== currentRoute) router.replace(nextRoute, { scroll: false });
-  }, [appliedFilterValues, appliedKeyword, config.filters, currentRoute, page, pageSize, pathname, router, searchParams]);
+  }, [appliedFilterValues, appliedKeyword, columnFilters, config.filters, currentRoute, page, pageSize, pathname, router, searchParams, sortField, sortOrder]);
   const visibleColumns = useMemo(
     () => getVisibleColumns(config.listFields, visibility),
     [config.listFields, visibility],
@@ -124,6 +168,7 @@ export function EntityPage({
   }, [appliedFilterValues, appliedKeyword, fixedFilters]);
 
   async function loadRows(next?: { page?: number; pageSize?: number; keyword?: string; filterValues?: Record<string, string> }) {
+    const isCurrentRequest = beginRequest();
     setLoading(true);
     const nextPage = next?.page ?? page;
     const nextPageSize = next?.pageSize ?? pageSize;
@@ -140,26 +185,65 @@ export function EntityPage({
     for (const [key, value] of Object.entries(fixedFilters)) {
       if (value.trim()) params.set(key, value.trim());
     }
+    for (const [key, values] of Object.entries(columnFilters)) {
+      for (const value of values) params.append(`filter.${key}`, value);
+    }
+    if (sortField && sortOrder) {
+      params.set("sortField", sortField);
+      params.set("sortOrder", sortOrder);
+    }
     try {
       const response = await fetch(`/api/entities/${config.key}?${params.toString()}`);
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? "数据加载失败");
+      if (!isCurrentRequest()) return;
       setRows(data.rows ?? []);
       setTotal(Number(data.total ?? 0));
       if (Number(data.page ?? nextPage) !== nextPage) setPage(Number(data.page));
       if (Number(data.pageSize ?? nextPageSize) !== nextPageSize) setPageSize(Number(data.pageSize));
     } catch (error) {
+      if (!isCurrentRequest()) return;
       setRows([]);
       setTotal(0);
       alert(error instanceof Error ? error.message : "数据加载失败");
     } finally {
-      setLoading(false);
+      if (isCurrentRequest()) setLoading(false);
     }
   }
 
   useEffect(() => {
     void loadRows();
-  }, [config.key, fixedFilters, page, pageSize]);
+  }, [columnFilters, config.key, fixedFilters, page, pageSize, sortField, sortOrder]);
+
+  async function loadColumnOptions(columnKey: string, optionKeyword: string): Promise<TableFilterOption[]> {
+    const params = new URLSearchParams({ field: columnKey });
+    if (optionKeyword.trim()) params.set("keyword", optionKeyword.trim());
+    for (const [key, value] of Object.entries(appliedFilterValues)) {
+      if (value.trim()) params.set(key, value.trim());
+    }
+    for (const [key, value] of Object.entries(fixedFilters)) {
+      if (value.trim()) params.set(key, value.trim());
+    }
+    for (const [key, values] of Object.entries(columnFilters)) {
+      if (key === columnKey) continue;
+      for (const value of values) params.append(`filter.${key}`, value);
+    }
+    const response = await fetch(`/api/entities/${config.key}/filter-options?${params.toString()}`);
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error ?? "筛选候选值加载失败");
+    return (data.options ?? []) as TableFilterOption[];
+  }
+
+  function applyColumnSort(field: string, order: TableSortOrder) {
+    setSortField(field);
+    setSortOrder(order);
+    setPage(1);
+  }
+
+  function applyColumnFilter(field: string, values: string[]) {
+    setColumnFilters((current) => ({ ...current, [field]: values }));
+    setPage(1);
+  }
 
   useEffect(() => {
     if (config.key !== "instance-contracts") return;
@@ -194,6 +278,101 @@ export function EntityPage({
       });
     });
   }, [config.key]);
+
+  useEffect(() => {
+    if (config.key !== "customer-po-items" && config.key !== "quotation-items") {
+      setCustomerPoProducts([]);
+      setCustomerPoProduct(null);
+      return;
+    }
+
+    void fetch("/api/po/product-lookup")
+      .then(async (response) => {
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error ?? "产品编码加载失败");
+        setCustomerPoProducts((data.rows ?? []) as Row[]);
+      })
+      .catch(() => setCustomerPoProducts([]));
+  }, [config.key]);
+
+  useEffect(() => {
+    if (config.key !== "customer-po-items" || !editing) return;
+    const productCode = String(editing.matchedProductCode ?? "").trim();
+    if (!productCode) {
+      setCustomerPoProduct(null);
+      return;
+    }
+
+    void fetch(`/api/po/product-lookup?productCode=${encodeURIComponent(productCode)}`)
+      .then(async (response) => {
+        if (!response.ok) {
+          setCustomerPoProduct(null);
+          return;
+        }
+        const data = await response.json();
+        setCustomerPoProduct((data.product ?? null) as Row | null);
+      })
+      .catch(() => setCustomerPoProduct(null));
+  }, [config.key, editing]);
+
+  useEffect(() => {
+    if (config.key !== "quotation-items") {
+      setQuotationItemQuotationId("");
+      setQuotationItemProductCode("");
+      setQuotationItemPreview(null);
+      setQuotationItemPreviewLoading(false);
+      return;
+    }
+
+    setQuotationItemQuotationId(String(editing?.quotationId ?? fixedValues.quotationId ?? ""));
+    setQuotationItemProductCode(String(editing?.productCode ?? fixedValues.productCode ?? ""));
+    setQuotationItemPreview(null);
+  }, [config.key, editing, fixedValues.productCode, fixedValues.quotationId]);
+
+  useEffect(() => {
+    if (config.key !== "quotation-items") return;
+
+    const quotationId = quotationItemQuotationId.trim();
+    const productCode = quotationItemProductCode.trim();
+    if (!quotationId || !productCode) {
+      setQuotationItemPreview(null);
+      setQuotationItemPreviewLoading(false);
+      return;
+    }
+
+    let active = true;
+    setQuotationItemPreviewLoading(true);
+    void (async () => {
+      try {
+        const [quotationResponse, productResponse] = await Promise.all([
+          fetch(`/api/entities/quotations/${encodeURIComponent(quotationId)}`),
+          fetch(`/api/po/product-lookup?productCode=${encodeURIComponent(productCode)}`),
+        ]);
+        const quotationData = quotationResponse.ok ? await quotationResponse.json().catch(() => ({})) : {};
+        const productData = productResponse.ok ? await productResponse.json().catch(() => ({})) : {};
+        const historyResponse = quotationData.customerId
+          ? await fetch(
+              `/api/po/history-quotations?customerId=${encodeURIComponent(String(quotationData.customerId ?? ""))}&productCode=${encodeURIComponent(productCode)}&limit=1`,
+            )
+          : null;
+        const historyData = historyResponse?.ok ? await historyResponse.json().catch(() => ({})) : {};
+        if (!active) return;
+        setQuotationItemPreview({
+          quotation: (quotationData ?? null) as Row | null,
+          product: (productData.product ?? null) as Row | null,
+          latestHistory: (historyData.latest ?? null) as Row | null,
+        });
+      } catch {
+        if (active) setQuotationItemPreview(null);
+      } finally {
+        if (active) setQuotationItemPreviewLoading(false);
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [config.key, quotationItemProductCode, quotationItemQuotationId]);
 
   useEffect(() => {
     const countryFilters = config.filters.filter((filter) => filter.lookupSource === "countries");
@@ -246,7 +425,7 @@ export function EntityPage({
     if (config.key === "billing-ledgers" && !confirm("确认调整该月账单台账吗？调整后会重新生成对应的每月核销明细。")) {
       return;
     }
-    const body = {
+    const body: Row = {
       ...Object.fromEntries(
       config.formFields.map((field) => {
         if (field.hidden) return [field.key, editing?.[field.key] ?? fixedValues[field.key] ?? null];
@@ -261,6 +440,46 @@ export function EntityPage({
       ),
       ...fixedValues,
     };
+    if (config.key === "customer-po-items") {
+      body.productMasterId = customerPoProduct?.productMasterId ?? editing?.productMasterId ?? null;
+      body.productModelId = customerPoProduct?.productModelId ?? editing?.productModelId ?? null;
+      body.productSpecId = customerPoProduct?.productSpecId ?? editing?.productSpecId ?? null;
+      body.matchStatus = customerPoProduct ? "matched" : body.matchedProductCode ? "unmatched" : null;
+    }
+    if (config.key === "quotation-items") {
+      const quotationId = String(body.quotationId ?? "").trim();
+      const productCode = String(body.productCode ?? "").trim();
+      if (quotationId && productCode) {
+        const [quotationResponse, productResponse] = await Promise.all([
+          fetch(`/api/entities/quotations/${encodeURIComponent(quotationId)}`),
+          fetch(`/api/po/product-lookup?productCode=${encodeURIComponent(productCode)}`),
+        ]);
+        const quotationData = quotationResponse.ok ? await quotationResponse.json().catch(() => ({})) : {};
+        const productData = productResponse.ok ? await productResponse.json().catch(() => ({})) : {};
+        const latestHistoryResponse = quotationData.customerId
+          ? await fetch(
+              `/api/po/history-quotations?customerId=${encodeURIComponent(String(quotationData.customerId ?? ""))}&productCode=${encodeURIComponent(productCode)}&limit=1`,
+            )
+          : null;
+        const latestHistoryData = latestHistoryResponse?.ok ? await latestHistoryResponse.json().catch(() => ({})) : {};
+        const latestHistory = (latestHistoryData.latest ?? null) as Row | null;
+        const product = (productData.product ?? null) as Row | null;
+
+        if (product) {
+          body.productMasterId = body.productMasterId ?? (String(product.productMasterId ?? "") || null);
+          body.productModelId = body.productModelId ?? (String(product.productModelId ?? "") || null);
+          body.productSpecId = body.productSpecId ?? (String(product.productSpecId ?? "") || null);
+          body.productName = String(body.productName ?? "").trim() || String(product.productName ?? "");
+        }
+        if (latestHistory) {
+          if (body.unitPrice === null || body.unitPrice === undefined || body.unitPrice === "") {
+            body.unitPrice = Number(latestHistory.customerPrice ?? body.unitPrice ?? 0);
+          }
+          body.currency = String(body.currency ?? "").trim() || String(latestHistory.currency ?? "");
+          body.remark = String(body.remark ?? "").trim() || String(latestHistory.remark ?? "");
+        }
+      }
+    }
     const id = editing?.[config.primaryKey];
     const response = await fetch(`/api/entities/${config.key}${id ? `/${id}` : ""}`, {
       method: id ? "PUT" : "POST",
@@ -276,6 +495,7 @@ export function EntityPage({
     setEditing(null);
     setBillingContractNo("");
     await loadRows();
+    onSaved?.();
   }
 
   async function syncConfirmedPurchaseOrderShipments() {
@@ -415,6 +635,10 @@ export function EntityPage({
               <Button
                 tone="primary"
                 onClick={() => {
+                  if (isPartyArchive && config.detailRoute) {
+                    router.push(`${config.detailRoute}/new`);
+                    return;
+                  }
                   setEditing(null);
                   setInstanceContractDeviceCode("");
                   setBillingContractNo("");
@@ -475,7 +699,7 @@ export function EntityPage({
           </div>
         ) : null}
 
-        <div className="table-scroll overflow-auto">
+        <StickyTable className="table-scroll overflow-auto" tableKey={config.key}>
           <table className="min-w-full border-collapse text-sm">
             <thead className="bg-[#f5f7fa] text-[#303133]">
               <tr>
@@ -484,7 +708,14 @@ export function EntityPage({
                 ) : null}
                 {visibleColumns.map((column) => (
                   <th className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium" key={column.key}>
-                    {column.label}
+                    <TableColumnMenu
+                      column={column}
+                      filterValues={columnFilters[column.key] ?? []}
+                      loadOptions={(optionKeyword) => loadColumnOptions(column.key, optionKeyword)}
+                      onFilter={(values) => applyColumnFilter(column.key, values)}
+                      onSort={(order) => applyColumnSort(column.key, order)}
+                      sortOrder={sortField === column.key ? sortOrder : ""}
+                    />
                   </th>
                 ))}
                 {!readOnly ? (
@@ -501,8 +732,14 @@ export function EntityPage({
                     <td className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3">{(page - 1) * pageSize + index + 1}</td>
                   ) : null}
                   {visibleColumns.map((column) => (
-                    <td className="max-w-[260px] truncate border-b border-r border-[#ebeef5] px-3 py-3" key={column.key}>
-                      {config.key === "shipments" && column.key === "poNo" && row.purchaseOrderId ? (
+                    <td className={`max-w-[260px] border-b border-r border-[#ebeef5] px-3 py-3 ${isPartyArchive ? "align-top" : "truncate"}`} key={column.key}>
+                      {isPartyArchive ? (
+                        <PartyListCell config={config} row={row} column={column} firstVisibleKey={visibleColumns[0]?.key ?? ""} nameField={partyNameField} />
+                      ) : config.detailRoute && column.key === visibleColumns[0]?.key ? (
+                        <Link className="text-[#1890ff] hover:underline" href={`${config.detailRoute}/${encodeURIComponent(String(row[config.primaryKey] ?? ""))}`}>
+                          {formatValue(row[column.key], column.type)}
+                        </Link>
+                      ) : config.key === "shipments" && column.key === "poNo" && row.purchaseOrderId ? (
                         <Link className="text-[#1890ff] hover:underline" href={`/purchase/orders/${encodeURIComponent(String(row.purchaseOrderId))}`}>
                           {formatValue(row[column.key], column.type)}
                         </Link>
@@ -513,20 +750,33 @@ export function EntityPage({
                   ))}
                   {!readOnly ? (
                     <td className="sticky right-0 whitespace-nowrap border-b border-[#ebeef5] bg-white px-3 py-3">
-                      <Button
-                        onClick={() => {
-                          setEditing(row);
-                          setInstanceContractDeviceCode(String(row.deviceCode ?? ""));
-                          setBillingContractNo(String(row.instanceContractNo ?? ""));
-                          setShowForm(true);
-                        }}
-                      >
-                        编辑
-                      </Button>
-                      <Button className="ml-2" tone="danger" onClick={() => deleteRow(row)}>
-                        <Trash2 size={14} />
-                        删除
-                      </Button>
+                      {isPartyArchive ? (
+                        <>
+                          <Link className="inline-flex h-8 w-8 items-center justify-center text-[#606266] hover:text-[#1890ff]" href={`${config.detailRoute}/${encodeURIComponent(String(row[config.primaryKey] ?? ""))}`} aria-label="查看" title="查看">
+                            <Eye size={16} />
+                          </Link>
+                          <button className="ml-2 inline-flex h-8 w-8 items-center justify-center text-[#f56c6c] hover:text-[#ff4949]" type="button" onClick={() => void deleteRow(row)} aria-label="删除" title="删除">
+                            <Trash2 size={16} />
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <Button
+                            onClick={() => {
+                              setEditing(row);
+                              setInstanceContractDeviceCode(String(row.deviceCode ?? ""));
+                              setBillingContractNo(String(row.instanceContractNo ?? ""));
+                              setShowForm(true);
+                            }}
+                          >
+                            编辑
+                          </Button>
+                          <Button className="ml-2" tone="danger" onClick={() => deleteRow(row)}>
+                            <Trash2 size={14} />
+                            删除
+                          </Button>
+                        </>
+                      )}
                     </td>
                   ) : null}
                 </tr>
@@ -540,7 +790,7 @@ export function EntityPage({
               )}
             </tbody>
           </table>
-        </div>
+        </StickyTable>
 
         <PaginationBar
           page={page}
@@ -640,6 +890,8 @@ export function EntityPage({
                           ? "instance-contract-device-codes"
                           : config.key === "instance-models" && field.key === "b6Type"
                             ? "instance-model-b6-types"
+                          : (config.key === "customer-po-items" || config.key === "quotation-items") && (field.key === "matchedProductCode" || field.key === "productCode")
+                            ? "product-code-options"
                           : config.key === "shipments"
                             ? getShipmentLookupListId(field.lookupSource)
                             : undefined
@@ -650,11 +902,15 @@ export function EntityPage({
                           ? instanceContractAutofill.modelCode
                           : config.key === "instance-contracts" && field.key === "instanceModelEn"
                             ? instanceContractAutofill.instanceModelEn
-                            : config.key === "billing-ledgers" && field.key === "contractCurrency"
+                          : config.key === "quotation-items" && field.key === "quotationId"
+                            ? quotationItemQuotationId
+                          : config.key === "quotation-items" && field.key === "productCode"
+                            ? quotationItemProductCode
+                          : config.key === "billing-ledgers" && field.key === "contractCurrency"
                               ? String(selectedBillingContract?.currency ?? "")
                               : config.key === "billing-ledgers" && field.key === "first24MonthPrice"
                                 ? String(selectedBillingContract?.first24MonthPriceUSD ?? "")
-                                : config.key === "billing-ledgers" && field.key === "next36MonthPrice"
+                              : config.key === "billing-ledgers" && field.key === "next36MonthPrice"
                                   ? String(selectedBillingContract?.next36MonthPriceUSD ?? "")
                           : undefined
                       }
@@ -674,11 +930,36 @@ export function EntityPage({
                       readOnly={
                         field.readonly ||
                         (config.key === "instance-contracts" && ["modelCode", "instanceModelEn"].includes(field.key)) ||
+                        (config.key === "quotation-items" && ["productMasterId", "productModelId", "productSpecId"].includes(field.key)) ||
                         (config.key === "billing-ledgers" && ["ledgerId", "purchaseOrderItemId", "countryCode", "batchName", "requestNo", "poNo", "deviceCode", "modelCode", "nameEn", "quantity", "actualCurrency", "actualUnitPrice", "contractCurrency", "first24MonthPrice", "next36MonthPrice", "status"].includes(field.key))
                       }
                       onChange={
                         config.key === "instance-contracts" && field.key === "deviceCode"
                           ? (event) => setInstanceContractDeviceCode(event.target.value)
+                          : config.key === "quotation-items" && field.key === "quotationId"
+                            ? (event) => setQuotationItemQuotationId(event.target.value)
+                          : config.key === "quotation-items" && field.key === "productCode"
+                            ? (event) => setQuotationItemProductCode(event.target.value)
+                          : config.key === "customer-po-items" && field.key === "matchedProductCode"
+                            ? (event) => {
+                                const value = event.target.value.trim();
+                                const product = customerPoProducts.find(
+                                  (item) => String(item.productCode ?? "") === value,
+                                );
+                                setCustomerPoProduct(product ?? null);
+                                if (value && !product) {
+                                  void fetch(`/api/po/product-lookup?productCode=${encodeURIComponent(value)}`)
+                                    .then(async (response) => {
+                                      if (!response.ok) {
+                                        setCustomerPoProduct(null);
+                                        return;
+                                      }
+                                      const data = await response.json();
+                                      setCustomerPoProduct((data.product ?? null) as Row | null);
+                                    })
+                                    .catch(() => setCustomerPoProduct(null));
+                                }
+                              }
                           : undefined
                       }
                     />
@@ -705,6 +986,55 @@ export function EntityPage({
                   </option>
                 ))}
               </datalist>
+            ) : null}
+            {config.key === "customer-po-items" || config.key === "quotation-items" ? (
+              <datalist id="product-code-options">
+                {customerPoProducts.map((product) => (
+                  <option key={String(product.productCode)} value={String(product.productCode)}>
+                    {String(product.productName ?? "")} {String(product.brand ?? "")} {String(product.model ?? "")} {String(product.specName ?? "")}
+                  </option>
+                ))}
+              </datalist>
+            ) : null}
+            {config.key === "quotation-items" ? (
+              <div className="col-span-2 rounded border border-[#ebeef5] bg-[#fafafa] p-4">
+                <div className="flex items-center">
+                  <div className="text-sm font-medium text-[#303133]">报价预览</div>
+                  {quotationItemPreviewLoading ? <div className="ml-2 text-xs text-[#909399]">加载中...</div> : null}
+                </div>
+                {!quotationItemQuotationId.trim() || !quotationItemProductCode.trim() ? (
+                  <div className="mt-2 text-xs text-[#909399]">输入报价单ID和产品编码后，会自动显示最近历史价。</div>
+                ) : quotationItemPreview ? (
+                  <div className="mt-3 grid grid-cols-4 gap-3 text-sm">
+                    <div>
+                      <div className="text-xs text-[#909399]">报价单</div>
+                      <div className="mt-1 text-[#303133]">{String(quotationItemPreview.quotation?.quotationNo ?? quotationItemQuotationId)}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-[#909399]">产品</div>
+                      <div className="mt-1 text-[#303133]">{String(quotationItemPreview.product?.productName ?? "-")}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-[#909399]">最近历史价</div>
+                      <div className="mt-1 text-[#303133]">
+                        {quotationItemPreview.latestHistory
+                          ? `${String(quotationItemPreview.latestHistory.customerPrice ?? "-")} ${String(quotationItemPreview.latestHistory.currency ?? "")}`
+                          : "暂无"}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-[#909399]">估算毛利</div>
+                      <div className="mt-1 text-[#303133]">
+                        {quotationItemPreview.latestHistory
+                          ? `${(Number(quotationItemPreview.latestHistory.customerPrice ?? 0) - Number(quotationItemPreview.product?.suggestedPurchaseUnitPrice ?? 0)).toFixed(4)}`
+                          : "暂无"}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="mt-2 text-xs text-[#f56c6c]">未找到匹配的产品或历史报价。</div>
+                )}
+              </div>
             ) : null}
             {config.key === "shipments" ? (
               <>
@@ -870,6 +1200,57 @@ function formatValue(value: Row[string], type?: string) {
   if (type === "boolean") return value ? "是" : "否";
   if (type === "number") return Number(value).toLocaleString("en-US", { maximumFractionDigits: 4 });
   return String(value);
+}
+
+function PartyListCell({
+  config,
+  row,
+  column,
+  firstVisibleKey,
+  nameField,
+}: {
+  config: EntityConfig;
+  row: Row;
+  column: EntityField;
+  firstVisibleKey: string;
+  nameField: string;
+}) {
+  const detailHref = `${config.detailRoute}/${encodeURIComponent(String(row[config.primaryKey] ?? ""))}`;
+  const isName = column.key === nameField;
+  const isTags = column.key === "supplyCategories" || column.key === "brands" || column.key === "businessTypes";
+  const display = getConfiguredValue(row[column.key], column);
+  const content = isTags ? <PartyTags value={row[column.key]} /> : isName ? <div><div>{display}</div>{row.shortName ? <div className="mt-1 text-xs text-[#909399]">{String(row.shortName)}</div> : null}</div> : display;
+  return config.detailRoute && (column.key === firstVisibleKey || isName) ? <Link className="text-[#1890ff] hover:underline" href={detailHref}>{content}</Link> : content;
+}
+
+function PartyTags({ value }: { value: Row[string] }) {
+  const values = String(value ?? "").split(/[,，、;；\n]+/).map((item) => item.trim()).filter(Boolean);
+  if (!values.length) return <span>-</span>;
+  return <span className="flex flex-wrap gap-1">{values.slice(0, 4).map((item) => <span className="inline-flex max-w-full items-center bg-[#f0f5ff] px-2 py-1 text-xs text-[#5b7db1]" key={item}>{item}</span>)}{values.length > 4 ? <span className="inline-flex items-center bg-[#f5f7fa] px-2 py-1 text-xs text-[#909399]">+{values.length - 4}</span> : null}</span>;
+}
+
+function getConfiguredValue(value: Row[string], field: EntityField) {
+  const normalizedValue = getDisplayOptionValue(value, field);
+  const option = field.options?.find((item) => item.value === normalizedValue);
+  return option?.label ?? formatValue(value, field.type);
+}
+
+function getDisplayOptionValue(value: Row[string], field: EntityField) {
+  const rawValue = String(value ?? "");
+  if (field.key === "supplierType") {
+    const legacySupplierTypeValues: Record<string, string> = {
+      manufacturer: "manufacturer",
+      agent: "agent",
+      integrator: "integrator",
+      third_party: "third_party",
+      "原厂": "manufacturer",
+      "代理商": "agent",
+      "集成商": "integrator",
+      "第三方": "third_party",
+    };
+    return legacySupplierTypeValues[rawValue] ?? rawValue;
+  }
+  return rawValue;
 }
 
 function formatDateTimeInputValue(value: unknown) {

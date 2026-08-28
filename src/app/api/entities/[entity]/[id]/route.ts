@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { deleteBillingLedger, updateBillingLedger } from "@/lib/billing-service";
 import { deleteEntityRow, getEntityRow, updateEntityRow } from "@/lib/crud";
-import { execute } from "@/lib/db";
+import { execute, type Row } from "@/lib/db";
 import { getEntityConfig } from "@/lib/modules";
+import { recalculateQuotationSummary } from "@/lib/quotation-workflow";
 import { deletePurchaseOrder, deleteRequestOrder } from "@/lib/order-delete-service";
 import { deleteBillingStatementDraft } from "@/lib/billing-statement-service";
 import { deletePrepaymentDraft } from "@/lib/prepayment-service";
 import { deleteServiceFeeStatementDraft } from "@/lib/service-fee-service";
+import { getOperationActor, operationFields, type OperationActor } from "@/lib/operation-actor";
 
 export async function GET(_request: NextRequest, context: { params: Promise<{ entity: string; id: string }> }) {
   const { entity, id } = await context.params;
@@ -37,6 +39,7 @@ export async function PUT(request: NextRequest, context: { params: Promise<{ ent
   }
 
   const body = await request.json();
+  const actor = await getOperationActor(request);
   if (entity === "billing-ledgers") {
     try {
       const row = await updateBillingLedger(id, body);
@@ -50,8 +53,11 @@ export async function PUT(request: NextRequest, context: { params: Promise<{ ent
   }
 
   try {
-    const before = entity === "purchase-orders" ? await getEntityRow(config, id) : null;
-    const row = await updateEntityRow(config, id, body);
+    const before = entity === "purchase-orders" || entity === "quotation-items" ? await getEntityRow(config, id) : null;
+    const auditedBody = ["requests", "purchase-orders", "customer-pos", "quotations", "history-quotations"].includes(entity)
+      ? { ...body, ...operationFields(actor, "update") }
+      : body;
+    const row = await updateEntityRow(config, id, auditedBody);
     if (entity === "purchase-orders" && before && body.poNo && String(before.poNo ?? "") !== String(body.poNo)) {
       await execute("UPDATE purchaseorderitems SET poNo = :poNo WHERE purchaseOrderId = :purchaseOrderId", {
         poNo: body.poNo,
@@ -61,6 +67,16 @@ export async function PUT(request: NextRequest, context: { params: Promise<{ ent
         poNo: body.poNo,
         oldPoNo: before.poNo,
       });
+    }
+    if (entity === "quotation-items") {
+      const previousQuotationId = String(before?.quotationId ?? "").trim();
+      const nextQuotationId = String(row?.quotationId ?? auditedBody.quotationId ?? "").trim();
+      if (previousQuotationId && previousQuotationId !== nextQuotationId) {
+        await recalculateQuotationSummary(previousQuotationId, actor);
+      }
+      if (nextQuotationId) {
+        await recalculateQuotationSummary(nextQuotationId, actor);
+      }
     }
     return NextResponse.json(row);
   } catch (error) {
@@ -84,7 +100,11 @@ export async function DELETE(_request: NextRequest, context: { params: Promise<{
     return NextResponse.json({ ok: true });
   }
 
+  let actor: OperationActor | null = null;
+  let before: Row | null = null;
   try {
+    actor = await getOperationActor(_request);
+    before = entity === "quotation-items" ? await getEntityRow(config, id) : null;
     if (entity === "billing-statements") {
       await deleteBillingStatementDraft(id);
       return NextResponse.json({ ok: true });
@@ -116,5 +136,11 @@ export async function DELETE(_request: NextRequest, context: { params: Promise<{
   }
 
   await deleteEntityRow(config, id);
+  if (entity === "quotation-items") {
+    const quotationId = String(before?.quotationId ?? "").trim();
+    if (quotationId) {
+      await recalculateQuotationSummary(quotationId, actor);
+    }
+  }
   return NextResponse.json({ ok: true });
 }

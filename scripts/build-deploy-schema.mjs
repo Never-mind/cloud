@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 
 const root = process.cwd();
 const sourcePath = resolve(root, "schema.sql");
-const targetDatabase = process.env.DEPLOY_DB_NAME ?? "cloud_power";
+const targetDatabase = process.env.DEPLOY_DB_NAME ?? process.env.DB_NAME ?? "merge";
 const outputPath = resolve(root, `${targetDatabase}_schema.sql`);
 
 const tableNames = [

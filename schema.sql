@@ -1,8 +1,8 @@
-CREATE DATABASE IF NOT EXISTS `suanli`
+CREATE DATABASE IF NOT EXISTS `merge`
   CHARACTER SET utf8mb4
   COLLATE utf8mb4_unicode_ci;
 
-USE `suanli`;
+USE `merge`;
 
 CREATE TABLE IF NOT EXISTS `power_countries` (
   `code` VARCHAR(32) NOT NULL COMMENT 'country code PK',
@@ -135,6 +135,12 @@ CREATE TABLE IF NOT EXISTS `power_requests` (
   `requestType` VARCHAR(64) NULL COMMENT 'whole machine/spare parts',
   `status` VARCHAR(64) NULL COMMENT 'request status',
   `plannedDeliveryDate` DATE NULL COMMENT 'planned delivery date',
+  `createdByUserId` VARCHAR(80) NULL COMMENT 'creator user id',
+  `createdByName` VARCHAR(255) NULL COMMENT 'creator name',
+  `updatedByUserId` VARCHAR(80) NULL COMMENT 'last updater user id',
+  `updatedByName` VARCHAR(255) NULL COMMENT 'last updater name',
+  `confirmedByUserId` VARCHAR(80) NULL COMMENT 'confirmer user id',
+  `confirmedByName` VARCHAR(255) NULL COMMENT 'confirmer name',
   `createdAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'created time',
   `updatedAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'updated time',
   PRIMARY KEY (`requestNo`),
@@ -174,6 +180,12 @@ CREATE TABLE IF NOT EXISTS `power_purchaseorders` (
   `usdRate` DECIMAL(18, 8) NULL COMMENT 'USD rate',
   `paymentDate` DATE NULL COMMENT 'supplier payment date',
   `releasedAt` DATE NULL COMMENT 'PO release date',
+  `createdByUserId` VARCHAR(80) NULL COMMENT 'creator user id',
+  `createdByName` VARCHAR(255) NULL COMMENT 'creator name',
+  `updatedByUserId` VARCHAR(80) NULL COMMENT 'last updater user id',
+  `updatedByName` VARCHAR(255) NULL COMMENT 'last updater name',
+  `confirmedByUserId` VARCHAR(80) NULL COMMENT 'confirmer user id',
+  `confirmedByName` VARCHAR(255) NULL COMMENT 'confirmer name',
   `createdAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'created time',
   `updatedAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'updated time',
   PRIMARY KEY (`poNo`),

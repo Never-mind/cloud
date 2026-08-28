@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createPurchaseOrderFromRequest } from "@/lib/procurement-service";
+import { getOperationActor } from "@/lib/operation-actor";
 
 export async function POST(request: NextRequest) {
   const body = await request.json();
@@ -11,7 +12,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const order = await createPurchaseOrderFromRequest(requestNo, poNo || undefined);
+    const order = await createPurchaseOrderFromRequest(requestNo, poNo || undefined, await getOperationActor(request));
     return NextResponse.json(order, { status: 201 });
   } catch (error) {
     return NextResponse.json(

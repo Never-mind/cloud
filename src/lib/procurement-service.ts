@@ -6,6 +6,7 @@ import {
   buildShipmentDraft,
   normalizeRequestNos,
 } from "./procurement-workflow";
+import type { OperationActor } from "./operation-actor";
 
 type RequestItemRow = {
   id: string;
@@ -36,7 +37,7 @@ export type ShipmentSyncResult = {
   updated: number;
 };
 
-export async function createPurchaseOrderFromRequest(requestNo: string, poNo?: string) {
+export async function createPurchaseOrderFromRequest(requestNo: string, poNo?: string, actor: OperationActor | null = null) {
   const requestRows = await queryRows<Row>(
     "SELECT requestNo FROM requests WHERE requestNo = :requestNo LIMIT 1",
     { requestNo },
@@ -50,7 +51,7 @@ export async function createPurchaseOrderFromRequest(requestNo: string, poNo?: s
     { requestNo },
   );
   if (existing[0]?.purchaseOrderId || existing[0]?.poNo) {
-    await markRequestAsPendingOrder(requestNo);
+    await markRequestAsPendingOrder(requestNo, actor);
     return existing[0];
   }
 
@@ -72,11 +73,13 @@ export async function createPurchaseOrderFromRequest(requestNo: string, poNo?: s
   await execute(
     `
       INSERT INTO purchaseorders
-        (purchaseOrderId, poNo, requestNo, sourceRequestNos, status, currency, usdRate, paymentDate, releasedAt)
+        (purchaseOrderId, poNo, requestNo, sourceRequestNos, status, currency, usdRate, paymentDate, releasedAt,
+         createdByUserId, createdByName, updatedByUserId, updatedByName)
       VALUES
-        (:purchaseOrderId, :poNo, :requestNo, :sourceRequestNos, :status, :currency, :usdRate, NULL, NULL)
+        (:purchaseOrderId, :poNo, :requestNo, :sourceRequestNos, :status, :currency, :usdRate, NULL, NULL,
+         :createdByUserId, :createdByName, :updatedByUserId, :updatedByName)
     `,
-    draft.order,
+      { ...draft.order, createdByUserId: actor?.userId ?? null, createdByName: actor?.displayName ?? null, updatedByUserId: actor?.userId ?? null, updatedByName: actor?.displayName ?? null },
   );
 
   for (const item of draft.items) {
@@ -91,11 +94,11 @@ export async function createPurchaseOrderFromRequest(requestNo: string, poNo?: s
     );
   }
 
-  await markRequestAsPendingOrder(requestNo);
+  await markRequestAsPendingOrder(requestNo, actor);
   return draft.order;
 }
 
-export async function confirmPurchaseOrder(purchaseOrderIdOrPoNo: string) {
+export async function confirmPurchaseOrder(purchaseOrderIdOrPoNo: string, actor: OperationActor | null = null) {
   const rows = await queryRows<PurchaseOrderRow>(
     "SELECT purchaseOrderId, poNo, requestNo, sourceRequestNos, status FROM purchaseorders WHERE purchaseOrderId = :id OR poNo = :id LIMIT 1",
     { id: purchaseOrderIdOrPoNo },
@@ -107,12 +110,19 @@ export async function confirmPurchaseOrder(purchaseOrderIdOrPoNo: string) {
 
   const purchaseOrderId = String(order.purchaseOrderId ?? purchaseOrderIdOrPoNo);
 
-  await execute("UPDATE purchaseorders SET status = :status WHERE purchaseOrderId = :purchaseOrderId", {
+  await execute(`UPDATE purchaseorders
+    SET status = :status, confirmedByUserId = :confirmedByUserId, confirmedByName = :confirmedByName,
+        updatedByUserId = :updatedByUserId, updatedByName = :updatedByName
+    WHERE purchaseOrderId = :purchaseOrderId`, {
     purchaseOrderId,
     status: "已确认",
+    confirmedByUserId: actor?.userId ?? null,
+    confirmedByName: actor?.displayName ?? null,
+    updatedByUserId: actor?.userId ?? null,
+    updatedByName: actor?.displayName ?? null,
   });
 
-  await markPurchaseOrderRequestsAsOrdered(order);
+  await markPurchaseOrderRequestsAsOrdered(order, actor);
 
   const result = await synchronizePurchaseOrderShipments(purchaseOrderId);
   return result.shipments;
@@ -241,21 +251,34 @@ export async function synchronizeConfirmedPurchaseOrderShipments(purchaseOrderId
   return { orderCount: orders.length, created, updated };
 }
 
-async function markPurchaseOrderRequestsAsOrdered(order: Pick<PurchaseOrderRow, "requestNo" | "sourceRequestNos">) {
+async function markPurchaseOrderRequestsAsOrdered(order: Pick<PurchaseOrderRow, "requestNo" | "sourceRequestNos">, actor: OperationActor | null = null) {
   const requestNos = normalizeRequestNos([String(order.sourceRequestNos ?? order.requestNo ?? "")])
     .split(",")
     .filter(Boolean);
   for (const requestNo of requestNos) {
-    await execute("UPDATE requests SET status = :status WHERE requestNo = :requestNo", {
+    const assignment = actor
+      ? ", confirmedByUserId = :confirmedByUserId, confirmedByName = :confirmedByName, updatedByUserId = :updatedByUserId, updatedByName = :updatedByName"
+      : "";
+    await execute(`UPDATE requests SET status = :status${assignment} WHERE requestNo = :requestNo`, {
       requestNo,
       status: "已下单",
+      ...(actor
+        ? {
+            confirmedByUserId: actor.userId,
+            confirmedByName: actor.displayName,
+            updatedByUserId: actor.userId,
+            updatedByName: actor.displayName,
+          }
+        : {}),
     });
   }
 }
 
-async function markRequestAsPendingOrder(requestNo: string) {
-  await execute("UPDATE requests SET status = :status WHERE requestNo = :requestNo", {
+async function markRequestAsPendingOrder(requestNo: string, actor: OperationActor | null = null) {
+  const assignment = actor ? ", updatedByUserId = :updatedByUserId, updatedByName = :updatedByName" : "";
+  await execute(`UPDATE requests SET status = :status${assignment} WHERE requestNo = :requestNo`, {
     requestNo,
     status: "待下单",
+    ...(actor ? { updatedByUserId: actor.userId, updatedByName: actor.displayName } : {}),
   });
 }

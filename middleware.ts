@@ -3,6 +3,7 @@ import { AUTH_COOKIE_NAME, AUTH_SESSION_VALUE } from "@/lib/auth-session";
 import {
   decodeModuleFeatureState,
   getModuleFeatureKeyForRoute,
+  isModuleFeatureToggleable,
   isModuleFeatureEnabled,
   MODULE_FEATURE_COOKIE_NAME,
 } from "@/lib/module-feature-definitions";
@@ -12,6 +13,9 @@ import {
   EMBEDDED_REQUEST_HEADER,
   getEmbeddedCookiePath,
 } from "@/lib/embedded-workspace";
+import { decodePermissionState } from "@/lib/permission-middleware";
+import { getRoutePermission, hasPermission } from "@/lib/permission-definitions";
+import { AUTH_PERMISSION_COOKIE_NAME } from "@/lib/permission-middleware";
 
 const publicPaths = ["/login", "/api/auth/login"];
 
@@ -37,7 +41,7 @@ function nextResponse(request: NextRequest, embedded: boolean) {
   );
 }
 
-export function middleware(request: NextRequest) {
+export async function middleware(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
   const isPublicPath = publicPaths.some((path) => pathname === path || pathname.startsWith(`${path}/`));
   const isLoggedIn = request.cookies.get(AUTH_COOKIE_NAME)?.value === AUTH_SESSION_VALUE;
@@ -61,8 +65,9 @@ export function middleware(request: NextRequest) {
     return applyEmbeddedCookie(NextResponse.redirect(loginUrl), request, embedded);
   }
 
-  const moduleKey = getModuleFeatureKeyForRoute(pathname);
-  if (moduleKey) {
+  const routePermission = getRoutePermission(pathname, request.method);
+  const moduleKey = getModuleFeatureKeyForRoute(pathname) ?? routePermission?.moduleKey;
+  if (moduleKey && isModuleFeatureToggleable(moduleKey)) {
     const featureState = decodeModuleFeatureState(request.cookies.get(MODULE_FEATURE_COOKIE_NAME)?.value);
     if (!isModuleFeatureEnabled(moduleKey, featureState)) {
       if (pathname.startsWith("/api/")) {
@@ -73,6 +78,18 @@ export function middleware(request: NextRequest) {
       if (search.includes("embed=1")) disabledUrl.searchParams.set("embed", "1");
       return applyEmbeddedCookie(NextResponse.redirect(disabledUrl), request, embedded);
     }
+  }
+
+  const permissionState = await decodePermissionState(request.cookies.get(AUTH_PERMISSION_COOKIE_NAME)?.value);
+  if (routePermission && permissionState && !hasPermission(permissionState, routePermission.moduleKey, routePermission.action)) {
+    if (pathname.startsWith("/api/")) {
+      return applyEmbeddedCookie(NextResponse.json({ error: "当前账号没有执行该操作的权限" }, { status: 403 }), request);
+    }
+    const deniedUrl = new URL("/module-disabled", request.url);
+    deniedUrl.searchParams.set("reason", "permission");
+    deniedUrl.searchParams.set("route", pathname);
+    if (search.includes("embed=1")) deniedUrl.searchParams.set("embed", "1");
+    return applyEmbeddedCookie(NextResponse.redirect(deniedUrl), request, embedded);
   }
 
   return nextResponse(request, embedded);

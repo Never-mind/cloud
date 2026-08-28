@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { AUTH_COOKIE_NAME, AUTH_SESSION_VALUE, AUTH_USER_COOKIE_NAME, createUserSessionValue, validateLogin } from "@/lib/auth";
 import { encodeModuleFeatureState, MODULE_FEATURE_COOKIE_NAME } from "@/lib/module-feature-definitions";
 import { getModuleFeatureState } from "@/lib/module-feature-service";
+import { AUTH_PERMISSION_COOKIE_NAME, encodePermissionState } from "@/lib/permission-cookie";
+import { getPermissionStateForEmail } from "@/lib/permission-service";
 
 export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => ({}));
@@ -27,6 +29,17 @@ export async function POST(request: NextRequest) {
     path: "/",
     maxAge: 60 * 60 * 12,
   });
+  try {
+    response.cookies.set(AUTH_PERMISSION_COOKIE_NAME, encodePermissionState(await getPermissionStateForEmail(email)), {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: request.nextUrl.protocol === "https:",
+      path: "/",
+      maxAge: 60 * 60 * 12,
+    });
+  } catch {
+    // Existing sessions remain usable when the permission table is not initialized yet.
+  }
   try {
     response.cookies.set(MODULE_FEATURE_COOKIE_NAME, encodeModuleFeatureState(await getModuleFeatureState()), {
       httpOnly: true,

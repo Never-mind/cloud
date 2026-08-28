@@ -1,9 +1,12 @@
 import { executeRaw, queryRows, queryRowsRaw } from "./db";
-import { navGroups, type NavGroup } from "./modules";
+import { navGroups, type NavChildGroup, type NavGroup } from "./modules";
 import {
   getDefaultModuleFeatureState,
+  getModuleFeatureDomainKey,
   isModuleDisabledByDefault,
+  isModuleFeatureToggleable,
   isModuleFeatureEnabled,
+  type ModuleFeatureDomainKey,
   type ModuleFeatureState,
 } from "./module-feature-definitions";
 
@@ -12,6 +15,7 @@ export type ModuleFeatureRecord = {
   title: string;
   groupTitle: string;
   childGroupTitle?: string;
+  domainKey: ModuleFeatureDomainKey;
   route: string;
   enabled: boolean;
   defaultEnabled: boolean;
@@ -22,6 +26,7 @@ export type ModuleFeatureRecord = {
 
 type StoredFeature = {
   moduleKey: string;
+  domainKey: ModuleFeatureDomainKey;
   enabled: number | boolean;
   remark: string | null;
   updatedBy: string | null;
@@ -32,65 +37,105 @@ const FEATURE_CACHE_TTL_MS = 5_000;
 let featureStoreReady: Promise<void> | null = null;
 let storedFeaturesCache: { rows: StoredFeature[]; expiresAt: number } | null = null;
 
-function flattenNavGroups(groups: NavGroup[]) {
-  return groups.flatMap((group) => [
-    ...group.items.map((item) => ({ key: item.key, title: item.title, groupTitle: group.title, route: item.route })),
-    ...(group.children ?? []).flatMap((child) => child.items.map((item) => ({
-      key: item.key,
-      title: item.title,
-      groupTitle: group.title,
-      childGroupTitle: child.title,
-      route: item.route,
-    }))),
-  ]);
+type FlattenedFeatureDefinition = {
+  key: string;
+  title: string;
+  groupTitle: string;
+  childGroupTitle?: string;
+  domainKey: ModuleFeatureDomainKey;
+  route: string;
+};
+
+function flattenNavGroups(groups: NavGroup[], includeNonToggleable = false): FlattenedFeatureDefinition[] {
+  return groups.flatMap((group) => {
+    const flattenChildren = (children: NavChildGroup[], parentTitle?: string): FlattenedFeatureDefinition[] => children.flatMap((child) => [
+      ...child.items
+        .filter((item) => includeNonToggleable || item.includeInFeatureToggles !== false)
+        .map((item) => ({
+          key: item.key,
+          title: item.title,
+          groupTitle: group.title,
+          childGroupTitle: parentTitle ? `${parentTitle} / ${child.title}` : child.title,
+          domainKey: getModuleFeatureDomainKey(group.title),
+          route: item.route,
+        })),
+      ...(child.children ? flattenChildren(child.children, parentTitle ? `${parentTitle} / ${child.title}` : child.title) : []),
+    ]);
+    return [
+      ...group.items
+        .filter((item) => includeNonToggleable || item.includeInFeatureToggles !== false)
+        .map((item) => ({
+          key: item.key,
+          title: item.title,
+          groupTitle: group.title,
+          domainKey: getModuleFeatureDomainKey(group.title),
+          route: item.route,
+        })),
+      ...(group.children ? flattenChildren(group.children) : []),
+    ];
+  });
 }
 
-export function getModuleFeatureDefinitions() {
-  const uniqueItems = new Map(flattenNavGroups(navGroups).map((item) => [item.key, item]));
+function getAllModuleFeatureDefinitions() {
+  const uniqueItems = new Map(flattenNavGroups(navGroups, true).map((item) => [item.key, item]));
   return [...uniqueItems.values()].map((item) => ({
     ...item,
     defaultEnabled: !isModuleDisabledByDefault(item.key),
   }));
 }
 
+export function getModuleFeatureDefinitions() {
+  return getAllModuleFeatureDefinitions().filter((definition) => isModuleFeatureToggleable(definition.key));
+}
+
 async function seedFeatureDefinitions() {
-  const definitions = getModuleFeatureDefinitions();
+  const definitions = getAllModuleFeatureDefinitions();
   const params: Record<string, unknown> = {};
   const values = definitions.map((definition, index) => {
     params[`moduleKey${index}`] = definition.key;
     params[`moduleName${index}`] = definition.title;
     params[`parentModuleKey${index}`] = definition.groupTitle;
+    params[`domainKey${index}`] = definition.domainKey;
+    params[`route${index}`] = definition.route;
     params[`enabled${index}`] = definition.defaultEnabled ? 1 : 0;
     params[`sortOrder${index}`] = index;
     params[`remark${index}`] = definition.defaultEnabled ? "默认启用" : "默认停用，可由管理员重新启用";
-    return `(:moduleKey${index}, :moduleName${index}, :parentModuleKey${index}, :enabled${index}, :sortOrder${index}, :remark${index})`;
+    return `(:moduleKey${index}, :moduleName${index}, :parentModuleKey${index}, :domainKey${index}, :route${index}, :enabled${index}, :sortOrder${index}, :remark${index}, 0)`;
   }).join(", ");
 
   if (!values) return;
   await executeRaw(`
-    INSERT IGNORE INTO power_modulefeatures
-      (moduleKey, moduleName, parentModuleKey, enabled, sortOrder, remark)
+    INSERT IGNORE INTO common_modules
+      (moduleKey, moduleName, parentModuleKey, domainKey, route, enabled, sortOrder, remark, adminOnly)
     VALUES ${values}
   `, params);
+
+  // Repair metadata from older seeds without changing an administrator's switch choices.
+  for (const [index, definition] of definitions.entries()) {
+    await executeRaw(`
+      UPDATE common_modules
+      SET moduleName = :moduleName,
+          parentModuleKey = :parentModuleKey,
+          domainKey = :domainKey,
+          route = :route,
+          sortOrder = :sortOrder,
+          adminOnly = :adminOnly
+      WHERE moduleKey = :moduleKey
+    `, {
+      moduleKey: definition.key,
+      moduleName: definition.title,
+      parentModuleKey: definition.groupTitle,
+      domainKey: definition.domainKey,
+      route: definition.route,
+      sortOrder: index,
+      adminOnly: definition.key === "system-users" || definition.key === "system-module-features" ? 1 : 0,
+    });
+  }
 }
 
 async function ensureFeatureStore() {
   if (!featureStoreReady) {
     featureStoreReady = (async () => {
-      await executeRaw(`
-      CREATE TABLE IF NOT EXISTS power_modulefeatures (
-        moduleKey VARCHAR(128) NOT NULL,
-        moduleName VARCHAR(255) NOT NULL,
-        parentModuleKey VARCHAR(128) NULL,
-        enabled TINYINT(1) NOT NULL DEFAULT 1,
-        sortOrder INT NOT NULL DEFAULT 0,
-        remark VARCHAR(500) NULL,
-        updatedBy VARCHAR(255) NULL,
-        updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        PRIMARY KEY (moduleKey),
-        KEY idx_ModuleFeatures_enabled_sort (enabled, sortOrder)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-      `);
       await seedFeatureDefinitions();
     })().catch((error) => {
       featureStoreReady = null;
@@ -103,11 +148,18 @@ async function ensureFeatureStore() {
 async function loadStoredFeatures() {
   if (storedFeaturesCache && storedFeaturesCache.expiresAt > Date.now()) return storedFeaturesCache.rows;
   await ensureFeatureStore();
+  const definitions = getModuleFeatureDefinitions();
+  const params: Record<string, unknown> = {};
+  const keys = definitions.map((definition, index) => {
+    params[`moduleKey${index}`] = definition.key;
+    return `:moduleKey${index}`;
+  }).join(", ");
   const rows = await queryRowsRaw<StoredFeature>(`
-    SELECT moduleKey, enabled, remark, updatedBy, updatedAt
-    FROM power_modulefeatures
+    SELECT moduleKey, domainKey, enabled, remark, updatedByUserId AS updatedBy, updatedAt
+    FROM common_modules
+    WHERE moduleKey IN (${keys})
     ORDER BY sortOrder ASC, moduleKey ASC
-  `);
+  `, params);
   storedFeaturesCache = { rows, expiresAt: Date.now() + FEATURE_CACHE_TTL_MS };
   return rows;
 }
@@ -125,7 +177,7 @@ export async function listModuleFeatures(email?: string) {
   const state = getDefaultModuleFeatureState();
   for (const row of storedRows) state[row.moduleKey] = Boolean(row.enabled);
   const user = email ? (await queryRows<{ role: string }>(
-    "SELECT role FROM appusers WHERE email = :email AND status = :status LIMIT 1",
+    "SELECT role FROM common_users WHERE email = :email AND status = :status LIMIT 1",
     { email, status: "active" },
   ))[0] : undefined;
 
@@ -147,7 +199,7 @@ export async function listModuleFeatures(email?: string) {
 
 export async function updateModuleFeature(email: string, moduleKey: string, enabled: boolean) {
   const user = (await queryRows<{ role: string }>(
-    "SELECT role FROM appusers WHERE email = :email AND status = :status LIMIT 1",
+    "SELECT role FROM common_users WHERE email = :email AND status = :status LIMIT 1",
     { email, status: "active" },
   ))[0];
   if (user?.role !== "admin") throw new Error("只有管理员可以修改功能模块开关");
@@ -157,8 +209,10 @@ export async function updateModuleFeature(email: string, moduleKey: string, enab
 
   await ensureFeatureStore();
   await executeRaw(`
-    UPDATE power_modulefeatures
-    SET enabled = :enabled, updatedBy = :updatedBy
+    UPDATE common_modules
+    SET enabled = :enabled, updatedByUserId = (
+      SELECT userId FROM common_users WHERE email = :updatedBy LIMIT 1
+    )
     WHERE moduleKey = :moduleKey
   `, { moduleKey, enabled: enabled ? 1 : 0, updatedBy: email });
   storedFeaturesCache = null;

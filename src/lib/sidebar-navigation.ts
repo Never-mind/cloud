@@ -1,17 +1,22 @@
 import type { NavGroup } from "./modules";
 
 export const DEFAULT_SIDEBAR_GROUP_ORDER = [
-  "客户需求",
-  "采购管理",
-  "物流管理",
-  "财务管理",
-  "合同管理",
-  "基础信息",
-  "文档管理",
-  "数据工具",
+  "算力系统",
+  "集采系统",
+  "华为云业务",
+  "业务伙伴",
+  "用户管理",
 ] as const;
 
 const DEFAULT_ORDER_SET = new Set<string>(DEFAULT_SIDEBAR_GROUP_ORDER);
+
+/**
+ * Kept as a no-op for callers from the earlier domain-switching layout.
+ * Shared records now have their own top-level business-partner directory.
+ */
+export function attachSharedChildrenToBusinessDomains(groups: NavGroup[]): NavGroup[] {
+  return groups;
+}
 
 export function normalizeSidebarGroupOrder(value: unknown): string[] {
   if (!Array.isArray(value)) return [...DEFAULT_SIDEBAR_GROUP_ORDER];

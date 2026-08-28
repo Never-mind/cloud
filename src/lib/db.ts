@@ -8,6 +8,7 @@ type DbGlobal = typeof globalThis & {
 const dbGlobal = globalThis as DbGlobal;
 
 export const DB_TABLE_PREFIX = "power_";
+export const DB_TABLE_PREFIXES = ["power_", "po_", "cloud_", "common_"] as const;
 
 export const LOGICAL_TABLE_NAMES = [
   "countries",
@@ -59,6 +60,9 @@ export const LOGICAL_TABLE_NAMES = [
   "userpreferences",
   "modulefeatures",
   "b6typeconfigs",
+  "po_product_masters",
+  "po_product_models",
+  "po_product_specifications",
 ] as const;
 
 const LOGICAL_TABLE_SET = new Set<string>(LOGICAL_TABLE_NAMES);
@@ -69,7 +73,7 @@ const tablePattern = new RegExp(
 
 export function physicalTableName(tableName: string) {
   const normalizedTableName = tableName.toLowerCase();
-  if (normalizedTableName.startsWith(DB_TABLE_PREFIX) || !LOGICAL_TABLE_SET.has(normalizedTableName)) {
+  if (DB_TABLE_PREFIXES.some((prefix) => normalizedTableName.startsWith(prefix)) || !LOGICAL_TABLE_SET.has(normalizedTableName)) {
     return tableName;
   }
   return `${DB_TABLE_PREFIX}${normalizedTableName}`;
@@ -85,7 +89,7 @@ export function buildDbConfig(env: Partial<NodeJS.ProcessEnv>) {
     port: Number(env.DB_PORT ?? 3306),
     user: env.DB_USER ?? "root",
     password: env.DB_PASSWORD ?? "root",
-    database: env.DB_NAME ?? "suanli",
+    database: env.DB_NAME ?? "merge",
     connectionLimit: Number(env.DB_CONNECTION_LIMIT ?? 5),
     maxIdle: Number(env.DB_CONNECTION_LIMIT ?? 5),
     idleTimeout: 60_000,

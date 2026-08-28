@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import {
   Boxes,
+  Cloud,
   ChevronDown,
   Database,
   FileText,
@@ -16,10 +17,12 @@ import {
   RotateCcw,
   Ship,
   ShoppingCart,
+  UserCog,
+  UsersRound,
   Upload,
   X,
 } from "lucide-react";
-import { navGroups } from "@/lib/modules";
+import { navGroups, type NavChildGroup } from "@/lib/modules";
 import {
   filterNavGroupsByModuleFeatures,
   getModuleFeatureKeyForRoute,
@@ -41,10 +44,12 @@ import {
   type WorkspaceState,
   type WorkspaceTab,
 } from "@/lib/tab-workspace";
+import { hasPermission, type PermissionState } from "@/lib/permission-definitions";
 
 const WORKSPACE_STORAGE_KEY = "cloud-power-workspace-tabs";
 
 const icons = {
+  公共区域: FolderOpen,
   文档管理: FolderOpen,
   合同管理: ReceiptText,
   基础信息: Database,
@@ -53,16 +58,28 @@ const icons = {
   物流管理: Ship,
   财务管理: ReceiptText,
   数据工具: Upload,
+  客户PO: ShoppingCart,
+  算力系统: Boxes,
+  集采系统: ShoppingCart,
+  华为云业务: Cloud,
+  业务伙伴: UsersRound,
+  用户管理: UserCog,
 };
 
 export function AppShell({
   children,
   embedded,
+  isAdmin,
+  currentUserName,
   initialModuleFeatureState,
+  initialPermissionState,
 }: {
   children: React.ReactNode;
   embedded: boolean;
+  isAdmin: boolean;
+  currentUserName: string;
   initialModuleFeatureState: ModuleFeatureState;
+  initialPermissionState: PermissionState;
 }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -72,9 +89,26 @@ export function AppShell({
   const [sidebarGroupOrder, setSidebarGroupOrder] = useState<string[]>([...DEFAULT_SIDEBAR_GROUP_ORDER]);
   const [draggingGroupTitle, setDraggingGroupTitle] = useState<string | null>(null);
   const [moduleFeatureState, setModuleFeatureState] = useState<ModuleFeatureState>(() => initialModuleFeatureState);
-  const filteredNavGroups = useMemo(() => filterNavGroupsByModuleFeatures(navGroups, moduleFeatureState), [moduleFeatureState]);
-  const moduleItems = useMemo(() => filteredNavGroups.flatMap((group) => group.children?.flatMap((child) => child.items) ?? group.items), [filteredNavGroups]);
-  const sidebarGroups = useMemo(() => getSidebarNavGroups(filteredNavGroups, sidebarGroupOrder), [filteredNavGroups, sidebarGroupOrder]);
+  const [permissionState] = useState<PermissionState>(() => initialPermissionState);
+  const filteredNavGroups = useMemo(
+    () => filterNavGroupsByModuleFeatures(navGroups, moduleFeatureState),
+    [moduleFeatureState],
+  );
+  const visibleNavGroups = useMemo(() => {
+    const filterChild = (child: NavChildGroup): NavChildGroup | null => {
+      const items = child.items.filter((item) => (!item.adminOnly || isAdmin) && hasPermission(permissionState, item.key, "view"));
+      const children = child.children?.map(filterChild).filter((value): value is NavChildGroup => Boolean(value));
+      if (!items.length && !children?.length) return null;
+      return { ...child, items, children };
+    };
+    return filteredNavGroups.map((group) => ({
+      ...group,
+      items: group.items.filter((item) => (!item.adminOnly || isAdmin) && hasPermission(permissionState, item.key, "view")),
+      children: group.children?.map(filterChild).filter((value): value is NavChildGroup => Boolean(value)),
+    })).filter((group) => group.items.length || group.children?.length);
+  }, [filteredNavGroups, isAdmin, permissionState]);
+  const sidebarGroups = useMemo(() => getSidebarNavGroups(visibleNavGroups, sidebarGroupOrder), [sidebarGroupOrder, visibleNavGroups]);
+  const currentSectionTitle = getTopLevelTitle(pathname);
   const isEmbedded = embedded;
 
   useEffect(() => {
@@ -237,8 +271,8 @@ export function AppShell({
       <aside className="fixed inset-y-0 left-0 z-20 flex w-[210px] flex-col bg-[var(--color-sidebar)] text-[#bfcbd9]">
         <div className="flex h-[54px] min-w-0 shrink-0 items-center gap-2 px-5 text-white">
           <Boxes className="shrink-0" size={19} />
-          <span className="min-w-0 truncate font-medium" title="算力交付">
-            算力交付
+          <span className="min-w-0 truncate font-medium" title="业务系统">
+            业务系统
           </span>
           <button
             className="ml-auto shrink-0 text-[#bfcbd9] hover:text-white"
@@ -334,11 +368,11 @@ export function AppShell({
       <main className="ml-[210px] min-h-screen">
         <header className="sticky top-0 z-10 flex h-[50px] items-center border-b border-[#e5e7eb] bg-white px-4">
           <Menu size={19} className="mr-5 text-[#303133]" />
-          <span className="text-[#909399]">首页</span>
+          <span className="text-[#909399]">{currentSectionTitle}</span>
           <span className="mx-2 text-[#c0c4cc]">/</span>
           <span className="text-[#606266]">管理后台</span>
           <div className="ml-auto flex items-center gap-4 text-[#606266]">
-            <span>admin</span>
+            <span>{currentUserName || "用户"}</span>
             <div className="h-8 w-8 rounded bg-[#eef1f5]" />
             <button
               className="inline-flex h-8 items-center gap-1 rounded border border-[#dcdfe6] px-2 text-xs hover:border-[#1890ff] hover:text-[#1890ff]"
@@ -358,7 +392,7 @@ export function AppShell({
                 className={`flex h-7 max-w-[190px] shrink-0 items-center border px-3 text-xs ${
                   active ? "border-[var(--color-tab-active)] bg-[var(--color-tab-active)] text-white" : "border-[#dcdfe6] bg-white text-[#606266]"
                 }`}
-                key={tab.route}
+                key={getWorkspaceTabId(tab)}
               >
                 <button
                   className="min-w-0 flex-1 truncate text-left"
@@ -398,11 +432,18 @@ export function AppShell({
                 />
               );
             })}
-          {workspace.activeRoute !== "/" && !moduleItems.some((item) => item.route === workspace.activeRoute) ? null : null}
         </section>
       </main>
     </div>
   );
+}
+
+function getTopLevelTitle(pathname: string) {
+  if (pathname.startsWith("/suppliers") || pathname.startsWith("/customers") || pathname.startsWith("/undertaking-units")) return "业务伙伴";
+  if (pathname.startsWith("/system/users") || pathname.startsWith("/system/module-features")) return "用户管理";
+  if (pathname.startsWith("/cloud")) return "华为云业务";
+  if (pathname.startsWith("/customer-pos") || pathname.startsWith("/quotation") || pathname.startsWith("/history-quotations") || pathname.startsWith("/product-catalog") || pathname.startsWith("/tariff-rates") || pathname.startsWith("/customer-product-aliases") || pathname.startsWith("/po/")) return "集采系统";
+  return "算力系统";
 }
 
 async function logout() {
@@ -418,7 +459,7 @@ function ChildNavGroup({
   parentTitle,
   setOpenGroups,
 }: {
-  child: { title: string; items: Array<{ key: string; route: string; title: string }> };
+  child: NavChildGroup;
   onOpenTab: (tab: WorkspaceTab) => void;
   openGroups: SidebarGroupState;
   parentTitle: string;
@@ -439,17 +480,29 @@ function ChildNavGroup({
         <ChevronDown className={`shrink-0 transition-transform ${open ? "rotate-0" : "-rotate-90"}`} size={12} />
       </button>
       {open
-        ? child.items.map((item) => (
-            <button
-              className="block h-10 w-full truncate px-10 pr-3 text-left leading-10 hover:text-[#409eff]"
-              key={item.key}
-              onClick={() => onOpenTab({ route: item.route, title: item.title, closable: true })}
-              title={item.title}
-              type="button"
-            >
-              {item.title}
-            </button>
-          ))
+        ? <>
+            {child.children?.map((nested) => (
+              <ChildNavGroup
+                child={nested}
+                key={nested.title}
+                onOpenTab={onOpenTab}
+                openGroups={openGroups}
+                parentTitle={childKey}
+                setOpenGroups={setOpenGroups}
+              />
+            ))}
+            {child.items.map((item) => (
+              <button
+                className="block h-10 w-full truncate px-10 pr-3 text-left leading-10 hover:text-[#409eff]"
+                key={item.key}
+                onClick={() => onOpenTab({ route: item.route, title: item.title, closable: true })}
+                title={item.title}
+                type="button"
+              >
+                {item.title}
+              </button>
+            ))}
+          </>
         : null}
     </div>
   );

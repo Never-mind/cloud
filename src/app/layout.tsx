@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { cookies, headers } from "next/headers";
 import { AppShell } from "@/components/app-shell";
+import { getAuthenticatedUser } from "@/lib/auth";
 import {
   decodeModuleFeatureState,
   MODULE_FEATURE_COOKIE_NAME,
@@ -9,6 +10,7 @@ import {
   EMBEDDED_COOKIE_NAME,
   EMBEDDED_REQUEST_HEADER,
 } from "@/lib/embedded-workspace";
+import { getPermissionStateForEmail } from "@/lib/permission-service";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -24,11 +26,20 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
   const initialModuleFeatureState = decodeModuleFeatureState(
     cookieStore.get(MODULE_FEATURE_COOKIE_NAME)?.value,
   );
+  const currentUser = await getAuthenticatedUser({ cookies: cookieStore } as any);
+  let initialPermissionState = { role: currentUser?.role ?? "user", grants: {} };
+  if (currentUser) {
+    try {
+      initialPermissionState = await getPermissionStateForEmail(currentUser.email);
+    } catch {
+      // Keep pages renderable before the permission tables are initialized.
+    }
+  }
 
   return (
     <html data-embedded-page={embedded ? "1" : undefined} lang="zh-CN">
       <body>
-        <AppShell embedded={embedded} initialModuleFeatureState={initialModuleFeatureState}>
+        <AppShell embedded={embedded} isAdmin={currentUser?.role === "admin"} currentUserName={currentUser?.displayName ?? ""} initialModuleFeatureState={initialModuleFeatureState} initialPermissionState={initialPermissionState}>
           {children}
         </AppShell>
       </body>

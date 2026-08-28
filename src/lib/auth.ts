@@ -1,16 +1,19 @@
 import { createHmac, pbkdf2Sync, randomBytes, timingSafeEqual } from "node:crypto";
 
 import { AUTH_COOKIE_NAME, AUTH_SESSION_VALUE, AUTH_USER_COOKIE_NAME } from "./auth-session";
-import { queryRows } from "./db";
+import { executeRaw, queryRows } from "./db";
 export { AUTH_COOKIE_NAME, AUTH_SESSION_VALUE, AUTH_USER_COOKIE_NAME } from "./auth-session";
 
 export const INITIAL_ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "admin@luzcorp.com";
-export const INITIAL_ADMIN_PASSWORD = process.env.ADMIN_INITIAL_PASSWORD ?? "Luz@#789789";
+export const INITIAL_ADMIN_PASSWORD = process.env.ADMIN_INITIAL_PASSWORD ?? "admin@luzcorp.com";
 
 export type AuthUser = {
+  userId: string;
   email: string;
+  displayName: string;
   passwordHash: string;
   passwordSalt: string;
+  role: string;
   status: string;
 };
 
@@ -34,8 +37,8 @@ export async function getUserByEmail(email: string) {
   const normalizedEmail = email.trim().toLowerCase();
   const rows = await queryRows<AuthUser>(
     `
-      SELECT email, passwordHash, passwordSalt, status
-      FROM appusers
+      SELECT userId, email, displayName, passwordHash, passwordSalt, role, status
+      FROM common_users
       WHERE email = :email
       LIMIT 1
     `,
@@ -56,7 +59,14 @@ export async function validateLogin(email: string, password: string, loadUser: A
   }
 
   const inputHash = hashPassword(password, user.passwordSalt);
-  return hashesMatch(inputHash, user.passwordHash);
+  const valid = hashesMatch(inputHash, user.passwordHash);
+  if (valid && loadUser === getUserByEmail) {
+    await executeRaw(
+      "UPDATE common_users SET lastLoginAt = CURRENT_TIMESTAMP WHERE email = :email",
+      { email: normalizedEmail },
+    );
+  }
+  return valid;
 }
 
 export function isAuthenticatedCookie(value: string | undefined | null) {
@@ -95,4 +105,9 @@ export function getUserEmailFromSessionValue(value: string | undefined | null) {
 export function getAuthenticatedUserEmail(request: { cookies: { get(name: string): { value: string } | undefined } }) {
   if (!isAuthenticatedCookie(request.cookies.get(AUTH_COOKIE_NAME)?.value)) return null;
   return getUserEmailFromSessionValue(request.cookies.get(AUTH_USER_COOKIE_NAME)?.value);
+}
+
+export async function getAuthenticatedUser(request: { cookies: { get(name: string): { value: string } | undefined } }) {
+  const email = getAuthenticatedUserEmail(request);
+  return email ? getUserByEmail(email) : null;
 }

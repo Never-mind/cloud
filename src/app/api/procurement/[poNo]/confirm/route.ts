@@ -1,14 +1,15 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { confirmPurchaseOrder } from "@/lib/procurement-service";
+import { getOperationActor } from "@/lib/operation-actor";
 
 export async function POST(
-  _request: Request,
+  _request: NextRequest,
   context: { params: Promise<{ poNo: string }> },
 ) {
   const { poNo } = await context.params;
 
   try {
-    const shipment = await confirmPurchaseOrder(decodeURIComponent(poNo));
+    const shipment = await confirmPurchaseOrder(decodeURIComponent(poNo), await getOperationActor(_request));
     return NextResponse.json(shipment, { status: 201 });
   } catch (error) {
     return NextResponse.json(

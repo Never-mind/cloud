@@ -5,9 +5,9 @@ export async function attachPartyCodes<T extends Row>(rows: T[]): Promise<Array<
   const undertakingUnitIds = unique(rows.map((row) => row.undertakingUnitId));
   const customerIds = unique(rows.map((row) => row.customerId));
   const [suppliers, undertakingUnits, customers] = await Promise.all([
-    supplierIds.length ? queryRows<Row>("SELECT supplierId, supplierCode FROM suppliers WHERE supplierId IN (:supplierIds)", { supplierIds }) : [],
-    undertakingUnitIds.length ? queryRows<Row>("SELECT undertakingUnitId, undertakingUnitCode FROM undertakingunits WHERE undertakingUnitId IN (:undertakingUnitIds)", { undertakingUnitIds }) : [],
-    customerIds.length ? queryRows<Row>("SELECT customerId, customerCode FROM customers WHERE customerId IN (:customerIds)", { customerIds }) : [],
+    supplierIds.length ? queryRows<Row>("SELECT supplierId, supplierCode FROM common_suppliers WHERE supplierId IN (:supplierIds)", { supplierIds }) : [],
+    undertakingUnitIds.length ? queryRows<Row>("SELECT undertakingUnitId, undertakingUnitCode FROM common_undertaking_units WHERE undertakingUnitId IN (:undertakingUnitIds)", { undertakingUnitIds }) : [],
+    customerIds.length ? queryRows<Row>("SELECT customerId, customerCode FROM common_customers WHERE customerId IN (:customerIds)", { customerIds }) : [],
   ]);
   const supplierCodeById = new Map(suppliers.map((row) => [String(row.supplierId), String(row.supplierCode ?? row.supplierId ?? "")]));
   const undertakingUnitCodeById = new Map(undertakingUnits.map((row) => [String(row.undertakingUnitId), String(row.undertakingUnitCode ?? row.undertakingUnitId ?? "")]));

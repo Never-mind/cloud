@@ -1,4 +1,4 @@
-import { navGroups } from "./modules";
+import { navGroups, type EntityConfig } from "./modules";
 
 export type WorkspaceTab = {
   id?: string;
@@ -23,20 +23,34 @@ export type WorkspaceMessage =
   | { type: "cloud-power:route"; route: string; title: string }
   | { type: "cloud-power:open-tab"; route: string; title: string };
 
-const workspaceModuleTitles = new Map(
-  navGroups
-    .flatMap((group) => group.children?.flatMap((child) => child.items) ?? group.items)
-    .map((item) => [item.route, item.title]),
-);
+function flattenNavItems(groups: typeof navGroups) {
+  return groups.flatMap((group) => {
+    const flattenChildren = (children: NonNullable<typeof group.children>): EntityConfig[] => children.flatMap((child) => [
+      ...child.items,
+      ...(child.children ? flattenChildren(child.children) : []),
+    ]);
+    return [...group.items, ...(group.children ? flattenChildren(group.children) : [])];
+  });
+}
+
+const workspaceModuleTitles = new Map(flattenNavItems(navGroups).map((item) => [item.route, item.title]));
 
 export function getWorkspaceTabId(tab: WorkspaceTab) {
   return tab.id ?? `workspace-route:${tab.route}`;
 }
 
 export function normalizeWorkspaceState(state: WorkspaceState): WorkspaceState {
+  const tabsByRoute = new Map<string, WorkspaceTab>();
+  for (const tab of state.tabs) {
+    if (!tab || !tab.route || tabsByRoute.has(tab.route)) continue;
+    tabsByRoute.set(tab.route, { ...tab, id: getWorkspaceTabId(tab) });
+  }
+  if (!tabsByRoute.has("/")) tabsByRoute.set("/", HOME_TAB);
+  const tabs = Array.from(tabsByRoute.values());
+  const activeRoute = tabs.some((tab) => tab.route === state.activeRoute) ? state.activeRoute : "/";
   return {
-    tabs: state.tabs.map((tab) => ({ ...tab, id: getWorkspaceTabId(tab) })),
-    activeRoute: state.activeRoute,
+    tabs,
+    activeRoute,
   };
 }
 
@@ -122,12 +136,17 @@ export function getWorkspaceTabTitle(route: string) {
     "/finance/service-fee-snapshots": "服务费对账单",
     "/finance/service-fee-snapshot-items": "服务费对账单明细",
     "/finance/billing-statements": "月账单对账单",
+    "/po/settlement-projects": "项目结算",
   };
   if (exactTitles[pathname]) return exactTitles[pathname];
   const moduleTitle = workspaceModuleTitles.get(pathname);
   if (moduleTitle) return moduleTitle;
   if (/^\/finance\/prepayment-contracts\/[^/]+$/.test(pathname)) return "预付款合同明细";
   if (/^\/finance\/billing-statements\/[^/]+$/.test(pathname)) return "月账单对账单明细";
+  if (/^\/product-catalog\/[^/]+$/.test(pathname)) return "产品主档详情";
+  if (/^\/suppliers\/[^/]+$/.test(pathname)) return "供应商详情";
+  if (/^\/customers\/[^/]+$/.test(pathname)) return "客户详情";
+  if (/^\/undertaking-units\/[^/]+$/.test(pathname)) return "承接单位详情";
   if (/^\/requests\/orders\/[^/]+$/.test(pathname)) return "需求单明细";
   if (/^\/purchase\/orders\/[^/]+$/.test(pathname)) return "采购订单明细";
   if (/^\/finance\/billing-adjustments\/[^/]+$/.test(pathname)) return "月账单调整单明细";

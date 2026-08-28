@@ -1,13 +1,30 @@
-import type { NavGroup } from "./modules";
+import type { NavChildGroup, NavGroup } from "./modules";
 
 export const MODULE_FEATURE_COOKIE_NAME = "cloud_power_module_features";
 
 export type ModuleFeatureState = Record<string, boolean>;
 
+export type ModuleFeatureDomainKey = "power" | "po" | "cloud" | "common";
+
+const NON_TOGGLEABLE_MODULES = new Set(["system-users", "system-module-features"]);
+
+export function isModuleFeatureToggleable(moduleKey: string) {
+  return !NON_TOGGLEABLE_MODULES.has(moduleKey);
+}
+
 export type ModuleFeatureRoute = {
   key: string;
   routePrefix: string;
 };
+
+export function getModuleFeatureDomainKey(groupTitle: string): ModuleFeatureDomainKey {
+  if (groupTitle === "算力系统") return "power";
+  if (groupTitle === "集采系统") return "po";
+  if (groupTitle === "客户PO") return "po";
+  if (groupTitle === "华为云业务") return "cloud";
+  if (groupTitle === "业务伙伴" || groupTitle === "用户管理" || groupTitle === "公共区域" || groupTitle === "数据工具") return "common";
+  return "power";
+}
 
 export const MODULE_FEATURE_ROUTES: ModuleFeatureRoute[] = [
   { key: "b6-type-configs", routePrefix: "/finance/b6-type-configs" },
@@ -19,7 +36,6 @@ export const MODULE_FEATURE_ROUTES: ModuleFeatureRoute[] = [
   { key: "internal-service-fees", routePrefix: "/finance/internal-service-fees" },
   { key: "internal-service-fee-adjustments", routePrefix: "/finance/internal-service-fee-adjustments" },
   { key: "internal-service-fee-snapshots", routePrefix: "/finance/internal-service-fee-snapshots" },
-  { key: "system-module-features", routePrefix: "/system/module-features" },
 ];
 
 const MODULE_FEATURE_API_ROUTES: ModuleFeatureRoute[] = [
@@ -27,7 +43,6 @@ const MODULE_FEATURE_API_ROUTES: ModuleFeatureRoute[] = [
   { key: "capex-pricing", routePrefix: "/api/capex-pricing" },
   { key: "balance-settlements", routePrefix: "/api/balance-settlements" },
   { key: "internal-service-fees", routePrefix: "/api/internal-service-fees" },
-  { key: "system-module-features", routePrefix: "/api/system/module-features" },
 ];
 
 const DISABLED_BY_DEFAULT = new Set([
@@ -58,7 +73,7 @@ export function isModuleFeatureEnabled(moduleKey: string, state: ModuleFeatureSt
 export function getModuleFeatureKeyForRoute(pathname: string) {
   const normalizedPath = pathname.length > 1 ? pathname.replace(/\/$/, "") : pathname;
   const entityMatch = normalizedPath.match(/^\/api\/entities\/([^/]+)/);
-  if (entityMatch && MODULE_FEATURE_ROUTES.some(({ key }) => key === entityMatch[1])) return entityMatch[1];
+  if (entityMatch && isModuleFeatureToggleable(entityMatch[1])) return entityMatch[1];
   return [...MODULE_FEATURE_ROUTES, ...MODULE_FEATURE_API_ROUTES]
     .filter(({ routePrefix }) => normalizedPath === routePrefix || normalizedPath.startsWith(`${routePrefix}/`))
     .sort((left, right) => right.routePrefix.length - left.routePrefix.length)[0]?.key ?? null;
@@ -82,16 +97,17 @@ export function decodeModuleFeatureState(value: string | undefined | null): Modu
 }
 
 export function filterNavGroupsByModuleFeatures(groups: NavGroup[], state: ModuleFeatureState) {
+  const filterChild = (child: NavChildGroup): NavChildGroup | null => {
+    const items = child.items.filter((item) => isModuleFeatureEnabled(item.key, state));
+    const children = child.children?.map(filterChild).filter((value): value is NavChildGroup => Boolean(value));
+    if (!items.length && !children?.length) return null;
+    return { ...child, items, children };
+  };
   return groups
     .map((group) => ({
       ...group,
       items: group.items.filter((item) => isModuleFeatureEnabled(item.key, state)),
-      children: group.children
-        ?.map((child) => ({
-          ...child,
-          items: child.items.filter((item) => isModuleFeatureEnabled(item.key, state)),
-        }))
-        .filter((child) => child.items.length),
+      children: group.children?.map(filterChild).filter((value): value is NavChildGroup => Boolean(value)),
     }))
     .filter((group) => group.items.length || group.children?.length);
 }

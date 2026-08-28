@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import mysql from "mysql2/promise";
 
-const database = process.env.DEPLOY_DB_NAME ?? process.env.DB_NAME ?? "cloud_power";
+const database = process.env.DEPLOY_DB_NAME ?? process.env.DB_NAME ?? "merge";
 const schemaPath = resolve(process.cwd(), `${database}_schema.sql`);
 const sql = readFileSync(schemaPath, "utf8").replace(/^\uFEFF/, "");
 

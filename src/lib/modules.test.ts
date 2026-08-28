@@ -29,14 +29,14 @@ describe("module configuration", () => {
       "后36个月含税单价",
     );
 
-    const contractGroup = navGroups.find((group) =>
-      group.items.some((item) => item.key === "instance-contracts"),
-    );
+    const powerGroup = navGroups.find((group) => group.title === "算力系统");
+    const contractGroup = powerGroup?.children?.find((child) => child.title === "合同管理");
     expect(contractGroup?.title).toBe("合同管理");
+    expect(contractGroup?.items.map((item) => item.key)).toContain("instance-contracts");
   });
 
   it("places billing adjustments under contract management", () => {
-    const contractGroup = navGroups.find((group) => group.title === "合同管理");
+    const contractGroup = navGroups.find((group) => group.title === "算力系统")?.children?.find((child) => child.title === "合同管理");
 
     expect(contractGroup?.items.map((item) => item.key)).toContain("billing-adjustments");
   });
@@ -52,12 +52,71 @@ describe("module configuration", () => {
     expect(formKeys).not.toContain("currency");
   });
 
-  it("places finance management directly under home in sidebar order", () => {
-    expect(navGroups[0]?.title).toBe("财务管理");
+  it("exposes business partners and user management as independent top-level directories", () => {
+    expect(navGroups.map((group) => group.title)).toEqual([
+      "算力系统",
+      "集采系统",
+      "华为云业务",
+      "业务伙伴",
+      "用户管理",
+    ]);
+  });
+
+  it("keeps shared parties and their related records under business partners", () => {
+    const businessPartnerGroup = navGroups.find((group) => group.title === "业务伙伴");
+
+    expect(businessPartnerGroup?.children).toBeUndefined();
+    expect(businessPartnerGroup?.items.map((item) => item.title)).toEqual([
+      "供应商管理",
+      "客户管理",
+      "承接单位管理",
+    ]);
+    expect(businessPartnerGroup?.items.map((item) => item.key)).toEqual([
+      "suppliers",
+      "customers",
+      "undertaking-units",
+    ]);
+    expect(["suppliers", "customers", "undertaking-units"].map((key) => getEntityConfig(key)?.navGroup)).toEqual([
+      "业务伙伴",
+      "业务伙伴",
+      "业务伙伴",
+    ]);
+  });
+
+  it("uses one Chinese full-name field for undertaking units", () => {
+    const config = getEntityConfig("undertaking-units");
+
+    expect(config?.listFields).toContainEqual({ key: "entityName", label: "承接单位全称（中文）" });
+    expect(config?.listFields.map((field) => field.key)).not.toContain("nameCn");
+    expect(config?.formFields.filter((field) => field.key === "entityName")).toHaveLength(1);
+    expect(config?.formFields.map((field) => field.key)).not.toContain("nameCn");
+  });
+
+  it("exposes the product master workflow and quotation pages in the PO menu", () => {
+    const productGroup = navGroups.find((group) => group.title === "集采系统");
+
+    expect(productGroup?.children?.map((child) => child.title)).toEqual(["客户PO", "项目结算", "采购管理"]);
+    expect(productGroup?.children?.flatMap((child) => child.items.map((item) => item.key))).toEqual([
+      "customer-pos",
+      "quotations",
+      "history-quotations",
+      "settlement-projects",
+      "product-masters",
+      "product-models",
+      "product-specifications",
+      "customer-product-aliases",
+      "tariff-rates",
+    ]);
+  });
+
+  it("exposes the Huawei Cloud reconciliation module in its own top-level menu", () => {
+    const cloudGroup = navGroups.find((group) => group.title === "华为云业务");
+    expect(cloudGroup?.children?.map((child) => child.title)).toEqual(["华为云对账"]);
+    expect(cloudGroup?.children?.flatMap((child) => child.items.map((item) => item.key))).toEqual(["huawei-cloud"]);
   });
 
   it("groups finance modules by workflow without adding finance summary", () => {
-    const financeGroup = navGroups[0];
+    const financeGroup = navGroups.find((group) => group.title === "算力系统")?.children?.find((child) => child.title === "财务管理");
 
     expect(financeGroup?.children?.map((child) => child.title)).toEqual([
       "成本与锚定价格",

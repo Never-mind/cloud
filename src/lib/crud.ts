@@ -4,9 +4,28 @@ import { attachPartyCodes } from "./party-display";
 import type { EntityConfig } from "./modules";
 import { DEFAULT_PAGE_SIZE, normalizePageSize } from "./pagination";
 import { requireRequestType } from "./request-type";
+import { formatTableDateExpression, formatTableDateTimeExpression, getNaturalBatchSort } from "./table-query";
 
 function quoteIdentifier(identifier: string) {
   return `\`${identifier.replace(/`/g, "``")}\``;
+}
+
+function appendImplicitFormFieldFilters(
+  config: EntityConfig,
+  searchParams: URLSearchParams,
+  whereParts: string[],
+  params: Row,
+  fieldReference: (field: string) => string,
+) {
+  const configuredFilterKeys = new Set(config.filters.map((filter) => filter.key));
+  for (const field of config.formFields) {
+    if (configuredFilterKeys.has(field.key)) continue;
+    const value = searchParams.get(field.key)?.trim();
+    if (!value) continue;
+    const parameterName = `fixed_${field.key.replace(/[^a-zA-Z0-9_]/g, "_")}`;
+    whereParts.push(`${fieldReference(field.key)} = :${parameterName}`);
+    params[parameterName] = value;
+  }
 }
 
 function getWritableFields(config: EntityConfig) {
@@ -30,7 +49,7 @@ function withShipmentReceiptStatus(config: EntityConfig, body: Row) {
 }
 
 function normalizeEntityBody(config: EntityConfig, body: Row) {
-  const nextBody = withShipmentReceiptStatus(config, body);
+  const nextBody = withQuotationPartyAliases(config, withShipmentReceiptStatus(config, body));
   if (["requests", "request-items", "purchase-order-items"].includes(config.key)) {
     return normalizePurchasePrices(config, {
       ...nextBody,
@@ -38,6 +57,24 @@ function normalizeEntityBody(config: EntityConfig, body: Row) {
     });
   }
   return normalizePurchasePrices(config, nextBody);
+}
+
+function withQuotationPartyAliases(config: EntityConfig, body: Row) {
+  if (config.key !== "undertaking-units") return body;
+
+  const code = firstNonBlank(body.entityCode, body.undertakingUnitCode);
+  const name = firstNonBlank(body.entityName, body.name);
+  return {
+    ...body,
+    entityCode: code,
+    undertakingUnitCode: code,
+    entityName: name,
+    name,
+  };
+}
+
+function firstNonBlank(...values: unknown[]) {
+  return values.find((value) => value !== null && value !== undefined && String(value).trim() !== "") ?? null;
 }
 
 function normalizePurchasePrices(config: EntityConfig, nextBody: Row) {
@@ -57,7 +94,9 @@ function withPrimaryKey(config: EntityConfig, body: Row) {
   if (body[config.primaryKey]) return body;
   return {
     ...body,
-    [config.primaryKey]: `${config.key}-${randomUUID()}`,
+    // Product master, model, and specification IDs are CHAR(36); keep generated
+    // IDs UUID-sized so generic create/import works for every entity family.
+    [config.primaryKey]: randomUUID(),
   };
 }
 
@@ -85,8 +124,22 @@ export async function listEntityRows(config: EntityConfig, searchParams: URLSear
       ? partyCodeDisplayFields
       : new Set<string>();
   const storageFields = fields.filter((field) => !displayOnlyFields.has(field));
+  const fieldTypes = new Map(
+    [...config.listFields, ...config.formFields].map((field) => [field.key, field.type]),
+  );
   const selectedFields = storageFields
-    .map((field) => shipmentAlias ? `${fieldReference(field)} AS ${quoteIdentifier(field)}` : quoteIdentifier(field))
+    .map((field) => {
+      const reference = fieldReference(field);
+      const type = fieldTypes.get(field);
+      const selectedReference = type === "date"
+        ? formatTableDateExpression(reference)
+        : type === "datetime"
+          ? formatTableDateTimeExpression(reference)
+        : field === "countryCode"
+          ? normalizeCountryExpression(reference)
+          : reference;
+      return `${selectedReference} AS ${quoteIdentifier(field)}`;
+    })
     .concat(config.key === "purchase-orders"
       ? [`
           COALESCE((
@@ -141,6 +194,11 @@ export async function listEntityRows(config: EntityConfig, searchParams: URLSear
         params.countryCode = normalizeCountryCodeFilter(value);
         continue;
       }
+      if (filter.key === "countryCode") {
+        whereParts.push(`${getEntityFilterFieldExpression(config, filter.key, shipmentAlias)} = :${filter.key}`);
+        params[filter.key] = normalizeCountryCodeFilter(value);
+        continue;
+      }
       if (filter.key === "requestType" && config.key === "purchase-orders") {
         whereParts.push(`
           EXISTS (
@@ -190,8 +248,23 @@ export async function listEntityRows(config: EntityConfig, searchParams: URLSear
     params.purchaseOrderId = searchParams.get("purchaseOrderId")!.trim();
   }
 
+  appendImplicitFormFieldFilters(config, searchParams, whereParts, params, fieldReference);
+
+  const filterableStorageFields = new Set(storageFields);
+  for (const field of config.listFields) {
+    const values = Array.from(new Set(searchParams.getAll(`filter.${field.key}`).map((value) => value.trim()).filter(Boolean)));
+    if (!values.length) continue;
+    const parameterName = `columnFilter_${field.key.replace(/[^a-zA-Z0-9_]/g, "_")}`;
+    const expression = filterableStorageFields.has(field.key)
+      ? getEntityFilterFieldExpression(config, field.key, shipmentAlias)
+      : getEntityDisplayFieldExpression(config, field.key, shipmentAlias);
+    if (!expression) continue;
+    whereParts.push(`${expression} IN (:${parameterName})`);
+    params[parameterName] = values;
+  }
+
   const where = whereParts.length ? `WHERE ${whereParts.join(" AND ")}` : "";
-  const orderBy = getEntityOrderBy(config, shipmentAlias);
+  const orderBy = getEntityOrderBy(config, shipmentAlias, searchParams);
   const [{ total }] = await queryRows<{ total: number }>(
     `SELECT COUNT(*) AS total FROM ${tableSource} ${where}`,
     params,
@@ -206,11 +279,12 @@ export async function listEntityRows(config: EntityConfig, searchParams: URLSear
     params,
   );
 
+  const normalizedRows = rows.map((row) => normalizeQuotationPartyRow(config, row));
   const enrichedRows = config.key === "shipments"
-    ? await enrichShipmentRows(rows)
+    ? await enrichShipmentRows(normalizedRows)
     : config.key === "service-fee-snapshots"
-      ? await enrichServiceFeeSnapshotParties(rows)
-    : await enrichFinancialPartyRows(config.key, rows);
+      ? await enrichServiceFeeSnapshotParties(normalizedRows)
+    : await enrichFinancialPartyRows(config.key, normalizedRows);
   return {
     rows: enrichedRows,
     total: normalizedTotal,
@@ -220,11 +294,36 @@ export async function listEntityRows(config: EntityConfig, searchParams: URLSear
   };
 }
 
+function normalizeQuotationPartyRow(config: EntityConfig, row: Row) {
+  if (config.key !== "undertaking-units") return row;
+  return {
+    ...row,
+    entityCode: firstNonBlank(row.entityCode, row.undertakingUnitCode),
+    entityName: firstNonBlank(row.entityName, row.name),
+  };
+}
+
 function normalizeCountryCodeFilter(value: string) {
   return value.split(/\s*-\s*/, 1)[0].trim();
 }
 
-export function getEntityOrderBy(config: EntityConfig, shipmentAlias = "shipment") {
+export function getEntityOrderBy(config: EntityConfig, shipmentAlias = "shipment", searchParams?: URLSearchParams) {
+  const requestedSortField = searchParams?.get("sortField")?.trim() ?? "";
+  const requestedSortOrder = searchParams?.get("sortOrder") === "asc" ? "ASC" : searchParams?.get("sortOrder") === "desc" ? "DESC" : "";
+  const sortableFields = new Set(config.listFields.map((field) => field.key));
+  const fields = new Set([
+    ...config.listFields.map((field) => field.key),
+    ...config.formFields.map((field) => field.key),
+  ]);
+  if (requestedSortField && requestedSortOrder && sortableFields.has(requestedSortField) && fields.has(requestedSortField)) {
+    const sortReference = getEntitySortReference(config, requestedSortField, shipmentAlias);
+    if (sortReference) {
+      const tieBreaker = config.primaryKey === requestedSortField ? "" : `${fieldReferenceForSort(config, config.primaryKey, shipmentAlias)} ASC`;
+      return `ORDER BY ${requestedSortField === "batchName"
+        ? getNaturalBatchSort(sortReference, requestedSortOrder, tieBreaker)
+        : `${sortReference} ${requestedSortOrder}${tieBreaker ? `, ${tieBreaker}` : ""}`}`;
+    }
+  }
   if (config.key === "shipments") {
     const prefix = shipmentAlias ? `${shipmentAlias}.` : "";
     return `
@@ -265,6 +364,214 @@ export function getEntityOrderBy(config: EntityConfig, shipmentAlias = "shipment
     );
   }
   return config.defaultSort ? `ORDER BY ${config.defaultSort}` : "";
+}
+
+function fieldReferenceForSort(config: EntityConfig, field: string, shipmentAlias: string) {
+  return shipmentAlias && config.key === "shipments"
+    ? `${shipmentAlias}.${quoteIdentifier(field)}`
+    : quoteIdentifier(field);
+}
+
+function getEntitySortReference(config: EntityConfig, field: string, shipmentAlias: string) {
+  const displayOnlyFields = config.key === "shipments"
+    ? shipmentDisplayFields
+    : config.key === "service-fee-snapshots"
+      ? new Set(["receivingUnitCode", "payerCustomerCode"])
+      : config.key === "purchase-orders"
+        ? new Set(["requestType"])
+        : financePartyEntityKeys.has(config.key)
+          ? partyCodeDisplayFields
+          : new Set<string>();
+  if (displayOnlyFields.has(field)) {
+    const displayExpression = getEntityDisplayFieldExpression(config, field, shipmentAlias);
+    if (displayExpression) return displayExpression;
+    if (config.key === "purchase-orders" && field === "requestType") {
+      return `(SELECT GROUP_CONCAT(DISTINCT COALESCE(NULLIF(typeItem.requestType, ''), NULLIF(typeRequestItem.requestType, ''), NULLIF(typeRequest.requestType, ''), '整机') ORDER BY COALESCE(NULLIF(typeItem.requestType, ''), NULLIF(typeRequestItem.requestType, ''), NULLIF(typeRequest.requestType, ''), '整机') SEPARATOR ' / ') FROM purchaseorderitems typeItem LEFT JOIN requestitems typeRequestItem ON typeRequestItem.id = typeItem.requestItemId LEFT JOIN requests typeRequest ON typeRequest.requestNo = COALESCE(typeItem.requestNo, typeRequestItem.requestNo) WHERE typeItem.purchaseOrderId = purchaseorders.purchaseOrderId)`;
+    }
+    return null;
+  }
+  if (field === "countryCode") return getEntityFilterFieldExpression(config, field, shipmentAlias);
+  return fieldReferenceForSort(config, field, shipmentAlias);
+}
+
+export async function listEntityFilterOptions(
+  config: EntityConfig,
+  searchParams: URLSearchParams,
+) {
+  const field = searchParams.get("field")?.trim() ?? "";
+  const keyword = searchParams.get("keyword")?.trim() ?? "";
+  const fieldConfig = config.listFields.find((item) => item.key === field);
+  if (!fieldConfig) return { options: [] as Array<{ value: string; count: number }> };
+
+  if (config.key === "purchase-orders" && field === "requestType") {
+    const params: Row = {};
+    const keywordClause = keyword ? "AND COALESCE(NULLIF(typeItem.requestType, ''), NULLIF(typeRequestItem.requestType, ''), NULLIF(typeRequest.requestType, ''), '整机') LIKE :optionKeyword" : "";
+    if (keyword) params.optionKeyword = `%${keyword}%`;
+    const rows = await queryRows<{ value: string; count: number }>(
+      `
+        SELECT value, COUNT(*) AS count
+        FROM (
+          SELECT purchase.purchaseOrderId,
+            COALESCE(NULLIF(typeItem.requestType, ''), NULLIF(typeRequestItem.requestType, ''), NULLIF(typeRequest.requestType, ''), '整机') AS value
+          FROM purchaseorders purchase
+          LEFT JOIN purchaseorderitems typeItem ON typeItem.purchaseOrderId = purchase.purchaseOrderId
+          LEFT JOIN requestitems typeRequestItem ON typeRequestItem.id = typeItem.requestItemId
+          LEFT JOIN requests typeRequest ON typeRequest.requestNo = COALESCE(typeItem.requestNo, typeRequestItem.requestNo)
+          WHERE 1 = 1 ${keywordClause}
+          GROUP BY purchase.purchaseOrderId, value
+        ) valuesList
+        GROUP BY value
+        ORDER BY value
+        LIMIT 500
+      `,
+      params,
+    );
+    return { options: rows.map((row) => ({ value: String(row.value ?? ""), label: getFilterOptionLabel(String(row.value ?? ""), fieldConfig), count: Number(row.count ?? 0) })) };
+  }
+
+  const displayOnlyFields = config.key === "shipments"
+    ? shipmentDisplayFields
+    : config.key === "service-fee-snapshots"
+      ? new Set(["receivingUnitCode", "payerCustomerCode"])
+      : financePartyEntityKeys.has(config.key)
+        ? partyCodeDisplayFields
+        : new Set<string>();
+  const shipmentAlias = config.key === "shipments" ? "shipment" : "";
+  const table = quoteIdentifier(config.table);
+  const tableSource = shipmentAlias ? `${table} AS ${shipmentAlias}` : table;
+  const reference = displayOnlyFields.has(field)
+    ? getEntityDisplayFieldExpression(config, field, shipmentAlias)
+    : getEntityFilterFieldExpression(config, field, shipmentAlias);
+  if (!reference) return { options: [] as Array<{ value: string; count: number }> };
+  const params: Row = {};
+  const whereParts = [`${reference} IS NOT NULL`, `TRIM(${reference}) <> ''`];
+  if (keyword) {
+    whereParts.push(`${reference} LIKE :optionKeyword`);
+    params.optionKeyword = `%${keyword}%`;
+  }
+  for (const filter of config.filters) {
+    if (filter.key === "keyword" || filter.key === field) continue;
+    const value = searchParams.get(filter.key)?.trim();
+    if (!value) continue;
+    if (config.key === "shipments" && filter.key === "countryCode") {
+      const countryExpression = getEntityDisplayFieldExpression(config, "countryCode", shipmentAlias);
+      if (countryExpression) {
+        whereParts.push(`${countryExpression} = UPPER(TRIM(SUBSTRING_INDEX(:option_countryCode, '-', 1)))`);
+        params.option_countryCode = value;
+      }
+      continue;
+    }
+    if (config.key === "shipments" && filter.key === "receiptStatus") {
+      whereParts.push(value === "received" ? `${shipmentAlias}.deliveredAt IS NOT NULL` : `${shipmentAlias}.deliveredAt IS NULL`);
+      continue;
+    }
+    if (filter.key === "countryCode") {
+      whereParts.push(`${getEntityFilterFieldExpression(config, filter.key, shipmentAlias)} = :option_${filter.key}`);
+      params[`option_${filter.key}`] = normalizeCountryCodeFilter(value);
+      continue;
+    }
+    if (!config.formFields.some((item) => item.key === filter.key)) continue;
+    whereParts.push(`${shipmentAlias ? `${shipmentAlias}.` : ""}${quoteIdentifier(filter.key)} = :option_${filter.key}`);
+    params[`option_${filter.key}`] = value;
+  }
+  appendImplicitFormFieldFilters(
+    config,
+    searchParams,
+    whereParts,
+    params,
+    (candidate) => filterableFieldReference(config, candidate, shipmentAlias),
+  );
+  for (const candidate of config.listFields) {
+    if (candidate.key === field) continue;
+    const values = Array.from(new Set(searchParams.getAll(`filter.${candidate.key}`).map((value) => value.trim()).filter(Boolean)));
+    if (!values.length) continue;
+    const candidateReference = displayOnlyFields.has(candidate.key)
+      ? getEntityDisplayFieldExpression(config, candidate.key, shipmentAlias)
+      : getEntityFilterFieldExpression(config, candidate.key, shipmentAlias);
+    if (!candidateReference) continue;
+    const parameterName = `candidate_${candidate.key.replace(/[^a-zA-Z0-9_]/g, "_")}`;
+    whereParts.push(`${candidateReference} IN (:${parameterName})`);
+    params[parameterName] = values;
+  }
+  const selectedValues = searchParams.getAll("selected").map((value) => value.trim()).filter(Boolean);
+  if (selectedValues.length) {
+    whereParts.push(`${reference} IN (:selectedValues)`);
+    params.selectedValues = selectedValues;
+  }
+  const rows = await queryRows<{ value: string; count: number }>(
+    `SELECT ${reference} AS value, COUNT(*) AS count FROM ${tableSource} WHERE ${whereParts.join(" AND ")} GROUP BY ${reference} ORDER BY value LIMIT 500`,
+    params,
+  );
+  return { options: rows.map((row) => ({ value: String(row.value ?? ""), label: getFilterOptionLabel(String(row.value ?? ""), fieldConfig), count: Number(row.count ?? 0) })) };
+}
+
+function getFilterOptionLabel(value: string, field: EntityConfig["listFields"][number]) {
+  return field.options?.find((option) => option.value === value)?.label;
+}
+
+function getEntityDisplayFieldExpression(config: EntityConfig, field: string, shipmentAlias = "") {
+  const source = shipmentAlias ? `${shipmentAlias}.` : `${quoteIdentifier(config.table)}.`;
+  if (config.key === "service-fee-snapshots") {
+    if (field === "receivingUnitCode") {
+      return `(SELECT unit.undertakingUnitCode FROM common_undertaking_units unit WHERE unit.undertakingUnitId = ${source}receivingUnitId LIMIT 1)`;
+    }
+    if (field === "payerCustomerCode") {
+      return `(SELECT customer.customerCode FROM common_customers customer WHERE customer.customerId = ${source}payerCustomerId LIMIT 1)`;
+    }
+  }
+  if (config.key === "shipments") {
+    if (field === "countryCode") {
+      const linkedCountry = `(SELECT req.countryCode
+        FROM purchaseorderitems poi
+        LEFT JOIN requestitems ri ON ri.id = poi.requestItemId
+        LEFT JOIN requests req ON req.requestNo = COALESCE(NULLIF(poi.requestNo, ''), ri.requestNo)
+        WHERE (
+          poi.id = shipment.purchaseOrderItemId
+          OR (
+            NULLIF(shipment.poNo, '') IS NOT NULL
+            AND NULLIF(shipment.deviceCode, '') IS NOT NULL
+            AND poi.poNo = shipment.poNo
+            AND ri.deviceCode = shipment.deviceCode
+          )
+        )
+        ORDER BY (poi.id = shipment.purchaseOrderItemId) DESC, poi.id DESC
+        LIMIT 1)`;
+      return `UPPER(TRIM(SUBSTRING_INDEX(${linkedCountry}, '-', 1)))`;
+    }
+    if (field === "dcNameZh") return `(SELECT dc.nameZh FROM datacenters dc WHERE dc.dcCode = shipment.dcCode LIMIT 1)`;
+    if (field === "destinationAddress") return `(SELECT location.fullAddress FROM deliverylocations location WHERE location.locationId = shipment.destinationLocationId LIMIT 1)`;
+    if (field === "recipientName") return `(SELECT contact.name FROM deliverycontacts contact WHERE contact.contactId = shipment.recipientContactId LIMIT 1)`;
+    if (["supplierCode", "undertakingUnitCode", "customerCode"].includes(field)) {
+      const idField = field === "supplierCode" ? "supplierId" : field === "undertakingUnitCode" ? "undertakingUnitId" : "customerId";
+      const tableName = field === "supplierCode" ? "common_suppliers" : field === "undertakingUnitCode" ? "common_undertaking_units" : "common_customers";
+      const idColumn = field === "supplierCode" ? "supplierId" : field === "undertakingUnitCode" ? "undertakingUnitId" : "customerId";
+      const codeColumn = field;
+      return `(SELECT party.${codeColumn} FROM ${tableName} party INNER JOIN purchaseorderitems poi ON poi.poNo = shipment.poNo LEFT JOIN requestitems ri ON ri.id = poi.requestItemId WHERE (poi.id = shipment.purchaseOrderItemId OR (NULLIF(shipment.deviceCode, '') IS NOT NULL AND ri.deviceCode = shipment.deviceCode)) AND party.${idColumn} = ri.${idField} ORDER BY (poi.id = shipment.purchaseOrderItemId) DESC LIMIT 1)`;
+    }
+  }
+  if (partyCodeDisplayFields.has(field)) {
+    const idField = field === "supplierCode" ? "supplierId" : field === "undertakingUnitCode" ? "undertakingUnitId" : "customerId";
+    const tableName = field === "supplierCode" ? "common_suppliers" : field === "undertakingUnitCode" ? "common_undertaking_units" : "common_customers";
+    return `(SELECT party.${field} FROM ${tableName} party WHERE party.${idField} = ${source}${idField} LIMIT 1)`;
+  }
+  return "";
+}
+
+function filterableFieldReference(config: EntityConfig, field: string, shipmentAlias = "") {
+  return shipmentAlias ? `${shipmentAlias}.${quoteIdentifier(field)}` : `${quoteIdentifier(config.table)}.${quoteIdentifier(field)}`;
+}
+
+function getEntityFilterFieldExpression(config: EntityConfig, field: string, shipmentAlias = "") {
+  const reference = filterableFieldReference(config, field, shipmentAlias);
+  const fieldConfig = config.listFields.find((item) => item.key === field);
+  if (field === "countryCode") return normalizeCountryExpression(reference);
+  return fieldConfig?.type === "date" || fieldConfig?.type === "datetime"
+    ? formatTableDateExpression(reference)
+    : reference;
+}
+
+function normalizeCountryExpression(reference: string) {
+  return `UPPER(TRIM(SUBSTRING_INDEX(${reference}, '-', 1)))`;
 }
 
 function getBatchOrderBy(batchName: string, tieBreakers: string) {
@@ -309,10 +616,10 @@ async function enrichServiceFeeSnapshotParties(rows: Row[]) {
   const payerCustomerIds = uniqueValues(rows, "payerCustomerId");
   const [units, customers] = await Promise.all([
     receivingUnitIds.length
-      ? queryRows("SELECT undertakingUnitId, undertakingUnitCode FROM undertakingunits WHERE undertakingUnitId IN (:receivingUnitIds)", { receivingUnitIds })
+      ? queryRows("SELECT undertakingUnitId, undertakingUnitCode FROM common_undertaking_units WHERE undertakingUnitId IN (:receivingUnitIds)", { receivingUnitIds })
       : [],
     payerCustomerIds.length
-      ? queryRows("SELECT customerId, customerCode FROM customers WHERE customerId IN (:payerCustomerIds)", { payerCustomerIds })
+      ? queryRows("SELECT customerId, customerCode FROM common_customers WHERE customerId IN (:payerCustomerIds)", { payerCustomerIds })
       : [],
   ]);
   const unitCodeById = new Map(units.map((row) => [String(row.undertakingUnitId), String(row.undertakingUnitCode ?? row.undertakingUnitId ?? "")]));
@@ -328,18 +635,21 @@ export async function getEntityRow(config: EntityConfig, id: string) {
   const table = quoteIdentifier(config.table);
   const primaryKey = quoteIdentifier(config.primaryKey);
   const rows = await queryRows(`SELECT * FROM ${table} WHERE ${primaryKey} = :id LIMIT 1`, { id });
-  return rows[0] ?? null;
+  return rows[0] ? normalizeQuotationPartyRow(config, rows[0]) : null;
 }
 
 export async function createEntityRow(config: EntityConfig, body: Row) {
   const nextBody = normalizeEntityBody(config, withPrimaryKey(config, body));
+  validateRequiredFields(config, nextBody);
   const fields = getInsertFields(config);
   const table = quoteIdentifier(config.table);
   const columns = fields.map(quoteIdentifier).join(", ");
   const values = fields.map((field) => `:${field}`).join(", ");
   const params = Object.fromEntries(fields.map((field) => [field, nextBody[field] ?? null]));
 
+  await clearOtherDefaultRelationRows(config, nextBody, String(nextBody[config.primaryKey] ?? ""));
   await execute(`INSERT INTO ${table} (${columns}) VALUES (${values})`, params);
+  await syncPrimaryContact(config, nextBody);
   return getEntityRow(config, String(nextBody[config.primaryKey]));
 }
 
@@ -349,14 +659,72 @@ export async function updateEntityRow(config: EntityConfig, id: string, body: Ro
   const primaryKey = quoteIdentifier(config.primaryKey);
   const assignments = fields.map((field) => `${quoteIdentifier(field)} = :${field}`).join(", ");
   const nextBody = normalizeEntityBody(config, body);
+  validateRequiredFields(config, nextBody);
+  const previousBody = config.key.endsWith("-contacts") ? await getEntityRow(config, id) : null;
   if (config.key === "requests") await assertRequestTypeCanChange(id, String(nextBody.requestType));
   const params = Object.fromEntries(fields.map((field) => [field, nextBody[field] ?? null]));
 
+  await clearOtherDefaultRelationRows(config, nextBody, id);
   await execute(`UPDATE ${table} SET ${assignments} WHERE ${primaryKey} = :id`, {
     ...params,
     id,
   });
+  await syncPrimaryContact(config, nextBody);
+  if (previousBody) await syncPrimaryContact(config, previousBody);
   return getEntityRow(config, id);
+}
+
+function validateRequiredFields(config: EntityConfig, body: Row) {
+  const missing = config.formFields.find((field) => field.required && String(body[field.key] ?? "").trim() === "");
+  if (missing) throw new Error(`请填写${missing.label}`);
+}
+
+function getContactRelation(config: EntityConfig) {
+  if (config.key === "supplier-contacts") return { relationTable: "common_supplier_contacts", ownerField: "supplierId", ownerTable: "common_suppliers", ownerIdField: "supplierId" };
+  if (config.key === "customer-contacts") return { relationTable: "common_customer_contacts", ownerField: "customerId", ownerTable: "common_customers", ownerIdField: "customerId" };
+  if (config.key === "undertaking-unit-contacts") return { relationTable: "common_undertaking_unit_contacts", ownerField: "undertakingUnitId", ownerTable: "common_undertaking_units", ownerIdField: "undertakingUnitId" };
+  return null;
+}
+
+async function syncPrimaryContact(config: EntityConfig, body: Row) {
+  const relation = getContactRelation(config);
+  if (!relation) return;
+  const ownerId = body[relation.ownerField];
+  if (!ownerId) return;
+  const contacts = await queryRows<Row>(
+    `SELECT name, phone, email
+       FROM ${quoteIdentifier(relation.relationTable)}
+      WHERE ${quoteIdentifier(relation.ownerField)} = :ownerId
+        AND isPrimary = 1
+      ORDER BY updatedAt DESC
+      LIMIT 1`,
+    { ownerId },
+  );
+  const contact = contacts[0];
+  await execute(
+    `UPDATE ${quoteIdentifier(relation.ownerTable)}
+        SET contactName = :contactName,
+            contactPhone = :contactPhone,
+            contactEmail = :contactEmail
+      WHERE ${quoteIdentifier(relation.ownerIdField)} = :ownerId`,
+    {
+      ownerId,
+      contactName: contact?.name ?? null,
+      contactPhone: contact?.phone ?? null,
+      contactEmail: contact?.email ?? null,
+    },
+  );
+}
+
+async function clearOtherDefaultRelationRows(config: EntityConfig, body: Row, currentId: string) {
+  const defaultField = config.key.endsWith("-bank-accounts") ? "isDefault" : config.key.endsWith("-contacts") ? "isPrimary" : "";
+  const ownerField = config.formFields.find((field) => field.key.endsWith("Id") && field.key !== config.primaryKey)?.key ?? "";
+  if (!defaultField || !ownerField || !body[ownerField] || !body[defaultField]) return;
+
+  await execute(
+    `UPDATE ${quoteIdentifier(config.table)} SET ${quoteIdentifier(defaultField)} = 0 WHERE ${quoteIdentifier(ownerField)} = :ownerId AND ${quoteIdentifier(config.primaryKey)} <> :currentId`,
+    { ownerId: body[ownerField], currentId },
+  );
 }
 
 async function assertRequestTypeCanChange(requestNo: string, nextRequestType: string) {
@@ -395,7 +763,9 @@ function getRequestConfig(): EntityConfig {
 export async function deleteEntityRow(config: EntityConfig, id: string) {
   const table = quoteIdentifier(config.table);
   const primaryKey = quoteIdentifier(config.primaryKey);
+  const previousBody = config.key.endsWith("-contacts") ? await getEntityRow(config, id) : null;
   await execute(`DELETE FROM ${table} WHERE ${primaryKey} = :id`, { id });
+  if (previousBody) await syncPrimaryContact(config, previousBody);
 }
 
 export async function replaceEntityRows(config: EntityConfig, rows: Row[]) {

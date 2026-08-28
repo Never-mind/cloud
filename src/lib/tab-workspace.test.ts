@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  HOME_TAB,
   closeWorkspaceTab,
   createInitialWorkspace,
   getEmbeddedRoute,
   getWorkspaceRouteFromLocation,
   getWorkspaceTabTitle,
+  normalizeWorkspaceState,
   openWorkspaceTab,
   updateWorkspaceTabRoute,
 } from "./tab-workspace";
@@ -104,5 +106,24 @@ describe("tab workspace state", () => {
     expect(getWorkspaceTabTitle("/finance/service-fee-snapshot-items?snapshotNo=SFC-001")).toBe("服务费对账单明细");
     expect(getWorkspaceTabTitle("/finance/billing-statements/BSS-MX-202608")).toBe("月账单对账单明细");
     expect(getWorkspaceTabTitle("/finance/monthly-billing-writeoffs")).toBe("月账单每月明细");
+    expect(getWorkspaceTabTitle("/product-catalog/2425373d-9180-470d-8054-e1415ff1bd1b")).toBe("产品主档详情");
+    expect(getWorkspaceTabTitle("/suppliers/84699818-259e-4966-9f50-78c0a3a8c475")).toBe("供应商详情");
+    expect(getWorkspaceTabTitle("/customers/customer-001")).toBe("客户详情");
+    expect(getWorkspaceTabTitle("/undertaking-units/unit-001")).toBe("承接单位详情");
+  });
+
+  it("deduplicates routes restored from an older tab session", () => {
+    const normalized = normalizeWorkspaceState({
+      tabs: [
+        HOME_TAB,
+        { id: "old-a", route: "/customers", title: "客户管理", closable: true },
+        { id: "old-b", route: "/customers", title: "客户管理", closable: true },
+      ],
+      activeRoute: "/customers",
+    });
+
+    expect(normalized.tabs.map((tab) => tab.route)).toEqual(["/", "/customers"]);
+    expect(normalized.tabs.map((tab) => tab.id)).toEqual(["workspace-home", "old-a"]);
+    expect(normalized.activeRoute).toBe("/customers");
   });
 });

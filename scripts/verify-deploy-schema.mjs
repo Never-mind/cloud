@@ -1,6 +1,6 @@
 import mysql from "mysql2/promise";
 
-const database = process.env.DB_NAME ?? "cloud_power";
+const database = process.env.DB_NAME ?? "merge";
 const connection = await mysql.createConnection({
   host: process.env.DB_HOST ?? "localhost",
   port: Number(process.env.DB_PORT ?? 3306),

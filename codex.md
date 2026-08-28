@@ -39,7 +39,7 @@ DB_HOST=localhost
 DB_PORT=3306
 DB_USER=root
 DB_PASSWORD=root
-DB_NAME=suanli
+DB_NAME=merge
 DB_CONNECTION_LIMIT=5
 ```
 
@@ -122,7 +122,7 @@ npm run dev:hot
 
 ## 7. 数据库说明
 
-本地开发数据库默认名称：`suanli`；远程部署数据库名称：`cloud`，通过环境变量 `DB_NAME` 切换，无需修改业务代码。
+本地开发数据库默认名称：`merge`；远程部署数据库名称通过环境变量 `DB_NAME` 切换，无需修改业务代码。
 
 基础建表脚本：`schema.sql`。远程 `cloud` 数据库已完成结构初始化，正常部署无需重复执行建表或迁移。
 
