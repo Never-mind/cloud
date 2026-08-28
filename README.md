@@ -1,5 +1,7 @@
 # cloud_power
 
+power、quotation、cloud
+
 Cloud power management system built with Next.js.
 
 ## 部署
