@@ -1,4 +1,4 @@
-import { execute, queryRows, type Row } from "./db";
+import { execute, executeInTransaction, queryRows, withTransaction, type Row } from "./db";
 import { attachPartyCodes } from "./party-display";
 import { regenerateInternalServiceLedger } from "./internal-service-fee-service";
 import { DEFAULT_PAGE_SIZE, normalizePageSize } from "./pagination";
@@ -281,6 +281,9 @@ export async function listAvailableBillingLines(options: {
     poNo: "poi.poNo", deviceCode: "ri.deviceCode", requestType: "COALESCE(NULLIF(poi.requestType, ''), NULLIF(ri.requestType, ''), NULLIF(req.requestType, ''), '整机')",
     modelCode: "im.modelCode", nameEn: "im.nameEn", quantity: "ri.quantity", actualCurrency: "po.currency",
     actualUnitPrice: "poi.unitPrice", taxExcludedUnitPrice: "COALESCE(poi.taxExcludedUnitPrice, poi.unitPrice, 0)", taxSurcharge: "COALESCE(poi.taxSurcharge, 0)",
+    undertakingUnitCode: "COALESCE(NULLIF(unit.shortName, ''), NULLIF(unit.entityName, ''), NULLIF(unit.name, ''), unit.undertakingUnitCode)",
+    supplierCode: "COALESCE(NULLIF(supplier.shortName, ''), NULLIF(supplier.nameCn, ''), supplier.supplierCode)",
+    customerCode: "COALESCE(NULLIF(customer.shortName, ''), NULLIF(customer.nameCn, ''), NULLIF(customer.name, ''), customer.customerCode)",
   };
   if (options.searchParams) {
     for (const [field, expression] of Object.entries(filterExpressions)) {
@@ -301,6 +304,9 @@ export async function listAvailableBillingLines(options: {
     LEFT JOIN requestitems ri ON ri.id = poi.requestItemId
     LEFT JOIN requests req ON req.requestNo = COALESCE(poi.requestNo, po.requestNo, ri.requestNo)
     LEFT JOIN instancemodels im ON im.deviceCode = ri.deviceCode
+    LEFT JOIN common_undertaking_units unit ON unit.undertakingUnitId = ri.undertakingUnitId OR unit.undertakingUnitCode = ri.undertakingUnitId OR unit.entityCode = ri.undertakingUnitId
+    LEFT JOIN common_suppliers supplier ON supplier.supplierId = ri.supplierId OR supplier.supplierCode = ri.supplierId
+    LEFT JOIN common_customers customer ON customer.customerId = ri.customerId OR customer.customerCode = ri.customerId
     LEFT JOIN countries country ON country.code = req.countryCode
     WHERE ${conditions.join(" AND ")}
   `;
@@ -379,6 +385,9 @@ export async function listAvailableBillingLineFilterOptions(searchParams: URLSea
     poNo: "poi.poNo", deviceCode: "ri.deviceCode", requestType: "COALESCE(NULLIF(poi.requestType, ''), NULLIF(ri.requestType, ''), NULLIF(req.requestType, ''), '整机')",
     modelCode: "im.modelCode", nameEn: "im.nameEn", quantity: "ri.quantity", actualCurrency: "po.currency",
     actualUnitPrice: "poi.unitPrice", taxExcludedUnitPrice: "COALESCE(poi.taxExcludedUnitPrice, poi.unitPrice, 0)", taxSurcharge: "COALESCE(poi.taxSurcharge, 0)",
+    undertakingUnitCode: "COALESCE(NULLIF(unit.shortName, ''), NULLIF(unit.entityName, ''), NULLIF(unit.name, ''), unit.undertakingUnitCode)",
+    supplierCode: "COALESCE(NULLIF(supplier.shortName, ''), NULLIF(supplier.nameCn, ''), supplier.supplierCode)",
+    customerCode: "COALESCE(NULLIF(customer.shortName, ''), NULLIF(customer.nameCn, ''), NULLIF(customer.name, ''), customer.customerCode)",
   };
   return listSqlFilterOptions({
     expressions,
@@ -387,7 +396,10 @@ export async function listAvailableBillingLineFilterOptions(searchParams: URLSea
       LEFT JOIN purchaseorders po ON po.purchaseOrderId = poi.purchaseOrderId OR (poi.purchaseOrderId IS NULL AND po.poNo = poi.poNo)
       LEFT JOIN requestitems ri ON ri.id = poi.requestItemId
       LEFT JOIN requests req ON req.requestNo = COALESCE(poi.requestNo, po.requestNo, ri.requestNo)
-      LEFT JOIN instancemodels im ON im.deviceCode = ri.deviceCode`,
+      LEFT JOIN instancemodels im ON im.deviceCode = ri.deviceCode
+      LEFT JOIN common_undertaking_units unit ON unit.undertakingUnitId = ri.undertakingUnitId OR unit.undertakingUnitCode = ri.undertakingUnitId OR unit.entityCode = ri.undertakingUnitId
+      LEFT JOIN common_suppliers supplier ON supplier.supplierId = ri.supplierId OR supplier.supplierCode = ri.supplierId
+      LEFT JOIN common_customers customer ON customer.customerId = ri.customerId OR customer.customerCode = ri.customerId`,
     conditions: [
       "po.status LIKE :availablePurchaseStatus",
       "req.status <> :availableRequestDraftStatus",
@@ -511,6 +523,7 @@ export async function deleteBillingLedger(ledgerId: string) {
 }
 
 export async function listMonthlyBillingWriteOffs(searchParams: URLSearchParams) {
+  await ensureMonthlyBillingRows();
   const keyword = searchParams.get("keyword")?.trim();
   const countryCode = searchParams.get("countryCode")?.trim();
   const batchName = searchParams.get("batchName")?.trim();
@@ -522,12 +535,17 @@ export async function listMonthlyBillingWriteOffs(searchParams: URLSearchParams)
   const pageSize = normalizePageSize(Number(searchParams.get("pageSize") ?? DEFAULT_PAGE_SIZE));
   const whereParts: string[] = [];
   const params: Row = {};
+  const requestTypeExpression = monthlyBillingRequestTypeExpression();
+  const supplierNameExpression = monthlyBillingPartyNameExpression("supplier");
+  const undertakingUnitNameExpression = monthlyBillingPartyNameExpression("undertakingUnit");
+  const customerNameExpression = monthlyBillingPartyNameExpression("customer");
   const filterExpressions: Record<string, string> = {
     writeOffMonth: formatTableDateExpression("mbw.writeOffMonth"), countryCode: "mbw.countryCode", batchName: "mbw.batchName",
-    requestNo: "mbw.requestNo", poNo: "mbw.poNo", deviceCode: "mbw.deviceCode", requestType: "mbw.requestType",
+    requestNo: "mbw.requestNo", poNo: "mbw.poNo", deviceCode: "mbw.deviceCode", requestType: requestTypeExpression,
     modelCode: "mbw.modelCode", nameEn: "mbw.nameEn", quantity: "mbw.quantity", instanceContractNo: "mbw.instanceContractNo",
     currency: "mbw.currency", monthlyAmount: "mbw.monthlyAmount", monthlyTotalAmount: "mbw.monthlyTotalAmount",
     stage: "mbw.stage", sourceType: "mbw.sourceType", adjustmentNo: "mbw.adjustmentNo",
+    undertakingUnitName: undertakingUnitNameExpression, supplierName: supplierNameExpression, customerName: customerNameExpression,
   };
   for (const [field, expression] of Object.entries(filterExpressions)) appendTableInFilter(whereParts, params, expression, field, searchParams, "monthlyBilling");
 
@@ -546,7 +564,7 @@ export async function listMonthlyBillingWriteOffs(searchParams: URLSearchParams)
     params.batchName = batchName;
   }
   if (requestType) {
-    whereParts.push("mbw.requestType = :requestType");
+    whereParts.push(`${requestTypeExpression} = :requestType`);
     params.requestType = requestType;
   }
   if (startMonth) {
@@ -563,6 +581,11 @@ export async function listMonthlyBillingWriteOffs(searchParams: URLSearchParams)
     `
       SELECT COUNT(*) AS total, COALESCE(SUM(mbw.monthlyTotalAmount), 0) AS totalAmount
       FROM monthlybillingwriteoffs AS mbw
+      LEFT JOIN billinginstanceledgers AS ledger ON ledger.ledgerId = mbw.ledgerId
+      LEFT JOIN purchaseorderitems AS purchaseItem ON purchaseItem.id = ledger.purchaseOrderItemId
+      LEFT JOIN requestitems AS ri ON ri.id = purchaseItem.requestItemId
+      LEFT JOIN requests AS req ON req.requestNo = COALESCE(NULLIF(purchaseItem.requestNo, ''), NULLIF(ri.requestNo, ''), mbw.requestNo)
+      LEFT JOIN requestitems AS riByBusinessKey ON riByBusinessKey.requestNo = mbw.requestNo AND riByBusinessKey.deviceCode = mbw.deviceCode
       ${where}
     `,
     params,
@@ -587,12 +610,12 @@ export async function listMonthlyBillingWriteOffs(searchParams: URLSearchParams)
         mbw.requestNo,
         mbw.poNo,
         mbw.deviceCode,
-        mbw.requestType,
+        ${requestTypeExpression} AS requestType,
         mbw.modelCode,
         mbw.nameEn,
-        COALESCE(NULLIF(mbw.supplierId, ''), ri.linkedSupplierId, riByBusinessKey.fallbackSupplierId) AS supplierId,
-        COALESCE(NULLIF(mbw.undertakingUnitId, ''), ri.linkedUndertakingUnitId, riByBusinessKey.fallbackUndertakingUnitId) AS undertakingUnitId,
-        COALESCE(NULLIF(mbw.customerId, ''), ri.linkedCustomerId, riByBusinessKey.fallbackCustomerId) AS customerId,
+        COALESCE(NULLIF(mbw.supplierId, ''), ri.supplierId, riByBusinessKey.supplierId) AS supplierId,
+        COALESCE(NULLIF(mbw.undertakingUnitId, ''), ri.undertakingUnitId, riByBusinessKey.undertakingUnitId) AS undertakingUnitId,
+        COALESCE(NULLIF(mbw.customerId, ''), ri.customerId, riByBusinessKey.customerId) AS customerId,
         mbw.quantity,
         purchaseItem.purchaseOrderId,
         mbw.instanceContractNo,
@@ -607,21 +630,11 @@ export async function listMonthlyBillingWriteOffs(searchParams: URLSearchParams)
         DATE_FORMAT(mbw.createdAt, '%Y-%m-%d') AS createdAt,
         DATE_FORMAT(mbw.updatedAt, '%Y-%m-%d') AS updatedAt
       FROM monthlybillingwriteoffs AS mbw
-      LEFT JOIN (
-        SELECT ledgerId AS linkedLedgerId, purchaseOrderItemId AS linkedPurchaseOrderItemId
-        FROM billinginstanceledgers
-      ) AS ledger ON ledger.linkedLedgerId = mbw.ledgerId
-      LEFT JOIN purchaseorderitems AS purchaseItem ON purchaseItem.id = ledger.linkedPurchaseOrderItemId
-      LEFT JOIN (
-        SELECT id AS linkedRequestItemId, supplierId AS linkedSupplierId, undertakingUnitId AS linkedUndertakingUnitId, customerId AS linkedCustomerId
-        FROM requestitems
-      ) AS ri ON ri.linkedRequestItemId = purchaseItem.requestItemId
-      LEFT JOIN (
-        SELECT requestNo AS keyRequestNo, deviceCode AS keyDeviceCode, supplierId AS fallbackSupplierId, undertakingUnitId AS fallbackUndertakingUnitId, customerId AS fallbackCustomerId
-        FROM requestitems
-      ) AS riByBusinessKey
-        ON riByBusinessKey.keyRequestNo = mbw.requestNo
-        AND riByBusinessKey.keyDeviceCode = mbw.deviceCode
+      LEFT JOIN billinginstanceledgers AS ledger ON ledger.ledgerId = mbw.ledgerId
+      LEFT JOIN purchaseorderitems AS purchaseItem ON purchaseItem.id = ledger.purchaseOrderItemId
+      LEFT JOIN requestitems AS ri ON ri.id = purchaseItem.requestItemId
+      LEFT JOIN requests AS req ON req.requestNo = COALESCE(NULLIF(purchaseItem.requestNo, ''), NULLIF(ri.requestNo, ''), mbw.requestNo)
+      LEFT JOIN requestitems AS riByBusinessKey ON riByBusinessKey.requestNo = mbw.requestNo AND riByBusinessKey.deviceCode = mbw.deviceCode
       ${where}
       ${getTableSort(searchParams, filterExpressions) || "ORDER BY mbw.writeOffMonth DESC, mbw.ledgerId"}
       ${exportAll ? "" : "LIMIT :limit OFFSET :offset"}
@@ -639,17 +652,126 @@ export async function listMonthlyBillingWriteOffs(searchParams: URLSearchParams)
   };
 }
 
-export async function listMonthlyBillingWriteOffFilterOptions(searchParams: URLSearchParams) {
-  const expressions: Record<string, string> = {
-    writeOffMonth: formatTableDateExpression("writeOffMonth"), countryCode: "countryCode", batchName: "batchName", requestNo: "requestNo", poNo: "poNo",
-    deviceCode: "deviceCode", requestType: "requestType", modelCode: "modelCode", nameEn: "nameEn", quantity: "quantity",
-    instanceContractNo: "instanceContractNo", currency: "currency", monthlyAmount: "monthlyAmount", monthlyTotalAmount: "monthlyTotalAmount",
-    stage: "stage", sourceType: "sourceType", adjustmentNo: "adjustmentNo",
-  };
-  return listTableOptions("monthlybillingwriteoffs", expressions, searchParams);
+const MONTHLY_BILLING_TOTAL_MONTHS = 60;
+
+/**
+ * Older imports could create billing ledgers without their derived monthly rows.
+ * Fill only missing deterministic rows so the monthly ledger and service-fee
+ * calculations can use the same source data as newly confirmed ledgers.
+ */
+export async function ensureMonthlyBillingRows() {
+  const ledgers = await queryRows<BillingLedgerDraft>(
+    `
+      SELECT
+        billing.ledgerId,
+        billing.purchaseOrderItemId,
+        billing.countryCode,
+        billing.batchName,
+        billing.requestNo,
+        billing.poNo,
+        billing.deviceCode,
+        COALESCE(NULLIF(purchaseItem.requestType, ''), NULLIF(ri.requestType, ''), NULLIF(req.requestType, ''), '整机') AS requestType,
+        billing.modelCode,
+        billing.nameEn,
+        billing.supplierId,
+        billing.undertakingUnitId,
+        billing.customerId,
+        billing.quantity,
+        billing.actualCurrency,
+        billing.actualUnitPrice,
+        billing.taxExcludedUnitPrice,
+        billing.taxSurcharge,
+        billing.vatRate,
+        billing.selfCalculatedUnitPrice,
+        billing.instanceContractNo,
+        billing.contractCurrency,
+        billing.first24MonthPrice,
+        billing.next36MonthPrice,
+        billing.differenceUnitPrice,
+        billing.differenceTotalPrice,
+        DATE_FORMAT(billing.startMonth, '%Y-%m-%d') AS startMonth,
+        billing.status
+      FROM billinginstanceledgers AS billing
+      LEFT JOIN purchaseorderitems AS purchaseItem ON purchaseItem.id = billing.purchaseOrderItemId
+      LEFT JOIN requestitems AS ri ON ri.id = purchaseItem.requestItemId
+      LEFT JOIN requests AS req ON req.requestNo = COALESCE(NULLIF(purchaseItem.requestNo, ''), NULLIF(ri.requestNo, ''), billing.requestNo)
+      LEFT JOIN (
+        SELECT ledgerId, COUNT(*) AS rowCount
+        FROM monthlybillingwriteoffs
+        GROUP BY ledgerId
+      ) AS monthly ON monthly.ledgerId = billing.ledgerId
+      WHERE COALESCE(monthly.rowCount, 0) < :totalMonths
+      ORDER BY billing.ledgerId
+    `,
+    { totalMonths: MONTHLY_BILLING_TOTAL_MONTHS },
+  );
+  if (!ledgers.length) return { ledgerCount: 0, rowCount: 0 };
+
+  const rows: MonthlyBillingRow[] = [];
+  for (const ledger of ledgers) {
+    rows.push(...await buildMonthlyBillingRowsWithConfirmedAdjustments(ledger));
+  }
+
+  await withTransaction(async (connection) => {
+    for (let offset = 0; offset < rows.length; offset += 500) {
+      const chunk = rows.slice(offset, offset + 500);
+      const columns = [
+        "id", "ledgerId", "writeOffMonth", "monthIndex", "stage", "countryCode", "batchName", "requestNo",
+        "poNo", "deviceCode", "modelCode", "nameEn", "supplierId", "undertakingUnitId", "customerId", "quantity",
+        "instanceContractNo", "currency", "monthlyAmount", "monthlyTotalAmount", "selfCalculatedUnitPrice",
+        "differenceUnitPrice", "differenceTotalPrice", "sourceType", "adjustmentNo",
+      ];
+      const values = chunk.map((_, index) => `(${columns.map((column) => `:${column}_${index}`).join(", ")})`).join(", ");
+      const params = Object.fromEntries(
+        chunk.flatMap((row, index) => columns.map((column) => [`${column}_${index}`, row[column as keyof MonthlyBillingRow] ?? null])),
+      );
+      await executeInTransaction(
+        connection,
+        `INSERT IGNORE INTO monthlybillingwriteoffs (${columns.join(", ")}) VALUES ${values}`,
+        params,
+      );
+    }
+  });
+
+  return { ledgerCount: ledgers.length, rowCount: rows.length };
 }
 
-async function listTableOptions(table: string, expressions: Record<string, string>, searchParams: URLSearchParams) {
+function monthlyBillingRequestTypeExpression() {
+  return "COALESCE(NULLIF(purchaseItem.requestType, ''), NULLIF(ri.requestType, ''), NULLIF(req.requestType, ''), NULLIF(riByBusinessKey.requestType, ''), '整机')";
+}
+
+function monthlyBillingPartyNameExpression(party: "supplier" | "undertakingUnit" | "customer") {
+  const ids = party === "supplier"
+    ? "COALESCE(NULLIF(mbw.supplierId, ''), ri.supplierId, riByBusinessKey.supplierId)"
+    : party === "undertakingUnit"
+      ? "COALESCE(NULLIF(mbw.undertakingUnitId, ''), ri.undertakingUnitId, riByBusinessKey.undertakingUnitId)"
+      : "COALESCE(NULLIF(mbw.customerId, ''), ri.customerId, riByBusinessKey.customerId)";
+  const table = party === "supplier" ? "common_suppliers" : party === "undertakingUnit" ? "common_undertaking_units" : "common_customers";
+  const idColumn = party === "supplier" ? "supplierId" : party === "undertakingUnit" ? "undertakingUnitId" : "customerId";
+  const codeColumn = party === "supplier" ? "supplierCode" : party === "undertakingUnit" ? "undertakingUnitCode" : "customerCode";
+  const fullNameColumn = party === "supplier" ? "nameCn" : party === "undertakingUnit" ? "entityName" : "nameCn";
+  return `(SELECT COALESCE(NULLIF(party.shortName, ''), NULLIF(party.${fullNameColumn}, ''), party.${codeColumn}) FROM ${table} party WHERE party.${idColumn} = ${ids} OR party.${codeColumn} = ${ids} LIMIT 1)`;
+}
+
+export async function listMonthlyBillingWriteOffFilterOptions(searchParams: URLSearchParams) {
+  const expressions: Record<string, string> = {
+    writeOffMonth: formatTableDateExpression("mbw.writeOffMonth"), countryCode: "mbw.countryCode", batchName: "mbw.batchName", requestNo: "mbw.requestNo", poNo: "mbw.poNo",
+    deviceCode: "mbw.deviceCode", requestType: monthlyBillingRequestTypeExpression(), modelCode: "mbw.modelCode", nameEn: "mbw.nameEn", quantity: "mbw.quantity",
+    instanceContractNo: "mbw.instanceContractNo", currency: "mbw.currency", monthlyAmount: "mbw.monthlyAmount", monthlyTotalAmount: "mbw.monthlyTotalAmount",
+    stage: "mbw.stage", sourceType: "mbw.sourceType", adjustmentNo: "mbw.adjustmentNo",
+    undertakingUnitName: monthlyBillingPartyNameExpression("undertakingUnit"), supplierName: monthlyBillingPartyNameExpression("supplier"), customerName: monthlyBillingPartyNameExpression("customer"),
+  };
+  return listTableOptions("", expressions, searchParams, `
+    monthlybillingwriteoffs AS mbw
+    LEFT JOIN billinginstanceledgers AS ledger ON ledger.ledgerId = mbw.ledgerId
+    LEFT JOIN purchaseorderitems AS purchaseItem ON purchaseItem.id = ledger.purchaseOrderItemId
+    LEFT JOIN requestitems AS ri ON ri.id = purchaseItem.requestItemId
+    LEFT JOIN requests AS req ON req.requestNo = COALESCE(NULLIF(purchaseItem.requestNo, ''), NULLIF(ri.requestNo, ''), mbw.requestNo)
+    LEFT JOIN requestitems AS riByBusinessKey ON riByBusinessKey.requestNo = mbw.requestNo AND riByBusinessKey.deviceCode = mbw.deviceCode
+  `);
+}
+
+async function listTableOptions(table: string, expressions: Record<string, string>, searchParams: URLSearchParams, from = table) {
   const field = searchParams.get("field")?.trim() ?? "";
   const expression = expressions[field];
   if (!expression) return { options: [] as Array<{ value: string; count: number }> };
@@ -658,7 +780,14 @@ async function listTableOptions(table: string, expressions: Record<string, strin
   const where = [`${expression} IS NOT NULL`, `TRIM(CAST(${expression} AS CHAR)) <> ''`];
   if (keyword) { where.push(`${expression} LIKE :optionKeyword`); params.optionKeyword = `%${keyword}%`; }
   appendTableFilterOptionConditions(where, params, expressions, searchParams, field);
-  const rows = await queryRows<{ value: string; count: number }>(`SELECT ${expression} AS value, COUNT(*) AS count FROM ${table} WHERE ${where.join(" AND ")} GROUP BY ${expression} ORDER BY ${getTableFilterOptionsOrderBy(field, expression)} LIMIT 500`, params);
+  const rows = await queryRows<{ value: string; count: number }>(
+    `SELECT optionValues.value, COUNT(*) AS count
+       FROM (SELECT ${expression} AS value FROM ${from} WHERE ${where.join(" AND ")}) AS optionValues
+      GROUP BY optionValues.value
+      ORDER BY ${getTableFilterOptionsOrderBy(field, "optionValues.value")}
+      LIMIT 500`,
+    params,
+  );
   return { options: rows.map((row) => ({ value: String(row.value ?? ""), count: Number(row.count ?? 0) })) };
 }
 
@@ -719,14 +848,12 @@ async function insertBillingLedger(ledger: BillingLedgerDraft) {
       INSERT INTO billinginstanceledgers
         (ledgerId, purchaseOrderItemId, countryCode, batchName, requestNo, poNo, deviceCode,
           modelCode, nameEn, supplierId, undertakingUnitId, customerId, quantity, actualCurrency, actualUnitPrice,
-          requestType,
          taxExcludedUnitPrice, taxSurcharge, vatRate, selfCalculatedUnitPrice, instanceContractNo,
          contractCurrency, first24MonthPrice, next36MonthPrice, differenceUnitPrice, differenceTotalPrice,
          startMonth, status, confirmedAt)
-      VALUES
-        (:ledgerId, :purchaseOrderItemId, :countryCode, :batchName, :requestNo, :poNo, :deviceCode,
+        VALUES
+          (:ledgerId, :purchaseOrderItemId, :countryCode, :batchName, :requestNo, :poNo, :deviceCode,
           :modelCode, :nameEn, :supplierId, :undertakingUnitId, :customerId, :quantity, :actualCurrency, :actualUnitPrice,
-          :requestType,
          :taxExcludedUnitPrice, :taxSurcharge, :vatRate, :selfCalculatedUnitPrice, :instanceContractNo,
          :contractCurrency, :first24MonthPrice, :next36MonthPrice, :differenceUnitPrice, :differenceTotalPrice,
          :startMonth, :status, CURRENT_TIMESTAMP)
@@ -746,11 +873,12 @@ async function getBillingLedgerDraft(ledgerId: string) {
         requestNo,
         poNo,
         deviceCode,
-        requestType,
+        COALESCE(NULLIF(purchaseItem.requestType, ''), NULLIF(ri.requestType, ''), NULLIF(req.requestType, ''), '整机') AS requestType,
         modelCode,
         nameEn,
         supplierId,
         undertakingUnitId,
+        customerId,
         quantity,
         actualCurrency,
         actualUnitPrice,
@@ -767,6 +895,9 @@ async function getBillingLedgerDraft(ledgerId: string) {
         DATE_FORMAT(startMonth, '%Y-%m-%d') AS startMonth,
         status
       FROM billinginstanceledgers
+      LEFT JOIN purchaseorderitems AS purchaseItem ON purchaseItem.id = billinginstanceledgers.purchaseOrderItemId
+      LEFT JOIN requestitems AS ri ON ri.id = purchaseItem.requestItemId
+      LEFT JOIN requests AS req ON req.requestNo = COALESCE(NULLIF(purchaseItem.requestNo, ''), NULLIF(ri.requestNo, ''), billinginstanceledgers.requestNo)
       WHERE ledgerId = :ledgerId
       LIMIT 1
     `,
@@ -831,12 +962,12 @@ async function replaceMonthlyBillingRows(ledgerId: string, rows: MonthlyBillingR
       `
         INSERT INTO monthlybillingwriteoffs
           (id, ledgerId, writeOffMonth, monthIndex, stage, countryCode, batchName, requestNo,
-           poNo, deviceCode, requestType, modelCode, nameEn, supplierId, undertakingUnitId, customerId, quantity,
+           poNo, deviceCode, modelCode, nameEn, supplierId, undertakingUnitId, customerId, quantity,
            instanceContractNo, currency, monthlyAmount, monthlyTotalAmount, selfCalculatedUnitPrice,
            differenceUnitPrice, differenceTotalPrice, sourceType, adjustmentNo)
         VALUES
           (:id, :ledgerId, :writeOffMonth, :monthIndex, :stage, :countryCode, :batchName, :requestNo,
-           :poNo, :deviceCode, :requestType, :modelCode, :nameEn, :supplierId, :undertakingUnitId, :customerId, :quantity,
+           :poNo, :deviceCode, :modelCode, :nameEn, :supplierId, :undertakingUnitId, :customerId, :quantity,
            :instanceContractNo, :currency, :monthlyAmount, :monthlyTotalAmount, :selfCalculatedUnitPrice,
            :differenceUnitPrice, :differenceTotalPrice, :sourceType, :adjustmentNo)
       `,

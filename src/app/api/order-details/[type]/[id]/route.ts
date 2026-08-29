@@ -9,7 +9,14 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ ty
     return NextResponse.json({ error: "Unknown order detail type" }, { status: 404 });
   }
 
-  const data = await getOrderDetail(type as OrderDetailType, decodeURIComponent(id));
-  if (!data.master) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  return NextResponse.json(data);
+  try {
+    const data = await getOrderDetail(type as OrderDetailType, decodeURIComponent(id));
+    if (!data.master) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    return NextResponse.json(data);
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "订单详情加载失败" },
+      { status: 500 },
+    );
+  }
 }

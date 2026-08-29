@@ -4,6 +4,7 @@ import { upsertEntityRow } from "@/lib/crud";
 import { queryRows, type Row } from "@/lib/db";
 import { importRowsWithReport, isEntityTemplateNoteRow, normalizeEntityImportRow } from "@/lib/entity-import";
 import { getEntityConfig } from "@/lib/modules";
+import { normalizePartyReferenceRow, type PartyReferenceCollections } from "@/lib/party-reference";
 import { isBlankImportValue, mergeShipmentImportRow, normalizeText } from "@/lib/shipment-import";
 import { resolveDemandPlanImportRow } from "@/lib/purchase-order-demand-plan";
 import { autofillInstanceContractImportRow } from "@/lib/instance-contract-import";
@@ -23,10 +24,16 @@ export async function POST(request: NextRequest, context: { params: Promise<{ en
   if (!(file instanceof File)) {
     return NextResponse.json({ error: "Missing file" }, { status: 400 });
   }
+  if (!/\.xlsx?$/i.test(file.name)) {
+    return NextResponse.json({ error: "仅支持xlsx或xls文件" }, { status: 400 });
+  }
 
   const buffer = Buffer.from(await file.arrayBuffer());
   const workbook = XLSX.read(buffer);
   const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+  if (!worksheet) {
+    return NextResponse.json({ error: "工作簿没有可导入的工作表" }, { status: 400 });
+  }
   const rows = XLSX.utils
     .sheet_to_json<Record<string, unknown>>(worksheet, { defval: "", raw: false })
     .filter((row) => !isEntityTemplateNoteRow(config, row));
@@ -54,6 +61,13 @@ export async function POST(request: NextRequest, context: { params: Promise<{ en
     }
     return normalized;
   });
+  const partyReferences = await loadPartyReferences(config.formFields.some((field) =>
+    ["supplierId", "undertakingUnitId", "customerId"].includes(field.key),
+  ));
+  for (const row of normalizedRows) {
+    const error = normalizePartyReferenceRow(row, partyReferences);
+    if (error) row.__partyReferenceImportError = error;
+  }
   if (config.key === "shipments") {
     await enrichShipmentImportRows(normalizedRows);
   }
@@ -64,12 +78,28 @@ export async function POST(request: NextRequest, context: { params: Promise<{ en
     await enrichDemandPlanImportRows(normalizedRows);
   }
   const report = await importRowsWithReport(config, normalizedRows, async (row) => {
+    if (row.__partyReferenceImportError) {
+      throw new Error(String(row.__partyReferenceImportError));
+    }
+    if (config.key === "instance-contracts" && row.__instanceContractImportError) {
+      throw new Error(String(row.__instanceContractImportError));
+    }
     if ((config.key === "purchase-order-sn-items" || config.key === "purchase-order-plan-items") && !normalizeText(row.purchaseOrderId)) {
       throw new Error("未找到对应的PO订单号，请检查PO订单号是否存在");
     }
     await upsertEntityRow(config, row);
   });
   return NextResponse.json(report);
+}
+
+async function loadPartyReferences(enabled: boolean): Promise<PartyReferenceCollections | undefined> {
+  if (!enabled) return undefined;
+  const [suppliers, undertakingUnits, customers] = await Promise.all([
+    queryRows("SELECT supplierId, supplierCode, shortName, nameCn FROM common_suppliers"),
+    queryRows("SELECT undertakingUnitId, undertakingUnitCode, entityCode, shortName, entityName, name FROM common_undertaking_units"),
+    queryRows("SELECT customerId, customerCode, shortName, nameCn, name FROM common_customers"),
+  ]);
+  return { suppliers, undertakingUnits, customers };
 }
 
 function getDemandPlanFixedValues(entityKey: string, value: FormDataEntryValue | null): Row {
@@ -96,7 +126,15 @@ async function enrichInstanceContractImportRows(rows: Row[]) {
     : [];
 
   for (const [index, row] of rows.entries()) {
-    rows[index] = autofillInstanceContractImportRow(row, instanceModels);
+    try {
+      rows[index] = autofillInstanceContractImportRow(row, instanceModels);
+    } catch (error) {
+      // Keep the row in the report so one bad device does not abort the whole workbook.
+      rows[index] = {
+        ...row,
+        __instanceContractImportError: error instanceof Error ? error.message : String(error),
+      };
+    }
   }
 }
 

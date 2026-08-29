@@ -208,18 +208,30 @@ export async function importCloudWorkbook(buffer: Buffer, fileName: string, peri
   if (!sheet) throw new Error("工作簿没有可导入的工作表");
   const raw = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "" });
   if (!raw.length) throw new Error("工作表没有数据");
-  const normalized = raw.map((source) => Object.fromEntries(Object.entries(source).map(([key, value]) => [CLOUD_IMPORT_HEADERS[key.toLowerCase().replace(/\s+/g, "")] ?? CLOUD_IMPORT_HEADERS[key] ?? key, value])));
+  const normalized = raw
+    .map((source) => Object.fromEntries(Object.entries(source).map(([key, value]) => [CLOUD_IMPORT_HEADERS[key.toLowerCase().replace(/\s+/g, "")] ?? CLOUD_IMPORT_HEADERS[key] ?? key, value])))
+    .filter((source) => !isCloudImportNoteRow(source));
+  if (!normalized.length) throw new Error("工作表没有可导入的账单数据");
+  const invalidRow = normalized.findIndex((source) => !text(source.customer) || !text(source.account));
+  if (invalidRow >= 0) {
+    throw new Error(`第 ${invalidRow + 2} 行客户和账号不能为空`);
+  }
   const resolvedPeriod = period || text(normalized[0]?.period) || new Date().toISOString().slice(0, 7);
   const batchId = randomUUID();
   const batchCode = `HC-${resolvedPeriod.replace(/[^0-9]/g, "")}-${Date.now().toString().slice(-6)}`;
   await executeRaw(`INSERT INTO cloud_import_batches (id,batchCode,period,fileName,rowCount,importedByUserId,importedByName) VALUES (:id,:batchCode,:period,:fileName,:rowCount,:userId,:userName)`, { id: batchId, batchCode, period: resolvedPeriod, fileName, rowCount: normalized.length, userId: actor?.userId ?? null, userName: actor?.displayName ?? null });
   for (const source of normalized) {
     const row: Row = { id: randomUUID(), importBatchId: batchId, period: text(source.period) || resolvedPeriod, batchCode, customer: text(source.customer), account: text(source.account), owner: text(source.owner), collectionEntity: text(source.collectionEntity), catalogAmount: number(source.catalogAmount), partnerAmount: number(source.partnerAmount), supplierPayable: number(source.supplierPayable), supplierTaxRate: number(source.supplierTaxRate), customerReceivable: number(source.customerReceivable), customerTaxRate: number(source.customerTaxRate), grossProfit: number(source.grossProfit), calculationLogic: text(source.calculationLogic), customerDiscount: number(source.customerDiscount), remark: text(source.remark), createdByUserId: actor?.userId ?? null, createdByName: actor?.displayName ?? null, updatedByUserId: actor?.userId ?? null, updatedByName: actor?.displayName ?? null };
-    if (!row.customer || !row.account) continue;
     await executeRaw(`INSERT INTO cloud_rows (id,importBatchId,period,batchCode,customer,account,owner,collectionEntity,catalogAmount,partnerAmount,supplierPayable,supplierTaxRate,customerReceivable,customerTaxRate,grossProfit,calculationLogic,customerDiscount,remark,createdByUserId,createdByName,updatedByUserId,updatedByName)
       VALUES (:id,:importBatchId,:period,:batchCode,:customer,:account,:owner,:collectionEntity,:catalogAmount,:partnerAmount,:supplierPayable,:supplierTaxRate,:customerReceivable,:customerTaxRate,:grossProfit,:calculationLogic,:customerDiscount,:remark,:createdByUserId,:createdByName,:updatedByUserId,:updatedByName)`, row);
   }
   return { batchId, batchCode, period: resolvedPeriod, rowCount: normalized.length };
+}
+
+function isCloudImportNoteRow(row: Record<string, unknown>) {
+  const values = Object.values(row).map(text).filter(Boolean);
+  if (!values.length) return true;
+  return values.every((value) => value === "必填" || value === "可选" || value.startsWith("必填：") || value.startsWith("可选："));
 }
 
 export async function listCloudAttachments(ownerType: string, ownerId: string) {

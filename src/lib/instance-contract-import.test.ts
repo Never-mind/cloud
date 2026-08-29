@@ -10,4 +10,13 @@ describe("instance contract import", () => {
       ),
     ).toMatchObject({ modelCode: "M-A", instanceModelEn: "Compute Enhanced" });
   });
+
+  it("keeps model fields explicitly provided in the import file", () => {
+    expect(
+      autofillInstanceContractImportRow(
+        { deviceCode: "DEV-MISSING", modelCode: "MANUAL-MODEL", instanceModelEn: "Manual Instance" },
+        [],
+      ),
+    ).toMatchObject({ modelCode: "MANUAL-MODEL", instanceModelEn: "Manual Instance" });
+  });
 });

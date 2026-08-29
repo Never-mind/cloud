@@ -21,6 +21,8 @@ import { PaginationBar } from "./pagination-bar";
 import { StickyTable } from "./sticky-table";
 import { TableColumnMenu, type TableFilterOption, type TableSortOrder } from "./table-column-menu";
 import { useRequestGuard } from "@/lib/table-query-client";
+import { readJsonResponse } from "@/lib/client-response";
+import { postWorkspaceMessage } from "@/lib/tab-workspace";
 import { Button, Input, Panel } from "./ui";
 
 type Row = Record<string, string | number | boolean | null>;
@@ -152,9 +154,7 @@ export function OrderListPage({
     }
     if (exportAll) params.set("export", "1");
     const response = await fetch(`/api/orders?${params.toString()}`);
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error ?? "订单列表加载失败");
-    return data as OrderListResponse;
+    return readJsonResponse<OrderListResponse>(response, "订单列表加载失败");
   }
 
   async function loadColumnOptions(field: string, optionKeyword: string): Promise<TableFilterOption[]> {
@@ -167,8 +167,7 @@ export function OrderListPage({
       for (const value of values) params.append(`filter.${key}`, value);
     }
     const response = await fetch(`/api/orders?${params.toString()}`);
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error ?? "筛选候选值加载失败");
+    const data = await readJsonResponse<{ options?: TableFilterOption[] }>(response, "筛选候选值加载失败");
     return (data.options ?? []) as TableFilterOption[];
   }
 
@@ -283,6 +282,16 @@ export function OrderListPage({
   }
 
   const hasActionColumn = mode === "purchase" || mode === "requests";
+  const detailTitle = mode === "requests" ? "需求单明细" : "采购订单明细";
+
+  function openOrderDetail(id: string, event: React.MouseEvent<HTMLAnchorElement>) {
+    event.preventDefault();
+    postWorkspaceMessage({
+      type: "cloud-power:open-tab",
+      route: buildDetailRoute(getOrderDetailRoute(mode, id), currentRoute),
+      title: detailTitle,
+    });
+  }
 
   return (
     <div className="space-y-5">
@@ -434,6 +443,7 @@ export function OrderListPage({
                       <Link
                         className="font-medium text-[#1890ff] hover:underline"
                         href={buildDetailRoute(getOrderDetailRoute(mode, id), currentRoute)}
+                        onClick={(event) => openOrderDetail(id, event)}
                       >
                         {primaryDisplayValue}
                       </Link>
@@ -496,7 +506,10 @@ export function OrderListPage({
                       <td className="sticky right-0 whitespace-nowrap border-b border-[#ebeef5] bg-white px-3 py-3">
                         {mode === "requests" ? (
                           <div className="flex items-center gap-2">
-                            <Link href={buildDetailRoute(getOrderDetailRoute(mode, id), currentRoute)}>
+                            <Link
+                              href={buildDetailRoute(getOrderDetailRoute(mode, id), currentRoute)}
+                              onClick={(event) => openOrderDetail(id, event)}
+                            >
                               <Button disabled={confirmed}>
                                 <Pencil size={15} />
                                 修改

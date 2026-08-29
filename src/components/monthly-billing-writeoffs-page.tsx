@@ -40,7 +40,7 @@ const columns: Array<{ key: string; label: string; type?: string }> = [
 
 const displayColumns = columns.flatMap((column) =>
   column.key === "countryCode"
-    ? [column, { key: "undertakingUnitCode", label: "承接单位" }, { key: "supplierCode", label: "供应商" }]
+    ? [column, { key: "undertakingUnitName", label: "承接单位" }, { key: "supplierName", label: "供应商" }, { key: "customerName", label: "客户" }]
     : [column],
 ).map((column) => ({ ...column, sortable: true, filterable: true }));
 

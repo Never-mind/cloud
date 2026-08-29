@@ -32,7 +32,7 @@ export async function listRequestProductLines(searchParams: URLSearchParams): Pr
     whereParts.push(`(
       req.countryCode LIKE :keyword OR req.batchName LIKE :keyword OR ri.requestNo LIKE :keyword
       OR ri.deviceCode LIKE :keyword OR model.modelCode LIKE :keyword OR model.nameEn LIKE :keyword
-      OR supplier.name LIKE :keyword OR supplier.supplierCode LIKE :keyword
+      OR supplier.shortName LIKE :keyword OR supplier.nameCn LIKE :keyword OR supplier.supplierCode LIKE :keyword
     )`);
     params.keyword = `%${keyword}%`;
   }
@@ -68,7 +68,7 @@ export async function listRequestProductLines(searchParams: URLSearchParams): Pr
         ri.deviceCode,
         model.modelCode,
         model.nameEn,
-        COALESCE(supplier.name, supplier.supplierCode, ri.supplierId) AS supplierName,
+        COALESCE(NULLIF(supplier.shortName, ''), NULLIF(supplier.nameCn, ''), supplier.supplierCode, ri.supplierId) AS supplierName,
         ri.quantity,
         DATE_FORMAT(req.plannedDeliveryDate, '%Y-%m-%d') AS plannedDeliveryDate,
         DATE_FORMAT(req.createdAt, '%Y-%m-%d') AS createdAt,
@@ -194,7 +194,7 @@ export async function listProductLineFilterOptions(searchParams: URLSearchParams
         deviceCode: "ri.deviceCode",
         modelCode: "model.modelCode",
         nameEn: "model.nameEn",
-        supplierName: "COALESCE(supplier.name, supplier.supplierCode, ri.supplierId)",
+        supplierName: "COALESCE(NULLIF(supplier.shortName, ''), NULLIF(supplier.nameCn, ''), supplier.supplierCode, ri.supplierId)",
         quantity: "ri.quantity",
         plannedDeliveryDate: formatTableDateExpression("req.plannedDeliveryDate"),
         createdAt: formatTableDateExpression("req.createdAt"),
@@ -270,7 +270,7 @@ function buildColumnFilters(searchParams: URLSearchParams, params: Row, mode: "r
         deviceCode: "ri.deviceCode",
         modelCode: "model.modelCode",
         nameEn: "model.nameEn",
-        supplierName: "COALESCE(supplier.name, supplier.supplierCode, ri.supplierId)",
+        supplierName: "COALESCE(NULLIF(supplier.shortName, ''), NULLIF(supplier.nameCn, ''), supplier.supplierCode, ri.supplierId)",
         quantity: "ri.quantity",
         plannedDeliveryDate: formatTableDateExpression("req.plannedDeliveryDate"),
         createdAt: formatTableDateExpression("req.createdAt"),

@@ -29,6 +29,24 @@ type PrepaymentLineRow = PrepaymentContractLineDraft & {
   status?: string | null;
 };
 
+function monthlyPrepaymentPartyNameExpression(party: "supplier" | "undertakingUnit" | "customer") {
+  const ids = party === "supplier"
+    ? "COALESCE(NULLIF(mpw.supplierId, ''), ri.linkedSupplierId, riByBusinessKey.fallbackSupplierId)"
+    : party === "undertakingUnit"
+      ? "COALESCE(NULLIF(mpw.undertakingUnitId, ''), ri.linkedUndertakingUnitId, riByBusinessKey.fallbackUndertakingUnitId)"
+      : "COALESCE(NULLIF(mpw.customerId, ''), ri.linkedCustomerId, riByBusinessKey.fallbackCustomerId)";
+  const table = party === "supplier" ? "common_suppliers" : party === "undertakingUnit" ? "common_undertaking_units" : "common_customers";
+  const idColumn = party === "supplier" ? "supplierId" : party === "undertakingUnit" ? "undertakingUnitId" : "customerId";
+  const codeColumn = party === "supplier" ? "supplierCode" : party === "undertakingUnit" ? "undertakingUnitCode" : "customerCode";
+  const fullNameColumn = party === "supplier" ? "nameCn" : party === "undertakingUnit" ? "entityName" : "nameCn";
+  const reference = party === "supplier"
+    ? `party.${idColumn} = ${ids} OR party.${codeColumn} = ${ids}`
+    : party === "undertakingUnit"
+      ? `party.${idColumn} = ${ids} OR party.${codeColumn} = ${ids} OR party.entityCode = ${ids}`
+      : `party.${idColumn} = ${ids} OR party.${codeColumn} = ${ids}`;
+  return `(SELECT COALESCE(NULLIF(party.shortName, ''), NULLIF(party.${fullNameColumn}, ''), party.${codeColumn}) FROM ${table} party WHERE ${reference} LIMIT 1)`;
+}
+
 export async function listAvailablePrepaymentLines(options: {
   page?: number;
   pageSize?: number;
@@ -62,6 +80,9 @@ export async function listAvailablePrepaymentLines(options: {
     countryCode: "req.countryCode", batchName: "req.batchName", requestNo: "COALESCE(poi.requestNo, po.requestNo, ri.requestNo)",
     poNo: "poi.poNo", deviceCode: "ri.deviceCode", requestType: "COALESCE(NULLIF(poi.requestType, ''), NULLIF(ri.requestType, ''), NULLIF(req.requestType, ''), '整机')",
     modelCode: "im.modelCode", nameEn: "im.nameEn", quantity: "ri.quantity", currency: "po.currency", actualUnitPrice: "poi.unitPrice",
+    undertakingUnitCode: "COALESCE(NULLIF(unit.shortName, ''), NULLIF(unit.entityName, ''), NULLIF(unit.name, ''), unit.undertakingUnitCode)",
+    supplierCode: "COALESCE(NULLIF(supplier.shortName, ''), NULLIF(supplier.nameCn, ''), supplier.supplierCode)",
+    customerCode: "COALESCE(NULLIF(customer.shortName, ''), NULLIF(customer.nameCn, ''), NULLIF(customer.name, ''), customer.customerCode)",
   };
   if (options.searchParams) {
     for (const [field, expression] of Object.entries(filterExpressions)) {
@@ -81,6 +102,9 @@ export async function listAvailablePrepaymentLines(options: {
     LEFT JOIN requestitems ri ON ri.id = poi.requestItemId
     LEFT JOIN requests req ON req.requestNo = COALESCE(poi.requestNo, po.requestNo, ri.requestNo)
     LEFT JOIN instancemodels im ON im.deviceCode = ri.deviceCode
+    LEFT JOIN common_undertaking_units unit ON unit.undertakingUnitId = ri.undertakingUnitId OR unit.undertakingUnitCode = ri.undertakingUnitId OR unit.entityCode = ri.undertakingUnitId
+    LEFT JOIN common_suppliers supplier ON supplier.supplierId = ri.supplierId OR supplier.supplierCode = ri.supplierId
+    LEFT JOIN common_customers customer ON customer.customerId = ri.customerId OR customer.customerCode = ri.customerId
     WHERE ${conditions.join(" AND ")}
   `;
   const [{ total: totalValue }] = await queryRows<{ total: number }>(`SELECT COUNT(*) AS total ${sourceFrom}`, params);
@@ -115,7 +139,7 @@ export async function listAvailablePrepaymentLines(options: {
     { ...params, limit: pageSize, offset: (page - 1) * pageSize },
   );
   return {
-    rows: filterAvailablePrepaymentLines({ purchaseLines, occupiedPurchaseOrderItemIds: [] }),
+    rows: await attachPartyCodes(filterAvailablePrepaymentLines({ purchaseLines, occupiedPurchaseOrderItemIds: [] })),
     total,
     page,
     pageSize,
@@ -128,6 +152,9 @@ export async function listAvailablePrepaymentLineFilterOptions(searchParams: URL
     countryCode: "req.countryCode", batchName: "req.batchName", requestNo: "COALESCE(poi.requestNo, po.requestNo, ri.requestNo)",
     poNo: "poi.poNo", deviceCode: "ri.deviceCode", requestType: "COALESCE(NULLIF(poi.requestType, ''), NULLIF(ri.requestType, ''), NULLIF(req.requestType, ''), '整机')",
     modelCode: "im.modelCode", nameEn: "im.nameEn", quantity: "ri.quantity", currency: "po.currency", actualUnitPrice: "poi.unitPrice",
+    undertakingUnitCode: "COALESCE(NULLIF(unit.shortName, ''), NULLIF(unit.entityName, ''), NULLIF(unit.name, ''), unit.undertakingUnitCode)",
+    supplierCode: "COALESCE(NULLIF(supplier.shortName, ''), NULLIF(supplier.nameCn, ''), supplier.supplierCode)",
+    customerCode: "COALESCE(NULLIF(customer.shortName, ''), NULLIF(customer.nameCn, ''), NULLIF(customer.name, ''), customer.customerCode)",
   };
   return listSqlFilterOptions({
     expressions,
@@ -136,7 +163,10 @@ export async function listAvailablePrepaymentLineFilterOptions(searchParams: URL
       LEFT JOIN purchaseorders po ON po.purchaseOrderId = poi.purchaseOrderId OR (poi.purchaseOrderId IS NULL AND po.poNo = poi.poNo)
       LEFT JOIN requestitems ri ON ri.id = poi.requestItemId
       LEFT JOIN requests req ON req.requestNo = COALESCE(poi.requestNo, po.requestNo, ri.requestNo)
-      LEFT JOIN instancemodels im ON im.deviceCode = ri.deviceCode`,
+      LEFT JOIN instancemodels im ON im.deviceCode = ri.deviceCode
+      LEFT JOIN common_undertaking_units unit ON unit.undertakingUnitId = ri.undertakingUnitId OR unit.undertakingUnitCode = ri.undertakingUnitId OR unit.entityCode = ri.undertakingUnitId
+      LEFT JOIN common_suppliers supplier ON supplier.supplierId = ri.supplierId OR supplier.supplierCode = ri.supplierId
+      LEFT JOIN common_customers customer ON customer.customerId = ri.customerId OR customer.customerCode = ri.customerId`,
     conditions: [
       "po.status LIKE :availablePurchaseStatus",
       "req.status <> :availableRequestDraftStatus",
@@ -435,6 +465,9 @@ export async function listMonthlyPrepaymentWriteOffs(searchParams: URLSearchPara
     requestNo: "mpw.requestNo", poNo: "mpw.poNo", deviceCode: "mpw.deviceCode", requestType: "mpw.requestType", modelCode: "mpw.modelCode",
     nameEn: "mpw.nameEn", quantity: "mpw.quantity", currency: "mpw.currency", originalAmount: "mpw.originalAmount", monthlyAmount: "mpw.monthlyAmount",
     lineType: "mpw.lineType", sourceType: "mpw.sourceType", adjustmentNo: "mpw.adjustmentNo",
+    undertakingUnitName: monthlyPrepaymentPartyNameExpression("undertakingUnit"),
+    supplierName: monthlyPrepaymentPartyNameExpression("supplier"),
+    customerName: monthlyPrepaymentPartyNameExpression("customer"),
   };
   for (const [field, expression] of Object.entries(filterExpressions)) appendTableInFilter(whereParts, params, expression, field, searchParams, "monthlyPrepayment");
 
@@ -470,6 +503,19 @@ export async function listMonthlyPrepaymentWriteOffs(searchParams: URLSearchPara
     `
       SELECT COUNT(*) AS total, COALESCE(SUM(mpw.monthlyAmount), 0) AS totalAmount
       FROM monthlyprepaymentwriteoffs AS mpw
+      LEFT JOIN (
+        SELECT id AS linkedContractLineId, requestItemId AS linkedRequestItemId, purchaseOrderItemId AS linkedPurchaseOrderItemId
+        FROM prepaymentcontractitems
+      ) AS contractItem ON contractItem.linkedContractLineId = mpw.contractLineId
+      LEFT JOIN purchaseorderitems AS purchaseItem ON purchaseItem.id = contractItem.linkedPurchaseOrderItemId
+      LEFT JOIN (
+        SELECT id AS linkedRequestItemId, supplierId AS linkedSupplierId, undertakingUnitId AS linkedUndertakingUnitId, customerId AS linkedCustomerId
+        FROM requestitems
+      ) AS ri ON ri.linkedRequestItemId = contractItem.linkedRequestItemId
+      LEFT JOIN (
+        SELECT requestNo AS keyRequestNo, deviceCode AS keyDeviceCode, supplierId AS fallbackSupplierId, undertakingUnitId AS fallbackUndertakingUnitId, customerId AS fallbackCustomerId
+        FROM requestitems
+      ) AS riByBusinessKey ON riByBusinessKey.keyRequestNo = mpw.requestNo AND riByBusinessKey.keyDeviceCode = mpw.deviceCode
       ${where}
     `,
     params,
@@ -546,9 +592,12 @@ export async function listMonthlyPrepaymentWriteOffs(searchParams: URLSearchPara
 
 export async function listMonthlyPrepaymentWriteOffFilterOptions(searchParams: URLSearchParams) {
   const expressions: Record<string, string> = {
-    writeOffMonth: formatTableDateExpression("writeOffMonth"), contractNo: "contractNo", countryCode: "countryCode", batchName: "batchName", requestNo: "requestNo",
-    poNo: "poNo", deviceCode: "deviceCode", requestType: "requestType", modelCode: "modelCode", nameEn: "nameEn", quantity: "quantity",
-    currency: "currency", originalAmount: "originalAmount", monthlyAmount: "monthlyAmount", lineType: "lineType", sourceType: "sourceType", adjustmentNo: "adjustmentNo",
+    writeOffMonth: formatTableDateExpression("mpw.writeOffMonth"), contractNo: "mpw.contractNo", countryCode: "mpw.countryCode", batchName: "mpw.batchName", requestNo: "mpw.requestNo",
+    poNo: "mpw.poNo", deviceCode: "mpw.deviceCode", requestType: "mpw.requestType", modelCode: "mpw.modelCode", nameEn: "mpw.nameEn", quantity: "mpw.quantity",
+    currency: "mpw.currency", originalAmount: "mpw.originalAmount", monthlyAmount: "mpw.monthlyAmount", lineType: "mpw.lineType", sourceType: "mpw.sourceType", adjustmentNo: "mpw.adjustmentNo",
+    undertakingUnitName: monthlyPrepaymentPartyNameExpression("undertakingUnit"),
+    supplierName: monthlyPrepaymentPartyNameExpression("supplier"),
+    customerName: monthlyPrepaymentPartyNameExpression("customer"),
   };
   const field = searchParams.get("field")?.trim() ?? "";
   const expression = expressions[field];
@@ -558,7 +607,19 @@ export async function listMonthlyPrepaymentWriteOffFilterOptions(searchParams: U
   const keyword = searchParams.get("keyword")?.trim() ?? "";
   if (keyword) { where.push(`${expression} LIKE :optionKeyword`); params.optionKeyword = `%${keyword}%`; }
   appendTableFilterOptionConditions(where, params, expressions, searchParams, field);
-  const rows = await queryRows<{ value: string; count: number }>(`SELECT ${expression} AS value, COUNT(*) AS count FROM monthlyprepaymentwriteoffs WHERE ${where.join(" AND ")} GROUP BY ${expression} ORDER BY value LIMIT 500`, params);
+  const rows = await queryRows<{ value: string; count: number }>(`SELECT optionValues.value, COUNT(*) AS count
+    FROM (
+      SELECT ${expression} AS value
+      FROM monthlyprepaymentwriteoffs AS mpw
+      LEFT JOIN (SELECT id AS linkedContractLineId, requestItemId AS linkedRequestItemId, purchaseOrderItemId AS linkedPurchaseOrderItemId FROM prepaymentcontractitems) AS contractItem ON contractItem.linkedContractLineId = mpw.contractLineId
+      LEFT JOIN purchaseorderitems AS purchaseItem ON purchaseItem.id = contractItem.linkedPurchaseOrderItemId
+      LEFT JOIN (SELECT id AS linkedRequestItemId, supplierId AS linkedSupplierId, undertakingUnitId AS linkedUndertakingUnitId, customerId AS linkedCustomerId FROM requestitems) AS ri ON ri.linkedRequestItemId = contractItem.linkedRequestItemId
+      LEFT JOIN (SELECT requestNo AS keyRequestNo, deviceCode AS keyDeviceCode, supplierId AS fallbackSupplierId, undertakingUnitId AS fallbackUndertakingUnitId, customerId AS fallbackCustomerId FROM requestitems) AS riByBusinessKey ON riByBusinessKey.keyRequestNo = mpw.requestNo AND riByBusinessKey.keyDeviceCode = mpw.deviceCode
+      WHERE ${where.join(" AND ")}
+    ) AS optionValues
+    GROUP BY optionValues.value
+    ORDER BY value
+    LIMIT 500`, params);
   return { options: rows.map((row) => ({ value: String(row.value ?? ""), count: Number(row.count ?? 0) })) };
 }
 

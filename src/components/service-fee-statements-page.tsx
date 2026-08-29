@@ -14,6 +14,11 @@ import { useRequestGuard } from "@/lib/table-query-client";
 import { Button, Input, Panel } from "./ui";
 
 type Row = Record<string, string | number | boolean | null>;
+function partyOptionLabel(row: Row, codeKeys: string[], nameKeys: string[]) {
+  const code = codeKeys.map((key) => String(row[key] ?? "").trim()).find(Boolean) ?? "";
+  const name = nameKeys.map((key) => String(row[key] ?? "").trim()).find(Boolean) ?? "";
+  return name && code ? `${code} - ${name}` : name || code;
+}
 type ListResponse = { rows: Row[]; total: number; page: number; pageSize: number; totalPages: number };
 type RepaymentDraft = {
   snapshotNo: string;
@@ -29,6 +34,8 @@ const columns: Array<{ key: string; label: string; type?: string }> = [
   { key: "snapshotNo", label: "对账单号" },
   { key: "writeOffMonth", label: "核销月份", type: "month" },
   { key: "countryCode", label: "国家" },
+  { key: "undertakingUnitName", label: "承接单位" },
+  { key: "customerName", label: "客户" },
   { key: "vatRate", label: "增值税税率（%）", type: "percentage" },
   { key: "billingTotal", label: "月账单总额（含税）", type: "money" },
   { key: "prepaymentTotal", label: "预付款核销金额（含税）", type: "money" },
@@ -141,8 +148,8 @@ export function ServiceFeeStatementsPage() {
     setRepaymentDraft({
       snapshotNo: String(row.snapshotNo ?? ""),
       repaymentStatus: String(row.repaymentStatus ?? "未回款") === "已回款" ? "已回款" : "未回款",
-      receivingUnitId: String(row.receivingUnitId ?? row.defaultReceivingUnitId ?? ""),
-      payerCustomerId: String(row.payerCustomerId ?? row.defaultPayerCustomerId ?? ""),
+      receivingUnitId: firstNonBlankValue(row.receivingUnitId, row.defaultReceivingUnitId),
+      payerCustomerId: firstNonBlankValue(row.payerCustomerId, row.defaultPayerCustomerId),
       repaymentCurrency: String(row.repaymentCurrency ?? row.defaultRepaymentCurrency ?? ""),
       repaymentAmount: String(row.repaymentAmount ?? row.defaultRepaymentAmount ?? row.serviceFeeTotal ?? ""),
       repaymentDate: String(row.repaymentDate ?? "").slice(0, 10),
@@ -539,13 +546,13 @@ export function ServiceFeeStatementsPage() {
               <RepaymentField label="收款单位">
                 <select className="h-9 w-full rounded border border-[#dcdfe6] bg-white px-3 text-sm" value={repaymentDraft.receivingUnitId} onChange={(event) => setRepaymentDraft((current) => current ? { ...current, receivingUnitId: event.target.value } : current)}>
                   <option value="">请选择承接单位</option>
-                  {undertakingUnits.map((row) => <option key={String(row.undertakingUnitId)} value={String(row.undertakingUnitId)}>{String(row.undertakingUnitCode ?? row.undertakingUnitId)} - {String(row.name ?? "")}</option>)}
+                  {undertakingUnits.map((row) => <option key={String(row.undertakingUnitId)} value={String(row.undertakingUnitId)}>{partyOptionLabel(row, ["undertakingUnitCode", "entityCode"], ["shortName", "entityName", "name"])}</option>)}
                 </select>
               </RepaymentField>
               <RepaymentField label="付款单位">
                 <select className="h-9 w-full rounded border border-[#dcdfe6] bg-white px-3 text-sm" value={repaymentDraft.payerCustomerId} onChange={(event) => setRepaymentDraft((current) => current ? { ...current, payerCustomerId: event.target.value } : current)}>
                   <option value="">请选择客户</option>
-                  {customers.map((row) => <option key={String(row.customerId)} value={String(row.customerId)}>{String(row.customerCode ?? row.customerId)} - {String(row.name ?? "")}</option>)}
+                  {customers.map((row) => <option key={String(row.customerId)} value={String(row.customerId)}>{partyOptionLabel(row, ["customerCode"], ["shortName", "nameCn", "name"])}</option>)}
                 </select>
               </RepaymentField>
               <RepaymentField label="回款币种">
@@ -578,4 +585,8 @@ function RepaymentField({ children, label }: { children: React.ReactNode; label:
 function formatValue(value: unknown, type?: string) {
   if (type === "month") return value ? String(value).slice(0, 7) : "";
   return formatDisplayValue(value as string | number | boolean | null | undefined, type);
+}
+
+function firstNonBlankValue(...values: unknown[]) {
+  return String(values.find((value) => value !== null && value !== undefined && String(value).trim() !== "") ?? "").trim();
 }

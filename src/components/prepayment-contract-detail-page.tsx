@@ -52,6 +52,11 @@ type Line = {
   feeDescription: string;
 };
 
+function partyShortName(row: Row | undefined, fallback: string, nameKeys: string[]) {
+  const value = nameKeys.map((key) => String(row?.[key] ?? "").trim()).find(Boolean);
+  return value || fallback;
+}
+
 const instanceColumns: Array<{ key: keyof Line; label: string; type?: string }> = [
   { key: "countryCode", label: "国家" },
   { key: "batchName", label: "批次号" },
@@ -95,9 +100,15 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
 
   function partyCode(line: Line, key: "undertakingUnitId" | "supplierId" | "customerId") {
     const value = String(line[key] ?? "");
-    if (key === "undertakingUnitId") return String(undertakingUnits.find((row) => String(row.undertakingUnitId) === value)?.undertakingUnitCode ?? value);
-    if (key === "supplierId") return String(suppliers.find((row) => String(row.supplierId) === value)?.supplierCode ?? value);
-    return String(customers.find((row) => String(row.customerId) === value)?.customerCode ?? value);
+    if (key === "undertakingUnitId") return partyShortName(undertakingUnits.find((row) => String(row.undertakingUnitId) === value), value, ["entityName", "name"]);
+    if (key === "supplierId") return partyShortName(suppliers.find((row) => String(row.supplierId) === value), value, ["nameCn"]);
+    return partyShortName(customers.find((row) => String(row.customerId) === value), value, ["nameCn", "name"]);
+  }
+
+  function partyOptionLabel(row: Row, codeKeys: string[], nameKeys: string[]) {
+    const code = codeKeys.map((key) => String(row[key] ?? "").trim()).find(Boolean) ?? "";
+    const name = partyShortName(row, "", nameKeys);
+    return name && code ? `${code} - ${name}` : name || code;
   }
 
   function countryLabel(countryCode: string) {
@@ -438,19 +449,19 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
                   <td className="border-b border-r border-[#ebeef5] px-3 py-3">
                     <select className="h-9 min-w-[160px] rounded border border-[#dcdfe6] bg-white px-2" disabled={!canEdit} value={line.undertakingUnitId ?? ""} onChange={(event) => updateLine(line.id, { undertakingUnitId: event.target.value })}>
                       <option value="">请选择</option>
-                      {undertakingUnits.map((unit) => <option key={String(unit.undertakingUnitId)} value={String(unit.undertakingUnitId)}>{String(unit.undertakingUnitCode ?? unit.undertakingUnitId)}</option>)}
+                      {undertakingUnits.map((unit) => <option key={String(unit.undertakingUnitId)} value={String(unit.undertakingUnitId)}>{partyOptionLabel(unit, ["undertakingUnitCode", "entityCode"], ["shortName", "entityName", "name"])}</option>)}
                     </select>
                   </td>
                   <td className="border-b border-r border-[#ebeef5] px-3 py-3">
                     <select className="h-9 min-w-[160px] rounded border border-[#dcdfe6] bg-white px-2" disabled={!canEdit} value={line.supplierId ?? ""} onChange={(event) => updateLine(line.id, { supplierId: event.target.value })}>
                       <option value="">请选择</option>
-                      {suppliers.map((supplier) => <option key={String(supplier.supplierId)} value={String(supplier.supplierId)}>{String(supplier.supplierCode ?? supplier.supplierId)}</option>)}
+                      {suppliers.map((supplier) => <option key={String(supplier.supplierId)} value={String(supplier.supplierId)}>{partyOptionLabel(supplier, ["supplierCode"], ["shortName", "nameCn"])}</option>)}
                     </select>
                   </td>
                   <td className="border-b border-r border-[#ebeef5] px-3 py-3">
                     <select className="h-9 min-w-[160px] rounded border border-[#dcdfe6] bg-white px-2" disabled={!canEdit} value={line.customerId ?? ""} onChange={(event) => updateLine(line.id, { customerId: event.target.value })}>
                       <option value="">请选择</option>
-                      {customers.map((customer) => <option key={String(customer.customerId)} value={String(customer.customerId)}>{String(customer.customerCode ?? customer.customerId)}</option>)}
+                      {customers.map((customer) => <option key={String(customer.customerId)} value={String(customer.customerId)}>{partyOptionLabel(customer, ["customerCode"], ["shortName", "nameCn", "name"])}</option>)}
                     </select>
                   </td>
                   <td className="border-b border-r border-[#ebeef5] px-3 py-3">

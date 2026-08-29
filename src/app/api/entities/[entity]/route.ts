@@ -12,8 +12,15 @@ export async function GET(request: NextRequest, context: { params: Promise<{ ent
     return NextResponse.json({ error: "Unknown entity" }, { status: 404 });
   }
 
-  const data = await listEntityRows(config, request.nextUrl.searchParams);
-  return NextResponse.json(data);
+  try {
+    const data = await listEntityRows(config, request.nextUrl.searchParams);
+    return NextResponse.json(data);
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "列表加载失败" },
+      { status: 500 },
+    );
+  }
 }
 
 export async function POST(request: NextRequest, context: { params: Promise<{ entity: string }> }) {

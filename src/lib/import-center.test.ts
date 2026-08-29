@@ -477,6 +477,36 @@ describe("import center workflow", () => {
     ]);
   });
 
+  it("resolves imported party codes to the stored ids", () => {
+    const preview = buildImportPreview("request-orders", [
+      {
+        requestNo: "REQ-PARTY-001",
+        countryCode: "BR",
+        contractNo: "IC-1",
+        batchName: "BR-1",
+        requestType: "整机",
+        deviceCode: "DEV-A",
+        supplierId: "supply01",
+        undertakingUnitId: "unit01",
+        customerId: "customer01",
+        quantity: 1,
+      },
+    ], {
+      partyReferences: {
+        suppliers: [{ supplierId: "supplier-uuid", supplierCode: "supply01", shortName: "供应商简称" }],
+        undertakingUnits: [{ undertakingUnitId: "unit-uuid", undertakingUnitCode: "unit01", shortName: "承接单位简称" }],
+        customers: [{ customerId: "customer-uuid", customerCode: "customer01", shortName: "客户简称" }],
+      },
+    });
+
+    expect(preview.report).toMatchObject({ total: 1, success: 1, failed: [] });
+    expect(preview.operations.requestItems[0]).toMatchObject({
+      supplierId: "supplier-uuid",
+      undertakingUnitId: "unit-uuid",
+      customerId: "customer-uuid",
+    });
+  });
+
   it("rejects unsupported and mixed request types", () => {
     const invalid = buildImportPreview("request-orders", [
       {

@@ -17,7 +17,22 @@ export async function getOrderDetail(type: OrderDetailType, id: string): Promise
 async function getRequestOrderDetail(requestNo: string): Promise<OrderDetailData> {
   const masterRows = await queryRows<Row>("SELECT * FROM requests WHERE requestNo = :requestNo LIMIT 1", { requestNo });
   const details = await queryRows<Row>(
-    "SELECT * FROM requestitems WHERE requestNo = :requestNo ORDER BY id",
+    `
+      SELECT
+        requestItem.*,
+        COALESCE(NULLIF(supplier.shortName, ''), NULLIF(supplier.nameCn, ''), supplier.supplierCode, requestItem.supplierId) AS supplierDisplayName,
+        COALESCE(NULLIF(undertakingUnit.shortName, ''), NULLIF(undertakingUnit.entityName, ''), NULLIF(undertakingUnit.name, ''), undertakingUnit.undertakingUnitCode, requestItem.undertakingUnitId) AS undertakingUnitDisplayName,
+        COALESCE(NULLIF(customer.shortName, ''), NULLIF(customer.nameCn, ''), NULLIF(customer.name, ''), customer.customerCode, requestItem.customerId) AS customerDisplayName
+      FROM requestitems AS requestItem
+      LEFT JOIN common_suppliers AS supplier
+        ON supplier.supplierId = requestItem.supplierId OR supplier.supplierCode = requestItem.supplierId
+      LEFT JOIN common_undertaking_units AS undertakingUnit
+        ON undertakingUnit.undertakingUnitId = requestItem.undertakingUnitId OR undertakingUnit.undertakingUnitCode = requestItem.undertakingUnitId
+      LEFT JOIN common_customers AS customer
+        ON customer.customerId = requestItem.customerId OR customer.customerCode = requestItem.customerId
+      WHERE requestItem.requestNo = :requestNo
+      ORDER BY requestItem.id
+    `,
     { requestNo },
   );
 

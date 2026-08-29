@@ -211,12 +211,24 @@ export function AppShell({
       const route = getWorkspaceRouteFromLocation(new URL(message.route, window.location.origin).pathname, new URL(message.route, window.location.origin).search);
       const title = message.title || getWorkspaceTabTitle(route);
       if (message.type === "cloud-power:open-tab") {
+        const existing = workspace.tabs.find((tab) => tab.route === route);
+        const tabId = getWorkspaceTabId(existing ?? { route, title, closable: true });
+        activeRouteRef.current = route;
+        setLoadedTabIds((current) => new Set(current).add(tabId));
+        setContentRoute(route);
         setWorkspace((current) => openWorkspaceTab(current, { route, title, closable: true }));
         return;
       }
       if (message.type === "cloud-power:route") {
         const tabId = frame.dataset.workspaceTabId;
-        if (tabId) setWorkspace((current) => updateWorkspaceTabRoute(current, tabId, route, title));
+        if (tabId) {
+          // The embedded page owns navigation inside the iframe. Keep the tab and
+          // the visible iframe route in sync so a list-to-detail transition does
+          // not leave the parent rendering an old, empty route.
+          activeRouteRef.current = route;
+          setContentRoute(route);
+          setWorkspace((current) => updateWorkspaceTabRoute(current, tabId, route, title));
+        }
       }
     }
 
@@ -260,7 +272,7 @@ export function AppShell({
     const tabId = getWorkspaceTabId(existing ?? tab);
     activeRouteRef.current = tab.route;
     setLoadedTabIds((current) => new Set(current).add(tabId));
-    if (tab.route === "/" || readyTabIds.has(tabId)) setContentRoute(tab.route);
+    setContentRoute(tab.route);
     setWorkspace((current) => openWorkspaceTab(current, tab));
   };
 
@@ -270,9 +282,8 @@ export function AppShell({
       if (current.activeRoute === route) {
         activeRouteRef.current = next.activeRoute;
         const nextTab = next.tabs.find((tab) => tab.route === next.activeRoute);
-        if (next.activeRoute === "/" || (nextTab && readyTabIds.has(getWorkspaceTabId(nextTab)))) {
-          setContentRoute(next.activeRoute);
-        }
+        if (nextTab) setLoadedTabIds((current) => new Set(current).add(getWorkspaceTabId(nextTab)));
+        setContentRoute(next.activeRoute);
       }
       return next;
     });
@@ -382,6 +393,7 @@ export function AppShell({
                       ? group.children.map((child) => (
                           <ChildNavGroup
                             child={child}
+                            depth={1}
                             key={child.title}
                             onOpenTab={openTab}
                             openGroups={openGroups}
@@ -442,7 +454,7 @@ export function AppShell({
                     const tabId = getWorkspaceTabId(tab);
                     activeRouteRef.current = tab.route;
                     setLoadedTabIds((current) => new Set(current).add(tabId));
-                    if (tab.route === "/" || readyTabIds.has(tabId)) setContentRoute(tab.route);
+                    setContentRoute(tab.route);
                     setWorkspace((current) => ({ ...current, activeRoute: tab.route }));
                   }}
                   title={tab.title}
@@ -511,12 +523,14 @@ async function logout() {
 
 function ChildNavGroup({
   child,
+  depth,
   onOpenTab,
   openGroups,
   parentTitle,
   setOpenGroups,
 }: {
   child: NavChildGroup;
+  depth: number;
   onOpenTab: (tab: WorkspaceTab) => void;
   openGroups: SidebarGroupState;
   parentTitle: string;
@@ -528,7 +542,8 @@ function ChildNavGroup({
   return (
     <div>
       <button
-        className="flex h-9 w-full min-w-0 items-center gap-2 px-8 text-left text-xs font-medium text-[#8aa0b8] hover:text-white"
+        className="flex h-9 w-full min-w-0 items-center gap-2 text-left text-xs font-medium text-[#8aa0b8] hover:text-white pr-3"
+        style={{ paddingLeft: `${8 + Math.min(depth, 4) * 8}px` }}
         onClick={() => setOpenGroups((current) => toggleGroup(current, childKey))}
         title={child.title}
         type="button"
@@ -541,6 +556,7 @@ function ChildNavGroup({
             {child.children?.map((nested) => (
               <ChildNavGroup
                 child={nested}
+                depth={depth + 1}
                 key={nested.title}
                 onOpenTab={onOpenTab}
                 openGroups={openGroups}
@@ -550,7 +566,8 @@ function ChildNavGroup({
             ))}
             {child.items.map((item) => (
               <button
-                className="block h-10 w-full truncate px-10 pr-3 text-left leading-10 hover:text-[#409eff]"
+                className="block h-10 w-full truncate text-left leading-10 hover:text-[#409eff] pr-3"
+                style={{ paddingLeft: `${16 + Math.min(depth, 4) * 8}px` }}
                 key={item.key}
                 onClick={() => onOpenTab({ route: item.route, title: item.title, closable: true })}
                 title={item.title}

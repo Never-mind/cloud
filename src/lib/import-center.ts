@@ -6,6 +6,7 @@ import { buildPurchaseOrderItemRows, PURCHASE_CURRENCY_OPTIONS } from "./purchas
 import { buildAutoPurchaseOrderId, normalizeRequestNos } from "./procurement-workflow";
 import { buildRequestItemRows } from "./request-order-form";
 import { isRequestType } from "./request-type";
+import { normalizePartyReferenceRow, type PartyReferenceRow } from "./party-reference";
 
 export type ImportTargetKey =
   | "request-orders"
@@ -229,6 +230,11 @@ export function buildImportPreview(
     instanceContracts?: Row[];
     billingPurchaseLines?: Row[];
     prepaymentPurchaseLines?: Row[];
+    partyReferences?: {
+      suppliers: PartyReferenceRow[];
+      undertakingUnits: PartyReferenceRow[];
+      customers: PartyReferenceRow[];
+    };
   } = {},
 ): ImportPreview {
   const target = getRequiredTarget(targetKey);
@@ -239,7 +245,9 @@ export function buildImportPreview(
   inputRows.forEach((row, index) => {
     const rowNumber = index + 2;
     const normalized = normalizeRow(target, row);
+    const partyReferenceError = normalizePartyReferenceRow(normalized, options.partyReferences);
     let error =
+      partyReferenceError ||
       validateRow(target, normalized) ||
       normalizeInstanceContractModel(targetKey, normalized, options.instanceModels ?? []) ||
       normalizePurchaseRequestItemId(targetKey, normalized, options.requestItems ?? []) ||

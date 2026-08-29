@@ -26,6 +26,7 @@ type Row = {
   undertakingUnitId: string;
   supplierCode: string;
   undertakingUnitCode: string;
+  customerCode: string;
   quantity: number;
   actualCurrency: string;
   actualUnitPrice: number;
@@ -66,6 +67,7 @@ const columns: Array<{ key: keyof Row; label: string; type?: string }> = [
   { key: "nameEn", label: "英文名称" },
   { key: "undertakingUnitCode", label: "承接单位" },
   { key: "supplierCode", label: "供应商" },
+  { key: "customerCode", label: "客户" },
   { key: "quantity", label: "数量" },
   { key: "actualCurrency", label: "币种" },
   { key: "actualUnitPrice", label: "实际单价", type: "money" },

@@ -83,6 +83,7 @@ export function EntityPage({
     Object.fromEntries(config.listFields.map((field) => [field.key, searchParams.getAll(`filter.${field.key}`)])),
   );
   const [loading, setLoading] = useState(false);
+  const [importing, setImporting] = useState(false);
   const [editing, setEditing] = useState<Row | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [showFieldSettings, setShowFieldSettings] = useState(false);
@@ -528,19 +529,26 @@ export function EntityPage({
   }
 
   async function importFile(file: File) {
-    const formData = new FormData();
-    formData.append("file", file);
-    if (Object.keys(fixedValues).length) {
-      formData.append("fixedValues", JSON.stringify(fixedValues));
+    setImporting(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      if (Object.keys(fixedValues).length) {
+        formData.append("fixedValues", JSON.stringify(fixedValues));
+      }
+      const response = await fetch(`/api/entities/${config.key}/import`, { method: "POST", body: formData });
+      const result = (await response.json().catch(() => ({}))) as ImportReport | { error?: string };
+      if (!response.ok) {
+        alert(`导入失败：${"error" in result ? result.error : "文件处理失败"}`);
+        return;
+      }
+      alert(buildImportMessage(result as ImportReport));
+      await loadRows();
+    } catch (error) {
+      alert(`导入失败：${error instanceof Error ? error.message : "网络或文件处理失败"}`);
+    } finally {
+      setImporting(false);
     }
-    const response = await fetch(`/api/entities/${config.key}/import`, { method: "POST", body: formData });
-    const result = (await response.json()) as ImportReport | { error?: string };
-    if (!response.ok) {
-      alert(`导入失败：${"error" in result ? result.error : "文件处理失败"}`);
-      return;
-    }
-    alert(buildImportMessage(result as ImportReport));
-    await loadRows();
   }
 
   return (
@@ -648,9 +656,9 @@ export function EntityPage({
                 <Plus size={15} />
                 新建
               </Button>
-              <Button tone="success" onClick={() => fileRef.current?.click()}>
+              <Button disabled={importing} tone="success" onClick={() => fileRef.current?.click()}>
                 <Upload size={15} />
-                批量导入
+                {importing ? "导入中..." : "批量导入"}
               </Button>
               <a href={`/api/entities/${config.key}/template`}>
                 <Button>

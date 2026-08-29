@@ -83,6 +83,54 @@ describe("tab workspace state", () => {
     expect(next.activeRoute).toBe("/finance/prepayment-contracts/FPA-001");
   });
 
+  it("keeps the loaded source tab when a restored duplicate route exists", () => {
+    const opened = openWorkspaceTab(
+      openWorkspaceTab(createInitialWorkspace(), {
+        id: "loaded-list",
+        route: "/requests/orders",
+        title: "需求单",
+        closable: true,
+      }),
+      {
+        id: "restored-detail",
+        route: "/requests/orders/REQ-001",
+        title: "需求单明细",
+        closable: true,
+      },
+    );
+
+    const next = updateWorkspaceTabRoute(
+      opened,
+      "loaded-list",
+      "/requests/orders/REQ-001",
+      "需求单明细",
+    );
+
+    expect(next.tabs.map((tab) => tab.route)).toEqual(["/", "/requests/orders/REQ-001"]);
+    expect(next.tabs[1]).toMatchObject({ id: "loaded-list", title: "需求单明细" });
+    expect(next.activeRoute).toBe("/requests/orders/REQ-001");
+  });
+
+  it("falls back to the next tab even when it has not loaded yet", () => {
+    const state = openWorkspaceTab(
+      openWorkspaceTab(createInitialWorkspace(), {
+        route: "/requests/orders",
+        title: "需求单",
+        closable: true,
+      }),
+      {
+        route: "/requests/orders/REQ-001",
+        title: "需求单明细",
+        closable: true,
+      },
+    );
+
+    const next = closeWorkspaceTab(state, "/requests/orders/REQ-001");
+
+    expect(next.activeRoute).toBe("/requests/orders");
+    expect(next.tabs.map((tab) => tab.route)).toEqual(["/", "/requests/orders"]);
+  });
+
   it("opens a new filtered detail tab while preserving the current tab", () => {
     const opened = openWorkspaceTab(createInitialWorkspace(), {
       route: "/finance/prepayment-contracts/FPA-001",

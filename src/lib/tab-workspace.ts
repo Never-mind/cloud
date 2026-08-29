@@ -83,12 +83,20 @@ export function updateWorkspaceTabRoute(
   const index = state.tabs.findIndex((tab) => getWorkspaceTabId(tab) === tabId);
   if (index < 0) return state;
 
-  const duplicate = state.tabs.find((tab, tabIndex) => tabIndex !== index && tab.route === route);
+  const duplicateIndex = state.tabs.findIndex((tab, tabIndex) => tabIndex !== index && tab.route === route);
+  const duplicate = duplicateIndex >= 0 ? state.tabs[duplicateIndex] : undefined;
   if (duplicate) {
+    // The source iframe is the one that has already been loaded. Keep it as
+    // the destination tab so a stale/restored duplicate cannot activate an
+    // unloaded iframe and leave the workspace blank.
+    const tabs = state.tabs.filter((_, tabIndex) => tabIndex !== duplicateIndex);
+    const sourceIndex = tabs.findIndex((tab) => getWorkspaceTabId(tab) === tabId);
+    if (sourceIndex < 0) return state;
+    tabs[sourceIndex] = { ...tabs[sourceIndex], id: tabId, route, title };
     return {
       ...state,
       activeRoute: duplicate.route,
-      tabs: state.tabs.filter((_, tabIndex) => tabIndex !== index),
+      tabs,
     };
   }
 

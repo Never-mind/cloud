@@ -2,7 +2,7 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { ArrowLeft, CheckCircle2, Pencil, Plus, Save, Upload, X } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Download, Pencil, Plus, Save, Upload, X } from "lucide-react";
 import { formatDateInputValue, formatDisplayValue } from "@/lib/display-format";
 import { formatNumericInputValue, parseNumericInputValue } from "@/lib/numeric-input";
 import { isConfirmedOrderStatus } from "@/lib/order-status";
@@ -10,6 +10,8 @@ import { buildRequestItemRows, type RequestDetailDraft } from "@/lib/request-ord
 import { REQUEST_TYPE_OPTIONS } from "@/lib/request-type";
 import { fetchAllEntityRows } from "@/lib/client-entity-fetch";
 import { buildDetailRoute, getReturnTo } from "@/lib/client-list-navigation";
+import { exportRowsToXlsx } from "@/lib/client-xlsx-export";
+import { getPartyReferenceLabel, resolvePartyReference } from "@/lib/party-reference";
 import { Button, Input, Panel } from "./ui";
 import { StickyTable } from "./sticky-table";
 
@@ -31,6 +33,7 @@ type SaveMode = "draft" | "confirm";
 type SearchOption = {
   value: string;
   label: string;
+  code?: string;
   keywords?: string;
 };
 
@@ -83,12 +86,28 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
       fetchEntity("countries"),
     ]).then(([models, supplierRows, undertakingRows, customerRows, countryRows]) => {
       setInstanceModels(models);
-      setSuppliers(supplierRows);
-      setUndertakingUnits(undertakingRows);
-      setCustomers(customerRows);
-      setCountries(countryRows);
+        setSuppliers(supplierRows);
+        setUndertakingUnits(undertakingRows);
+        setCustomers(customerRows);
+        setCountries(countryRows);
     });
   }, []);
+
+  useEffect(() => {
+    setDetails((current) => {
+      const next = current.map((detail) => ({
+      ...detail,
+      supplierId: resolvePartyReference(detail.supplierId, suppliers, ["supplierId"], ["supplierCode", "shortName", "nameCn", "name"]),
+      undertakingUnitId: resolvePartyReference(detail.undertakingUnitId, undertakingUnits, ["undertakingUnitId"], ["undertakingUnitCode", "entityCode", "shortName", "entityName", "name"]),
+      customerId: resolvePartyReference(detail.customerId, customers, ["customerId"], ["customerCode", "shortName", "nameCn", "name"]),
+      }));
+      return next.some((detail, index) =>
+        detail.supplierId !== current[index]?.supplierId
+        || detail.undertakingUnitId !== current[index]?.undertakingUnitId
+        || detail.customerId !== current[index]?.customerId
+      ) ? next : current;
+    });
+  }, [customers, details, suppliers, undertakingUnits]);
 
   useEffect(() => {
     if (!requestNo) return;
@@ -139,22 +158,43 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
   }
 
   async function importDetails(file: File) {
-    const XLSX = await import("xlsx");
-    const buffer = await file.arrayBuffer();
-    const workbook = XLSX.read(buffer);
-    const sheet = workbook.Sheets[workbook.SheetNames[0]];
-    const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet);
-    const imported = rows
-      .map((row) => ({
-        deviceCode: String(row.deviceCode ?? row["设备编码"] ?? ""),
-        supplierId: String(row.supplierId ?? row["供应商"] ?? row["供应商ID"] ?? ""),
-        undertakingUnitId: String(row.undertakingUnitId ?? ""),
-        customerId: resolveCustomerId(row),
-        quantity: Number(row.quantity ?? row["节点数量"] ?? 0),
-      }))
-      .filter((row) => row.deviceCode || row.supplierId || row.undertakingUnitId || row.customerId || row.quantity);
+    try {
+      const XLSX = await import("xlsx");
+      const buffer = await file.arrayBuffer();
+      const workbook = XLSX.read(buffer);
+      const sheet = workbook.Sheets[workbook.SheetNames[0]];
+      if (!sheet) throw new Error("工作簿没有可导入的工作表");
+      const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "" });
+      const imported = rows
+        .map((row) => ({
+          deviceCode: String(row.deviceCode ?? row["设备编码"] ?? "").trim(),
+          supplierId: String(row.supplierId ?? row["供应商"] ?? row["供应商ID"] ?? "").trim(),
+          undertakingUnitId: String(row.undertakingUnitId ?? row["承接单位ID"] ?? "").trim(),
+          customerId: resolveCustomerId(row),
+          quantity: Number(row.quantity ?? row["节点数量"] ?? 0),
+        }))
+        .filter((row) => row.deviceCode || row.supplierId || row.undertakingUnitId || row.customerId || row.quantity);
 
-    if (imported.length) setDetails(imported);
+      if (imported.length) setDetails(imported);
+      else throw new Error("工作表没有可导入的明细");
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "需求明细导入失败");
+    }
+  }
+
+  function downloadDetailsTemplate() {
+    exportRowsToXlsx({
+      fileName: "需求单明细导入模板.xlsx",
+      sheetName: "需求明细",
+      columns: [
+        { key: "deviceCode", label: "设备编码" },
+        { key: "supplierId", label: "供应商ID" },
+        { key: "undertakingUnitId", label: "承接单位ID" },
+        { key: "customerId", label: "客户ID" },
+        { key: "quantity", label: "节点数量" },
+      ],
+      rows: [{ deviceCode: "", supplierId: "", undertakingUnitId: "", customerId: "", quantity: "" }],
+    });
   }
 
   async function upsertRequestItems() {
@@ -333,6 +373,10 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
             <Upload size={15} />
             导入明细
           </Button>
+          <Button disabled={!canEdit} onClick={downloadDetailsTemplate}>
+            <Download size={15} />
+            下载导入模板
+          </Button>
           <input
             ref={fileRef}
             className="hidden"
@@ -378,7 +422,15 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
                     <td className="border-b border-r border-[#ebeef5] px-3 py-3">{formatValue(model?.nameEn)}</td>
                     <td className="border-b border-r border-[#ebeef5] px-3 py-3">
                       <SearchPicker
-                        options={suppliers.map((supplier) => ({ value: String(supplier.supplierId ?? ""), label: String(supplier.supplierCode ?? supplier.supplierId ?? ""), keywords: `${String(supplier.supplierCode ?? "")} ${String(supplier.name ?? "")} ${String(supplier.supplierId ?? "")}` }))}
+                        options={suppliers.map((supplier) => {
+                          const label = getPartyReferenceLabel(supplier, ["supplierCode"], ["supplierCode", "supplierId"]);
+                          return {
+                            value: String(supplier.supplierId ?? ""),
+                            label: label.shortName,
+                            code: label.code,
+                            keywords: `${label.code} ${String(supplier.nameCn ?? supplier.name ?? "")} ${label.shortName} ${String(supplier.supplierId ?? "")}`,
+                          };
+                        })}
                         placeholder="搜索供应商"
                         className="h-9 min-w-[160px] rounded border border-[#dcdfe6] bg-white px-2"
                         value={detail.supplierId}
@@ -388,7 +440,15 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
                     </td>
                     <td className="border-b border-r border-[#ebeef5] px-3 py-3">
                       <SearchPicker
-                        options={undertakingUnits.map((unit) => ({ value: String(unit.undertakingUnitId ?? ""), label: String(unit.undertakingUnitCode ?? unit.undertakingUnitId ?? ""), keywords: `${String(unit.undertakingUnitCode ?? "")} ${String(unit.name ?? "")} ${String(unit.undertakingUnitId ?? "")}` }))}
+                        options={undertakingUnits.map((unit) => {
+                          const label = getPartyReferenceLabel(unit, ["entityCode", "undertakingUnitCode"], ["entityCode", "undertakingUnitCode", "undertakingUnitId"]);
+                          return {
+                            value: String(unit.undertakingUnitId ?? ""),
+                            label: label.shortName,
+                            code: label.code,
+                            keywords: `${label.code} ${String(unit.entityName ?? unit.name ?? "")} ${label.shortName} ${String(unit.undertakingUnitId ?? "")}`,
+                          };
+                        })}
                         placeholder="搜索承接单位"
                         value={detail.undertakingUnitId}
                         disabled={!canEdit}
@@ -397,7 +457,15 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
                     </td>
                     <td className="border-b border-r border-[#ebeef5] px-3 py-3">
                       <SearchPicker
-                        options={customers.map((customer) => ({ value: String(customer.customerId ?? ""), label: String(customer.customerCode ?? customer.customerId ?? ""), keywords: `${String(customer.customerCode ?? "")} ${String(customer.name ?? "")} ${String(customer.customerId ?? "")}` }))}
+                        options={customers.map((customer) => {
+                          const label = getPartyReferenceLabel(customer, ["customerCode"], ["customerCode", "customerId"]);
+                          return {
+                            value: String(customer.customerId ?? ""),
+                            label: label.shortName,
+                            code: label.code,
+                            keywords: `${label.code} ${String(customer.nameCn ?? customer.name ?? "")} ${label.shortName} ${String(customer.customerId ?? "")}`,
+                          };
+                        })}
                         placeholder="搜索客户"
                         value={detail.customerId}
                         disabled={!canEdit}
@@ -434,9 +502,7 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
   function resolveCustomerId(row: Record<string, unknown>) {
     const raw = String(row.customerId ?? row["客户ID"] ?? row.customerCode ?? row["客户代码"] ?? row["客户"] ?? "").trim();
     if (!raw) return "";
-    const match = customers.find((customer) => [customer.customerId, customer.customerCode, customer.name]
-      .some((value) => String(value ?? "").trim().toLowerCase() === raw.toLowerCase()));
-    return String(match?.customerId ?? raw);
+    return resolvePartyReference(raw, customers, ["customerId"], ["customerCode", "shortName", "nameCn", "name"]);
   }
 }
 
@@ -480,13 +546,13 @@ function SearchPicker({
 
   const normalizedQuery = query.trim().toLowerCase();
   const matches = (normalizedQuery
-    ? options.filter((option) => `${option.value} ${option.label} ${option.keywords ?? ""}`.toLowerCase().includes(normalizedQuery))
+    ? options.filter((option) => `${option.value} ${option.code ?? ""} ${option.label} ${option.keywords ?? ""}`.toLowerCase().includes(normalizedQuery))
     : options
   ).slice(0, 8);
 
   function handleInput(nextQuery: string) {
     setQuery(nextQuery);
-    const exact = options.find((option) => [option.value, option.label].some((candidate) => candidate.toLowerCase() === nextQuery.trim().toLowerCase()));
+    const exact = options.find((option) => [option.value, option.code ?? "", option.label].some((candidate) => candidate.toLowerCase() === nextQuery.trim().toLowerCase()));
     if (exact) onChange(exact.value);
     else if (allowFreeText) onChange(nextQuery);
     else onChange("");
@@ -523,8 +589,7 @@ function SearchPicker({
                 onChange(option.value);
               }}
             >
-              <span className="block text-[#303133]">{option.label}</span>
-              <span className="block text-xs text-[#909399]">{option.value}</span>
+              <span className="block text-[#303133]">{option.code ? `${option.code} - ` : ""}{option.label}</span>
             </button>
           ))}
         </div>

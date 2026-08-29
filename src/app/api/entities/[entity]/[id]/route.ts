@@ -18,12 +18,19 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ en
     return NextResponse.json({ error: "Unknown entity" }, { status: 404 });
   }
 
-  const row = await getEntityRow(config, id);
-  if (!row) {
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
-  }
+  try {
+    const row = await getEntityRow(config, id);
+    if (!row) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
 
-  return NextResponse.json(row);
+    return NextResponse.json(row);
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "详情加载失败" },
+      { status: 500 },
+    );
+  }
 }
 
 export async function PUT(request: NextRequest, context: { params: Promise<{ entity: string; id: string }> }) {

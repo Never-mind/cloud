@@ -859,6 +859,63 @@ const adminSalt = createPasswordSalt();
 const adminPassword = process.env.ADMIN_INITIAL_PASSWORD ?? "admin@luzcorp.com";
 const adminHash = hashPassword(adminPassword, adminSalt);
 
+const demandPlanTextColumns = {
+  power_purchaseordersnitems: [
+    "sn", "fixedAssetCode", "poNo", "materialDescription", "shippingBatch", "parentAssetNo",
+    "componentCategory", "packingListNo", "parentCode", "finalParentCode", "supplierFinalParentCode",
+    "deviceVendor", "childSparePartCode", "childTopSn", "supplierParentSn", "supplierChildComponentCode",
+    "supplierParentCode", "customerChildComponentCode", "customerChildComponentOriginalSn", "rackUnit",
+    "finalParentSn", "finalParentPnDescription", "childComponentDescription", "finalParentPn",
+    "childComponentOriginalSn", "childComponentOriginalPn", "supplierChildComponentDescription", "site",
+    "contactPhone", "rowId", "tenantId", "template", "version", "businessFlowId", "coreDocument",
+    "processName", "processVersion", "upstreamDocumentId", "upstreamDocumentItemId", "upstreamDocumentType",
+    "businessFlowInstanceId", "sourceId",
+  ],
+  power_purchaseorderplanitems: [
+    "sourcePlanId", "material", "materialName", "formFactor", "unit", "batch", "sn", "remark", "templateIdentifier",
+    "poStatus", "rowId", "headerId", "slMaterialCode", "codeDescription", "modelType", "productName",
+    "belongingModelName", "cabinetNodeCode", "atpOrder", "orderPriority", "datacenterOwner",
+    "documentNoDescription", "computeMode", "productType", "category", "dataCenter", "customizationFlag",
+    "supplyType", "supplyInformation", "deliveryContact", "deliveryContactPhone", "computeSupplier",
+    "country", "province", "procurementFulfillmentManager", "supplierCode", "odmSupplierCodeV", "batchNo",
+    "city", "deliveryAddress", "urgentOrder", "waybillNo", "logisticsCurrentStatus",
+    "supplierUnsatisfiedExplanation", "firstDeliveryFailureReason", "productionProgress",
+    "purchaseOrderItemRelation", "transportMode", "purchaseOrderNo", "fulfillmentUnit", "odmSupplierCode",
+    "odmSupplierName", "tenantId", "template", "version", "businessFlowId", "coreDocument", "logisticsName",
+    "processVersion", "upstreamDocumentItemId", "upstreamDocumentType", "businessFlowInstanceId",
+  ],
+};
+const demandPlanDatetimeColumns = {
+  power_purchaseordersnitems: ["timestamp"],
+  power_purchaseorderplanitems: [
+    "wholeMachineSupplierPoActivatedAt", "quoteReceivedAt", "poIssuedAt", "wholeMachineSupplierPoConfirmedAt",
+    "receiptProofUploadedAt", "logisticsReceivedAt", "ataAt", "supplierCpd", "requestedAt", "supplyDate",
+    "dssEpd", "crd", "rsd", "rpd", "cpd", "esd", "eta", "logisticsArrivalTransferAt", "firstDeliveryAt",
+    "apd", "asd", "computeSupplierInstructionReceivedAt", "supplierFeedbackEsd", "supplierFeedbackEta",
+    "apdAt", "asdAt", "rsd2", "supplierPoActivatedAt", "timestamp",
+  ],
+};
+const demandPlanNumberColumns = {
+  power_purchaseordersnitems: [],
+  power_purchaseorderplanitems: [
+    "requestedQuantity", "shippedQuantity", "pendingShipmentQuantity", "shippedTotalQuantity",
+    "totalModelQuantity", "matchedQuantity", "price", "weight", "volume", "pieceCount",
+    "originalRequestedQuantity",
+  ],
+};
+
+async function ensureDemandPlanColumns() {
+  for (const [tableName, columns] of Object.entries(demandPlanTextColumns)) {
+    for (const columnName of columns) await ensureColumn(tableName, columnName, "TEXT NULL");
+  }
+  for (const [tableName, columns] of Object.entries(demandPlanDatetimeColumns)) {
+    for (const columnName of columns) await ensureColumn(tableName, columnName, "DATETIME NULL");
+  }
+  for (const [tableName, columns] of Object.entries(demandPlanNumberColumns)) {
+    for (const columnName of columns) await ensureColumn(tableName, columnName, "DECIMAL(18, 4) NULL");
+  }
+}
+
 try {
   const powerSchema = (await fs.readFile(new URL("../schema.sql", import.meta.url), "utf8"))
     .replaceAll("`suanli`", `\`${database}\``)
@@ -867,6 +924,7 @@ try {
       "$1$2",
     );
   await connection.query(powerSchema);
+  await ensureDemandPlanColumns();
   for (const tableName of ["power_requests", "power_purchaseorders"]) {
     for (const [columnName, definition] of [
       ["createdByUserId", "VARCHAR(80) NULL"],

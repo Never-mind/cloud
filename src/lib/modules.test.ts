@@ -306,4 +306,17 @@ describe("module configuration", () => {
       "requestNo",
     ]);
   });
+
+  it("does not expose demand plan entities in the power system directories", () => {
+    const powerGroup = navGroups.find((group) => group.title === "算力系统");
+    const procurementGroup = powerGroup?.children?.find((child) => child.title === "采购管理");
+    const basicInfoGroup = powerGroup?.children?.find((child) => child.title === "基础信息");
+    const visibleKeys = [
+      ...(procurementGroup?.items ?? []),
+      ...(basicInfoGroup?.items ?? []),
+    ].map((item) => item.key);
+
+    expect(visibleKeys).not.toContain("purchase-order-sn-items");
+    expect(visibleKeys).not.toContain("purchase-order-plan-items");
+  });
 });

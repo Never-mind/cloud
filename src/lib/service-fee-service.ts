@@ -11,6 +11,7 @@ import {
   type Row,
 } from "./db";
 import { attachPartyCodes } from "./party-display";
+import { ensureMonthlyBillingRows } from "./billing-service";
 import { firstDayOfMonth } from "./billing-workflow";
 import { DEFAULT_PAGE_SIZE, normalizePageSize } from "./pagination";
 import { appendTableInFilter, formatTableDateExpression, getTableFilterOptionsOrderBy, getTableSort } from "./table-query";
@@ -45,6 +46,7 @@ const allowedInvoiceExtensions = new Set([".pdf", ".doc", ".docx", ".xls", ".xls
 const maxInvoiceFileSize = 25 * 1024 * 1024;
 
 export async function calculateServiceFees(searchParams: URLSearchParams) {
+  await ensureMonthlyBillingRows();
   const filters = getFilters(searchParams);
   const exportAll = searchParams.get("export") === "1";
   const includeSummary = searchParams.get("includeSummary") !== "0";
@@ -110,6 +112,7 @@ export async function calculateServiceFees(searchParams: URLSearchParams) {
 }
 
 export async function listServiceFeeFilterOptions(searchParams: URLSearchParams) {
+  await ensureMonthlyBillingRows();
   const field = searchParams.get("field")?.trim() ?? "";
   const optionExpressions = Object.fromEntries(Object.entries(getServiceFeeSortExpressions()).map(([key, value]) => [key, value.replace(/^combined\./, "")])) as Record<string, string>;
   const expression = optionExpressions[field];
@@ -195,6 +198,14 @@ function canUseLightweightServiceFeeSummary(filters: ServiceFeeFilters) {
   return !filters.keyword && !filters.requestType;
 }
 
+function serviceFeeBillingRequestTypeExpression() {
+  return "COALESCE(NULLIF(purchaseItem.requestType, ''), NULLIF(ledger.requestType, ''), NULLIF(ri.requestType, ''), NULLIF(req.requestType, ''), NULLIF(fallback.requestType, ''), '整机')";
+}
+
+function serviceFeeBillingDetailRequestTypeExpression() {
+  return "COALESCE(NULLIF(purchaseItem.requestType, ''), NULLIF(ledger.linkedRequestType, ''), NULLIF(ri.linkedRequestType, ''), NULLIF(req.requestType, ''), NULLIF(riByBusinessKey.fallbackRequestType, ''), '整机')";
+}
+
 function buildLightweightServiceFeeSummaryQuery(filters: ServiceFeeFilters) {
   const params: Row = {};
   const billingWhere: string[] = [];
@@ -227,10 +238,15 @@ function buildLightweightServiceFeeSummaryQuery(filters: ServiceFeeFilters) {
     sql: `
       WITH billing AS (
         SELECT CONCAT_WS('::', DATE_FORMAT(m.writeOffMonth, '%Y-%m-%d'), m.countryCode, m.batchName, m.requestNo, m.poNo, m.deviceCode, 'instance') AS rowKey,
-               MAX(COALESCE(NULLIF(m.requestType, ''), '整机')) AS requestType,
+               MAX(COALESCE(NULLIF(ri.requestType, ''), NULLIF(req.requestType, ''), NULLIF(fallback.requestType, ''), '整机')) AS requestType,
                SUM(COALESCE(m.monthlyTotalAmount, m.quantity * m.monthlyAmount, 0)) AS billingAmount,
                 MAX(COALESCE(country.vatRate, 0)) AS vatRate
         FROM monthlybillingwriteoffs m
+        LEFT JOIN billinginstanceledgers ledger ON ledger.ledgerId = m.ledgerId
+        LEFT JOIN purchaseorderitems purchaseItem ON purchaseItem.id = ledger.purchaseOrderItemId
+        LEFT JOIN requestitems ri ON ri.id = purchaseItem.requestItemId
+        LEFT JOIN requests req ON req.requestNo = COALESCE(NULLIF(purchaseItem.requestNo, ''), NULLIF(ri.requestNo, ''), m.requestNo)
+        LEFT JOIN requestitems fallback ON fallback.requestNo = m.requestNo AND fallback.deviceCode = m.deviceCode
         LEFT JOIN countries country ON country.code = m.countryCode
         ${billingFilter}
         GROUP BY rowKey
@@ -295,7 +311,7 @@ function buildServiceFeeQuery(filters: ServiceFeeFilters, searchParams = new URL
     prepaymentWhere.push("p.batchName = :batchName");
   }
   if (filters.requestType) {
-    billingWhere.push("COALESCE(NULLIF(m.requestType, ''), NULLIF(ledger.requestType, ''), NULLIF(ri.requestType, ''), NULLIF(fallback.requestType, ''), '整机') = :requestType");
+    billingWhere.push(`${serviceFeeBillingRequestTypeExpression()} = :requestType`);
     prepaymentWhere.push("COALESCE(NULLIF(p.requestType, ''), NULLIF(contractItem.requestType, ''), NULLIF(ri.requestType, ''), NULLIF(fallback.requestType, ''), CASE WHEN p.lineType = 'fee' THEN '费用' ELSE '整机' END) = :requestType");
     params.requestType = filters.requestType;
   }
@@ -328,8 +344,11 @@ function buildServiceFeeQuery(filters: ServiceFeeFilters, searchParams = new URL
         MAX(supplier.supplierCode) AS supplierCode,
         MAX(undertaking.undertakingUnitCode) AS undertakingUnitCode,
         MAX(customer.customerCode) AS customerCode,
+        MAX(COALESCE(NULLIF(supplier.shortName, ''), NULLIF(supplier.nameCn, ''), supplier.supplierCode)) AS supplierName,
+        MAX(COALESCE(NULLIF(undertaking.shortName, ''), NULLIF(undertaking.entityName, ''), NULLIF(undertaking.name, ''), undertaking.undertakingUnitCode)) AS undertakingUnitName,
+        MAX(COALESCE(NULLIF(customer.shortName, ''), NULLIF(customer.nameCn, ''), NULLIF(customer.name, ''), customer.customerCode)) AS customerName,
         MAX(m.quantity) AS quantity, MAX(m.currency) AS currency,
-        MAX(COALESCE(NULLIF(m.requestType, ''), NULLIF(ledger.requestType, ''), NULLIF(ri.requestType, ''), NULLIF(fallback.requestType, ''), '整机')) AS requestType,
+        MAX(${serviceFeeBillingRequestTypeExpression()}) AS requestType,
         MAX(COALESCE(country.vatRate, 0)) AS vatRate,
         SUM(COALESCE(m.monthlyTotalAmount, m.quantity * m.monthlyAmount, 0)) AS billingAmount,
         GROUP_CONCAT(m.id ORDER BY m.id SEPARATOR ',') AS billingSourceIds
@@ -337,10 +356,11 @@ function buildServiceFeeQuery(filters: ServiceFeeFilters, searchParams = new URL
       LEFT JOIN billinginstanceledgers ledger ON ledger.ledgerId = m.ledgerId
       LEFT JOIN purchaseorderitems purchaseItem ON purchaseItem.id = ledger.purchaseOrderItemId
       LEFT JOIN requestitems ri ON ri.id = purchaseItem.requestItemId
+      LEFT JOIN requests req ON req.requestNo = COALESCE(NULLIF(purchaseItem.requestNo, ''), NULLIF(ri.requestNo, ''), m.requestNo)
       LEFT JOIN requestitems fallback ON fallback.requestNo = m.requestNo AND fallback.deviceCode = m.deviceCode
-      LEFT JOIN common_suppliers supplier ON supplier.supplierId = COALESCE(NULLIF(m.supplierId, ''), ri.supplierId, fallback.supplierId)
-      LEFT JOIN common_undertaking_units undertaking ON undertaking.undertakingUnitId = COALESCE(NULLIF(m.undertakingUnitId, ''), ri.undertakingUnitId, fallback.undertakingUnitId)
-      LEFT JOIN common_customers customer ON customer.customerId = COALESCE(NULLIF(m.customerId, ''), ri.customerId, fallback.customerId)
+      LEFT JOIN common_suppliers supplier ON supplier.supplierId = COALESCE(NULLIF(m.supplierId, ''), ri.supplierId, fallback.supplierId) OR supplier.supplierCode = COALESCE(NULLIF(m.supplierId, ''), ri.supplierId, fallback.supplierId)
+      LEFT JOIN common_undertaking_units undertaking ON undertaking.undertakingUnitId = COALESCE(NULLIF(m.undertakingUnitId, ''), ri.undertakingUnitId, fallback.undertakingUnitId) OR undertaking.undertakingUnitCode = COALESCE(NULLIF(m.undertakingUnitId, ''), ri.undertakingUnitId, fallback.undertakingUnitId) OR undertaking.entityCode = COALESCE(NULLIF(m.undertakingUnitId, ''), ri.undertakingUnitId, fallback.undertakingUnitId)
+      LEFT JOIN common_customers customer ON customer.customerId = COALESCE(NULLIF(m.customerId, ''), ri.customerId, fallback.customerId) OR customer.customerCode = COALESCE(NULLIF(m.customerId, ''), ri.customerId, fallback.customerId)
       LEFT JOIN countries country ON country.code = m.countryCode
       ${whereBilling}
       GROUP BY rowKey, DATE_FORMAT(m.writeOffMonth, '%Y-%m-%d'), m.countryCode, m.batchName, m.requestNo, m.poNo, m.deviceCode
@@ -359,6 +379,9 @@ function buildServiceFeeQuery(filters: ServiceFeeFilters, searchParams = new URL
         MAX(supplier.supplierCode) AS supplierCode,
         MAX(undertaking.undertakingUnitCode) AS undertakingUnitCode,
         MAX(customer.customerCode) AS customerCode,
+        MAX(COALESCE(NULLIF(supplier.shortName, ''), NULLIF(supplier.nameCn, ''), supplier.supplierCode)) AS supplierName,
+        MAX(COALESCE(NULLIF(undertaking.shortName, ''), NULLIF(undertaking.entityName, ''), NULLIF(undertaking.name, ''), undertaking.undertakingUnitCode)) AS undertakingUnitName,
+        MAX(COALESCE(NULLIF(customer.shortName, ''), NULLIF(customer.nameCn, ''), NULLIF(customer.name, ''), customer.customerCode)) AS customerName,
         MAX(p.quantity) AS quantity, MAX(p.currency) AS currency,
         MAX(COALESCE(NULLIF(p.requestType, ''), NULLIF(contractItem.requestType, ''), NULLIF(ri.requestType, ''), NULLIF(fallback.requestType, ''), CASE WHEN p.lineType = 'fee' THEN '费用' ELSE '整机' END)) AS requestType,
         MAX(COALESCE(country.vatRate, 0)) AS vatRate,
@@ -370,9 +393,9 @@ function buildServiceFeeQuery(filters: ServiceFeeFilters, searchParams = new URL
       LEFT JOIN prepaymentcontractitems contractItem ON contractItem.id = p.contractLineId
       LEFT JOIN requestitems ri ON ri.id = contractItem.requestItemId
       LEFT JOIN requestitems fallback ON fallback.requestNo = p.requestNo AND fallback.deviceCode = p.deviceCode
-      LEFT JOIN common_suppliers supplier ON supplier.supplierId = COALESCE(NULLIF(p.supplierId, ''), ri.supplierId, fallback.supplierId)
-      LEFT JOIN common_undertaking_units undertaking ON undertaking.undertakingUnitId = COALESCE(NULLIF(p.undertakingUnitId, ''), ri.undertakingUnitId, fallback.undertakingUnitId)
-      LEFT JOIN common_customers customer ON customer.customerId = COALESCE(NULLIF(p.customerId, ''), ri.customerId, fallback.customerId)
+      LEFT JOIN common_suppliers supplier ON supplier.supplierId = COALESCE(NULLIF(p.supplierId, ''), ri.supplierId, fallback.supplierId) OR supplier.supplierCode = COALESCE(NULLIF(p.supplierId, ''), ri.supplierId, fallback.supplierId)
+      LEFT JOIN common_undertaking_units undertaking ON undertaking.undertakingUnitId = COALESCE(NULLIF(p.undertakingUnitId, ''), ri.undertakingUnitId, fallback.undertakingUnitId) OR undertaking.undertakingUnitCode = COALESCE(NULLIF(p.undertakingUnitId, ''), ri.undertakingUnitId, fallback.undertakingUnitId) OR undertaking.entityCode = COALESCE(NULLIF(p.undertakingUnitId, ''), ri.undertakingUnitId, fallback.undertakingUnitId)
+      LEFT JOIN common_customers customer ON customer.customerId = COALESCE(NULLIF(p.customerId, ''), ri.customerId, fallback.customerId) OR customer.customerCode = COALESCE(NULLIF(p.customerId, ''), ri.customerId, fallback.customerId)
       LEFT JOIN countries country ON country.code = p.countryCode
       ${wherePrepayment}
       GROUP BY rowKey, DATE_FORMAT(p.writeOffMonth, '%Y-%m-%d'), p.countryCode, p.batchName, p.requestNo, p.poNo, p.deviceCode
@@ -396,6 +419,9 @@ function buildServiceFeeQuery(filters: ServiceFeeFilters, searchParams = new URL
         COALESCE(b.supplierCode, p.supplierCode) AS supplierCode,
         COALESCE(b.undertakingUnitCode, p.undertakingUnitCode) AS undertakingUnitCode,
         COALESCE(b.customerCode, p.customerCode) AS customerCode,
+        COALESCE(b.supplierName, p.supplierName) AS supplierName,
+        COALESCE(b.undertakingUnitName, p.undertakingUnitName) AS undertakingUnitName,
+        COALESCE(b.customerName, p.customerName) AS customerName,
         CASE WHEN COALESCE(b.createdAt, '9999-12-31') <= COALESCE(p.createdAt, '9999-12-31')
           THEN b.createdAt ELSE p.createdAt END AS createdAt,
         CASE WHEN COALESCE(b.updatedAt, '') >= COALESCE(p.updatedAt, '')
@@ -428,7 +454,7 @@ function getServiceFeeSortExpressions() {
   return {
     writeOffMonth: "combined.writeOffMonth", countryCode: "combined.countryCode", batchName: "combined.batchName", requestNo: "combined.requestNo",
     poNo: "combined.poNo", deviceCode: "combined.deviceCode", requestType: "combined.requestType", modelCode: "combined.modelCode", nameEn: "combined.nameEn",
-    undertakingUnitCode: "combined.undertakingUnitCode", supplierCode: "combined.supplierCode", customerCode: "combined.customerCode", quantity: "combined.quantity",
+    undertakingUnitName: "combined.undertakingUnitName", supplierName: "combined.supplierName", customerName: "combined.customerName", quantity: "combined.quantity",
     lineType: "combined.lineType", billingCurrency: "combined.billingCurrency", billingAmount: "combined.billingAmount", prepaymentCurrency: "combined.prepaymentCurrency",
     prepaymentAmount: "combined.prepaymentAmount", serviceFeeAmount: "combined.serviceFeeAmount", serviceFeeAmountExcludingTax: "combined.serviceFeeAmountExcludingTax",
     prepaymentContractNos: "combined.prepaymentContractNos", sourceNote: "combined.sourceNote", createdAt: "combined.createdAt", updatedAt: "combined.updatedAt",
@@ -456,7 +482,7 @@ export async function createServiceFeeStatementDraft({
     throw new Error("服务费对账单只能包含一个核销月份的数据");
   }
 
-  const finalSnapshotNo = snapshotNo?.trim() || buildSnapshotNo();
+  const finalSnapshotNo = snapshotNo?.trim() || buildSnapshotNo(statementFilters.countryCode, statementFilters.startMonth);
 
   await withTransaction(async (connection) => {
     const existingRows = await queryRowsInTransaction<{ snapshotNo: string; status: string }>(
@@ -615,17 +641,23 @@ export async function listServiceFeeStatements(searchParams: URLSearchParams) {
   const defaultsBySnapshot = new Map<string, Row>();
   if (rows.length) {
     const snapshotNos = rows.map((row) => String(row.snapshotNo));
-    const defaults = await queryRows<Row>(
-      `
-        SELECT snapshotNo,
-          CASE WHEN COUNT(DISTINCT NULLIF(undertakingUnitId, '')) = 1 THEN MAX(NULLIF(undertakingUnitId, '')) ELSE NULL END AS defaultReceivingUnitId,
-          CASE WHEN COUNT(DISTINCT NULLIF(customerId, '')) = 1 THEN MAX(NULLIF(customerId, '')) ELSE NULL END AS defaultPayerCustomerId,
-          CASE WHEN COUNT(DISTINCT NULLIF(COALESCE(NULLIF(billingCurrency, ''), NULLIF(prepaymentCurrency, ''), NULLIF(currency, '')), '')) = 1
-            THEN MAX(NULLIF(COALESCE(NULLIF(billingCurrency, ''), NULLIF(prepaymentCurrency, ''), NULLIF(currency, '')), '')) ELSE NULL END AS defaultRepaymentCurrency
-        FROM servicefeesnapshotitems
-        WHERE snapshotNo IN (:snapshotNos)
-        GROUP BY snapshotNo
-      `,
+      const defaults = await queryRows<Row>(
+        `
+          SELECT snapshotNo,
+            CASE WHEN COUNT(DISTINCT NULLIF(COALESCE(unit.undertakingUnitId, items.undertakingUnitId), '')) = 1
+              THEN MAX(NULLIF(COALESCE(unit.undertakingUnitId, items.undertakingUnitId), '')) ELSE NULL END AS defaultReceivingUnitId,
+            CASE WHEN COUNT(DISTINCT NULLIF(COALESCE(customer.customerId, items.customerId), '')) = 1
+              THEN MAX(NULLIF(COALESCE(customer.customerId, items.customerId), '')) ELSE NULL END AS defaultPayerCustomerId,
+            CASE WHEN COUNT(DISTINCT NULLIF(COALESCE(NULLIF(items.billingCurrency, ''), NULLIF(items.prepaymentCurrency, ''), NULLIF(items.currency, '')), '')) = 1
+              THEN MAX(NULLIF(COALESCE(NULLIF(items.billingCurrency, ''), NULLIF(items.prepaymentCurrency, ''), NULLIF(items.currency, '')), '')) ELSE NULL END AS defaultRepaymentCurrency,
+            GROUP_CONCAT(DISTINCT NULLIF(COALESCE(NULLIF(unit.shortName, ''), NULLIF(unit.entityName, ''), NULLIF(unit.name, ''), NULLIF(unit.undertakingUnitCode, ''), NULLIF(items.undertakingUnitId, '')), '') ORDER BY unit.shortName SEPARATOR ', ') AS undertakingUnitName,
+            GROUP_CONCAT(DISTINCT NULLIF(COALESCE(NULLIF(customer.shortName, ''), NULLIF(customer.nameCn, ''), NULLIF(customer.name, ''), NULLIF(customer.customerCode, ''), NULLIF(items.customerId, '')), '') ORDER BY customer.shortName SEPARATOR ', ') AS customerName
+          FROM servicefeesnapshotitems AS items
+          LEFT JOIN common_undertaking_units AS unit ON unit.undertakingUnitId = items.undertakingUnitId OR unit.undertakingUnitCode = items.undertakingUnitId OR unit.entityCode = items.undertakingUnitId
+          LEFT JOIN common_customers AS customer ON customer.customerId = items.customerId OR customer.customerCode = items.customerId
+          WHERE items.snapshotNo IN (:snapshotNos)
+          GROUP BY items.snapshotNo
+        `,
       { snapshotNos },
     );
     defaults.forEach((row) => defaultsBySnapshot.set(String(row.snapshotNo), row));
@@ -664,21 +696,47 @@ export async function listServiceFeeStatementFilterOptions(searchParams: URLSear
 }
 
 async function attachRepaymentPartyCodes(rows: Row[]) {
-  const receivingIds = Array.from(new Set(rows.map((row) => String(row.receivingUnitId ?? row.defaultReceivingUnitId ?? "")).filter(Boolean)));
-  const payerIds = Array.from(new Set(rows.map((row) => String(row.payerCustomerId ?? row.defaultPayerCustomerId ?? "")).filter(Boolean)));
+  const receivingIds = Array.from(new Set(rows.map((row) => firstNonBlank(row.receivingUnitId, row.defaultReceivingUnitId)).filter(Boolean)));
+  const payerIds = Array.from(new Set(rows.map((row) => firstNonBlank(row.payerCustomerId, row.defaultPayerCustomerId)).filter(Boolean)));
   const [units, customers] = await Promise.all([
-    receivingIds.length ? queryRows<Row>("SELECT undertakingUnitId, undertakingUnitCode FROM common_undertaking_units WHERE undertakingUnitId IN (:receivingIds)", { receivingIds }) : [],
-    payerIds.length ? queryRows<Row>("SELECT customerId, customerCode FROM common_customers WHERE customerId IN (:payerIds)", { payerIds }) : [],
+    receivingIds.length ? queryRows<Row>("SELECT undertakingUnitId, undertakingUnitCode, entityCode, shortName, entityName, name FROM common_undertaking_units WHERE undertakingUnitId IN (:receivingIds) OR undertakingUnitCode IN (:receivingIds) OR entityCode IN (:receivingIds)", { receivingIds }) : [],
+    payerIds.length ? queryRows<Row>("SELECT customerId, customerCode, shortName, nameCn, name FROM common_customers WHERE customerId IN (:payerIds) OR customerCode IN (:payerIds)", { payerIds }) : [],
   ]);
-  const unitCodes = new Map(units.map((row) => [String(row.undertakingUnitId), String(row.undertakingUnitCode ?? row.undertakingUnitId ?? "")]));
-  const customerCodes = new Map(customers.map((row) => [String(row.customerId), String(row.customerCode ?? row.customerId ?? "")]));
+  const unitIds = new Map<string, string>();
+  const unitNames = new Map<string, string>();
+  for (const row of units) {
+    const id = String(row.undertakingUnitId ?? "");
+    const code = String(row.undertakingUnitCode ?? id);
+    const name = String(row.shortName ?? row.entityName ?? row.name ?? code);
+    for (const reference of [row.undertakingUnitId, row.undertakingUnitCode, row.entityCode]) {
+      if (reference !== null && reference !== undefined && String(reference).trim()) unitIds.set(String(reference), id);
+    }
+    if (id) unitNames.set(id, name);
+  }
+  const customerIds = new Map<string, string>();
+  const customerNames = new Map<string, string>();
+  for (const row of customers) {
+    const id = String(row.customerId ?? "");
+    const code = String(row.customerCode ?? id);
+    const name = String(row.shortName ?? row.nameCn ?? row.name ?? code);
+    for (const reference of [row.customerId, row.customerCode]) {
+      if (reference !== null && reference !== undefined && String(reference).trim()) customerIds.set(String(reference), id);
+    }
+    if (id) customerNames.set(id, name);
+  }
   return rows.map((row) => {
-    const receivingId = String(row.receivingUnitId ?? row.defaultReceivingUnitId ?? "");
-    const payerId = String(row.payerCustomerId ?? row.defaultPayerCustomerId ?? "");
+    const receivingId = firstNonBlank(row.receivingUnitId, row.defaultReceivingUnitId);
+    const payerId = firstNonBlank(row.payerCustomerId, row.defaultPayerCustomerId);
+    const normalizedReceivingId = unitIds.get(receivingId) ?? receivingId;
+    const normalizedPayerId = customerIds.get(payerId) ?? payerId;
     return {
       ...row,
-      receivingUnitCode: unitCodes.get(receivingId) ?? receivingId,
-      payerCustomerCode: customerCodes.get(payerId) ?? payerId,
+      receivingUnitId: row.receivingUnitId ? normalizedReceivingId : row.receivingUnitId,
+      defaultReceivingUnitId: row.defaultReceivingUnitId ? unitIds.get(String(row.defaultReceivingUnitId)) ?? row.defaultReceivingUnitId : row.defaultReceivingUnitId,
+      payerCustomerId: row.payerCustomerId ? normalizedPayerId : row.payerCustomerId,
+      defaultPayerCustomerId: row.defaultPayerCustomerId ? customerIds.get(String(row.defaultPayerCustomerId)) ?? row.defaultPayerCustomerId : row.defaultPayerCustomerId,
+      receivingUnitCode: unitNames.get(normalizedReceivingId) ?? receivingId,
+      payerCustomerCode: customerNames.get(normalizedPayerId) ?? payerId,
     };
   });
 }
@@ -879,7 +937,7 @@ export async function deleteServiceFeeInvoice(snapshotNo: string) {
 }
 
 function normalizeServiceFeeStatementFilters(filters: ServiceFeeFilters) {
-  const countryCode = String(filters.countryCode ?? "").trim();
+  const countryCode = String(filters.countryCode ?? "").trim().split(/\s*-\s*/, 1)[0].toUpperCase();
   const startMonth = filters.startMonth ? firstDayOfMonth(filters.startMonth) : "";
   const endMonth = filters.endMonth ? firstDayOfMonth(filters.endMonth) : startMonth;
   if (!countryCode) throw new Error("请选择国家");
@@ -903,27 +961,28 @@ function getFilters(searchParams: URLSearchParams): ServiceFeeFilters {
 async function listBillingRows(filters: ServiceFeeFilters) {
   const whereParts: string[] = [];
   const params: Row = {};
-  applyCommonWhere(whereParts, params, filters, "monthlybillingwriteoffs");
+  const requestTypeExpression = serviceFeeBillingDetailRequestTypeExpression();
+  applyCommonWhere(whereParts, params, filters, "monthlybillingwriteoffs", requestTypeExpression);
 
   const where = whereParts.length ? `WHERE ${whereParts.join(" AND ")}` : "";
   return queryRows<ServiceFeeBillingRow>(
     `
       SELECT
-        id,
-        ledgerId,
-        DATE_FORMAT(writeOffMonth, '%Y-%m-%d') AS writeOffMonth,
-        countryCode,
-        batchName,
-        requestNo,
-        poNo,
-        deviceCode,
-        requestType,
-        modelCode,
+        monthlybillingwriteoffs.id,
+        monthlybillingwriteoffs.ledgerId,
+        DATE_FORMAT(monthlybillingwriteoffs.writeOffMonth, '%Y-%m-%d') AS writeOffMonth,
+        monthlybillingwriteoffs.countryCode,
+        monthlybillingwriteoffs.batchName,
+        monthlybillingwriteoffs.requestNo,
+        monthlybillingwriteoffs.poNo,
+        monthlybillingwriteoffs.deviceCode,
+        ${requestTypeExpression} AS requestType,
+        monthlybillingwriteoffs.modelCode,
         monthlybillingwriteoffs.nameEn AS nameEn,
         COALESCE(NULLIF(monthlybillingwriteoffs.supplierId, ''), ri.linkedSupplierId, riByBusinessKey.fallbackSupplierId) AS supplierId,
         COALESCE(NULLIF(monthlybillingwriteoffs.undertakingUnitId, ''), ri.linkedUndertakingUnitId, riByBusinessKey.fallbackUndertakingUnitId) AS undertakingUnitId,
         COALESCE(NULLIF(monthlybillingwriteoffs.customerId, ''), ri.linkedCustomerId, riByBusinessKey.fallbackCustomerId) AS customerId,
-        quantity,
+        monthlybillingwriteoffs.quantity,
         currency,
         COALESCE(country.vatRate, 0) AS vatRate,
         monthlyTotalAmount,
@@ -931,10 +990,11 @@ async function listBillingRows(filters: ServiceFeeFilters) {
         DATE_FORMAT(monthlybillingwriteoffs.createdAt, '%Y-%m-%d') AS createdAt,
         DATE_FORMAT(monthlybillingwriteoffs.updatedAt, '%Y-%m-%d') AS updatedAt
       FROM monthlybillingwriteoffs
-      LEFT JOIN (SELECT ledgerId AS linkedLedgerId, purchaseOrderItemId AS linkedPurchaseOrderItemId FROM billinginstanceledgers) AS ledger ON ledger.linkedLedgerId = monthlybillingwriteoffs.ledgerId
+      LEFT JOIN (SELECT ledgerId AS linkedLedgerId, purchaseOrderItemId AS linkedPurchaseOrderItemId, requestType AS linkedRequestType FROM billinginstanceledgers) AS ledger ON ledger.linkedLedgerId = monthlybillingwriteoffs.ledgerId
       LEFT JOIN purchaseorderitems AS purchaseItem ON purchaseItem.id = ledger.linkedPurchaseOrderItemId
-      LEFT JOIN (SELECT id AS linkedRequestItemId, supplierId AS linkedSupplierId, undertakingUnitId AS linkedUndertakingUnitId, customerId AS linkedCustomerId FROM requestitems) AS ri ON ri.linkedRequestItemId = purchaseItem.requestItemId
-      LEFT JOIN (SELECT requestNo AS keyRequestNo, deviceCode AS keyDeviceCode, supplierId AS fallbackSupplierId, undertakingUnitId AS fallbackUndertakingUnitId, customerId AS fallbackCustomerId FROM requestitems) AS riByBusinessKey ON riByBusinessKey.keyRequestNo = monthlybillingwriteoffs.requestNo AND riByBusinessKey.keyDeviceCode = monthlybillingwriteoffs.deviceCode
+      LEFT JOIN (SELECT id AS linkedRequestItemId, requestNo AS linkedRequestNo, requestType AS linkedRequestType, supplierId AS linkedSupplierId, undertakingUnitId AS linkedUndertakingUnitId, customerId AS linkedCustomerId FROM requestitems) AS ri ON ri.linkedRequestItemId = purchaseItem.requestItemId
+      LEFT JOIN requests AS req ON req.requestNo = COALESCE(NULLIF(purchaseItem.requestNo, ''), NULLIF(ri.linkedRequestNo, ''), monthlybillingwriteoffs.requestNo)
+      LEFT JOIN (SELECT requestNo AS keyRequestNo, deviceCode AS keyDeviceCode, requestType AS fallbackRequestType, supplierId AS fallbackSupplierId, undertakingUnitId AS fallbackUndertakingUnitId, customerId AS fallbackCustomerId FROM requestitems) AS riByBusinessKey ON riByBusinessKey.keyRequestNo = monthlybillingwriteoffs.requestNo AND riByBusinessKey.keyDeviceCode = monthlybillingwriteoffs.deviceCode
       LEFT JOIN countries AS country ON country.code = monthlybillingwriteoffs.countryCode
       ${where}
       ORDER BY writeOffMonth, countryCode, batchName, requestNo, poNo, deviceCode
@@ -986,7 +1046,7 @@ async function listPrepaymentRows(filters: ServiceFeeFilters) {
   );
 }
 
-function applyCommonWhere(whereParts: string[], params: Row, filters: ServiceFeeFilters, tableAlias = "") {
+function applyCommonWhere(whereParts: string[], params: Row, filters: ServiceFeeFilters, tableAlias = "", requestTypeExpression?: string) {
   const column = (name: string) => tableAlias ? `${tableAlias}.${name}` : name;
   if (filters.startMonth) {
     whereParts.push(`${column("writeOffMonth")} >= :startMonth`);
@@ -1005,7 +1065,7 @@ function applyCommonWhere(whereParts: string[], params: Row, filters: ServiceFee
     params.batchName = filters.batchName;
   }
   if (filters.requestType) {
-    whereParts.push(`${column("requestType")} = :requestType`);
+    whereParts.push(`${requestTypeExpression ?? column("requestType")} = :requestType`);
     params.requestType = filters.requestType;
   }
 }
@@ -1041,15 +1101,15 @@ function filterCalculatedRows(rows: ServiceFeeRow[], filters: ServiceFeeFilters)
 async function insertSnapshotItem(connection: PoolConnection, snapshotNo: string, index: number, row: ServiceFeeRow) {
   await executeInTransaction(
     connection,
-    `
-      INSERT INTO servicefeesnapshotitems
-        (id, snapshotNo, writeOffMonth, countryCode, vatRate, batchName, requestNo, poNo, deviceCode,
-         modelCode, nameEn, requestType, supplierId, undertakingUnitId, customerId, quantity, currency, billingCurrency, prepaymentCurrency, lineType, billingAmount, prepaymentAmount,
-         serviceFeeAmount, serviceFeeAmountExcludingTax, billingSourceIds, prepaymentSourceIds, prepaymentContractNos, sourceNote)
-      VALUES
-        (:id, :snapshotNo, :writeOffMonth, :countryCode, :vatRate, :batchName, :requestNo, :poNo, :deviceCode,
-         :modelCode, :nameEn, :requestType, :supplierId, :undertakingUnitId, :customerId, :quantity, :currency, :billingCurrency, :prepaymentCurrency, :lineType, :billingAmount, :prepaymentAmount,
-         :serviceFeeAmount, :serviceFeeAmountExcludingTax, :billingSourceIds, :prepaymentSourceIds, :prepaymentContractNos, :sourceNote)
+      `
+        INSERT INTO servicefeesnapshotitems
+          (id, snapshotNo, writeOffMonth, countryCode, vatRate, batchName, requestNo, poNo, deviceCode,
+          modelCode, nameEn, supplierId, undertakingUnitId, customerId, quantity, currency, billingCurrency, prepaymentCurrency, lineType, billingAmount, prepaymentAmount,
+          serviceFeeAmount, serviceFeeAmountExcludingTax, billingSourceIds, prepaymentSourceIds, prepaymentContractNos, sourceNote)
+        VALUES
+          (:id, :snapshotNo, :writeOffMonth, :countryCode, :vatRate, :batchName, :requestNo, :poNo, :deviceCode,
+          :modelCode, :nameEn, :supplierId, :undertakingUnitId, :customerId, :quantity, :currency, :billingCurrency, :prepaymentCurrency, :lineType, :billingAmount, :prepaymentAmount,
+          :serviceFeeAmount, :serviceFeeAmountExcludingTax, :billingSourceIds, :prepaymentSourceIds, :prepaymentContractNos, :sourceNote)
     `,
     {
       ...row,
@@ -1059,15 +1119,12 @@ async function insertSnapshotItem(connection: PoolConnection, snapshotNo: string
   );
 }
 
-function buildSnapshotNo() {
-  const now = new Date();
-  const stamp = [
-    now.getFullYear(),
-    String(now.getMonth() + 1).padStart(2, "0"),
-    String(now.getDate()).padStart(2, "0"),
-    String(now.getHours()).padStart(2, "0"),
-    String(now.getMinutes()).padStart(2, "0"),
-    String(now.getSeconds()).padStart(2, "0"),
-  ].join("");
-  return `SFS-${stamp}`;
+function buildSnapshotNo(countryCode: string, writeOffMonth: string) {
+  const normalizedCountryCode = countryCode.trim().split(/\s*-\s*/, 1)[0].toUpperCase();
+  const normalizedMonth = firstDayOfMonth(writeOffMonth).slice(0, 7).replace("-", "");
+  return `FWF-${normalizedCountryCode}${normalizedMonth}`;
+}
+
+function firstNonBlank(...values: unknown[]) {
+  return String(values.find((value) => value !== null && value !== undefined && String(value).trim() !== "") ?? "").trim();
 }

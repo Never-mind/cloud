@@ -12,6 +12,7 @@ import type { OrderRouteMode } from "@/lib/order-routes";
 import { buildPurchaseProductLines, calculatePurchaseTotalAmount } from "@/lib/purchase-lines";
 import { PurchaseOrderDemandPlanTabs } from "./purchase-order-demand-plan-tabs";
 import { getReturnTo } from "@/lib/client-list-navigation";
+import { readJsonResponse } from "@/lib/client-response";
 import { Button, Input, Panel } from "./ui";
 import { StickyTable } from "./sticky-table";
 
@@ -54,7 +55,7 @@ export function OrderDetailPage({
       return;
     }
 
-    const data = await response.json();
+    const data = await readJsonResponse<OrderDetailResponse>(response, "采购订单详情加载失败");
     const nextMaster = (data.master ?? null) as Row | null;
     const nextDetails = (data.details ?? []) as Row[];
     setMaster(nextMaster);
@@ -339,7 +340,7 @@ export function OrderDetailPage({
                           onChange={(value) => updateDetailDraft(String(row.id), field.key, value)}
                         />
                       ) : (
-                        formatValue(row[field.key], field.type)
+                        formatValue(getDetailDisplayValue(row, field.key), field.type)
                       )}
                     </td>
                   ))}
@@ -366,6 +367,13 @@ export function OrderDetailPage({
   );
 }
 
+type OrderDetailResponse = {
+  master?: Row | null;
+  details?: Row[];
+  requestItems?: Row[];
+  instanceModels?: Row[];
+};
+
 function Info({ label, value, type }: { label: string; value: unknown; type?: string }) {
   return (
     <div className="border border-[#ebeef5] bg-[#fafafa] p-3">
@@ -389,4 +397,11 @@ function NumberInput({ onChange, value }: { onChange: (value: number) => void; v
 
 function formatValue(value: unknown, type?: string) {
   return formatDisplayValue(value as string | number | boolean | null | undefined, type);
+}
+
+function getDetailDisplayValue(row: Row, key: string) {
+  if (key === "supplierId" || key === "supplierCode" || key === "supplierName") return row.supplierDisplayName ?? row[key];
+  if (key === "undertakingUnitId" || key === "undertakingUnitCode" || key === "undertakingUnitName") return row.undertakingUnitDisplayName ?? row[key];
+  if (key === "customerId" || key === "customerCode" || key === "customerName") return row.customerDisplayName ?? row[key];
+  return row[key];
 }

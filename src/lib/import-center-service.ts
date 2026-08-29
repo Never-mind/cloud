@@ -10,6 +10,7 @@ import {
 import { DEFAULT_PAGE_SIZE, normalizePageSize } from "./pagination";
 import { assertPrepaymentInstanceOwnership } from "./prepayment-service";
 import { synchronizeConfirmedPurchaseOrderShipments } from "./procurement-service";
+import type { PartyReferenceRow } from "./party-reference";
 
 type ImportJobRow = Row & {
   jobId: string;
@@ -220,6 +221,11 @@ export async function createImportPreviewJob({
     targetKey === "instance-contracts"
       ? await queryRows("SELECT deviceCode, modelCode, nameEn FROM instancemodels")
       : [];
+  const [suppliers, undertakingUnits, customers] = await Promise.all([
+    queryRows<PartyReferenceRow>("SELECT supplierId, supplierCode, shortName, nameCn FROM common_suppliers"),
+    queryRows<PartyReferenceRow>("SELECT undertakingUnitId, undertakingUnitCode, entityCode, shortName, entityName, name FROM common_undertaking_units"),
+    queryRows<PartyReferenceRow>("SELECT customerId, customerCode, shortName, nameCn, name FROM common_customers"),
+  ]);
   const billingPurchaseLines =
     targetKey === "billing-ledgers"
       ? await queryRows(`
@@ -285,6 +291,7 @@ export async function createImportPreviewJob({
     instanceContracts: billingInstanceContracts,
     billingPurchaseLines,
     prepaymentPurchaseLines,
+    partyReferences: { suppliers, undertakingUnits, customers },
   });
   preview.strategy = normalizeImportStrategy(strategy);
   preview.execution = await summarizeExecution(preview, preview.strategy);

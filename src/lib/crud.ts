@@ -4,7 +4,7 @@ import { attachPartyCodes } from "./party-display";
 import type { EntityConfig } from "./modules";
 import { DEFAULT_PAGE_SIZE, normalizePageSize } from "./pagination";
 import { requireRequestType } from "./request-type";
-import { formatTableDateExpression, formatTableDateTimeExpression, getNaturalBatchSort } from "./table-query";
+import { formatTableDateExpression, formatTableDateTimeExpression, getNaturalBatchSort, getTableFilterOptionsOrderBy } from "./table-query";
 
 function quoteIdentifier(identifier: string) {
   return `\`${identifier.replace(/`/g, "``")}\``;
@@ -36,8 +36,18 @@ function getInsertFields(config: EntityConfig) {
   return Array.from(new Set([config.primaryKey, ...getWritableFields(config)]));
 }
 
-const shipmentDisplayFields = new Set(["countryCode", "destinationAddress", "recipientName", "supplierCode", "undertakingUnitCode", "customerCode"]);
+const shipmentDisplayFields = new Set([
+  "countryCode",
+  "destinationAddress",
+  "recipientName",
+  "supplierName",
+  "undertakingUnitName",
+  "customerName",
+]);
 const partyCodeDisplayFields = new Set(["supplierCode", "undertakingUnitCode", "customerCode"]);
+const partyNameDisplayFields = new Set(["supplierName", "undertakingUnitName", "customerName"]);
+const partyDisplayFields = new Set([...partyCodeDisplayFields, ...partyNameDisplayFields]);
+const derivedRequestTypeEntityKeys = new Set(["monthly-billing-writeoffs", "service-fee-snapshot-items"]);
 
 function isShipmentDelivered(value: unknown) {
   return value !== null && value !== undefined && String(value).trim() !== "";
@@ -113,16 +123,18 @@ export async function listEntityRows(config: EntityConfig, searchParams: URLSear
     ...(financePartyEntityKeys.has(config.key) ? ["supplierId", "undertakingUnitId", "customerId"] : []),
   ]));
   const displayOnlyFields = config.key === "request-items"
-    ? new Set(["customerCode"])
+    ? partyDisplayFields
     : config.key === "purchase-orders"
       ? new Set(["requestType"])
       : config.key === "service-fee-snapshots"
-        ? new Set(["receivingUnitCode", "payerCustomerCode"])
-    : config.key === "shipments"
-    ? new Set([...shipmentDisplayFields, "requestType"])
-    : financePartyEntityKeys.has(config.key)
-      ? partyCodeDisplayFields
-      : new Set<string>();
+        ? new Set(["receivingUnitCode", "payerCustomerCode", "undertakingUnitName", "customerName"])
+        : derivedRequestTypeEntityKeys.has(config.key)
+          ? new Set(["requestType", ...partyDisplayFields])
+          : config.key === "shipments"
+            ? new Set([...shipmentDisplayFields, "requestType"])
+            : financePartyEntityKeys.has(config.key)
+              ? partyDisplayFields
+              : new Set<string>();
   const storageFields = fields.filter((field) => !displayOnlyFields.has(field));
   const fieldTypes = new Map(
     [...config.listFields, ...config.formFields].map((field) => [field.key, field.type]),
@@ -141,6 +153,21 @@ export async function listEntityRows(config: EntityConfig, searchParams: URLSear
           : displayReference;
       return `${selectedReference} AS ${quoteIdentifier(field)}`;
     })
+    .concat(
+      config.listFields
+        .filter((field) => derivedRequestTypeEntityKeys.has(config.key) && field.key === "requestType")
+        .map((field) => `${getEntityDisplayFieldExpression(config, field.key)} AS ${quoteIdentifier(field.key)}`),
+    )
+    .concat(config.key === "product-masters"
+      ? [
+          "(SELECT COUNT(*) FROM `po_product_models` productModel WHERE productModel.`masterId` = `po_product_masters`.`id`) AS `modelCount`",
+          "(SELECT COUNT(*) FROM `po_product_specifications` productSpecification INNER JOIN `po_product_models` productModel ON productModel.`id` = productSpecification.`modelId` WHERE productModel.`masterId` = `po_product_masters`.`id` AND productSpecification.`mode` = 'fixed') AS `specCount`",
+        ]
+      : config.key === "product-models"
+        ? [
+            "(SELECT COUNT(*) FROM `po_product_specifications` productSpecification WHERE productSpecification.`modelId` = `po_product_models`.`id` AND productSpecification.`mode` = 'fixed') AS `specCount`",
+          ]
+        : [])
     .concat(config.key === "purchase-orders"
       ? [`
           COALESCE((
@@ -214,6 +241,14 @@ export async function listEntityRows(config: EntityConfig, searchParams: URLSear
         params.requestType = value;
         continue;
       }
+      if (filter.key === "requestType" && derivedRequestTypeEntityKeys.has(config.key)) {
+        const requestTypeExpression = getEntityDisplayFieldExpression(config, "requestType");
+        if (requestTypeExpression) {
+          whereParts.push(`${requestTypeExpression} = :requestType`);
+          params.requestType = value;
+        }
+        continue;
+      }
       if (filter.key === "requestType" && config.key === "shipments") {
         whereParts.push(`
           EXISTS (
@@ -247,6 +282,11 @@ export async function listEntityRows(config: EntityConfig, searchParams: URLSear
   ) {
     whereParts.push("`purchaseOrderId` = :purchaseOrderId");
     params.purchaseOrderId = searchParams.get("purchaseOrderId")!.trim();
+  }
+
+  if (config.key === "product-specifications" && searchParams.get("masterId")?.trim()) {
+    whereParts.push("`modelId` IN (SELECT `id` FROM `po_product_models` WHERE `masterId` = :productMasterId)");
+    params.productMasterId = searchParams.get("masterId")!.trim();
   }
 
   appendImplicitFormFieldFilters(config, searchParams, whereParts, params, fieldReference);
@@ -395,11 +435,13 @@ function getEntitySortReference(config: EntityConfig, field: string, shipmentAli
   const displayOnlyFields = config.key === "shipments"
     ? shipmentDisplayFields
     : config.key === "service-fee-snapshots"
-      ? new Set(["receivingUnitCode", "payerCustomerCode"])
+      ? new Set(["receivingUnitCode", "payerCustomerCode", "undertakingUnitName", "customerName"])
+      : derivedRequestTypeEntityKeys.has(config.key)
+        ? new Set(["requestType", ...partyDisplayFields])
       : config.key === "purchase-orders"
         ? new Set(["requestType"])
         : financePartyEntityKeys.has(config.key)
-          ? partyCodeDisplayFields
+          ? partyDisplayFields
           : new Set<string>();
   if (displayOnlyFields.has(field)) {
     const displayExpression = getEntityDisplayFieldExpression(config, field, shipmentAlias);
@@ -451,9 +493,11 @@ export async function listEntityFilterOptions(
   const displayOnlyFields = config.key === "shipments"
     ? shipmentDisplayFields
     : config.key === "service-fee-snapshots"
-      ? new Set(["receivingUnitCode", "payerCustomerCode"])
+      ? new Set(["receivingUnitCode", "payerCustomerCode", "undertakingUnitName", "customerName"])
+      : derivedRequestTypeEntityKeys.has(config.key)
+        ? new Set(["requestType", ...partyDisplayFields])
       : financePartyEntityKeys.has(config.key)
-        ? partyCodeDisplayFields
+        ? partyDisplayFields
         : new Set<string>();
   const shipmentAlias = config.key === "shipments" ? "shipment" : "";
   const table = quoteIdentifier(config.table);
@@ -518,7 +562,11 @@ export async function listEntityFilterOptions(
     params.selectedValues = selectedValues;
   }
   const rows = await queryRows<{ value: string; count: number }>(
-    `SELECT ${reference} AS value, COUNT(*) AS count FROM ${tableSource} WHERE ${whereParts.join(" AND ")} GROUP BY ${reference} ORDER BY value LIMIT 500`,
+    `SELECT optionValues.value, COUNT(*) AS count
+       FROM (SELECT ${reference} AS value FROM ${tableSource} WHERE ${whereParts.join(" AND ")}) AS optionValues
+      GROUP BY optionValues.value
+      ORDER BY ${getTableFilterOptionsOrderBy(field, "optionValues.value")}
+      LIMIT 500`,
     params,
   );
   return { options: rows.map((row) => ({ value: String(row.value ?? ""), label: getFilterOptionLabel(String(row.value ?? ""), fieldConfig), count: Number(row.count ?? 0) })) };
@@ -530,12 +578,20 @@ function getFilterOptionLabel(value: string, field: EntityConfig["listFields"][n
 
 function getEntityDisplayFieldExpression(config: EntityConfig, field: string, shipmentAlias = "") {
   const source = shipmentAlias ? `${shipmentAlias}.` : `${quoteIdentifier(config.table)}.`;
+  const derivedRequestType = field === "requestType" ? getDerivedRequestTypeExpression(config, source) : "";
+  if (derivedRequestType) return derivedRequestType;
   if (config.key === "service-fee-snapshots") {
+    if (field === "undertakingUnitName") {
+      return `(SELECT GROUP_CONCAT(DISTINCT COALESCE(NULLIF(unit.shortName, ''), NULLIF(unit.entityName, ''), NULLIF(unit.name, ''), NULLIF(unit.undertakingUnitCode, ''), NULLIF(snapshotItem.undertakingUnitId, '')) SEPARATOR ', ') FROM servicefeesnapshotitems snapshotItem LEFT JOIN common_undertaking_units unit ON unit.undertakingUnitId = snapshotItem.undertakingUnitId OR unit.undertakingUnitCode = snapshotItem.undertakingUnitId OR unit.entityCode = snapshotItem.undertakingUnitId WHERE snapshotItem.snapshotNo = ${source}snapshotNo)`;
+    }
+    if (field === "customerName") {
+      return `(SELECT GROUP_CONCAT(DISTINCT COALESCE(NULLIF(customer.shortName, ''), NULLIF(customer.nameCn, ''), NULLIF(customer.name, ''), NULLIF(customer.customerCode, ''), NULLIF(snapshotItem.customerId, '')) SEPARATOR ', ') FROM servicefeesnapshotitems snapshotItem LEFT JOIN common_customers customer ON customer.customerId = snapshotItem.customerId OR customer.customerCode = snapshotItem.customerId WHERE snapshotItem.snapshotNo = ${source}snapshotNo)`;
+    }
     if (field === "receivingUnitCode") {
-      return `(SELECT unit.undertakingUnitCode FROM common_undertaking_units unit WHERE unit.undertakingUnitId = ${source}receivingUnitId LIMIT 1)`;
+      return `(SELECT COALESCE(NULLIF(unit.shortName, ''), NULLIF(unit.entityName, ''), NULLIF(unit.name, ''), unit.undertakingUnitCode) FROM common_undertaking_units unit WHERE unit.undertakingUnitId = ${source}receivingUnitId OR unit.undertakingUnitCode = ${source}receivingUnitId OR unit.entityCode = ${source}receivingUnitId LIMIT 1)`;
     }
     if (field === "payerCustomerCode") {
-      return `(SELECT customer.customerCode FROM common_customers customer WHERE customer.customerId = ${source}payerCustomerId LIMIT 1)`;
+      return `(SELECT COALESCE(NULLIF(customer.shortName, ''), NULLIF(customer.nameCn, ''), NULLIF(customer.name, ''), customer.customerCode) FROM common_customers customer WHERE customer.customerId = ${source}payerCustomerId OR customer.customerCode = ${source}payerCustomerId LIMIT 1)`;
     }
   }
   if (config.key === "shipments") {
@@ -560,20 +616,92 @@ function getEntityDisplayFieldExpression(config: EntityConfig, field: string, sh
     if (field === "dcNameZh") return `(SELECT dc.nameZh FROM datacenters dc WHERE dc.dcCode = shipment.dcCode LIMIT 1)`;
     if (field === "destinationAddress") return `(SELECT location.fullAddress FROM deliverylocations location WHERE location.locationId = shipment.destinationLocationId LIMIT 1)`;
     if (field === "recipientName") return `(SELECT contact.name FROM deliverycontacts contact WHERE contact.contactId = shipment.recipientContactId LIMIT 1)`;
-    if (["supplierCode", "undertakingUnitCode", "customerCode"].includes(field)) {
-      const idField = field === "supplierCode" ? "supplierId" : field === "undertakingUnitCode" ? "undertakingUnitId" : "customerId";
-      const tableName = field === "supplierCode" ? "common_suppliers" : field === "undertakingUnitCode" ? "common_undertaking_units" : "common_customers";
-      const idColumn = field === "supplierCode" ? "supplierId" : field === "undertakingUnitCode" ? "undertakingUnitId" : "customerId";
-      const codeColumn = field;
-      return `(SELECT party.${codeColumn} FROM ${tableName} party INNER JOIN purchaseorderitems poi ON poi.poNo = shipment.poNo LEFT JOIN requestitems ri ON ri.id = poi.requestItemId WHERE (poi.id = shipment.purchaseOrderItemId OR (NULLIF(shipment.deviceCode, '') IS NOT NULL AND ri.deviceCode = shipment.deviceCode)) AND party.${idColumn} = ri.${idField} ORDER BY (poi.id = shipment.purchaseOrderItemId) DESC LIMIT 1)`;
+    if (["supplierName", "undertakingUnitName", "customerName"].includes(field)) {
+      const isSupplier = field === "supplierName";
+      const isUndertakingUnit = field === "undertakingUnitName";
+      const idField = isSupplier ? "supplierId" : isUndertakingUnit ? "undertakingUnitId" : "customerId";
+      const tableName = isSupplier ? "common_suppliers" : isUndertakingUnit ? "common_undertaking_units" : "common_customers";
+      const idColumn = isSupplier ? "supplierId" : isUndertakingUnit ? "undertakingUnitId" : "customerId";
+      const nameExpression = isSupplier
+        ? "COALESCE(NULLIF(party.shortName, ''), NULLIF(party.nameCn, ''), party.supplierCode)"
+        : isUndertakingUnit
+          ? "COALESCE(NULLIF(party.shortName, ''), NULLIF(party.entityName, ''), NULLIF(party.name, ''), party.undertakingUnitCode)"
+          : "COALESCE(NULLIF(party.shortName, ''), NULLIF(party.nameCn, ''), NULLIF(party.name, ''), party.customerCode)";
+      const referenceExpression = isSupplier
+        ? `party.${idColumn} = ri.${idField} OR party.supplierCode = ri.${idField}`
+        : isUndertakingUnit
+          ? `party.${idColumn} = ri.${idField} OR party.undertakingUnitCode = ri.${idField} OR party.entityCode = ri.${idField}`
+          : `party.${idColumn} = ri.${idField} OR party.customerCode = ri.${idField}`;
+      return `(SELECT ${nameExpression} FROM ${tableName} party INNER JOIN purchaseorderitems poi ON poi.poNo = shipment.poNo LEFT JOIN requestitems ri ON ri.id = poi.requestItemId WHERE (poi.id = shipment.purchaseOrderItemId OR (NULLIF(shipment.deviceCode, '') IS NOT NULL AND ri.deviceCode = shipment.deviceCode)) AND (${referenceExpression}) ORDER BY (poi.id = shipment.purchaseOrderItemId) DESC LIMIT 1)`;
     }
   }
-  if (partyCodeDisplayFields.has(field)) {
-    const idField = field === "supplierCode" ? "supplierId" : field === "undertakingUnitCode" ? "undertakingUnitId" : "customerId";
-    const tableName = field === "supplierCode" ? "common_suppliers" : field === "undertakingUnitCode" ? "common_undertaking_units" : "common_customers";
-    return `(SELECT party.${field} FROM ${tableName} party WHERE party.${idField} = ${source}${idField} LIMIT 1)`;
+  if (partyDisplayFields.has(field)) {
+    const isSupplier = field === "supplierCode" || field === "supplierName";
+    const isUndertakingUnit = field === "undertakingUnitCode" || field === "undertakingUnitName";
+    const idField = isSupplier ? "supplierId" : isUndertakingUnit ? "undertakingUnitId" : "customerId";
+    const tableName = isSupplier ? "common_suppliers" : isUndertakingUnit ? "common_undertaking_units" : "common_customers";
+    const nameExpression = isSupplier
+      ? "COALESCE(NULLIF(party.shortName, ''), NULLIF(party.nameCn, ''), party.supplierCode)"
+      : isUndertakingUnit
+        ? "COALESCE(NULLIF(party.shortName, ''), NULLIF(party.entityName, ''), NULLIF(party.name, ''), party.undertakingUnitCode)"
+        : "COALESCE(NULLIF(party.shortName, ''), NULLIF(party.nameCn, ''), NULLIF(party.name, ''), party.customerCode)";
+    const referenceExpression = isSupplier
+      ? `party.supplierId = ${source}${idField} OR party.supplierCode = ${source}${idField}`
+      : isUndertakingUnit
+        ? `party.undertakingUnitId = ${source}${idField} OR party.undertakingUnitCode = ${source}${idField} OR party.entityCode = ${source}${idField}`
+        : `party.customerId = ${source}${idField} OR party.customerCode = ${source}${idField}`;
+    return `(SELECT ${nameExpression} FROM ${tableName} party WHERE ${referenceExpression} LIMIT 1)`;
   }
   return "";
+}
+
+function getDerivedRequestTypeExpression(config: EntityConfig, source: string) {
+  if (!derivedRequestTypeEntityKeys.has(config.key)) return "";
+
+  if (config.key === "monthly-billing-writeoffs") {
+    return `COALESCE(
+      NULLIF((
+        SELECT COALESCE(NULLIF(purchaseItem.requestType, ''), NULLIF(ledger.requestType, ''), NULLIF(requestItem.requestType, ''), NULLIF(requestMaster.requestType, ''), '')
+        FROM billinginstanceledgers AS ledger
+        LEFT JOIN purchaseorderitems AS purchaseItem ON purchaseItem.id = ledger.purchaseOrderItemId
+        LEFT JOIN requestitems AS requestItem ON requestItem.id = purchaseItem.requestItemId
+        LEFT JOIN requests AS requestMaster ON requestMaster.requestNo = COALESCE(NULLIF(purchaseItem.requestNo, ''), NULLIF(requestItem.requestNo, ''), ${source}requestNo)
+        WHERE ledger.ledgerId = ${source}ledgerId
+        LIMIT 1
+      ), ''),
+      NULLIF((
+        SELECT fallback.requestType
+        FROM requestitems AS fallback
+        WHERE fallback.requestNo = ${source}requestNo
+          AND fallback.deviceCode = ${source}deviceCode
+        LIMIT 1
+      ), ''),
+      '整机'
+    )`;
+  }
+
+  return `COALESCE(
+    NULLIF((
+      SELECT COALESCE(NULLIF(purchaseItem.requestType, ''), NULLIF(ledger.requestType, ''), NULLIF(requestItem.requestType, ''), NULLIF(requestMaster.requestType, ''), '')
+      FROM monthlybillingwriteoffs AS monthlyBilling
+      LEFT JOIN billinginstanceledgers AS ledger ON ledger.ledgerId = monthlyBilling.ledgerId
+      LEFT JOIN purchaseorderitems AS purchaseItem ON purchaseItem.id = ledger.purchaseOrderItemId
+      LEFT JOIN requestitems AS requestItem ON requestItem.id = purchaseItem.requestItemId
+      LEFT JOIN requests AS requestMaster ON requestMaster.requestNo = COALESCE(NULLIF(purchaseItem.requestNo, ''), NULLIF(requestItem.requestNo, ''), monthlyBilling.requestNo)
+      WHERE FIND_IN_SET(monthlyBilling.id, ${source}billingSourceIds) > 0
+      LIMIT 1
+    ), ''),
+    NULLIF((
+      SELECT COALESCE(NULLIF(monthlyPrepayment.requestType, ''), NULLIF(contractItem.requestType, ''), NULLIF(requestItem.requestType, ''), NULLIF(requestMaster.requestType, ''), '')
+      FROM monthlyprepaymentwriteoffs AS monthlyPrepayment
+      LEFT JOIN prepaymentcontractitems AS contractItem ON contractItem.id = monthlyPrepayment.contractLineId
+      LEFT JOIN requestitems AS requestItem ON requestItem.id = contractItem.requestItemId
+      LEFT JOIN requests AS requestMaster ON requestMaster.requestNo = COALESCE(NULLIF(monthlyPrepayment.requestNo, ''), NULLIF(requestItem.requestNo, ''))
+      WHERE FIND_IN_SET(monthlyPrepayment.id, ${source}prepaymentSourceIds) > 0
+      LIMIT 1
+    ), ''),
+    CASE WHEN ${source}lineType = 'fee' THEN '费用' ELSE '整机' END
+  )`;
 }
 
 function filterableFieldReference(config: EntityConfig, field: string, shipmentAlias = "") {
@@ -617,7 +745,7 @@ async function enrichFinancialPartyRows(entityKey: string, rows: Row[]) {
   const partyByRequestDevice = new Map(
     requestItems.map((item) => [`${String(item.requestNo ?? "")}::${String(item.deviceCode ?? "")}`, item]),
   );
-  const enrichedRows = rows.map((row) => {
+  const enrichedRows: Row[] = rows.map((row) => {
     const party = partyByRequestDevice.get(`${String(row.requestNo ?? "")}::${String(row.deviceCode ?? "")}`);
     return {
       ...row,
@@ -626,7 +754,16 @@ async function enrichFinancialPartyRows(entityKey: string, rows: Row[]) {
       customerId: row.customerId || party?.customerId || "",
     };
   });
-  return attachPartyCodes(enrichedRows);
+  const attachedRows = await attachPartyCodes(enrichedRows);
+  return attachedRows.map((row) => ({
+    ...row,
+    // Financial list columns are named after the stored code fields, but the
+    // visible value should be the current short name. The original IDs remain
+    // available on the row for links and downstream actions.
+    supplierCode: row.supplierName ?? row.supplierCode,
+    undertakingUnitCode: row.undertakingUnitName ?? row.undertakingUnitCode,
+    customerCode: row.customerName ?? row.customerCode,
+  }));
 }
 
 async function enrichServiceFeeSnapshotParties(rows: Row[]) {
@@ -635,14 +772,22 @@ async function enrichServiceFeeSnapshotParties(rows: Row[]) {
   const payerCustomerIds = uniqueValues(rows, "payerCustomerId");
   const [units, customers] = await Promise.all([
     receivingUnitIds.length
-      ? queryRows("SELECT undertakingUnitId, undertakingUnitCode FROM common_undertaking_units WHERE undertakingUnitId IN (:receivingUnitIds)", { receivingUnitIds })
+      ? queryRows("SELECT undertakingUnitId, undertakingUnitCode, shortName, entityName, name FROM common_undertaking_units WHERE undertakingUnitId IN (:receivingUnitIds) OR undertakingUnitCode IN (:receivingUnitIds) OR entityCode IN (:receivingUnitIds)", { receivingUnitIds })
       : [],
     payerCustomerIds.length
-      ? queryRows("SELECT customerId, customerCode FROM common_customers WHERE customerId IN (:payerCustomerIds)", { payerCustomerIds })
+      ? queryRows("SELECT customerId, customerCode, shortName, nameCn, name FROM common_customers WHERE customerId IN (:payerCustomerIds) OR customerCode IN (:payerCustomerIds)", { payerCustomerIds })
       : [],
   ]);
-  const unitCodeById = new Map(units.map((row) => [String(row.undertakingUnitId), String(row.undertakingUnitCode ?? row.undertakingUnitId ?? "")]));
-  const customerCodeById = new Map(customers.map((row) => [String(row.customerId), String(row.customerCode ?? row.customerId ?? "")]));
+  const unitCodeById = new Map<string, string>();
+  for (const row of units) {
+    const label = String(row.shortName ?? row.entityName ?? row.name ?? row.undertakingUnitCode ?? row.undertakingUnitId ?? "");
+    for (const key of [row.undertakingUnitId, row.undertakingUnitCode, row.entityCode]) if (key) unitCodeById.set(String(key), label);
+  }
+  const customerCodeById = new Map<string, string>();
+  for (const row of customers) {
+    const label = String(row.shortName ?? row.nameCn ?? row.name ?? row.customerCode ?? row.customerId ?? "");
+    for (const key of [row.customerId, row.customerCode]) if (key) customerCodeById.set(String(key), label);
+  }
   return rows.map((row) => ({
     ...row,
     receivingUnitCode: unitCodeById.get(String(row.receivingUnitId ?? "")) ?? String(row.receivingUnitId ?? ""),
@@ -653,7 +798,11 @@ async function enrichServiceFeeSnapshotParties(rows: Row[]) {
 export async function getEntityRow(config: EntityConfig, id: string) {
   const table = quoteIdentifier(config.table);
   const primaryKey = quoteIdentifier(config.primaryKey);
-  const rows = await queryRows(`SELECT * FROM ${table} WHERE ${primaryKey} = :id LIMIT 1`, { id });
+  const derivedRequestType = getEntityDisplayFieldExpression(config, "requestType");
+  const rows = await queryRows(
+    `SELECT *${derivedRequestType ? `, ${derivedRequestType} AS ${quoteIdentifier("requestType")}` : ""} FROM ${table} WHERE ${primaryKey} = :id LIMIT 1`,
+    { id },
+  );
   return rows[0] ? normalizeQuotationPartyRow(config, rows[0]) : null;
 }
 
