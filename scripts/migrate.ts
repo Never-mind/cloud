@@ -1264,9 +1264,18 @@ async function main() {
   await addColumnIfMissing("servicefeesnapshots", "receivingUnitId", "`receivingUnitId` VARCHAR(64) NULL COMMENT 'receiving undertaking unit id' AFTER `repaymentStatus`");
   await addColumnIfMissing("servicefeesnapshots", "payerCustomerId", "`payerCustomerId` VARCHAR(64) NULL COMMENT 'payer customer id' AFTER `receivingUnitId`");
   await addColumnIfMissing("servicefeesnapshots", "repaymentCurrency", "`repaymentCurrency` VARCHAR(16) NULL COMMENT 'repayment currency' AFTER `payerCustomerId`");
-  await addColumnIfMissing("servicefeesnapshots", "repaymentAmount", "`repaymentAmount` DECIMAL(18, 4) NULL COMMENT 'repayment amount' AFTER `repaymentCurrency`");
+  await addColumnIfMissing("servicefeesnapshots", "repaymentAmount", "`repaymentAmount` DECIMAL(18, 4) NULL COMMENT 'repayment amount VAT included' AFTER `repaymentCurrency`");
+  await addColumnIfMissing("servicefeesnapshots", "repaymentAmountExcludingTax", "`repaymentAmountExcludingTax` DECIMAL(18, 4) NULL COMMENT 'repayment amount VAT excluded' AFTER `repaymentAmount`");
+  await addColumnIfMissing("servicefeesnapshots", "repaymentVatRate", "`repaymentVatRate` DECIMAL(10, 6) NULL COMMENT 'repayment VAT rate' AFTER `repaymentAmountExcludingTax`");
   await addColumnIfMissing("servicefeesnapshots", "repaymentDate", "`repaymentDate` DATE NULL COMMENT 'repayment date' AFTER `repaymentAmount`");
   await addColumnIfMissing("servicefeesnapshots", "repaymentUpdatedAt", "`repaymentUpdatedAt` DATETIME NULL COMMENT 'repayment updated time' AFTER `repaymentDate`");
+  await addColumnIfMissing("servicefeesnapshots", "invoiceNo", "`invoiceNo` VARCHAR(128) NULL COMMENT 'invoice number' AFTER `repaymentUpdatedAt`");
+  await addColumnIfMissing("servicefeesnapshots", "invoiceCurrency", "`invoiceCurrency` VARCHAR(16) NULL COMMENT 'invoice currency' AFTER `invoiceNo`");
+  await addColumnIfMissing("servicefeesnapshots", "invoiceReceivingUnitId", "`invoiceReceivingUnitId` VARCHAR(64) NULL COMMENT 'invoice receiving undertaking unit id' AFTER `invoiceCurrency`");
+  await addColumnIfMissing("servicefeesnapshots", "invoicePayerCustomerId", "`invoicePayerCustomerId` VARCHAR(64) NULL COMMENT 'invoice payer customer id' AFTER `invoiceReceivingUnitId`");
+  await addColumnIfMissing("servicefeesnapshots", "invoiceAmountExcludingTax", "`invoiceAmountExcludingTax` DECIMAL(18, 4) NULL COMMENT 'invoice amount VAT excluded' AFTER `invoicePayerCustomerId`");
+  await addColumnIfMissing("servicefeesnapshots", "invoiceVatRate", "`invoiceVatRate` DECIMAL(10, 6) NULL COMMENT 'invoice VAT rate' AFTER `invoiceAmountExcludingTax`");
+  await addColumnIfMissing("servicefeesnapshots", "invoiceAmountIncludingTax", "`invoiceAmountIncludingTax` DECIMAL(18, 4) NULL COMMENT 'invoice amount VAT included' AFTER `invoiceVatRate`");
   await addColumnIfMissing("servicefeesnapshots", "serviceFeeTotalExcludingTax", "`serviceFeeTotalExcludingTax` DECIMAL(18, 4) NULL COMMENT 'service fee total VAT excluded' AFTER `serviceFeeTotal`");
   await addColumnIfMissing("servicefeesnapshots", "vatRate", "`vatRate` DECIMAL(10, 6) NULL COMMENT 'VAT rate snapshot' AFTER `serviceFeeTotalExcludingTax`");
   await modifyColumnIfPresent(

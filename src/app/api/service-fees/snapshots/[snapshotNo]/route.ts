@@ -1,10 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
-import { deleteServiceFeeStatementDraft, updateServiceFeeInvoiceStatus } from "@/lib/service-fee-service";
+import { deleteServiceFeeStatementDraft, updateServiceFeeInvoiceInfo, updateServiceFeeInvoiceStatus } from "@/lib/service-fee-service";
 
 export async function PATCH(request: NextRequest, context: { params: Promise<{ snapshotNo: string }> }) {
   try {
     const { snapshotNo } = await context.params;
     const body = await request.json();
+    if (["invoiceNo", "invoiceCurrency", "invoiceReceivingUnitId", "invoicePayerCustomerId", "invoiceAmountExcludingTax", "invoiceVatRate", "invoiceAmountIncludingTax"]
+      .some((field) => Object.prototype.hasOwnProperty.call(body, field))) {
+      return NextResponse.json(await updateServiceFeeInvoiceInfo(decodeURIComponent(snapshotNo), body));
+    }
     return NextResponse.json(
       await updateServiceFeeInvoiceStatus(decodeURIComponent(snapshotNo), String(body.invoiceStatus ?? "")),
     );

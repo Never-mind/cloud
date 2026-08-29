@@ -578,7 +578,10 @@ export async function listServiceFeeStatements(searchParams: URLSearchParams) {
   const filterExpressions: Record<string, string> = {
     snapshotNo: "snapshotNo", writeOffMonth: formatTableDateExpression("COALESCE(writeOffMonth, startMonth, endMonth)"), countryCode: "countryCode", status: "status",
     billingTotal: "billingTotal", prepaymentTotal: "prepaymentTotal", serviceFeeTotal: "serviceFeeTotal", serviceFeeTotalExcludingTax: "serviceFeeTotalExcludingTax",
-    repaymentStatus: "repaymentStatus", repaymentCurrency: "repaymentCurrency", repaymentAmount: "repaymentAmount", invoiceStatus: "invoiceStatus", invoiceOriginalName: "invoiceOriginalName",
+    customerReceivable: "serviceFeeTotal", customerReceived: "repaymentAmount", customerInvoice: "invoiceAmountIncludingTax",
+    repaymentStatus: "repaymentStatus", repaymentCurrency: "repaymentCurrency", repaymentAmount: "repaymentAmount", repaymentAmountExcludingTax: "repaymentAmountExcludingTax", repaymentVatRate: "repaymentVatRate",
+    invoiceNo: "invoiceNo", invoiceCurrency: "invoiceCurrency", invoiceAmountExcludingTax: "invoiceAmountExcludingTax", invoiceVatRate: "invoiceVatRate", invoiceAmountIncludingTax: "invoiceAmountIncludingTax",
+    invoiceStatus: "invoiceStatus", invoiceOriginalName: "invoiceOriginalName",
   };
   for (const [field, expression] of Object.entries(filterExpressions)) appendTableInFilter(whereParts, params, expression, field, searchParams, "serviceStatement");
   if (filters.keyword) {
@@ -620,8 +623,17 @@ export async function listServiceFeeStatements(searchParams: URLSearchParams) {
              payerCustomerId,
              repaymentCurrency,
              repaymentAmount,
+             repaymentAmountExcludingTax,
+             repaymentVatRate,
              DATE_FORMAT(repaymentDate, '%Y-%m-%d') AS repaymentDate,
              DATE_FORMAT(repaymentUpdatedAt, '%Y-%m-%d') AS repaymentUpdatedAt,
+             invoiceNo,
+             invoiceCurrency,
+             invoiceReceivingUnitId,
+             invoicePayerCustomerId,
+             invoiceAmountExcludingTax,
+             invoiceVatRate,
+             invoiceAmountIncludingTax,
              invoiceStatus,
              invoiceOriginalName,
              invoiceMimeType,
@@ -648,6 +660,8 @@ export async function listServiceFeeStatements(searchParams: URLSearchParams) {
               THEN MAX(NULLIF(COALESCE(unit.undertakingUnitId, items.undertakingUnitId), '')) ELSE NULL END AS defaultReceivingUnitId,
             CASE WHEN COUNT(DISTINCT NULLIF(COALESCE(customer.customerId, items.customerId), '')) = 1
               THEN MAX(NULLIF(COALESCE(customer.customerId, items.customerId), '')) ELSE NULL END AS defaultPayerCustomerId,
+            CASE WHEN COUNT(DISTINCT NULLIF(COALESCE(NULLIF(items.billingCurrency, ''), NULLIF(items.currency, ''), NULLIF(items.prepaymentCurrency, '')), '')) = 1
+              THEN MAX(NULLIF(COALESCE(NULLIF(items.billingCurrency, ''), NULLIF(items.currency, ''), NULLIF(items.prepaymentCurrency, '')), '')) ELSE NULL END AS defaultBillingCurrency,
             CASE WHEN COUNT(DISTINCT NULLIF(COALESCE(NULLIF(items.billingCurrency, ''), NULLIF(items.prepaymentCurrency, ''), NULLIF(items.currency, '')), '')) = 1
               THEN MAX(NULLIF(COALESCE(NULLIF(items.billingCurrency, ''), NULLIF(items.prepaymentCurrency, ''), NULLIF(items.currency, '')), '')) ELSE NULL END AS defaultRepaymentCurrency,
             GROUP_CONCAT(DISTINCT NULLIF(COALESCE(NULLIF(unit.shortName, ''), NULLIF(unit.entityName, ''), NULLIF(unit.name, ''), NULLIF(unit.undertakingUnitCode, ''), NULLIF(items.undertakingUnitId, '')), '') ORDER BY unit.shortName SEPARATOR ', ') AS undertakingUnitName,
@@ -674,7 +688,10 @@ export async function listServiceFeeStatementFilterOptions(searchParams: URLSear
   const expressions: Record<string, string> = {
     snapshotNo: "snapshotNo", writeOffMonth: formatTableDateExpression("COALESCE(writeOffMonth, startMonth, endMonth)"), countryCode: "countryCode", status: "status",
     billingTotal: "billingTotal", prepaymentTotal: "prepaymentTotal", serviceFeeTotal: "serviceFeeTotal", serviceFeeTotalExcludingTax: "serviceFeeTotalExcludingTax",
-    repaymentStatus: "repaymentStatus", repaymentCurrency: "repaymentCurrency", repaymentAmount: "repaymentAmount", invoiceStatus: "invoiceStatus", invoiceOriginalName: "invoiceOriginalName",
+    customerReceivable: "serviceFeeTotal", customerReceived: "repaymentAmount", customerInvoice: "invoiceAmountIncludingTax",
+    repaymentStatus: "repaymentStatus", repaymentCurrency: "repaymentCurrency", repaymentAmount: "repaymentAmount", repaymentAmountExcludingTax: "repaymentAmountExcludingTax", repaymentVatRate: "repaymentVatRate",
+    invoiceNo: "invoiceNo", invoiceCurrency: "invoiceCurrency", invoiceAmountExcludingTax: "invoiceAmountExcludingTax", invoiceVatRate: "invoiceVatRate", invoiceAmountIncludingTax: "invoiceAmountIncludingTax",
+    invoiceStatus: "invoiceStatus", invoiceOriginalName: "invoiceOriginalName",
   };
   const field = searchParams.get("field")?.trim() ?? "";
   const expression = expressions[field];
@@ -696,8 +713,14 @@ export async function listServiceFeeStatementFilterOptions(searchParams: URLSear
 }
 
 async function attachRepaymentPartyCodes(rows: Row[]) {
-  const receivingIds = Array.from(new Set(rows.map((row) => firstNonBlank(row.receivingUnitId, row.defaultReceivingUnitId)).filter(Boolean)));
-  const payerIds = Array.from(new Set(rows.map((row) => firstNonBlank(row.payerCustomerId, row.defaultPayerCustomerId)).filter(Boolean)));
+  const receivingIds = Array.from(new Set(rows.flatMap((row) => [
+    firstNonBlank(row.receivingUnitId, row.defaultReceivingUnitId),
+    firstNonBlank(row.invoiceReceivingUnitId, row.defaultReceivingUnitId),
+  ]).filter(Boolean)));
+  const payerIds = Array.from(new Set(rows.flatMap((row) => [
+    firstNonBlank(row.payerCustomerId, row.defaultPayerCustomerId),
+    firstNonBlank(row.invoicePayerCustomerId, row.defaultPayerCustomerId),
+  ]).filter(Boolean)));
   const [units, customers] = await Promise.all([
     receivingIds.length ? queryRows<Row>("SELECT undertakingUnitId, undertakingUnitCode, entityCode, shortName, entityName, name FROM common_undertaking_units WHERE undertakingUnitId IN (:receivingIds) OR undertakingUnitCode IN (:receivingIds) OR entityCode IN (:receivingIds)", { receivingIds }) : [],
     payerIds.length ? queryRows<Row>("SELECT customerId, customerCode, shortName, nameCn, name FROM common_customers WHERE customerId IN (:payerIds) OR customerCode IN (:payerIds)", { payerIds }) : [],
@@ -727,8 +750,12 @@ async function attachRepaymentPartyCodes(rows: Row[]) {
   return rows.map((row) => {
     const receivingId = firstNonBlank(row.receivingUnitId, row.defaultReceivingUnitId);
     const payerId = firstNonBlank(row.payerCustomerId, row.defaultPayerCustomerId);
+    const invoiceReceivingId = firstNonBlank(row.invoiceReceivingUnitId, row.defaultReceivingUnitId);
+    const invoicePayerId = firstNonBlank(row.invoicePayerCustomerId, row.defaultPayerCustomerId);
     const normalizedReceivingId = unitIds.get(receivingId) ?? receivingId;
     const normalizedPayerId = customerIds.get(payerId) ?? payerId;
+    const normalizedInvoiceReceivingId = unitIds.get(invoiceReceivingId) ?? invoiceReceivingId;
+    const normalizedInvoicePayerId = customerIds.get(invoicePayerId) ?? invoicePayerId;
     return {
       ...row,
       receivingUnitId: row.receivingUnitId ? normalizedReceivingId : row.receivingUnitId,
@@ -737,6 +764,10 @@ async function attachRepaymentPartyCodes(rows: Row[]) {
       defaultPayerCustomerId: row.defaultPayerCustomerId ? customerIds.get(String(row.defaultPayerCustomerId)) ?? row.defaultPayerCustomerId : row.defaultPayerCustomerId,
       receivingUnitCode: unitNames.get(normalizedReceivingId) ?? receivingId,
       payerCustomerCode: customerNames.get(normalizedPayerId) ?? payerId,
+      invoiceReceivingUnitId: row.invoiceReceivingUnitId ? normalizedInvoiceReceivingId : row.invoiceReceivingUnitId,
+      invoicePayerCustomerId: row.invoicePayerCustomerId ? normalizedInvoicePayerId : row.invoicePayerCustomerId,
+      invoiceReceivingUnitCode: row.invoiceReceivingUnitId ? unitNames.get(normalizedInvoiceReceivingId) ?? invoiceReceivingId : null,
+      invoicePayerCustomerCode: row.invoicePayerCustomerId ? customerNames.get(normalizedInvoicePayerId) ?? invoicePayerId : null,
     };
   });
 }
@@ -747,13 +778,22 @@ export async function updateServiceFeeRepayment(snapshotNo: string, input: Row) 
   const receivingUnitId = String(input.receivingUnitId ?? "").trim();
   const payerCustomerId = String(input.payerCustomerId ?? "").trim();
   const repaymentCurrency = String(input.repaymentCurrency ?? "").trim();
-  const repaymentAmount = Number(input.repaymentAmount ?? 0);
+  let repaymentAmount = nullableNumber(input.repaymentAmount);
+  let repaymentAmountExcludingTax = nullableNumber(input.repaymentAmountExcludingTax);
+  const repaymentVatRate = nullableRate(input.repaymentVatRate);
   const repaymentDate = String(input.repaymentDate ?? "").slice(0, 10);
+  if (repaymentAmount === null && repaymentAmountExcludingTax !== null && repaymentVatRate !== null) {
+    repaymentAmount = repaymentAmountExcludingTax * (1 + repaymentVatRate);
+  }
+  if (repaymentAmountExcludingTax === null && repaymentAmount !== null && repaymentVatRate !== null) {
+    repaymentAmountExcludingTax = repaymentAmount / (1 + repaymentVatRate);
+  }
   if (repaymentStatus === "已回款") {
     if (!receivingUnitId) throw new Error("请选择收款单位");
     if (!payerCustomerId) throw new Error("请选择付款单位");
     if (!repaymentCurrency) throw new Error("请选择回款币种");
-    if (!Number.isFinite(repaymentAmount)) throw new Error("回款金额不正确");
+    if (repaymentAmount === null && repaymentAmountExcludingTax === null) throw new Error("请填写回款含税金额或未税金额");
+    if (repaymentVatRate !== null && repaymentVatRate < 0) throw new Error("回款税率不能小于 0");
     if (!repaymentDate) throw new Error("请选择回款日期");
   }
   const existing = await queryRows<Row>("SELECT snapshotNo FROM servicefeesnapshots WHERE snapshotNo = :snapshotNo LIMIT 1", { snapshotNo });
@@ -761,7 +801,9 @@ export async function updateServiceFeeRepayment(snapshotNo: string, input: Row) 
   await execute(
     `UPDATE servicefeesnapshots
      SET repaymentStatus = :repaymentStatus, receivingUnitId = :receivingUnitId, payerCustomerId = :payerCustomerId,
-         repaymentCurrency = :repaymentCurrency, repaymentAmount = :repaymentAmount, repaymentDate = :repaymentDate,
+         repaymentCurrency = :repaymentCurrency, repaymentAmount = :repaymentAmount,
+         repaymentAmountExcludingTax = :repaymentAmountExcludingTax, repaymentVatRate = :repaymentVatRate,
+         repaymentDate = :repaymentDate,
          repaymentUpdatedAt = CURRENT_TIMESTAMP
      WHERE snapshotNo = :snapshotNo`,
     {
@@ -770,11 +812,51 @@ export async function updateServiceFeeRepayment(snapshotNo: string, input: Row) 
       receivingUnitId: receivingUnitId || null,
       payerCustomerId: payerCustomerId || null,
       repaymentCurrency: repaymentCurrency || null,
-      repaymentAmount: Number.isFinite(repaymentAmount) ? repaymentAmount : null,
+      repaymentAmount,
+      repaymentAmountExcludingTax,
+      repaymentVatRate,
       repaymentDate: repaymentDate || null,
     },
   );
-  return { snapshotNo, repaymentStatus, receivingUnitId, payerCustomerId, repaymentCurrency, repaymentAmount, repaymentDate };
+  return { snapshotNo, repaymentStatus, receivingUnitId, payerCustomerId, repaymentCurrency, repaymentAmount, repaymentAmountExcludingTax, repaymentVatRate, repaymentDate };
+}
+
+export async function updateServiceFeeInvoiceInfo(snapshotNo: string, input: Row) {
+  const invoiceNo = String(input.invoiceNo ?? "").trim();
+  const invoiceCurrency = String(input.invoiceCurrency ?? "").trim();
+  const invoiceReceivingUnitId = String(input.invoiceReceivingUnitId ?? "").trim();
+  const invoicePayerCustomerId = String(input.invoicePayerCustomerId ?? "").trim();
+  let invoiceAmountExcludingTax = nullableNumber(input.invoiceAmountExcludingTax);
+  const invoiceVatRate = nullableRate(input.invoiceVatRate);
+  let invoiceAmountIncludingTax = nullableNumber(input.invoiceAmountIncludingTax);
+  if (invoiceAmountIncludingTax === null && invoiceAmountExcludingTax !== null && invoiceVatRate !== null) {
+    invoiceAmountIncludingTax = invoiceAmountExcludingTax * (1 + invoiceVatRate);
+  }
+  if (invoiceAmountExcludingTax === null && invoiceAmountIncludingTax !== null && invoiceVatRate !== null) {
+    invoiceAmountExcludingTax = invoiceAmountIncludingTax / (1 + invoiceVatRate);
+  }
+  if (invoiceVatRate !== null && invoiceVatRate < 0) throw new Error("发票税率不能小于 0");
+  const existing = await queryRows<Row>("SELECT snapshotNo FROM servicefeesnapshots WHERE snapshotNo = :snapshotNo LIMIT 1", { snapshotNo });
+  if (!existing[0]) throw new Error("服务费对账单不存在");
+  await execute(
+    `UPDATE servicefeesnapshots
+     SET invoiceNo = :invoiceNo, invoiceCurrency = :invoiceCurrency,
+         invoiceReceivingUnitId = :invoiceReceivingUnitId, invoicePayerCustomerId = :invoicePayerCustomerId,
+         invoiceAmountExcludingTax = :invoiceAmountExcludingTax, invoiceVatRate = :invoiceVatRate,
+         invoiceAmountIncludingTax = :invoiceAmountIncludingTax
+     WHERE snapshotNo = :snapshotNo`,
+    {
+      snapshotNo,
+      invoiceNo: invoiceNo || null,
+      invoiceCurrency: invoiceCurrency || null,
+      invoiceReceivingUnitId: invoiceReceivingUnitId || null,
+      invoicePayerCustomerId: invoicePayerCustomerId || null,
+      invoiceAmountExcludingTax,
+      invoiceVatRate,
+      invoiceAmountIncludingTax,
+    },
+  );
+  return { snapshotNo, invoiceNo, invoiceCurrency, invoiceReceivingUnitId, invoicePayerCustomerId, invoiceAmountExcludingTax, invoiceVatRate, invoiceAmountIncludingTax };
 }
 
 export async function confirmServiceFeeStatement(snapshotNo: string) {
@@ -1127,4 +1209,15 @@ function buildSnapshotNo(countryCode: string, writeOffMonth: string) {
 
 function firstNonBlank(...values: unknown[]) {
   return String(values.find((value) => value !== null && value !== undefined && String(value).trim() !== "") ?? "").trim();
+}
+
+function nullableNumber(value: unknown) {
+  if (value === null || value === undefined || String(value).trim() === "") return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function nullableRate(value: unknown) {
+  const rate = nullableNumber(value);
+  return rate === null ? null : rate;
 }

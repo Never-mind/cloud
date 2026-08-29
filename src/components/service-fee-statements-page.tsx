@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { CheckCircle2, Coins, FileDown, RefreshCw, Search, Trash2, Upload, X } from "lucide-react";
+import { CheckCircle2, Coins, FileDown, FileText, RefreshCw, Search, Trash2, Upload, X } from "lucide-react";
 import { fetchAllEntityRows } from "@/lib/client-entity-fetch";
 import { formatDisplayValue } from "@/lib/display-format";
 import { DEFAULT_PAGE_SIZE } from "@/lib/pagination";
@@ -19,6 +19,11 @@ function partyOptionLabel(row: Row, codeKeys: string[], nameKeys: string[]) {
   const name = nameKeys.map((key) => String(row[key] ?? "").trim()).find(Boolean) ?? "";
   return name && code ? `${code} - ${name}` : name || code;
 }
+function partyShortName(row: Row, nameKeys: string[], codeKeys: string[]) {
+  return nameKeys.map((key) => String(row[key] ?? "").trim()).find(Boolean)
+    ?? codeKeys.map((key) => String(row[key] ?? "").trim()).find(Boolean)
+    ?? "";
+}
 type ListResponse = { rows: Row[]; total: number; page: number; pageSize: number; totalPages: number };
 type RepaymentDraft = {
   snapshotNo: string;
@@ -27,34 +32,35 @@ type RepaymentDraft = {
   payerCustomerId: string;
   repaymentCurrency: string;
   repaymentAmount: string;
+  repaymentAmountExcludingTax: string;
+  repaymentVatRate: string;
   repaymentDate: string;
+};
+type InvoiceDraft = {
+  snapshotNo: string;
+  invoiceNo: string;
+  invoiceCurrency: string;
+  invoiceReceivingUnitId: string;
+  invoicePayerCustomerId: string;
+  invoiceAmountExcludingTax: string;
+  invoiceVatRate: string;
+  invoiceAmountIncludingTax: string;
 };
 
 const columns: Array<{ key: string; label: string; type?: string }> = [
   { key: "snapshotNo", label: "对账单号" },
   { key: "writeOffMonth", label: "核销月份", type: "month" },
   { key: "countryCode", label: "国家" },
-  { key: "undertakingUnitName", label: "承接单位" },
-  { key: "customerName", label: "客户" },
-  { key: "vatRate", label: "增值税税率（%）", type: "percentage" },
-  { key: "billingTotal", label: "月账单总额（含税）", type: "money" },
-  { key: "prepaymentTotal", label: "预付款核销金额（含税）", type: "money" },
-  { key: "serviceFeeTotal", label: "月度服务费（含税）", type: "money" },
-  { key: "serviceFeeTotalExcludingTax", label: "月度服务费（未税）", type: "money" },
-  { key: "instanceServiceFeeTotal", label: "实例服务费合计", type: "money" },
-  { key: "feeServiceFeeTotal", label: "非实例费用合计", type: "money" },
+  { key: "billingTotal", label: "月账单金额（USD）", type: "money" },
+  { key: "prepaymentTotal", label: "预付款金额（USD）", type: "money" },
+  { key: "customerReceivable", label: "客户应收" },
+  { key: "customerReceived", label: "客户实收" },
+  { key: "customerInvoice", label: "客户开票" },
   { key: "createdAt", label: "创建日期", type: "date" },
   { key: "updatedAt", label: "更新日期", type: "date" },
   { key: "confirmedAt", label: "确认日期", type: "date" },
   { key: "status", label: "确认状态" },
-  { key: "repaymentStatus", label: "是否回款" },
-  { key: "receivingUnitCode", label: "收款单位" },
-  { key: "payerCustomerCode", label: "付款单位" },
-  { key: "repaymentCurrency", label: "回款币种" },
-  { key: "repaymentAmount", label: "回款金额", type: "money" },
-  { key: "repaymentDate", label: "回款日期", type: "date" },
-  { key: "invoiceStatus", label: "开票状态" },
-  { key: "invoiceOriginalName", label: "发票附件" },
+  { key: "repaymentStatus", label: "回款状态" },
 ];
 const tableColumns = columns.map((column) => ({ ...column, sortable: true, filterable: true }));
 
@@ -69,6 +75,7 @@ export function ServiceFeeStatementsPage() {
   const [undertakingUnits, setUndertakingUnits] = useState<Row[]>([]);
   const [customers, setCustomers] = useState<Row[]>([]);
   const [repaymentDraft, setRepaymentDraft] = useState<RepaymentDraft | null>(null);
+  const [invoiceDraft, setInvoiceDraft] = useState<InvoiceDraft | null>(null);
   const [loading, setLoading] = useState(false);
   const [busyNo, setBusyNo] = useState("");
   const [page, setPage] = useState(1);
@@ -152,7 +159,56 @@ export function ServiceFeeStatementsPage() {
       payerCustomerId: firstNonBlankValue(row.payerCustomerId, row.defaultPayerCustomerId),
       repaymentCurrency: String(row.repaymentCurrency ?? row.defaultRepaymentCurrency ?? ""),
       repaymentAmount: String(row.repaymentAmount ?? row.defaultRepaymentAmount ?? row.serviceFeeTotal ?? ""),
+      repaymentAmountExcludingTax: String(row.repaymentAmountExcludingTax ?? ""),
+      repaymentVatRate: formatRateInput(row.repaymentVatRate),
       repaymentDate: String(row.repaymentDate ?? "").slice(0, 10),
+    });
+  }
+
+  function openInvoiceInfo(row: Row) {
+    setInvoiceDraft({
+      snapshotNo: String(row.snapshotNo ?? ""),
+      invoiceNo: String(row.invoiceNo ?? ""),
+      invoiceCurrency: String(row.invoiceCurrency ?? ""),
+      invoiceReceivingUnitId: firstNonBlankValue(row.invoiceReceivingUnitId, row.defaultReceivingUnitId),
+      invoicePayerCustomerId: firstNonBlankValue(row.invoicePayerCustomerId, row.defaultPayerCustomerId),
+      invoiceAmountExcludingTax: String(row.invoiceAmountExcludingTax ?? ""),
+      invoiceVatRate: formatRateInput(row.invoiceVatRate),
+      invoiceAmountIncludingTax: String(row.invoiceAmountIncludingTax ?? ""),
+    });
+  }
+
+  function updateRepaymentTaxField(field: TaxAmountField, value: string) {
+    setRepaymentDraft((current) => {
+      if (!current) return current;
+      const amounts = calculateTaxAmounts({
+        excludingTax: current.repaymentAmountExcludingTax,
+        includingTax: current.repaymentAmount,
+        vatRate: current.repaymentVatRate,
+      }, field, value);
+      return {
+        ...current,
+        repaymentAmountExcludingTax: amounts.excludingTax,
+        repaymentAmount: amounts.includingTax,
+        repaymentVatRate: amounts.vatRate,
+      };
+    });
+  }
+
+  function updateInvoiceTaxField(field: TaxAmountField, value: string) {
+    setInvoiceDraft((current) => {
+      if (!current) return current;
+      const amounts = calculateTaxAmounts({
+        excludingTax: current.invoiceAmountExcludingTax,
+        includingTax: current.invoiceAmountIncludingTax,
+        vatRate: current.invoiceVatRate,
+      }, field, value);
+      return {
+        ...current,
+        invoiceAmountExcludingTax: amounts.excludingTax,
+        invoiceAmountIncludingTax: amounts.includingTax,
+        invoiceVatRate: amounts.vatRate,
+      };
     });
   }
 
@@ -163,7 +219,12 @@ export function ServiceFeeStatementsPage() {
       const response = await fetch(`/api/service-fees/snapshots/${encodeURIComponent(repaymentDraft.snapshotNo)}/repayment`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...repaymentDraft, repaymentAmount: Number(repaymentDraft.repaymentAmount) }),
+        body: JSON.stringify({
+          ...repaymentDraft,
+          repaymentAmount: nullableNumber(repaymentDraft.repaymentAmount),
+          repaymentAmountExcludingTax: nullableNumber(repaymentDraft.repaymentAmountExcludingTax),
+          repaymentVatRate: parseRateInput(repaymentDraft.repaymentVatRate),
+        }),
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error ?? "回款信息保存失败");
@@ -171,6 +232,33 @@ export function ServiceFeeStatementsPage() {
       await loadData();
     } catch (error) {
       alert(error instanceof Error ? error.message : "回款信息保存失败");
+    } finally {
+      setBusyNo("");
+    }
+  }
+
+  async function saveInvoiceInfo() {
+    if (!invoiceDraft) return;
+      setBusyNo(invoiceDraft.snapshotNo);
+    try {
+      const response = await fetch(`/api/service-fees/snapshots/${encodeURIComponent(invoiceDraft.snapshotNo)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...invoiceDraft,
+          invoiceReceivingUnitId: invoiceDraft.invoiceReceivingUnitId || null,
+          invoicePayerCustomerId: invoiceDraft.invoicePayerCustomerId || null,
+          invoiceAmountExcludingTax: nullableNumber(invoiceDraft.invoiceAmountExcludingTax),
+          invoiceVatRate: parseRateInput(invoiceDraft.invoiceVatRate),
+          invoiceAmountIncludingTax: nullableNumber(invoiceDraft.invoiceAmountIncludingTax),
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error ?? "发票信息保存失败");
+      setInvoiceDraft(null);
+      await loadData();
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "发票信息保存失败");
     } finally {
       setBusyNo("");
     }
@@ -397,60 +485,101 @@ export function ServiceFeeStatementsPage() {
                             <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${confirmed ? "bg-[#f0f9eb] text-[#67c23a]" : "bg-[#fff7e6] text-[#e6a23c]"}`}>
                               {confirmed ? "已确认" : "未确认"}
                             </span>
-                          ) : column.key === "invoiceStatus" ? (
-                            <button
-                              aria-checked={issued}
-                              aria-label={`开票状态：${issued ? "已开票" : "未开票"}`}
-                              className="inline-flex h-7 items-center gap-2 rounded-full text-xs text-[#606266] disabled:cursor-not-allowed disabled:opacity-50"
-                              disabled={busyNo === snapshotNo}
-                              role="switch"
-                              title={`点击切换为${issued ? "未开票" : "已开票"}`}
-                              type="button"
-                              onClick={() => void setInvoiceState(snapshotNo, issued ? "未开票" : "已开票")}
-                            >
-                              <span className={`relative inline-flex h-5 w-10 rounded-full transition-colors ${issued ? "bg-[#13ce66]" : "bg-[#c0c4cc]"}`}>
-                                <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${issued ? "translate-x-[22px]" : "translate-x-0.5"}`} />
-                              </span>
-                              <span>{issued ? "已开票" : "未开票"}</span>
-                            </button>
+                          ) : column.key === "customerReceivable" ? (
+                            <AmountSummary
+                              currency={row.defaultBillingCurrency}
+                              excludingTax={row.serviceFeeTotalExcludingTax}
+                              vatRate={row.vatRate}
+                              includingTax={row.serviceFeeTotal}
+                              partyFlow={formatPartyFlow(row.customerName, row.undertakingUnitName)}
+                            />
+                          ) : column.key === "customerReceived" ? (
+                            <AmountSummary
+                              currency={row.repaymentCurrency}
+                              excludingTax={row.repaymentAmountExcludingTax}
+                              vatRate={row.repaymentVatRate}
+                              includingTax={row.repaymentAmount}
+                              partyFlow={formatPartyFlow(
+                                firstNonBlankValue(row.payerCustomerCode, row.customerName),
+                                firstNonBlankValue(row.receivingUnitCode, row.undertakingUnitName),
+                              )}
+                            />
+                          ) : column.key === "customerInvoice" ? (
+                            <div className="min-w-[165px]">
+                              <AmountSummary
+                                currency={row.invoiceCurrency}
+                                excludingTax={row.invoiceAmountExcludingTax}
+                                vatRate={row.invoiceVatRate}
+                                includingTax={row.invoiceAmountIncludingTax}
+                                partyFlow={formatPartyFlow(
+                                  firstNonBlankValue(row.invoicePayerCustomerCode, row.customerName),
+                                  firstNonBlankValue(row.invoiceReceivingUnitCode, row.undertakingUnitName),
+                                )}
+                              />
+                              <div className="mt-1 flex items-center gap-1 border-t border-[#f0f2f5] pt-1">
+                                <button
+                                  aria-checked={issued}
+                                  aria-label={`开票状态：${issued ? "已开票" : "未开票"}`}
+                                  className="inline-flex h-6 items-center gap-1 rounded-full text-xs text-[#606266] disabled:cursor-not-allowed disabled:opacity-50"
+                                  disabled={busyNo === snapshotNo}
+                                  role="switch"
+                                  title={`点击切换为${issued ? "未开票" : "已开票"}`}
+                                  type="button"
+                                  onClick={() => void setInvoiceState(snapshotNo, issued ? "未开票" : "已开票")}
+                                >
+                                  <span className={`relative inline-flex h-4 w-7 rounded-full transition-colors ${issued ? "bg-[#13ce66]" : "bg-[#c0c4cc]"}`}>
+                                    <span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white shadow transition-transform ${issued ? "translate-x-[15px]" : "translate-x-0.5"}`} />
+                                  </span>
+                                  <span>{issued ? "已开票" : "未开票"}</span>
+                                </button>
+                                <button
+                                  aria-label="编辑发票信息"
+                                  className="inline-flex h-6 w-6 items-center justify-center rounded text-[#909399] hover:bg-[#f5f7fa] hover:text-[#1890ff] disabled:cursor-not-allowed disabled:opacity-50"
+                                  disabled={busyNo === snapshotNo}
+                                  title="编辑发票信息"
+                                  type="button"
+                                  onClick={() => openInvoiceInfo(row)}
+                                >
+                                  <FileText size={13} />
+                                </button>
+                                <button
+                                  aria-label={hasInvoice ? "替换发票附件" : "上传发票附件"}
+                                  className="inline-flex h-6 w-6 items-center justify-center rounded text-[#909399] hover:bg-[#f5f7fa] hover:text-[#1890ff] disabled:cursor-not-allowed disabled:opacity-50"
+                                  disabled={busyNo === snapshotNo}
+                                  title={hasInvoice ? "替换发票附件" : "上传发票附件"}
+                                  type="button"
+                                  onClick={() => chooseInvoice(row)}
+                                >
+                                  <Upload size={13} />
+                                </button>
+                                {hasInvoice ? (
+                                  <>
+                                    <a
+                                      aria-label="下载发票附件"
+                                      className="max-w-[80px] truncate text-xs text-[#1890ff] hover:underline"
+                                      href={`/api/service-fees/snapshots/${encodeURIComponent(snapshotNo)}/invoice`}
+                                      title={`下载 ${String(row.invoiceOriginalName)}`}
+                                    >
+                                      附件
+                                    </a>
+                                    <button
+                                      aria-label="删除发票附件"
+                                      className="inline-flex h-6 w-6 items-center justify-center rounded text-[#f56c6c] hover:bg-[#fff0f0] disabled:cursor-not-allowed disabled:opacity-50"
+                                      disabled={busyNo === snapshotNo}
+                                      title="删除发票附件"
+                                      type="button"
+                                      onClick={() => void deleteInvoice(row)}
+                                    >
+                                      <Trash2 size={13} />
+                                    </button>
+                                  </>
+                                ) : null}
+                              </div>
+                            </div>
                           ) : column.key === "repaymentStatus" ? (
                             <span className={`inline-flex h-7 items-center rounded-full px-2.5 text-xs font-medium ${String(value ?? "") === "已回款" ? "bg-[#f0f9eb] text-[#67c23a]" : "bg-[#f4f4f5] text-[#909399]"}`}>
                               {String(value ?? "未回款")}
                             </span>
-                          ) : column.key === "invoiceOriginalName" ? (
-                            <div className="flex min-w-[190px] items-center gap-1.5">
-                              {hasInvoice ? (
-                                <a
-                                  className="max-w-[120px] truncate text-[#1890ff] hover:underline"
-                                  href={`/api/service-fees/snapshots/${encodeURIComponent(snapshotNo)}/invoice`}
-                                  title={`下载 ${String(row.invoiceOriginalName)}`}
-                                >
-                                  {String(row.invoiceOriginalName)}
-                                </a>
-                              ) : <span className="text-[#909399]">未上传</span>}
-                              <button
-                                aria-label={hasInvoice ? "替换发票附件" : "上传发票附件"}
-                                className="inline-flex h-7 items-center gap-1 rounded border border-[#dcdfe6] bg-white px-2 text-xs text-[#606266] transition hover:border-[#1890ff] hover:text-[#1890ff] disabled:cursor-not-allowed disabled:opacity-50"
-                                disabled={busyNo === snapshotNo}
-                                title={hasInvoice ? "替换发票附件" : "上传发票附件"}
-                                type="button"
-                                onClick={() => chooseInvoice(row)}
-                              >
-                                <Upload size={13} />{hasInvoice ? "替换" : "上传"}
-                              </button>
-                              {hasInvoice ? (
-                                <button
-                                  aria-label="删除发票附件"
-                                  className="inline-flex h-7 w-7 items-center justify-center rounded text-[#f56c6c] transition hover:bg-[#fff0f0] disabled:cursor-not-allowed disabled:opacity-50"
-                                  disabled={busyNo === snapshotNo}
-                                  title="删除发票附件"
-                                  type="button"
-                                  onClick={() => void deleteInvoice(row)}
-                                >
-                                  <Trash2 size={13} />
-                                </button>
-                              ) : null}
-                            </div>
                           ) : (
                             <span className="block max-w-[260px] truncate">{formatValue(value, column.type)}</span>
                           )}
@@ -560,8 +689,14 @@ export function ServiceFeeStatementsPage() {
                   <option value="">请选择币种</option>{["CNY", "MXN", "CLP", "USD", "BRL"].map((currency) => <option key={currency} value={currency}>{currency}</option>)}
                 </select>
               </RepaymentField>
-              <RepaymentField label="回款金额">
-                <Input className="w-full min-w-0" type="number" step="0.01" value={repaymentDraft.repaymentAmount} onChange={(event) => setRepaymentDraft((current) => current ? { ...current, repaymentAmount: event.target.value } : current)} />
+              <RepaymentField label="回款未税金额">
+                <Input className="w-full min-w-0" type="number" step="0.01" value={repaymentDraft.repaymentAmountExcludingTax} onChange={(event) => updateRepaymentTaxField("excludingTax", event.target.value)} />
+              </RepaymentField>
+              <RepaymentField label="回款税率（%）">
+                <Input className="w-full min-w-0" type="number" min="0" step="0.01" value={repaymentDraft.repaymentVatRate} onChange={(event) => updateRepaymentTaxField("vatRate", event.target.value)} />
+              </RepaymentField>
+              <RepaymentField label="回款含税金额">
+                <Input className="w-full min-w-0" type="number" step="0.01" value={repaymentDraft.repaymentAmount} onChange={(event) => updateRepaymentTaxField("includingTax", event.target.value)} />
               </RepaymentField>
               <RepaymentField label="回款日期">
                 <Input className="w-full min-w-0" type="date" value={repaymentDraft.repaymentDate} onChange={(event) => setRepaymentDraft((current) => current ? { ...current, repaymentDate: event.target.value } : current)} />
@@ -570,6 +705,52 @@ export function ServiceFeeStatementsPage() {
             <div className="flex justify-end gap-2 border-t border-[#ebeef5] px-5 py-4">
               <Button onClick={() => setRepaymentDraft(null)}>取消</Button>
               <Button tone="primary" disabled={busyNo === repaymentDraft.snapshotNo} onClick={() => void saveRepayment()}>保存回款信息</Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {invoiceDraft ? (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/35 p-4" role="dialog" aria-modal="true" aria-label="编辑发票信息">
+          <div className="w-full max-w-[680px] border border-[#ebeef5] bg-white shadow-xl">
+            <div className="flex items-center border-b border-[#ebeef5] px-5 py-4">
+              <div>
+                <h2 className="font-medium text-[#303133]">编辑发票信息</h2>
+                <p className="mt-1 text-xs text-[#909399]">{invoiceDraft.snapshotNo}</p>
+              </div>
+              <button className="ml-auto text-[#909399] hover:text-[#303133]" type="button" title="关闭" onClick={() => setInvoiceDraft(null)}><X size={18} /></button>
+            </div>
+            <div className="grid grid-cols-2 gap-4 p-5">
+              <RepaymentField label="承接单位">
+                <select className="h-9 w-full rounded border border-[#dcdfe6] bg-white px-3 text-sm" value={invoiceDraft.invoiceReceivingUnitId} onChange={(event) => setInvoiceDraft((current) => current ? { ...current, invoiceReceivingUnitId: event.target.value } : current)}>
+                  <option value="">请选择承接单位</option>
+                  {undertakingUnits.map((row) => <option key={String(row.undertakingUnitId)} value={String(row.undertakingUnitId)}>{partyShortName(row, ["shortName", "entityName", "name"], ["undertakingUnitCode", "entityCode"])}</option>)}
+                </select>
+              </RepaymentField>
+              <RepaymentField label="客户">
+                <select className="h-9 w-full rounded border border-[#dcdfe6] bg-white px-3 text-sm" value={invoiceDraft.invoicePayerCustomerId} onChange={(event) => setInvoiceDraft((current) => current ? { ...current, invoicePayerCustomerId: event.target.value } : current)}>
+                  <option value="">请选择客户</option>
+                  {customers.map((row) => <option key={String(row.customerId)} value={String(row.customerId)}>{partyShortName(row, ["shortName", "nameCn", "name"], ["customerCode"])}</option>)}
+                </select>
+              </RepaymentField>
+              <RepaymentField label="发票号">
+                <Input className="w-full min-w-0" value={invoiceDraft.invoiceNo} onChange={(event) => setInvoiceDraft((current) => current ? { ...current, invoiceNo: event.target.value } : current)} />
+              </RepaymentField>
+              <RepaymentField label="发票币种">
+                <Input className="w-full min-w-0" value={invoiceDraft.invoiceCurrency} placeholder="例如 USD、CNY" onChange={(event) => setInvoiceDraft((current) => current ? { ...current, invoiceCurrency: event.target.value.toUpperCase() } : current)} />
+              </RepaymentField>
+              <RepaymentField label="发票未税金额">
+                <Input className="w-full min-w-0" type="number" step="0.01" value={invoiceDraft.invoiceAmountExcludingTax} onChange={(event) => updateInvoiceTaxField("excludingTax", event.target.value)} />
+              </RepaymentField>
+              <RepaymentField label="发票税率（%）">
+                <Input className="w-full min-w-0" type="number" min="0" step="0.01" value={invoiceDraft.invoiceVatRate} onChange={(event) => updateInvoiceTaxField("vatRate", event.target.value)} />
+              </RepaymentField>
+              <RepaymentField label="发票含税金额">
+                <Input className="w-full min-w-0" type="number" step="0.01" value={invoiceDraft.invoiceAmountIncludingTax} onChange={(event) => updateInvoiceTaxField("includingTax", event.target.value)} />
+              </RepaymentField>
+            </div>
+            <div className="flex justify-end gap-2 border-t border-[#ebeef5] px-5 py-4">
+              <Button onClick={() => setInvoiceDraft(null)}>取消</Button>
+              <Button tone="primary" disabled={busyNo === invoiceDraft.snapshotNo} onClick={() => void saveInvoiceInfo()}>保存发票信息</Button>
             </div>
           </div>
         </div>
@@ -589,4 +770,104 @@ function formatValue(value: unknown, type?: string) {
 
 function firstNonBlankValue(...values: unknown[]) {
   return String(values.find((value) => value !== null && value !== undefined && String(value).trim() !== "") ?? "").trim();
+}
+
+function nullableNumber(value: unknown) {
+  if (value === null || value === undefined || String(value).trim() === "") return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+type TaxAmountField = "excludingTax" | "includingTax" | "vatRate";
+type TaxAmountDraft = {
+  excludingTax: string;
+  includingTax: string;
+  vatRate: string;
+};
+
+function calculateTaxAmounts(current: TaxAmountDraft, field: TaxAmountField, value: string): TaxAmountDraft {
+  const next = { ...current, [field]: value };
+  const ratePercent = nullableNumber(next.vatRate);
+  const rate = ratePercent === null ? null : ratePercent / 100;
+
+  if (field === "excludingTax") {
+    const excludingTax = nullableNumber(value);
+    next.includingTax = excludingTax !== null && rate !== null
+      ? formatAmountInput(excludingTax * (1 + rate))
+      : "";
+  } else if (field === "includingTax") {
+    const includingTax = nullableNumber(value);
+    next.excludingTax = includingTax !== null && rate !== null && rate > -1
+      ? formatAmountInput(includingTax / (1 + rate))
+      : "";
+  } else if (rate !== null) {
+    const excludingTax = nullableNumber(next.excludingTax);
+    const includingTax = nullableNumber(next.includingTax);
+    if (excludingTax !== null) {
+      next.includingTax = formatAmountInput(excludingTax * (1 + rate));
+    } else if (includingTax !== null && rate > -1) {
+      next.excludingTax = formatAmountInput(includingTax / (1 + rate));
+    }
+  }
+
+  return next;
+}
+
+function formatAmountInput(value: number) {
+  return Number.isFinite(value) ? String(Number(value.toFixed(4))) : "";
+}
+
+function formatRateInput(value: unknown) {
+  const rate = nullableNumber(value);
+  return rate === null ? "" : String(Number((rate * 100).toFixed(4)));
+}
+
+function parseRateInput(value: unknown) {
+  const percent = nullableNumber(value);
+  return percent === null ? null : percent / 100;
+}
+
+function AmountSummary({
+  currency,
+  excludingTax,
+  vatRate,
+  includingTax,
+  partyFlow,
+}: {
+  currency: unknown;
+  excludingTax: unknown;
+  vatRate: unknown;
+  includingTax: unknown;
+  partyFlow?: string;
+}) {
+  const net = nullableNumber(excludingTax);
+  const rate = nullableNumber(vatRate);
+  const gross = nullableNumber(includingTax);
+  const resolvedNet = net ?? (gross !== null && rate !== null ? gross / (1 + rate) : null);
+  const resolvedGross = gross ?? (net !== null && rate !== null ? net * (1 + rate) : null);
+  const tax = resolvedGross !== null && resolvedNet !== null ? resolvedGross - resolvedNet : null;
+  return (
+    <div className="min-w-[135px] space-y-0.5 text-xs leading-4 text-[#606266]">
+      {partyFlow ? <div className="max-w-[190px] truncate text-[11px] text-[#909399]" title={partyFlow}>{partyFlow}</div> : null}
+      <div className="font-semibold text-[#2f75b5]">{String(currency ?? "").trim() || "-"}</div>
+      <div><span className="text-[#909399]">未税 </span>{formatCompactMoney(resolvedNet)}</div>
+      <div><span className="text-[#909399]">税率 </span>{formatCompactRate(rate)}</div>
+      <div><span className="text-[#909399]">税金 </span>{formatCompactMoney(tax)}</div>
+      <div className="font-semibold text-[#303133]"><span className="font-normal text-[#909399]">含税 </span>{formatCompactMoney(resolvedGross)}</div>
+    </div>
+  );
+}
+
+function formatCompactMoney(value: number | null) {
+  return value === null ? "-" : formatDisplayValue(value, "money");
+}
+
+function formatCompactRate(value: number | null) {
+  return value === null ? "-" : `${(value * 100).toFixed(2)}%`;
+}
+
+function formatPartyFlow(payer: unknown, receiver: unknown) {
+  const payerName = String(payer ?? "").trim();
+  const receiverName = String(receiver ?? "").trim();
+  return payerName && receiverName ? `${payerName} → ${receiverName}` : payerName || receiverName;
 }
