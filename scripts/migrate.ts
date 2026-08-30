@@ -161,6 +161,19 @@ async function main() {
   await renameLegacyTables();
   await dropIndexIfExists("instancemodels", "uk_InstanceModels_modelCode");
 
+  for (const [columnName, ddl] of [
+    ["specification", "`specification` VARCHAR(255) NULL COMMENT 'product specification' AFTER `nameEn`"],
+    ["brand", "`brand` VARCHAR(255) NULL COMMENT 'product brand' AFTER `specification`"],
+    ["suggestedPurchaseUnitPrice", "`suggestedPurchaseUnitPrice` DECIMAL(14, 4) NOT NULL DEFAULT 0 COMMENT 'suggested purchase price CNY' AFTER `unit`"],
+    ["length", "`length` DECIMAL(14, 4) NOT NULL DEFAULT 0 COMMENT 'length cm' AFTER `suggestedPurchaseUnitPrice`"],
+    ["width", "`width` DECIMAL(14, 4) NOT NULL DEFAULT 0 COMMENT 'width cm' AFTER `length`"],
+    ["height", "`height` DECIMAL(14, 4) NOT NULL DEFAULT 0 COMMENT 'height cm' AFTER `width`"],
+    ["grossWeight", "`grossWeight` DECIMAL(14, 4) NOT NULL DEFAULT 0 COMMENT 'gross weight kg' AFTER `height`"],
+    ["needNom", "`needNom` TINYINT(1) NOT NULL DEFAULT 0 COMMENT 'NOM certification' AFTER `hsCodeMx`"],
+  ] as const) {
+    await addColumnIfMissing("po_product_masters", columnName, ddl);
+  }
+
   // Existing imports use this field for a full physical address, not only a short location ID.
   await modifyColumnIfPresent(
     "datacenters",

@@ -58,15 +58,38 @@ function withShipmentReceiptStatus(config: EntityConfig, body: Row) {
   return { ...body, isReceived: isShipmentDelivered(body.deliveredAt) };
 }
 
-function normalizeEntityBody(config: EntityConfig, body: Row) {
+async function normalizeEntityBody(config: EntityConfig, body: Row) {
   const nextBody = withQuotationPartyAliases(config, withShipmentReceiptStatus(config, body));
+  const normalizedProductBody = await normalizeProductMasterCategory(config, nextBody);
   if (["requests", "request-items", "purchase-order-items"].includes(config.key)) {
     return normalizePurchasePrices(config, {
-      ...nextBody,
+      ...normalizedProductBody,
       requestType: requireRequestType(nextBody.requestType ?? "整机"),
     });
   }
-  return normalizePurchasePrices(config, nextBody);
+  return normalizePurchasePrices(config, normalizedProductBody);
+}
+
+async function normalizeProductMasterCategory(config: EntityConfig, body: Row) {
+  if (config.key !== "product-masters") return body;
+
+  const category = String(body.category ?? "").trim();
+  if (!category) return { ...body, hsCodeMx: null, needNom: false };
+
+  const rows = await queryRows<{ hsCode: string | null; needNom: number | boolean | null }>(
+    `SELECT hsCode, needNom
+       FROM po_tariff_rates
+      WHERE deviceType = :category
+      ORDER BY updatedAt DESC, id ASC
+      LIMIT 1`,
+    { category },
+  );
+  const matched = rows[0];
+  return {
+    ...body,
+    hsCodeMx: matched?.hsCode ?? null,
+    needNom: Number(matched?.needNom ?? 0) === 1,
+  };
 }
 
 function withQuotationPartyAliases(config: EntityConfig, body: Row) {
@@ -158,12 +181,7 @@ export async function listEntityRows(config: EntityConfig, searchParams: URLSear
         .filter((field) => derivedRequestTypeEntityKeys.has(config.key) && field.key === "requestType")
         .map((field) => `${getEntityDisplayFieldExpression(config, field.key)} AS ${quoteIdentifier(field.key)}`),
     )
-    .concat(config.key === "product-masters"
-      ? [
-          "(SELECT COUNT(*) FROM `po_product_models` productModel WHERE productModel.`masterId` = `po_product_masters`.`id`) AS `modelCount`",
-          "(SELECT COUNT(*) FROM `po_product_specifications` productSpecification INNER JOIN `po_product_models` productModel ON productModel.`id` = productSpecification.`modelId` WHERE productModel.`masterId` = `po_product_masters`.`id` AND productSpecification.`mode` = 'fixed') AS `specCount`",
-        ]
-      : config.key === "product-models"
+    .concat(config.key === "product-models"
         ? [
             "(SELECT COUNT(*) FROM `po_product_specifications` productSpecification WHERE productSpecification.`modelId` = `po_product_models`.`id` AND productSpecification.`mode` = 'fixed') AS `specCount`",
           ]
@@ -184,7 +202,9 @@ export async function listEntityRows(config: EntityConfig, searchParams: URLSear
   const params: Row = {};
 
   if (keyword) {
-    const keywordFields = storageFields.slice(0, 5);
+    const keywordFields = config.key === "product-masters"
+      ? ["masterCode", "name", "nameEn", "specification", "brand", "category"]
+      : storageFields.slice(0, 5);
     whereParts.push(
       `(${keywordFields.map((field) => `${fieldReference(field)} LIKE :keyword`).join(" OR ")})`,
     );
@@ -807,7 +827,7 @@ export async function getEntityRow(config: EntityConfig, id: string) {
 }
 
 export async function createEntityRow(config: EntityConfig, body: Row) {
-  const nextBody = normalizeEntityBody(config, withPrimaryKey(config, body));
+  const nextBody = await normalizeEntityBody(config, withPrimaryKey(config, body));
   validateRequiredFields(config, nextBody);
   const fields = getInsertFields(config);
   const table = quoteIdentifier(config.table);
@@ -826,7 +846,7 @@ export async function updateEntityRow(config: EntityConfig, id: string, body: Ro
   const table = quoteIdentifier(config.table);
   const primaryKey = quoteIdentifier(config.primaryKey);
   const assignments = fields.map((field) => `${quoteIdentifier(field)} = :${field}`).join(", ");
-  const nextBody = normalizeEntityBody(config, body);
+  const nextBody = await normalizeEntityBody(config, body);
   validateRequiredFields(config, nextBody);
   const previousBody = config.key.endsWith("-contacts") ? await getEntityRow(config, id) : null;
   if (config.key === "requests") await assertRequestTypeCanChange(id, String(nextBody.requestType));

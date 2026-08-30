@@ -152,7 +152,6 @@ export function TableColumnMenu({
   const [locked, setLocked] = useState(false);
   const [position, setPosition] = useState({ top: 0, left: 0, width: 300 });
   const selectionTouchedRef = useRef(filterValues.length > 0);
-  const hasSearchedRef = useRef(false);
   const requestIdRef = useRef(0);
 
   const updatePosition = useCallback(() => {
@@ -174,7 +173,6 @@ export function TableColumnMenu({
       setOptions(next);
       if (!filterValues.length && !selectionTouchedRef.current) {
         setSelected(new Set(next.map((option) => option.value)));
-        if (keyword) hasSearchedRef.current = true;
       }
     } catch {
       if (requestId !== requestIdRef.current) return;
@@ -197,8 +195,18 @@ export function TableColumnMenu({
     setSearch("");
     setSelected(new Set(filterValues));
     selectionTouchedRef.current = filterValues.length > 0;
-    hasSearchedRef.current = false;
     void fetchOptions("");
+  }
+
+  function updateSearch(value: string) {
+    setSearch(value);
+    // A keyword search is a deliberate move from the "no filter" state to
+    // choosing values. Do not carry the implicit all-values selection into
+    // the filtered candidate list (for example BR-1, BR-10, and BR-11).
+    if (value.trim() && !filterValues.length && !selectionTouchedRef.current) {
+      selectionTouchedRef.current = true;
+      setSelected(new Set());
+    }
   }
 
   function applyFilter() {
@@ -307,7 +315,7 @@ export function TableColumnMenu({
         <div className="text-sm text-[#303133]">
           <div className="flex items-center gap-2 border-b border-[#ebeef5] p-2">
             <Search className="text-[#909399]" size={15} />
-            <Input className="h-8 min-w-0 flex-1 border-0 px-1 shadow-none focus:border-0" placeholder="请输入关键字" value={search} onChange={(event) => setSearch(event.target.value)} autoFocus />
+            <Input className="h-8 min-w-0 flex-1 border-0 px-1 shadow-none focus:border-0" placeholder="请输入关键字" value={search} onChange={(event) => updateSearch(event.target.value)} autoFocus />
           </div>
           <div className="max-h-[260px] overflow-auto p-2">
             <label className="flex cursor-pointer items-center gap-2 border-b border-[#ebeef5] px-1 py-2 text-xs font-medium text-[#606266]">

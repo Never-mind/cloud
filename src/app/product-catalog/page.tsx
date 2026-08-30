@@ -1,6 +1,6 @@
-import { ProductCatalogListPage } from "@/components/product-catalog-page";
+import { EntityPage } from "@/components/entity-page";
 import { getEntityConfig } from "@/lib/modules";
 
 export default function ProductCatalogPage() {
-  return <ProductCatalogListPage config={getEntityConfig("product-masters")!} />;
+  return <EntityPage config={getEntityConfig("product-masters")!} />;
 }

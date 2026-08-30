@@ -4,6 +4,28 @@ export async function findProductByCode(productCode: string) {
   const code = productCode.trim();
   if (!code) return null;
 
+  const masterRows = await queryRows<Row>(
+    `SELECT
+       id AS productMasterId,
+       masterCode AS productCode,
+       name AS productName,
+       nameEn,
+       specification,
+       brand,
+       category,
+       unit,
+       suggestedPurchaseUnitPrice,
+       'CNY' AS purchaseCurrency,
+       NULL AS productModelId,
+       NULL AS productSpecId
+     FROM po_product_masters
+    WHERE masterCode = :productCode
+      AND status = 'active'
+    LIMIT 1`,
+    { productCode: code },
+  );
+  if (masterRows[0]) return masterRows[0];
+
   const rows = await queryRows<Row>(
     `SELECT
        specification.id AS productSpecId,
@@ -72,7 +94,28 @@ export async function matchCustomerPoItems(poId: string) {
   ));
   if (!codes.length) return { total: items.length, matched: 0, unmatched: items.length };
 
-  const products = await queryRows<Row>(
+  const masterProducts = await queryRows<Row>(
+    `SELECT
+       id AS productMasterId,
+       masterCode AS productCode,
+       name AS productName,
+       nameEn,
+       specification,
+       brand,
+       category,
+       unit,
+       suggestedPurchaseUnitPrice,
+       'CNY' AS purchaseCurrency,
+       NULL AS productModelId,
+       NULL AS productSpecId
+     FROM po_product_masters
+    WHERE masterCode IN (:codes)
+      AND status = 'active'`,
+    { codes },
+  );
+  const masterCodes = new Set(masterProducts.map((product) => String(product.productCode ?? "")));
+  const legacyCodes = codes.filter((code) => !masterCodes.has(code));
+  const legacyProducts = legacyCodes.length ? (await queryRows<Row>(
     `SELECT
       specification.specProductCode AS productCode,
       specification.id AS productSpecId,
@@ -87,8 +130,9 @@ export async function matchCustomerPoItems(poId: string) {
        AND specification.status = 'active'
        AND model.status = 'active'
        AND master.status = 'active'`,
-    { codes },
-  );
+    { codes: legacyCodes },
+  )) ?? [] : [];
+  const products = [...masterProducts, ...legacyProducts];
   const productByCode = new Map(products.map((product) => [String(product.productCode), product]));
   let matched = 0;
   for (const item of items) {

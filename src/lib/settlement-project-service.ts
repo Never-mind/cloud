@@ -511,12 +511,13 @@ export async function ensureSettlementProjectForQuotation(quotationId: string, a
   if (existing[0]) return recalculateProject(existing[0].id);
 
   const items = await queryRows<ProjectQuotationItem>(
-    `SELECT qi.*, pm.brand,
-            ps.purchaseCurrency, COALESCE(NULLIF(ps.suggestedPurchaseUnitPrice, 0), NULLIF(pm2.suggestedPurchaseUnitPrice, 0), 0) AS purchaseUnitPrice
+    `SELECT qi.*, COALESCE(product.brand, legacyModel.brand) AS brand,
+            COALESCE(NULLIF(product.suggestedPurchaseUnitPrice, 0), NULLIF(ps.suggestedPurchaseUnitPrice, 0), NULLIF(legacyModel.suggestedPurchaseUnitPrice, 0), 0) AS purchaseUnitPrice,
+            CASE WHEN product.id IS NOT NULL THEN 'CNY' ELSE COALESCE(NULLIF(ps.purchaseCurrency, ''), NULLIF(legacyModel.purchaseCurrency, ''), 'USD') END AS purchaseCurrency
        FROM po_quotation_items qi
-       LEFT JOIN po_product_models pm ON pm.id = qi.productModelId
+       LEFT JOIN po_product_masters product ON product.id = qi.productMasterId
        LEFT JOIN po_product_specifications ps ON ps.id = qi.productSpecId
-       LEFT JOIN po_product_models pm2 ON pm2.id = qi.productModelId
+       LEFT JOIN po_product_models legacyModel ON legacyModel.id = qi.productModelId
       WHERE qi.quotationId = :quotationId ORDER BY qi.lineNo, qi.id`,
     { quotationId: quotation.id },
   );

@@ -47,6 +47,7 @@ type HistoryQuotationRow = {
 };
 
 type ProductCostRow = {
+  productMasterId: string | null;
   productSpecId: string | null;
   purchaseUnitPrice: number | null;
 };
@@ -86,13 +87,22 @@ export async function recalculateQuotationSummary(quotationIdOrNo: string, actor
      FROM po_quotation_items item
      LEFT JOIN (
        SELECT
+         product.id AS productMasterId,
+         NULL AS productSpecId,
+         product.suggestedPurchaseUnitPrice AS purchaseUnitPrice
+       FROM po_product_masters product
+       WHERE product.status = 'active'
+       UNION ALL
+       SELECT
+         master.id AS productMasterId,
          specification.id AS productSpecId,
          COALESCE(NULLIF(specification.suggestedPurchaseUnitPrice, 0), NULLIF(model.suggestedPurchaseUnitPrice, 0), 0) AS purchaseUnitPrice
        FROM po_product_specifications specification
        INNER JOIN po_product_models model ON model.id = specification.modelId
        WHERE specification.status = 'active'
          AND model.status = 'active'
-     ) cost ON cost.productSpecId = item.productSpecId
+     ) cost ON (cost.productMasterId = item.productMasterId AND cost.productSpecId IS NULL)
+          OR cost.productSpecId = item.productSpecId
      WHERE item.quotationId = :quotationId`,
     { quotationId: quotation.id },
   );
@@ -163,7 +173,7 @@ export async function createQuotationFromCustomerPo(poId: string, actor: Operati
     { poId: customerPo.id },
   );
   if (!items.length) throw new Error("客户PO没有明细");
-  if (items.some((item) => String(item.matchStatus ?? "") !== "matched" || !String(item.productSpecId ?? "").trim())) {
+  if (items.some((item) => String(item.matchStatus ?? "") !== "matched" || (!String(item.productMasterId ?? "").trim() && !String(item.productSpecId ?? "").trim()))) {
     throw new Error("客户PO明细尚未完成产品主档匹配");
   }
 
@@ -186,10 +196,20 @@ export async function createQuotationFromCustomerPo(poId: string, actor: Operati
     }
   }
 
+  const productMasterIds = Array.from(new Set(items.map((item) => String(item.productMasterId ?? "").trim()).filter(Boolean)));
   const productSpecIds = Array.from(new Set(items.map((item) => String(item.productSpecId ?? "").trim()).filter(Boolean)));
-  const productCosts = productSpecIds.length
+  const productCosts = productMasterIds.length || productSpecIds.length
     ? await queryRows<ProductCostRow>(
         `SELECT
+           master.id AS productMasterId,
+           NULL AS productSpecId,
+           master.suggestedPurchaseUnitPrice AS purchaseUnitPrice
+         FROM po_product_masters master
+         WHERE master.id IN (:productMasterIds)
+           AND master.status = 'active'
+         UNION ALL
+         SELECT
+           model.masterId AS productMasterId,
            specification.id AS productSpecId,
            COALESCE(NULLIF(specification.suggestedPurchaseUnitPrice, 0), NULLIF(model.suggestedPurchaseUnitPrice, 0), 0) AS purchaseUnitPrice
          FROM po_product_specifications specification
@@ -197,11 +217,17 @@ export async function createQuotationFromCustomerPo(poId: string, actor: Operati
          WHERE specification.id IN (:productSpecIds)
            AND specification.status = 'active'
            AND model.status = 'active'`,
-        { productSpecIds },
+        {
+          productMasterIds: productMasterIds.length ? productMasterIds : ["__none__"],
+          productSpecIds: productSpecIds.length ? productSpecIds : ["__none__"],
+        },
       )
     : [];
   const productCostBySpecId = new Map(
-    productCosts.map((row) => [String(row.productSpecId ?? ""), Number(row.purchaseUnitPrice ?? 0)]),
+    productCosts.flatMap((row) => {
+      const keys = [row.productSpecId, row.productMasterId].filter((value): value is string => Boolean(value));
+      return keys.map((key) => [String(key), Number(row.purchaseUnitPrice ?? 0)] as const);
+    }),
   );
 
   const quotationId = randomUUID();
@@ -233,7 +259,7 @@ export async function createQuotationFromCustomerPo(poId: string, actor: Operati
   const totalAmount = roundAmount(quotationItems.reduce((total, item) => total + item.amount, 0));
   const totalProfit = roundAmount(
     quotationItems.reduce((total, item) => {
-      const purchaseUnitPrice = productCostBySpecId.get(String(item.productSpecId ?? "")) ?? 0;
+      const purchaseUnitPrice = productCostBySpecId.get(String(item.productSpecId ?? item.productMasterId ?? "")) ?? 0;
       return total + (Number(item.unitPrice ?? 0) - purchaseUnitPrice) * Number(item.quantity ?? 0);
     }, 0),
   );

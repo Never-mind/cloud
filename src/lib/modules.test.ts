@@ -101,17 +101,37 @@ describe("module configuration", () => {
   it("exposes the product master workflow and quotation pages in the PO menu", () => {
     const productGroup = navGroups.find((group) => group.title === "集采系统");
 
-    expect(productGroup?.children?.map((child) => child.title)).toEqual(["客户PO", "项目结算", "采购管理"]);
+    expect(productGroup?.children?.map((child) => child.title)).toEqual(["客户PO", "项目结算", "产品管理", "采购管理"]);
     expect(productGroup?.children?.flatMap((child) => child.items.map((item) => item.key))).toEqual([
       "customer-pos",
       "quotations",
       "history-quotations",
       "settlement-projects",
+      "product-categories",
       "product-masters",
-      "product-models",
-      "product-specifications",
       "customer-product-aliases",
-      "tariff-rates",
+    ]);
+  });
+
+  it("keeps the traditional product archive list focused on product fields", () => {
+    const config = getEntityConfig("product-masters");
+
+    expect(config?.defaultSort).toBe("masterCode ASC");
+    expect(config?.listFields.filter((field) => field.defaultVisible !== false).map((field) => field.key)).toEqual([
+      "masterCode",
+      "name",
+      "nameEn",
+      "specification",
+      "brand",
+      "category",
+      "unit",
+      "suggestedPurchaseUnitPrice",
+      "length",
+      "width",
+      "height",
+      "grossWeight",
+      "hsCodeMx",
+      "needNom",
     ]);
   });
 

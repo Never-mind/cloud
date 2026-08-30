@@ -98,6 +98,8 @@ export function EntityPage({
   const [quotationItemPreview, setQuotationItemPreview] = useState<{ quotation: Row | null; product: Row | null; latestHistory: Row | null } | null>(null);
   const [quotationItemPreviewLoading, setQuotationItemPreviewLoading] = useState(false);
   const [filterOptions, setFilterOptions] = useState<Record<string, Array<{ label: string; value: string }>>>({});
+  const [productCategories, setProductCategories] = useState<Row[]>([]);
+  const [productCategoryDraft, setProductCategoryDraft] = useState("");
   const [instanceContractDeviceCode, setInstanceContractDeviceCode] = useState("");
   const [billingContractNo, setBillingContractNo] = useState("");
   const [visibility, setVisibility] = useState<ColumnVisibility>(() =>
@@ -405,6 +407,32 @@ export function EntityPage({
     };
   }, [config.filters]);
 
+  useEffect(() => {
+    if (config.key !== "product-masters") {
+      setProductCategories([]);
+      return;
+    }
+
+    let active = true;
+    void fetchAllEntityRows<Row>("product-categories")
+      .then((rows) => {
+        if (active) setProductCategories(rows);
+      })
+      .catch(() => {
+        if (active) setProductCategories([]);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [config.key]);
+
+  useEffect(() => {
+    if (config.key === "product-masters" && showForm) {
+      setProductCategoryDraft(String(editing?.category ?? ""));
+    }
+  }, [config.key, editing, showForm]);
+
   const instanceContractAutofill = useMemo(
     () =>
       getInstanceContractModelAutofill(
@@ -420,6 +448,10 @@ export function EntityPage({
   const selectedBillingContract = useMemo(
     () => findBillingContract(instanceContracts, editing, billingContractNo),
     [billingContractNo, editing, instanceContracts],
+  );
+  const selectedProductCategory = useMemo(
+    () => productCategories.find((row) => String(row.deviceType ?? "") === productCategoryDraft.trim()) ?? null,
+    [productCategories, productCategoryDraft],
   );
 
   async function saveRow(formData: FormData) {
@@ -857,7 +889,18 @@ export function EntityPage({
                       ))}
                     </select>
                   ) : field.type === "boolean" ? (
-                    <input name={field.key} type="checkbox" defaultChecked={Boolean(editing?.[field.key])} />
+                    field.readonly && config.key === "product-masters" && field.key === "needNom" ? (
+                      <div className="flex h-9 items-center text-sm text-[#606266]">
+                        {selectedProductCategory ? (Number(selectedProductCategory.needNom ?? 0) === 1 ? "是" : "否") : Boolean(editing?.[field.key]) ? "是" : "否"}
+                      </div>
+                    ) : (
+                      <input
+                        name={field.key}
+                        type="checkbox"
+                        disabled={field.readonly}
+                        defaultChecked={Boolean(editing?.[field.key])}
+                      />
+                    )
                   ) : field.type === "switch" ? (
                     <label className="inline-flex h-9 cursor-pointer items-center gap-2 text-sm text-[#606266]">
                       <input
@@ -900,6 +943,8 @@ export function EntityPage({
                             ? "instance-model-b6-types"
                           : (config.key === "customer-po-items" || config.key === "quotation-items") && (field.key === "matchedProductCode" || field.key === "productCode")
                             ? "product-code-options"
+                          : config.key === "product-masters" && field.key === "category"
+                            ? "product-category-options"
                           : config.key === "shipments"
                             ? getShipmentLookupListId(field.lookupSource)
                             : undefined
@@ -914,6 +959,10 @@ export function EntityPage({
                             ? quotationItemQuotationId
                           : config.key === "quotation-items" && field.key === "productCode"
                             ? quotationItemProductCode
+                          : config.key === "product-masters" && field.key === "category"
+                            ? productCategoryDraft
+                          : config.key === "product-masters" && field.key === "hsCodeMx"
+                            ? String(selectedProductCategory?.hsCode ?? editing?.[field.key] ?? "")
                           : config.key === "billing-ledgers" && field.key === "contractCurrency"
                               ? String(selectedBillingContract?.currency ?? "")
                               : config.key === "billing-ledgers" && field.key === "first24MonthPrice"
@@ -924,6 +973,7 @@ export function EntityPage({
                       }
                       defaultValue={
                         (config.key === "instance-contracts" && ["modelCode", "instanceModelEn"].includes(field.key)) ||
+                        (config.key === "product-masters" && ["category", "hsCodeMx"].includes(field.key)) ||
                         (config.key === "billing-ledgers" && ["contractCurrency", "first24MonthPrice", "next36MonthPrice"].includes(field.key))
                           ? undefined
                           : field.type === "date"
@@ -942,7 +992,9 @@ export function EntityPage({
                         (config.key === "billing-ledgers" && ["ledgerId", "purchaseOrderItemId", "countryCode", "batchName", "requestNo", "poNo", "deviceCode", "modelCode", "nameEn", "quantity", "actualCurrency", "actualUnitPrice", "contractCurrency", "first24MonthPrice", "next36MonthPrice", "status"].includes(field.key))
                       }
                       onChange={
-                        config.key === "instance-contracts" && field.key === "deviceCode"
+                        config.key === "product-masters" && field.key === "category"
+                          ? (event) => setProductCategoryDraft(event.target.value)
+                        : config.key === "instance-contracts" && field.key === "deviceCode"
                           ? (event) => setInstanceContractDeviceCode(event.target.value)
                           : config.key === "quotation-items" && field.key === "quotationId"
                             ? (event) => setQuotationItemQuotationId(event.target.value)
@@ -1000,6 +1052,15 @@ export function EntityPage({
                 {customerPoProducts.map((product) => (
                   <option key={String(product.productCode)} value={String(product.productCode)}>
                     {String(product.productName ?? "")} {String(product.brand ?? "")} {String(product.model ?? "")} {String(product.specName ?? "")}
+                  </option>
+                ))}
+              </datalist>
+            ) : null}
+            {config.key === "product-masters" ? (
+              <datalist id="product-category-options">
+                {productCategories.map((category) => (
+                  <option key={String(category.deviceType)} value={String(category.deviceType)}>
+                    {String(category.hsCode ?? "")} {Number(category.needNom ?? 0) === 1 ? "NOM" : ""}
                   </option>
                 ))}
               </datalist>
