@@ -660,7 +660,7 @@ const MONTHLY_BILLING_TOTAL_MONTHS = 60;
  * calculations can use the same source data as newly confirmed ledgers.
  */
 export async function ensureMonthlyBillingRows() {
-  const ledgers = await queryRows<BillingLedgerDraft>(
+  const ledgers = await queryRows<BillingLedgerDraft & { monthlyRowCount: number; hasConfirmedAdjustment: number }>(
     `
       SELECT
         billing.ledgerId,
@@ -690,7 +690,18 @@ export async function ensureMonthlyBillingRows() {
         billing.differenceUnitPrice,
         billing.differenceTotalPrice,
         DATE_FORMAT(billing.startMonth, '%Y-%m-%d') AS startMonth,
-        billing.status
+        billing.status,
+        COALESCE(monthly.rowCount, 0) AS monthlyRowCount,
+        EXISTS (
+          SELECT 1
+          FROM billingadjustments AS adjustment
+          INNER JOIN billingadjustmentitems AS adjustmentItem ON adjustmentItem.adjustmentNo = adjustment.adjustmentNo
+          WHERE adjustment.confirmedAt IS NOT NULL
+            AND adjustmentItem.countryCode = billing.countryCode
+            AND adjustmentItem.batchName = billing.batchName
+            AND (adjustmentItem.requestNo = billing.requestNo OR adjustmentItem.requestNo = '')
+            AND adjustmentItem.deviceCode = billing.deviceCode
+        ) AS hasConfirmedAdjustment
       FROM billinginstanceledgers AS billing
       LEFT JOIN purchaseorderitems AS purchaseItem ON purchaseItem.id = billing.purchaseOrderItemId
       LEFT JOIN requestitems AS ri ON ri.id = purchaseItem.requestItemId
@@ -701,6 +712,16 @@ export async function ensureMonthlyBillingRows() {
         GROUP BY ledgerId
       ) AS monthly ON monthly.ledgerId = billing.ledgerId
       WHERE COALESCE(monthly.rowCount, 0) < :totalMonths
+         OR EXISTS (
+              SELECT 1
+              FROM billingadjustments AS adjustment
+              INNER JOIN billingadjustmentitems AS adjustmentItem ON adjustmentItem.adjustmentNo = adjustment.adjustmentNo
+              WHERE adjustment.confirmedAt IS NOT NULL
+                AND adjustmentItem.countryCode = billing.countryCode
+                AND adjustmentItem.batchName = billing.batchName
+                AND (adjustmentItem.requestNo = billing.requestNo OR adjustmentItem.requestNo = '')
+                AND adjustmentItem.deviceCode = billing.deviceCode
+            )
       ORDER BY billing.ledgerId
     `,
     { totalMonths: MONTHLY_BILLING_TOTAL_MONTHS },
@@ -709,7 +730,21 @@ export async function ensureMonthlyBillingRows() {
 
   const rows: MonthlyBillingRow[] = [];
   for (const ledger of ledgers) {
-    rows.push(...await buildMonthlyBillingRowsWithConfirmedAdjustments(ledger));
+    const generatedRows = await buildMonthlyBillingRowsWithConfirmedAdjustments(ledger);
+    if (Number(ledger.monthlyRowCount ?? 0) >= MONTHLY_BILLING_TOTAL_MONTHS && Number(ledger.hasConfirmedAdjustment ?? 0) === 1) {
+      const existingRows = await queryRows<Row>(
+        `
+          SELECT monthIndex, DATE_FORMAT(writeOffMonth, '%Y-%m-%d') AS writeOffMonth, instanceContractNo, currency,
+            monthlyAmount, monthlyTotalAmount, differenceUnitPrice, differenceTotalPrice, sourceType, adjustmentNo
+          FROM monthlybillingwriteoffs
+          WHERE ledgerId = :ledgerId
+        `,
+        { ledgerId: ledger.ledgerId },
+      );
+      if (!monthlyBillingRowsMatch(existingRows, generatedRows)) await replaceMonthlyBillingRows(ledger.ledgerId, generatedRows);
+    } else {
+      rows.push(...generatedRows);
+    }
   }
 
   await withTransaction(async (connection) => {
@@ -734,6 +769,24 @@ export async function ensureMonthlyBillingRows() {
   });
 
   return { ledgerCount: ledgers.length, rowCount: rows.length };
+}
+
+function monthlyBillingRowsMatch(existingRows: Row[], generatedRows: MonthlyBillingRow[]) {
+  if (existingRows.length !== generatedRows.length) return false;
+  const existingByMonth = new Map(existingRows.map((row) => [Number(row.monthIndex), row]));
+  return generatedRows.every((generated) => {
+    const existing = existingByMonth.get(generated.monthIndex);
+    if (!existing) return false;
+    return String(existing.writeOffMonth ?? "").slice(0, 10) === generated.writeOffMonth
+      && String(existing.instanceContractNo ?? "") === generated.instanceContractNo
+      && String(existing.currency ?? "") === generated.currency
+      && Number(existing.monthlyAmount ?? 0) === generated.monthlyAmount
+      && Number(existing.monthlyTotalAmount ?? 0) === generated.monthlyTotalAmount
+      && Number(existing.differenceUnitPrice ?? 0) === generated.differenceUnitPrice
+      && Number(existing.differenceTotalPrice ?? 0) === generated.differenceTotalPrice
+      && String(existing.sourceType ?? "") === generated.sourceType
+      && String(existing.adjustmentNo ?? "") === generated.adjustmentNo;
+  });
 }
 
 function monthlyBillingRequestTypeExpression() {
@@ -794,18 +847,7 @@ async function listTableOptions(table: string, expressions: Record<string, strin
 export async function confirmBillingAdjustment(adjustmentNo: string) {
   const { adjustment, items } = await getBillingAdjustment(adjustmentNo);
   if (!adjustment) throw new Error("调整单不存在");
-  if (String(adjustment.status) === "已确认") return adjustment;
   if (!items.length) throw new Error("调整单明细不能为空");
-
-  await execute(
-    `
-      UPDATE billingadjustments
-      SET status = '已确认',
-          confirmedAt = CURRENT_TIMESTAMP
-      WHERE adjustmentNo = :adjustmentNo
-    `,
-    { adjustmentNo },
-  );
 
   const ledgerIds = new Set<string>();
   for (const item of items) {
@@ -829,6 +871,18 @@ export async function confirmBillingAdjustment(adjustmentNo: string) {
       throw new Error(`未找到匹配的月账单台账：${item.countryCode}/${item.batchName}/${item.deviceCode}`);
     }
     ledgers.forEach((ledger) => ledgerIds.add(String(ledger.ledgerId)));
+  }
+
+  if (String(adjustment.status) !== "已确认") {
+    await execute(
+      `
+        UPDATE billingadjustments
+        SET status = '已确认',
+            confirmedAt = CURRENT_TIMESTAMP
+        WHERE adjustmentNo = :adjustmentNo
+      `,
+      { adjustmentNo },
+    );
   }
 
   for (const ledgerId of ledgerIds) {
