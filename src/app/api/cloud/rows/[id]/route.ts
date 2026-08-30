@@ -15,7 +15,7 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
 export async function DELETE(_request: NextRequest, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;
   try {
-    await executeRaw("DELETE FROM cloud_attachments WHERE ownerType = 'reconciliation' AND ownerId = :id", { id: decodeURIComponent(id) });
+    await executeRaw("DELETE FROM cloud_attachments WHERE ownerType IN ('reconciliation', 'collection', 'invoice') AND ownerId = :id", { id: decodeURIComponent(id) });
     await executeRaw("DELETE FROM cloud_rows WHERE id = :id", { id: decodeURIComponent(id) });
     return NextResponse.json({ ok: true });
   } catch (error) {

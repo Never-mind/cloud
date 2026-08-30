@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
-import { CheckCircle2, Coins, FileDown, FileText, RefreshCw, Search, Trash2, Upload, X } from "lucide-react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { CheckCircle2, FileDown, FileText, Pencil, RefreshCw, Search, Trash2, Upload, X } from "lucide-react";
 import { fetchAllEntityRows } from "@/lib/client-entity-fetch";
 import { formatDisplayValue } from "@/lib/display-format";
 import { DEFAULT_PAGE_SIZE } from "@/lib/pagination";
@@ -60,7 +60,6 @@ const columns: Array<{ key: string; label: string; type?: string }> = [
   { key: "updatedAt", label: "更新日期", type: "date" },
   { key: "confirmedAt", label: "确认日期", type: "date" },
   { key: "status", label: "确认状态" },
-  { key: "repaymentStatus", label: "回款状态" },
 ];
 const tableColumns = columns.map((column) => ({ ...column, sortable: true, filterable: true }));
 
@@ -307,6 +306,35 @@ export function ServiceFeeStatementsPage() {
     }
   }
 
+  async function setRepaymentState(row: Row, nextStatus: "未回款" | "已回款") {
+    const snapshotNo = String(row.snapshotNo ?? "");
+    if (!snapshotNo) return;
+    setBusyNo(snapshotNo);
+    try {
+      const response = await fetch(`/api/service-fees/snapshots/${encodeURIComponent(snapshotNo)}/repayment`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          repaymentStatus: nextStatus,
+          receivingUnitId: firstNonBlankValue(row.receivingUnitId, row.defaultReceivingUnitId),
+          payerCustomerId: firstNonBlankValue(row.payerCustomerId, row.defaultPayerCustomerId),
+          repaymentCurrency: String(row.repaymentCurrency ?? row.defaultRepaymentCurrency ?? ""),
+          repaymentAmount: nullableNumber(row.repaymentAmount ?? row.defaultRepaymentAmount ?? row.serviceFeeTotal),
+          repaymentAmountExcludingTax: nullableNumber(row.repaymentAmountExcludingTax),
+          repaymentVatRate: parseRateInput(row.repaymentVatRate),
+          repaymentDate: String(row.repaymentDate ?? "").slice(0, 10),
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error ?? "回款状态更新失败");
+      setRows((current) => current.map((item) => String(item.snapshotNo ?? "") === snapshotNo ? { ...item, repaymentStatus: nextStatus } : item));
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "回款状态更新失败");
+    } finally {
+      setBusyNo("");
+    }
+  }
+
   function chooseInvoice(row: Row) {
     if (row.invoiceOriginalName && !confirm("该对账单已有发票附件，继续上传将替换原附件。是否继续？")) return;
     uploadTargetRef.current = {
@@ -503,6 +531,7 @@ export function ServiceFeeStatementsPage() {
                                 firstNonBlankValue(row.payerCustomerCode, row.customerName),
                                 firstNonBlankValue(row.receivingUnitCode, row.undertakingUnitName),
                               )}
+                              action={<RepaymentStatusAction row={row} busy={busyNo === snapshotNo} onToggle={() => void setRepaymentState(row, row.repaymentStatus === "已回款" ? "未回款" : "已回款")} onEdit={() => openRepayment(row)} />}
                             />
                           ) : column.key === "customerInvoice" ? (
                             <div className="min-w-[165px]">
@@ -576,10 +605,6 @@ export function ServiceFeeStatementsPage() {
                                 ) : null}
                               </div>
                             </div>
-                          ) : column.key === "repaymentStatus" ? (
-                            <span className={`inline-flex h-7 items-center rounded-full px-2.5 text-xs font-medium ${String(value ?? "") === "已回款" ? "bg-[#f0f9eb] text-[#67c23a]" : "bg-[#f4f4f5] text-[#909399]"}`}>
-                              {String(value ?? "未回款")}
-                            </span>
                           ) : (
                             <span className="block max-w-[260px] truncate">{formatValue(value, column.type)}</span>
                           )}
@@ -588,17 +613,6 @@ export function ServiceFeeStatementsPage() {
                     })}
                     <td className="sticky right-0 whitespace-nowrap border-b border-[#ebeef5] bg-white px-3 py-3">
                       <div className="flex items-center gap-1">
-                        <button
-                          aria-label="登记回款信息"
-                          className="inline-flex h-8 items-center gap-1 rounded border border-[#e6a23c] bg-white px-2 text-xs text-[#b88230] transition hover:bg-[#fff7e6] disabled:cursor-not-allowed disabled:opacity-50"
-                          disabled={busyNo === snapshotNo}
-                          title="登记回款信息"
-                          type="button"
-                          onClick={() => openRepayment(row)}
-                        >
-                          <Coins size={15} />
-                          回款
-                        </button>
                         {!confirmed ? (
                           <button
                             aria-label="确认对账单"
@@ -833,12 +847,14 @@ function AmountSummary({
   vatRate,
   includingTax,
   partyFlow,
+  action,
 }: {
   currency: unknown;
   excludingTax: unknown;
   vatRate: unknown;
   includingTax: unknown;
   partyFlow?: string;
+  action?: ReactNode;
 }) {
   const net = nullableNumber(excludingTax);
   const rate = nullableNumber(vatRate);
@@ -854,8 +870,33 @@ function AmountSummary({
       <div><span className="text-[#909399]">税率 </span>{formatCompactRate(rate)}</div>
       <div><span className="text-[#909399]">税金 </span>{formatCompactMoney(tax)}</div>
       <div className="font-semibold text-[#303133]"><span className="font-normal text-[#909399]">含税 </span>{formatCompactMoney(resolvedGross)}</div>
+      {action ? <div className="mt-1 flex items-center gap-1 border-t border-[#f0f2f5] pt-1">{action}</div> : null}
     </div>
   );
+}
+
+function RepaymentStatusAction({ row, busy, onToggle, onEdit }: { row: Row; busy: boolean; onToggle: () => void; onEdit: () => void }) {
+  const paid = row.repaymentStatus === "已回款";
+  return <>
+    <button
+      aria-checked={paid}
+      aria-label={`回款状态：${paid ? "已回款" : "未回款"}`}
+      className="inline-flex h-6 items-center gap-1 rounded-full text-xs text-[#606266] disabled:cursor-not-allowed disabled:opacity-50"
+      disabled={busy}
+      role="switch"
+      title={`点击切换为${paid ? "未回款" : "已回款"}`}
+      type="button"
+      onClick={onToggle}
+    >
+      <span className={`relative inline-flex h-4 w-7 rounded-full transition-colors ${paid ? "bg-[#13ce66]" : "bg-[#c0c4cc]"}`}>
+        <span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white shadow transition-transform ${paid ? "translate-x-[15px]" : "translate-x-0.5"}`} />
+      </span>
+      <span>{paid ? "已回款" : "未回款"}</span>
+    </button>
+    <button aria-label="编辑回款信息" className="ml-auto inline-flex h-6 w-6 items-center justify-center rounded text-[#909399] hover:bg-[#f5f7fa] hover:text-[#1890ff] disabled:cursor-not-allowed disabled:opacity-50" disabled={busy} title="编辑回款信息" type="button" onClick={onEdit}>
+      <Pencil size={13} />
+    </button>
+  </>;
 }
 
 function formatCompactMoney(value: number | null) {

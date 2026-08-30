@@ -155,6 +155,7 @@ export const entityConfigs: EntityConfig[] = [
     navGroup: "业务伙伴",
     route: "/suppliers",
     detailRoute: "/suppliers",
+    defaultSort: "supplierCode ASC",
     description: "维护供应商完整基础资料。",
     filters: [
       { key: "keyword", label: "供应商", placeholder: "请输入供应商代码、中文名或简称" },
@@ -233,6 +234,7 @@ export const entityConfigs: EntityConfig[] = [
     navGroup: "业务伙伴",
     route: "/undertaking-units",
     detailRoute: "/undertaking-units",
+    defaultSort: "entityCode ASC",
     description: "维护承接单位完整基础资料。",
     filters: [{ key: "keyword", label: "承接单位", placeholder: "请输入承接单位代码、名称或简称" }, { key: "status", label: "状态", type: "select", options: [{ label: "启用", value: "active" }, { label: "停用", value: "disabled" }] }],
     listFields: [
@@ -272,6 +274,7 @@ export const entityConfigs: EntityConfig[] = [
     navGroup: "业务伙伴",
     route: "/customers",
     detailRoute: "/customers",
+    defaultSort: "customerCode ASC",
     description: "维护客户完整基础资料。",
     filters: [{ key: "keyword", label: "客户", placeholder: "请输入客户代码、中文名或简称" }, { key: "status", label: "状态", type: "select", options: [{ label: "启用", value: "active" }, { label: "停用", value: "disabled" }] }],
     listFields: [

@@ -83,6 +83,12 @@ describe("module configuration", () => {
     ]);
   });
 
+  it("sorts business partners by their codes by default", () => {
+    expect(getEntityOrderBy(getEntityConfig("suppliers")!)).toBe("ORDER BY supplierCode ASC");
+    expect(getEntityOrderBy(getEntityConfig("customers")!)).toBe("ORDER BY customerCode ASC");
+    expect(getEntityOrderBy(getEntityConfig("undertaking-units")!)).toBe("ORDER BY entityCode ASC");
+  });
+
   it("uses one Chinese full-name field for undertaking units", () => {
     const config = getEntityConfig("undertaking-units");
 

@@ -638,13 +638,28 @@ CREATE TABLE IF NOT EXISTS cloud_rows (
   customer VARCHAR(255) NOT NULL,
   account VARCHAR(255) NOT NULL,
   owner VARCHAR(100) NULL,
+  cloudReconciler VARCHAR(255) NULL,
   collectionEntity VARCHAR(255) NULL,
   catalogAmount DECIMAL(18,4) NOT NULL DEFAULT 0,
   partnerAmount DECIMAL(18,4) NULL,
+  voucherCustomerAmount DECIMAL(18,4) NULL,
+  voucherSupplierAmount DECIMAL(18,4) NULL,
+  supplierPayablePayer VARCHAR(255) NULL,
+  supplierPayablePayee VARCHAR(255) NULL,
+  supplierPayableNetAmount DECIMAL(18,4) NULL,
+  supplierTaxAmount DECIMAL(18,4) NULL,
+  supplierPayableTotalAmount DECIMAL(18,4) NULL,
   supplierPayable DECIMAL(18,4) NOT NULL DEFAULT 0,
-  supplierTaxRate DECIMAL(10,6) NULL,
+  supplierTaxRate DECIMAL(10,6) NOT NULL DEFAULT 0.160000,
+  customerReceivablePayer VARCHAR(255) NULL,
+  customerReceivablePayee VARCHAR(255) NULL,
+  customerReceivableNetAmount DECIMAL(18,4) NULL,
+  customerReceivableTaxAmount DECIMAL(18,4) NULL,
+  customerReceivableTotalAmount DECIMAL(18,4) NULL,
   customerReceivable DECIMAL(18,4) NOT NULL DEFAULT 0,
   customerTaxRate DECIMAL(10,6) NULL,
+  theoreticalGrossProfit DECIMAL(18,4) NULL,
+  settlementGrossProfit DECIMAL(18,4) NULL,
   grossProfit DECIMAL(18,4) NOT NULL DEFAULT 0,
   calculationLogic VARCHAR(100) NULL,
   customerDiscount DECIMAL(10,6) NULL,
@@ -656,6 +671,8 @@ CREATE TABLE IF NOT EXISTS cloud_rows (
   paymentDate DATE NULL,
   collectionPayer VARCHAR(255) NULL,
   collectionPayee VARCHAR(255) NULL,
+  collectionPayerCustomerId VARCHAR(64) NULL,
+  collectionPayeeUndertakingUnitId VARCHAR(64) NULL,
   collectionCurrency VARCHAR(10) NULL,
   collectionExchangeRate DECIMAL(18,8) NULL,
   collectionNetAmount DECIMAL(18,4) NULL,
@@ -666,6 +683,18 @@ CREATE TABLE IF NOT EXISTS cloud_rows (
   collectionRegisteredAt DATETIME NULL,
   collectionProofFile VARCHAR(255) NULL,
   invoiceFile VARCHAR(255) NULL,
+  invoiceNo VARCHAR(100) NULL,
+  invoiceCurrency VARCHAR(10) NULL,
+  invoicePayer VARCHAR(255) NULL,
+  invoicePayee VARCHAR(255) NULL,
+  invoicePayerCustomerId VARCHAR(64) NULL,
+  invoicePayeeUndertakingUnitId VARCHAR(64) NULL,
+  invoiceNetAmount DECIMAL(18,4) NULL,
+  invoiceTaxRate DECIMAL(10,6) NULL,
+  invoiceTaxAmount DECIMAL(18,4) NULL,
+  invoiceTotalAmount DECIMAL(18,4) NULL,
+  invoiceExchangeRate DECIMAL(18,8) NULL,
+  invoiceDate DATE NULL,
   createdByUserId VARCHAR(80) NULL,
   createdByName VARCHAR(255) NULL,
   updatedByUserId VARCHAR(80) NULL,
@@ -743,6 +772,14 @@ CREATE TABLE IF NOT EXISTS cloud_supplier_payments (
   paymentTotalAmount DECIMAL(18,4) NULL,
   paymentDate DATE NULL,
   paymentRegisteredAt DATETIME NULL,
+  invoiceNo VARCHAR(100) NULL,
+  invoiceCurrency VARCHAR(10) NULL,
+  invoiceExchangeRate DECIMAL(18,8) NULL,
+  invoiceNetAmount DECIMAL(18,4) NULL,
+  invoiceTaxRate DECIMAL(10,6) NULL,
+  invoiceTaxAmount DECIMAL(18,4) NULL,
+  invoiceTotalAmount DECIMAL(18,4) NULL,
+  invoiceDate DATE NULL,
   invoiceStatus VARCHAR(20) NOT NULL DEFAULT 'not_issued',
   invoiceFile VARCHAR(255) NULL,
   paid TINYINT(1) NOT NULL DEFAULT 0,
@@ -916,6 +953,59 @@ async function ensureDemandPlanColumns() {
   }
 }
 
+const cloudRowColumns = [
+  ["cloudReconciler", "VARCHAR(255) NULL"],
+  ["voucherCustomerAmount", "DECIMAL(18,4) NULL"],
+  ["voucherSupplierAmount", "DECIMAL(18,4) NULL"],
+  ["supplierPayablePayer", "VARCHAR(255) NULL"],
+  ["supplierPayablePayee", "VARCHAR(255) NULL"],
+  ["collectionPayerCustomerId", "VARCHAR(64) NULL"],
+  ["collectionPayeeUndertakingUnitId", "VARCHAR(64) NULL"],
+  ["supplierPayableNetAmount", "DECIMAL(18,4) NULL"],
+  ["supplierTaxAmount", "DECIMAL(18,4) NULL"],
+  ["supplierPayableTotalAmount", "DECIMAL(18,4) NULL"],
+  ["customerReceivablePayer", "VARCHAR(255) NULL"],
+  ["customerReceivablePayee", "VARCHAR(255) NULL"],
+  ["customerReceivableNetAmount", "DECIMAL(18,4) NULL"],
+  ["customerReceivableTaxAmount", "DECIMAL(18,4) NULL"],
+  ["customerReceivableTotalAmount", "DECIMAL(18,4) NULL"],
+  ["theoreticalGrossProfit", "DECIMAL(18,4) NULL"],
+  ["settlementGrossProfit", "DECIMAL(18,4) NULL"],
+  ["invoiceNo", "VARCHAR(100) NULL"],
+  ["invoiceCurrency", "VARCHAR(10) NULL"],
+  ["invoicePayer", "VARCHAR(255) NULL"],
+  ["invoicePayee", "VARCHAR(255) NULL"],
+  ["invoicePayerCustomerId", "VARCHAR(64) NULL"],
+  ["invoicePayeeUndertakingUnitId", "VARCHAR(64) NULL"],
+  ["invoiceNetAmount", "DECIMAL(18,4) NULL"],
+  ["invoiceTaxRate", "DECIMAL(10,6) NULL"],
+  ["invoiceTaxAmount", "DECIMAL(18,4) NULL"],
+  ["invoiceTotalAmount", "DECIMAL(18,4) NULL"],
+  ["invoiceExchangeRate", "DECIMAL(18,8) NULL"],
+  ["invoiceDate", "DATE NULL"],
+];
+
+async function ensureCloudRowColumns() {
+  for (const [columnName, definition] of cloudRowColumns) await ensureColumn("cloud_rows", columnName, definition);
+  for (const columnName of [
+    "collectionSupplier", "collectionSupplierName", "collectionCustomer", "collectionCustomerName", "collectionUndertakingUnit", "collectionUndertakingUnitName",
+    "invoiceSupplier", "invoiceSupplierName", "invoiceCustomer", "invoiceCustomerName", "invoiceUndertakingUnit", "invoiceUndertakingUnitName",
+  ]) await dropColumn("cloud_rows", columnName);
+}
+
+async function ensureCloudSupplierPaymentColumns() {
+  for (const [columnName, definition] of [
+    ["invoiceNo", "VARCHAR(100) NULL"],
+    ["invoiceCurrency", "VARCHAR(10) NULL"],
+    ["invoiceExchangeRate", "DECIMAL(18,8) NULL"],
+    ["invoiceNetAmount", "DECIMAL(18,4) NULL"],
+    ["invoiceTaxRate", "DECIMAL(10,6) NULL"],
+    ["invoiceTaxAmount", "DECIMAL(18,4) NULL"],
+    ["invoiceTotalAmount", "DECIMAL(18,4) NULL"],
+    ["invoiceDate", "DATE NULL"],
+  ]) await ensureColumn("cloud_supplier_payments", columnName, definition);
+}
+
 try {
   const powerSchema = (await fs.readFile(new URL("../schema.sql", import.meta.url), "utf8"))
     .replaceAll("`suanli`", `\`${database}\``)
@@ -984,6 +1074,8 @@ try {
   await dropColumn("common_customers", "postalCode");
   await connection.query(settlementSchema);
   await connection.query(cloudSchema);
+  await ensureCloudRowColumns();
+  await ensureCloudSupplierPaymentColumns();
   await connection.execute(
     `INSERT IGNORE INTO common_users
       (userId, displayName, email, passwordHash, passwordSalt, role, status)
