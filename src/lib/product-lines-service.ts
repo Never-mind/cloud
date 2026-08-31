@@ -44,7 +44,7 @@ export async function listRequestProductLines(searchParams: URLSearchParams): Pr
       FROM requestitems AS ri
       INNER JOIN requests AS req ON req.requestNo = ri.requestNo
       LEFT JOIN instancemodels AS model ON model.deviceCode = ri.deviceCode
-      LEFT JOIN common_suppliers AS supplier
+      LEFT JOIN merge_common_suppliers AS supplier
         ON supplier.supplierId = ri.supplierId OR supplier.supplierCode = ri.supplierId
       ${where}
     `,
@@ -77,7 +77,7 @@ export async function listRequestProductLines(searchParams: URLSearchParams): Pr
       FROM requestitems AS ri
       INNER JOIN requests AS req ON req.requestNo = ri.requestNo
       LEFT JOIN instancemodels AS model ON model.deviceCode = ri.deviceCode
-      LEFT JOIN common_suppliers AS supplier
+      LEFT JOIN merge_common_suppliers AS supplier
         ON supplier.supplierId = ri.supplierId OR supplier.supplierCode = ri.supplierId
       ${where}
       ORDER BY ${getColumnOrder(searchParams, "request")}
@@ -232,7 +232,7 @@ export async function listProductLineFilterOptions(searchParams: URLSearchParams
       FROM requestitems AS ri
       INNER JOIN requests AS req ON req.requestNo = ri.requestNo
       LEFT JOIN instancemodels AS model ON model.deviceCode = ri.deviceCode
-      LEFT JOIN common_suppliers AS supplier
+      LEFT JOIN merge_common_suppliers AS supplier
         ON supplier.supplierId = ri.supplierId OR supplier.supplierCode = ri.supplierId
       WHERE req.status IN ('待下单', '已下单') AND ${whereParts.join(" AND ")}
       GROUP BY ${expression} ORDER BY ${field === "batchName" ? "CAST(SUBSTRING_INDEX(TRIM(value), '-', -1) AS UNSIGNED), UPPER(SUBSTRING_INDEX(TRIM(value), '-', 1)), value" : "value"} LIMIT 500

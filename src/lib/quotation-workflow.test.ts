@@ -105,7 +105,7 @@ describe("报价工作流", () => {
       }),
     );
     expect(execute).toHaveBeenCalledWith(
-      expect.stringContaining("INSERT INTO po_quotation_items"),
+      expect.stringContaining("INSERT INTO merge_po_quotation_items"),
       expect.objectContaining({
         productCode: "P-001",
         productName: "主档服务器",
@@ -118,7 +118,7 @@ describe("报价工作流", () => {
       }),
     );
     expect(execute).toHaveBeenCalledWith(
-      expect.stringContaining("INSERT INTO po_quotations"),
+      expect.stringContaining("INSERT INTO merge_po_quotations"),
       expect.objectContaining({
         totalAmount: 4.1455,
         totalProfit: 0.6909,
@@ -170,13 +170,13 @@ describe("报价工作流", () => {
       }),
     );
     expect(execute).toHaveBeenCalledWith(
-      expect.stringContaining("UPDATE po_quotations"),
+      expect.stringContaining("UPDATE merge_po_quotations"),
       expect.objectContaining({
         id: "quo-1",
       }),
     );
     expect(execute).toHaveBeenCalledWith(
-      expect.stringContaining("INSERT INTO po_history_quotations"),
+      expect.stringContaining("INSERT INTO merge_po_history_quotations"),
       expect.objectContaining({
         quotationId: "quo-1",
         productCode: "P-001",
@@ -212,7 +212,7 @@ describe("报价工作流", () => {
       }),
     );
     expect(execute).toHaveBeenCalledWith(
-      expect.stringContaining("UPDATE po_quotations"),
+      expect.stringContaining("UPDATE merge_po_quotations"),
       expect.objectContaining({
         id: "quo-1",
         totalAmount: 24.24,

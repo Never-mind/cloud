@@ -27,7 +27,7 @@ type PreferenceRow = {
 
 async function getUserId(email: string) {
   const rows = await queryRows<UserRow>(
-    "SELECT userId FROM common_users WHERE email = :email AND status = :status LIMIT 1",
+    "SELECT userId FROM merge_common_users WHERE email = :email AND status = :status LIMIT 1",
     { email, status: "active" },
   );
   return rows[0]?.userId ?? null;
@@ -39,7 +39,7 @@ export async function getSidebarOrderPreference(email: string) {
   await ensureSidebarPreferenceTable();
 
   const rows = await queryRowsRaw<PreferenceRow>(
-    "SELECT preferenceValue FROM common_user_preferences WHERE userId = :userId AND preferenceKey = :preferenceKey LIMIT 1",
+    "SELECT preferenceValue FROM merge_common_user_preferences WHERE userId = :userId AND preferenceKey = :preferenceKey LIMIT 1",
     { userId, preferenceKey: SIDEBAR_ORDER_PREFERENCE_KEY },
   );
   if (!rows[0]?.preferenceValue) return normalizeSidebarGroupOrder(undefined);
@@ -59,7 +59,7 @@ export async function saveSidebarOrderPreference(email: string, order: unknown) 
   const normalized = normalizeSidebarGroupOrder(order);
   await executeRaw(
     `
-      INSERT INTO common_user_preferences (userId, preferenceKey, preferenceValue)
+      INSERT INTO merge_common_user_preferences (userId, preferenceKey, preferenceValue)
       VALUES (:userId, :preferenceKey, :preferenceValue)
       ON DUPLICATE KEY UPDATE preferenceValue = VALUES(preferenceValue)
     `,

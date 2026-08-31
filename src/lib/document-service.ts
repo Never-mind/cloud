@@ -47,7 +47,7 @@ type StoredDocumentFile = {
 export async function ensureDefaultDocumentFolders() {
   await execute(
     `
-      INSERT IGNORE INTO common_document_folders (folderId, parentId, name, sortOrder)
+      INSERT IGNORE INTO merge_common_document_folders (folderId, parentId, name, sortOrder)
       VALUES (:folderId, NULL, :name, 0)
     `,
     { folderId: DOCUMENT_ROOT_ID, name: "文档管理" },
@@ -56,7 +56,7 @@ export async function ensureDefaultDocumentFolders() {
   for (const [index, name] of ["MX", "CL", "BR"].entries()) {
     await execute(
       `
-        INSERT IGNORE INTO common_document_folders (folderId, parentId, name, sortOrder)
+        INSERT IGNORE INTO merge_common_document_folders (folderId, parentId, name, sortOrder)
         VALUES (:folderId, :parentId, :name, :sortOrder)
       `,
       { folderId: `ROOT-${name}`, parentId: DOCUMENT_ROOT_ID, name, sortOrder: index + 1 },
@@ -66,13 +66,13 @@ export async function ensureDefaultDocumentFolders() {
 
 export async function getDocumentItems(folderId = DOCUMENT_ROOT_ID, options: { page?: number; pageSize?: number; keyword?: string } = {}) {
   await ensureDefaultDocumentFolders();
-  const [folder] = await queryRows<DocumentFolder>("SELECT * FROM common_document_folders WHERE folderId = :folderId", { folderId });
+  const [folder] = await queryRows<DocumentFolder>("SELECT * FROM merge_common_document_folders WHERE folderId = :folderId", { folderId });
   if (!folder) {
     throw new Error("文件夹不存在");
   }
 
   const folders = await queryRows<DocumentFolder>(
-    "SELECT * FROM common_document_folders WHERE parentId = :folderId ORDER BY sortOrder ASC, name ASC",
+    "SELECT * FROM merge_common_document_folders WHERE parentId = :folderId ORDER BY sortOrder ASC, name ASC",
     { folderId },
   );
   const pageSize = Math.min(100, Math.max(1, Math.floor(Number(options.pageSize ?? 20) || 20)));
@@ -81,7 +81,7 @@ export async function getDocumentItems(folderId = DOCUMENT_ROOT_ID, options: { p
   const fileWhere = keyword ? "AND fileName LIKE :keyword" : "";
   const fileParams = keyword ? { folderId, keyword: `%${keyword}%` } : { folderId };
   const [{ total: totalValue }] = await queryRows<{ total: number }>(
-    `SELECT COUNT(*) AS total FROM common_document_files WHERE folderId = :folderId ${fileWhere}`,
+    `SELECT COUNT(*) AS total FROM merge_common_document_files WHERE folderId = :folderId ${fileWhere}`,
     fileParams,
   );
   const total = Number(totalValue ?? 0);
@@ -89,7 +89,7 @@ export async function getDocumentItems(folderId = DOCUMENT_ROOT_ID, options: { p
   const page = Math.min(requestedPage, totalPages);
   const storedFiles = await queryRows<StoredDocumentFile>(
     `SELECT fileId, folderId, fileName, fileType, fileSize, uploadedByUserId, uploadedAt, updatedAt
-     FROM common_document_files
+     FROM merge_common_document_files
      WHERE folderId = :folderId ${fileWhere}
      ORDER BY uploadedAt DESC, fileName ASC
      LIMIT :limit OFFSET :offset`,
@@ -102,7 +102,7 @@ export async function getDocumentItems(folderId = DOCUMENT_ROOT_ID, options: { p
 
 export async function getDocumentTree() {
   await ensureDefaultDocumentFolders();
-  return queryRows<DocumentFolder>("SELECT * FROM common_document_folders ORDER BY parentId ASC, sortOrder ASC, name ASC");
+  return queryRows<DocumentFolder>("SELECT * FROM merge_common_document_folders ORDER BY parentId ASC, sortOrder ASC, name ASC");
 }
 
 export async function createDocumentFolder(parentId: string, rawName: string) {
@@ -114,12 +114,12 @@ export async function createDocumentFolder(parentId: string, rawName: string) {
   const folderId = `FOLDER-${randomUUID()}`;
   await execute(
     `
-      INSERT INTO common_document_folders (folderId, parentId, name)
+      INSERT INTO merge_common_document_folders (folderId, parentId, name)
       VALUES (:folderId, :parentId, :name)
     `,
     { folderId, parentId, name },
   );
-  const [folder] = await queryRows<DocumentFolder>("SELECT * FROM common_document_folders WHERE folderId = :folderId", { folderId });
+  const [folder] = await queryRows<DocumentFolder>("SELECT * FROM merge_common_document_folders WHERE folderId = :folderId", { folderId });
   return folder;
 }
 
@@ -128,10 +128,10 @@ export async function renameDocumentFolder(folderId: string, rawName: string) {
     throw new Error("根目录不能重命名");
   }
   const name = normalizeFolderName(rawName);
-  const [folder] = await queryRows<DocumentFolder>("SELECT * FROM common_document_folders WHERE folderId = :folderId", { folderId });
+  const [folder] = await queryRows<DocumentFolder>("SELECT * FROM merge_common_document_folders WHERE folderId = :folderId", { folderId });
   if (!folder) throw new Error("文件夹不存在");
   await assertUniqueFolderName(folder.parentId, name, folderId);
-  await execute("UPDATE common_document_folders SET name = :name WHERE folderId = :folderId", { folderId, name });
+  await execute("UPDATE merge_common_document_folders SET name = :name WHERE folderId = :folderId", { folderId, name });
   return { ...folder, name };
 }
 
@@ -142,8 +142,8 @@ export async function deleteDocumentFolder(folderId: string) {
   const [counts] = await queryRows<{ folderCount: number; fileCount: number }>(
     `
       SELECT
-        (SELECT COUNT(*) FROM common_document_folders WHERE parentId = :folderId) AS folderCount,
-        (SELECT COUNT(*) FROM common_document_files WHERE folderId = :folderId) AS fileCount
+        (SELECT COUNT(*) FROM merge_common_document_folders WHERE parentId = :folderId) AS folderCount,
+        (SELECT COUNT(*) FROM merge_common_document_files WHERE folderId = :folderId) AS fileCount
     `,
     { folderId },
   );
@@ -151,7 +151,7 @@ export async function deleteDocumentFolder(folderId: string) {
     folderCount: Number(counts?.folderCount ?? 0),
     fileCount: Number(counts?.fileCount ?? 0),
   });
-  await execute("DELETE FROM common_document_folders WHERE folderId = :folderId", { folderId });
+  await execute("DELETE FROM merge_common_document_folders WHERE folderId = :folderId", { folderId });
 }
 
 export async function saveUploadedDocumentFile({
@@ -175,7 +175,7 @@ export async function saveUploadedDocumentFile({
   const dataUrl = `data:${contentType};base64,${bytes.toString("base64")}`;
   await execute(
     `
-      INSERT INTO common_document_files
+      INSERT INTO merge_common_document_files
         (fileId, folderId, fileName, fileType, fileSize, dataUrl, uploadedByUserId)
       VALUES
         (:fileId, :folderId, :fileName, :fileType, :fileSize, :dataUrl, :uploadedByUserId)
@@ -191,7 +191,7 @@ export async function saveUploadedDocumentFile({
     },
   );
   const [file] = await queryRows<StoredDocumentFile>(
-    "SELECT fileId, folderId, fileName, fileType, fileSize, uploadedByUserId, uploadedAt, updatedAt FROM common_document_files WHERE fileId = :fileId",
+    "SELECT fileId, folderId, fileName, fileType, fileSize, uploadedByUserId, uploadedAt, updatedAt FROM merge_common_document_files WHERE fileId = :fileId",
     { fileId },
   );
   return file ? toDocumentFile(file) : undefined;
@@ -200,33 +200,33 @@ export async function saveUploadedDocumentFile({
 export async function renameDocumentFile(fileId: string, rawName: string) {
   const originalName = sanitizeDocumentFileName(rawName);
   const [file] = await queryRows<Pick<StoredDocumentFile, "fileType">>(
-    "SELECT fileType FROM common_document_files WHERE fileId = :fileId",
+    "SELECT fileType FROM merge_common_document_files WHERE fileId = :fileId",
     { fileId },
   );
   if (!file) throw new Error("文件不存在");
   await execute(
-    "UPDATE common_document_files SET fileName = :fileName WHERE fileId = :fileId",
+    "UPDATE merge_common_document_files SET fileName = :fileName WHERE fileId = :fileId",
     {
       fileId,
       fileName: originalName,
     },
   );
   const [renamed] = await queryRows<StoredDocumentFile>(
-    "SELECT fileId, folderId, fileName, fileType, fileSize, uploadedByUserId, uploadedAt, updatedAt FROM common_document_files WHERE fileId = :fileId",
+    "SELECT fileId, folderId, fileName, fileType, fileSize, uploadedByUserId, uploadedAt, updatedAt FROM merge_common_document_files WHERE fileId = :fileId",
     { fileId },
   );
   return renamed ? toDocumentFile(renamed) : undefined;
 }
 
 export async function deleteDocumentFile(fileId: string) {
-  const [file] = await queryRows<{ fileId: string }>("SELECT fileId FROM common_document_files WHERE fileId = :fileId", { fileId });
+  const [file] = await queryRows<{ fileId: string }>("SELECT fileId FROM merge_common_document_files WHERE fileId = :fileId", { fileId });
   if (!file) return;
-  await execute("DELETE FROM common_document_files WHERE fileId = :fileId", { fileId });
+  await execute("DELETE FROM merge_common_document_files WHERE fileId = :fileId", { fileId });
 }
 
 export async function getDocumentFileForDownload(fileId: string) {
   const [storedFile] = await queryRows<StoredDocumentFile>(
-    "SELECT fileId, folderId, fileName, fileType, fileSize, dataUrl, uploadedByUserId, uploadedAt, updatedAt FROM common_document_files WHERE fileId = :fileId",
+    "SELECT fileId, folderId, fileName, fileType, fileSize, dataUrl, uploadedByUserId, uploadedAt, updatedAt FROM merge_common_document_files WHERE fileId = :fileId",
     { fileId },
   );
   const file = storedFile ? toDocumentFile(storedFile) : undefined;
@@ -238,7 +238,7 @@ export async function getDocumentFileForDownload(fileId: string) {
 }
 
 async function assertFolderExists(folderId: string) {
-  const rows = await queryRows<{ count: number }>("SELECT COUNT(*) AS count FROM common_document_folders WHERE folderId = :folderId", {
+  const rows = await queryRows<{ count: number }>("SELECT COUNT(*) AS count FROM merge_common_document_folders WHERE folderId = :folderId", {
     folderId,
   });
   if (Number(rows[0]?.count ?? 0) === 0) {
@@ -250,7 +250,7 @@ async function assertUniqueFolderName(parentId: string | null, name: string, exc
   const rows = await queryRows<{ count: number }>(
     `
       SELECT COUNT(*) AS count
-      FROM common_document_folders
+      FROM merge_common_document_folders
       WHERE ${parentId === null ? "parentId IS NULL" : "parentId = :parentId"}
         AND name = :name
         ${exceptFolderId ? "AND folderId <> :exceptFolderId" : ""}
@@ -263,7 +263,7 @@ async function assertUniqueFolderName(parentId: string | null, name: string, exc
 }
 
 async function getFolderBreadcrumbs(folderId: string) {
-  const folders = await queryRows<DocumentFolder>("SELECT * FROM common_document_folders");
+  const folders = await queryRows<DocumentFolder>("SELECT * FROM merge_common_document_folders");
   const byId = new Map(folders.map((folder) => [folder.folderId, folder]));
   const result: Array<Pick<DocumentFolder, "folderId" | "name">> = [];
   let cursor = byId.get(folderId);

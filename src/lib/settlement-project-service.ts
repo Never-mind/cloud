@@ -272,9 +272,9 @@ async function getProject(projectId: string) {
   const rows = await queryRows<SettlementProject>(
     `SELECT p.*, COALESCE(NULLIF(p.customerName, ''), c.name) AS customerName,
             COALESCE(NULLIF(u.shortName, ''), NULLIF(u.entityName, ''), NULLIF(u.name, ''), NULLIF(p.contractingUnitName, ''), p.contractingUnitId, '') AS contractingUnitName
-       FROM po_settlement_projects p
-       LEFT JOIN common_customers c ON c.customerId = p.customerId
-       LEFT JOIN common_undertaking_units u
+       FROM merge_po_settlement_projects p
+       LEFT JOIN merge_common_customers c ON c.customerId = p.customerId
+       LEFT JOIN merge_common_undertaking_units u
          ON u.undertakingUnitId = p.contractingUnitId
          OR u.undertakingUnitCode = p.contractingUnitId
          OR u.entityCode = p.contractingUnitId
@@ -359,7 +359,7 @@ function actorFields(actor: OperationActor | null, mode: "create" | "update" | "
 async function updateProjectActor(projectId: string, actor: OperationActor | null) {
   if (!actor) return;
   await execute(
-    `UPDATE po_settlement_projects
+    `UPDATE merge_po_settlement_projects
         SET updatedByUserId = :userId, updatedByName = :userName
       WHERE id = :id`,
     { id: projectId, userId: actor.userId, userName: actor.displayName },
@@ -369,12 +369,12 @@ async function updateProjectActor(projectId: string, actor: OperationActor | nul
 async function recalculateProject(projectId: string, actor: OperationActor | null = null) {
   const project = await getProject(projectId);
   const quotationRows = await queryRows<Pick<ProjectQuotation, "exchangeRateUsd" | "exchangeRateMxn">>(
-    "SELECT exchangeRateUsd, exchangeRateMxn FROM po_quotations WHERE id = :quotationId LIMIT 1",
+    "SELECT exchangeRateUsd, exchangeRateMxn FROM merge_po_quotations WHERE id = :quotationId LIMIT 1",
     { quotationId: project.quotationId },
   );
   const quotation = quotationRows[0];
   const quotationItems = await queryRows<Pick<ProjectQuotationItem, "id" | "ddpTotalUsd" | "revenueUsd">>(
-    "SELECT id, ddpTotalUsd, revenueUsd FROM po_quotation_items WHERE quotationId = :quotationId",
+    "SELECT id, ddpTotalUsd, revenueUsd FROM merge_po_quotation_items WHERE quotationId = :quotationId",
     { quotationId: project.quotationId },
   );
   const quotationItemsById = new Map(quotationItems.map((item) => [String(item.id), item]));
@@ -382,15 +382,15 @@ async function recalculateProject(projectId: string, actor: OperationActor | nul
   const exchangeRateMxn = quotation ? numeric(quotation.exchangeRateMxn, project.exchangeRateMxn) : project.exchangeRateMxn;
   if (exchangeRateUsd !== project.exchangeRateUsd || exchangeRateMxn !== project.exchangeRateMxn) {
     await execute(
-      "UPDATE po_settlement_projects SET exchangeRateUsd=:exchangeRateUsd, exchangeRateMxn=:exchangeRateMxn WHERE id=:id",
+      "UPDATE merge_po_settlement_projects SET exchangeRateUsd=:exchangeRateUsd, exchangeRateMxn=:exchangeRateMxn WHERE id=:id",
       { id: projectId, exchangeRateUsd, exchangeRateMxn },
     );
     project.exchangeRateUsd = exchangeRateUsd;
     project.exchangeRateMxn = exchangeRateMxn;
   }
-  const items = (await queryRows<SettlementItem>("SELECT * FROM po_settlement_items WHERE projectId = :projectId ORDER BY lineNo, createdAt, id", { projectId })).map(normalizeItem);
-  const expenses = (await queryRows<SettlementExpense>("SELECT * FROM po_settlement_expenses WHERE projectId = :projectId ORDER BY createdAt, id", { projectId })).map(normalizeExpense);
-  const sales = (await queryRows<SettlementSale>("SELECT * FROM po_settlement_sales WHERE projectId = :projectId ORDER BY receivedAt, createdAt, id", { projectId })).map(normalizeSale);
+  const items = (await queryRows<SettlementItem>("SELECT * FROM merge_po_settlement_items WHERE projectId = :projectId ORDER BY lineNo, createdAt, id", { projectId })).map(normalizeItem);
+  const expenses = (await queryRows<SettlementExpense>("SELECT * FROM merge_po_settlement_expenses WHERE projectId = :projectId ORDER BY createdAt, id", { projectId })).map(normalizeExpense);
+  const sales = (await queryRows<SettlementSale>("SELECT * FROM merge_po_settlement_sales WHERE projectId = :projectId ORDER BY receivedAt, createdAt, id", { projectId })).map(normalizeSale);
 
   for (const item of items) {
     const quotationItem = quotationItemsById.get(String(item.quotationItemId));
@@ -403,7 +403,7 @@ async function recalculateProject(projectId: string, actor: OperationActor | nul
         : round(numeric(quotationItem.revenueUsd));
       if (item.quotedWarehouseCostUsd !== quotedWarehouseCostUsd || item.quotedSalesRevenueUsd !== quotedSalesRevenueUsd) {
         await execute(
-          `UPDATE po_settlement_items
+          `UPDATE merge_po_settlement_items
               SET quotedWarehouseCostUsd=:quotedWarehouseCostUsd, quotedSalesRevenueUsd=:quotedSalesRevenueUsd
             WHERE id=:id AND projectId=:projectId`,
           { id: item.id, projectId, quotedWarehouseCostUsd, quotedSalesRevenueUsd },
@@ -414,14 +414,14 @@ async function recalculateProject(projectId: string, actor: OperationActor | nul
     }
     const amounts = settlementAmounts({ amount: item.purchaseQty * item.purchaseUnitPrice, currency: item.currency, priceType: item.priceType, taxRate: item.taxRate }, project);
     if (round(item.purchasedCostUsd) !== amounts.taxExcludedUsd) {
-      await execute("UPDATE po_settlement_items SET purchasedCostUsd = :value WHERE id = :id", { id: item.id, value: amounts.taxExcludedUsd });
+      await execute("UPDATE merge_po_settlement_items SET purchasedCostUsd = :value WHERE id = :id", { id: item.id, value: amounts.taxExcludedUsd });
       item.purchasedCostUsd = amounts.taxExcludedUsd;
     }
   }
   for (const expense of expenses) {
     const costUsd = settlementAmounts(expense, project).taxExcludedUsd;
     if (round(expense.costUsd) !== costUsd) {
-      await execute("UPDATE po_settlement_expenses SET costUsd = :value WHERE id = :id", { id: expense.id, value: costUsd });
+      await execute("UPDATE merge_po_settlement_expenses SET costUsd = :value WHERE id = :id", { id: expense.id, value: costUsd });
       expense.costUsd = costUsd;
     }
   }
@@ -429,7 +429,7 @@ async function recalculateProject(projectId: string, actor: OperationActor | nul
     const amounts = settlementAmounts(sale, project);
     if (round(sale.receivedRevenueTaxIncludedUsd) !== amounts.taxIncludedUsd || round(sale.receivedRevenueUsd) !== amounts.taxExcludedUsd) {
       await execute(
-        `UPDATE po_settlement_sales
+        `UPDATE merge_po_settlement_sales
             SET receivedRevenueTaxIncludedUsd = :includedUsd, receivedRevenueUsd = :excludedUsd
           WHERE id = :id`,
         { id: sale.id, includedUsd: amounts.taxIncludedUsd, excludedUsd: amounts.taxExcludedUsd },
@@ -450,7 +450,7 @@ async function recalculateProject(projectId: string, actor: OperationActor | nul
   const statusFields: Row = { status };
   if (status === "procurement_completed" && !project.procurementCompletedAt) statusFields.procurementCompletedAt = new Date();
   await execute(
-    `UPDATE po_settlement_projects
+    `UPDATE merge_po_settlement_projects
         SET quotedPurchaseCostUsd = :quotedPurchaseCostUsd,
             purchasedCostUsd = :purchasedCostUsd,
             quotedSalesRevenueUsd = :quotedSalesRevenueUsd,
@@ -478,11 +478,11 @@ async function recalculateProject(projectId: string, actor: OperationActor | nul
 
 async function detailRows(projectId: string) {
   const [items, expenses, sales, invoices, attachments] = await Promise.all([
-    queryRows<SettlementItem>("SELECT * FROM po_settlement_items WHERE projectId = :projectId ORDER BY createdAt, id", { projectId }),
-    queryRows<SettlementExpense>("SELECT * FROM po_settlement_expenses WHERE projectId = :projectId ORDER BY createdAt, id", { projectId }),
-    queryRows<SettlementSale>("SELECT * FROM po_settlement_sales WHERE projectId = :projectId ORDER BY receivedAt, createdAt, id", { projectId }),
-    queryRows<SettlementInvoice>("SELECT * FROM po_settlement_invoices WHERE projectId = :projectId ORDER BY invoiceDate, createdAt, id", { projectId }),
-    queryRows<SettlementAttachment>("SELECT id, projectId, invoiceId, fileName, fileType, fileSize, description, uploadedByUserId, uploadedByName, uploadedAt, createdAt, updatedAt FROM po_settlement_attachments WHERE projectId = :projectId ORDER BY uploadedAt DESC, id DESC", { projectId }),
+    queryRows<SettlementItem>("SELECT * FROM merge_po_settlement_items WHERE projectId = :projectId ORDER BY createdAt, id", { projectId }),
+    queryRows<SettlementExpense>("SELECT * FROM merge_po_settlement_expenses WHERE projectId = :projectId ORDER BY createdAt, id", { projectId }),
+    queryRows<SettlementSale>("SELECT * FROM merge_po_settlement_sales WHERE projectId = :projectId ORDER BY receivedAt, createdAt, id", { projectId }),
+    queryRows<SettlementInvoice>("SELECT * FROM merge_po_settlement_invoices WHERE projectId = :projectId ORDER BY invoiceDate, createdAt, id", { projectId }),
+    queryRows<SettlementAttachment>("SELECT id, projectId, invoiceId, fileName, fileType, fileSize, description, uploadedByUserId, uploadedByName, uploadedAt, createdAt, updatedAt FROM merge_po_settlement_attachments WHERE projectId = :projectId ORDER BY uploadedAt DESC, id DESC", { projectId }),
   ]);
   const normalizedAttachments = attachments.map(normalizeAttachment);
   const attachmentsByInvoice = new Map<string, SettlementAttachment[]>();
@@ -512,8 +512,8 @@ export async function getSettlementProjectDetail(projectId: string): Promise<Set
   };
 }
 
-const quotedPurchaseCostExpression = "CASE WHEN EXISTS (SELECT 1 FROM po_quotation_items quoteItemExists WHERE quoteItemExists.quotationId = p.quotationId) THEN COALESCE((SELECT SUM(quoteItem.ddpTotalUsd) FROM po_quotation_items quoteItem WHERE quoteItem.quotationId = p.quotationId), 0) ELSE p.quotedPurchaseCostUsd END";
-const quotedSalesRevenueExpression = "CASE WHEN EXISTS (SELECT 1 FROM po_quotation_items quoteItemExists WHERE quoteItemExists.quotationId = p.quotationId) THEN COALESCE((SELECT SUM(quoteItem.revenueUsd) FROM po_quotation_items quoteItem WHERE quoteItem.quotationId = p.quotationId), 0) ELSE p.quotedSalesRevenueUsd END";
+const quotedPurchaseCostExpression = "CASE WHEN EXISTS (SELECT 1 FROM merge_po_quotation_items quoteItemExists WHERE quoteItemExists.quotationId = p.quotationId) THEN COALESCE((SELECT SUM(quoteItem.ddpTotalUsd) FROM merge_po_quotation_items quoteItem WHERE quoteItem.quotationId = p.quotationId), 0) ELSE p.quotedPurchaseCostUsd END";
+const quotedSalesRevenueExpression = "CASE WHEN EXISTS (SELECT 1 FROM merge_po_quotation_items quoteItemExists WHERE quoteItemExists.quotationId = p.quotationId) THEN COALESCE((SELECT SUM(quoteItem.revenueUsd) FROM merge_po_quotation_items quoteItem WHERE quoteItem.quotationId = p.quotationId), 0) ELSE p.quotedSalesRevenueUsd END";
 
 const settlementListExpressions: Record<string, string> = {
   projectNo: "p.projectNo",
@@ -532,9 +532,9 @@ const settlementListExpressions: Record<string, string> = {
   updatedAt: "p.updatedAt",
 };
 
-const settlementListFrom = `po_settlement_projects p
-  LEFT JOIN common_customers c ON c.customerId = p.customerId
-  LEFT JOIN common_undertaking_units u
+const settlementListFrom = `merge_po_settlement_projects p
+  LEFT JOIN merge_common_customers c ON c.customerId = p.customerId
+  LEFT JOIN merge_common_undertaking_units u
     ON u.undertakingUnitId = p.contractingUnitId
     OR u.undertakingUnitCode = p.contractingUnitId
     OR u.entityCode = p.contractingUnitId`;
@@ -607,9 +607,9 @@ export async function ensureSettlementProjectForQuotation(quotationId: string, a
             q.contractingUnitId,
             COALESCE(NULLIF(u.shortName, ''), NULLIF(u.entityName, ''), NULLIF(u.name, ''), q.contractingUnitId, '') AS contractingUnitName,
             q.sourcePoId, q.remark, q.currency, q.exchangeRateUsd, q.exchangeRateMxn, q.status
-       FROM po_quotations q
-       LEFT JOIN common_customers c ON c.customerId = q.customerId
-       LEFT JOIN common_undertaking_units u
+       FROM merge_po_quotations q
+       LEFT JOIN merge_common_customers c ON c.customerId = q.customerId
+       LEFT JOIN merge_common_undertaking_units u
          ON u.undertakingUnitId = q.contractingUnitId
          OR u.undertakingUnitCode = q.contractingUnitId
          OR u.entityCode = q.contractingUnitId
@@ -619,10 +619,10 @@ export async function ensureSettlementProjectForQuotation(quotationId: string, a
   const quotation = quotations[0];
   if (!quotation) throw new Error("报价单不存在");
   if (quotation.status !== "confirmed") throw new Error("只有已确认报价单才能生成项目结算");
-  const existing = await queryRows<SettlementProject>("SELECT * FROM po_settlement_projects WHERE quotationId = :quotationId LIMIT 1", { quotationId: quotation.id });
+  const existing = await queryRows<SettlementProject>("SELECT * FROM merge_po_settlement_projects WHERE quotationId = :quotationId LIMIT 1", { quotationId: quotation.id });
   if (existing[0]) {
     if (!text(existing[0].projectName) && text(quotation.projectName)) {
-      await execute("UPDATE po_settlement_projects SET projectName = :projectName WHERE id = :id", { id: existing[0].id, projectName: quotation.projectName });
+      await execute("UPDATE merge_po_settlement_projects SET projectName = :projectName WHERE id = :id", { id: existing[0].id, projectName: quotation.projectName });
     }
     return recalculateProject(existing[0].id);
   }
@@ -631,13 +631,13 @@ export async function ensureSettlementProjectForQuotation(quotationId: string, a
     `SELECT qi.*, product.brand AS brand,
             COALESCE(NULLIF(product.suggestedPurchaseUnitPrice, 0), 0) AS purchaseUnitPrice,
             CASE WHEN product.id IS NOT NULL THEN 'CNY' ELSE COALESCE(NULLIF(qi.currency, ''), 'USD') END AS purchaseCurrency
-       FROM po_quotation_items qi
-       LEFT JOIN po_product_masters product ON product.id = qi.productMasterId
+       FROM merge_po_quotation_items qi
+       LEFT JOIN merge_po_product_masters product ON product.id = qi.productMasterId
       WHERE qi.quotationId = :quotationId ORDER BY qi.lineNo, qi.id`,
     { quotationId: quotation.id },
   );
   const projectNoPrefix = `PJ-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}`;
-  const existingNumbers = await queryRows<{ projectNo: string }>("SELECT projectNo FROM po_settlement_projects WHERE projectNo LIKE :prefix", { prefix: `${projectNoPrefix}-%` });
+  const existingNumbers = await queryRows<{ projectNo: string }>("SELECT projectNo FROM merge_po_settlement_projects WHERE projectNo LIKE :prefix", { prefix: `${projectNoPrefix}-%` });
   const used = new Set(existingNumbers.map((row) => row.projectNo));
   let sequence = 1;
   while (used.has(`${projectNoPrefix}-${String(sequence).padStart(4, "0")}`)) sequence += 1;
@@ -645,7 +645,7 @@ export async function ensureSettlementProjectForQuotation(quotationId: string, a
   const projectId = randomUUID();
   const audit = actorFields(actor, "create");
   await execute(
-    `INSERT INTO po_settlement_projects
+    `INSERT INTO merge_po_settlement_projects
       (id, projectNo, quotationId, quotationNo, projectName, customerId, customerName, contractingUnitId, contractingUnitName, remark,
        exchangeRateUsd, exchangeRateMxn, quotedPurchaseCostUsd, quotedSalesRevenueUsd, status,
        createdByUserId, createdByName, updatedByUserId, updatedByName)
@@ -680,7 +680,7 @@ export async function ensureSettlementProjectForQuotation(quotationId: string, a
       ? settlementAmounts({ amount: quantity * numeric(item.purchaseUnitPrice), currency: item.purchaseCurrency || "USD", priceType: "tax_excluded", taxRate: 0 }, { exchangeRateUsd: numeric(quotation.exchangeRateUsd) || 1, exchangeRateMxn: numeric(quotation.exchangeRateMxn) || 1 }).taxExcludedUsd
       : numeric(item.ddpTotalUsd);
     await execute(
-      `INSERT INTO po_settlement_items
+      `INSERT INTO merge_po_settlement_items
         (id, projectId, quotationItemId, lineNo, productId, productCode, productName, brand, plannedQty, purchaseQty, purchaseUnitPrice,
          currency, priceType, taxRate, quotedWarehouseCostUsd, quotedSalesRevenueUsd, purchasedCostUsd, ordered)
        VALUES
@@ -721,7 +721,7 @@ async function touchAndRecalculate(projectId: string, actor: OperationActor | nu
 export async function orderSettlementItems(projectId: string, inputItems: Array<Record<string, unknown>>, actor: OperationActor | null) {
   const project = await getProject(projectId);
   assertPurchasingEditable(project);
-  const items = await queryRows<SettlementItem>("SELECT * FROM po_settlement_items WHERE projectId = :projectId", { projectId });
+  const items = await queryRows<SettlementItem>("SELECT * FROM merge_po_settlement_items WHERE projectId = :projectId", { projectId });
   const byId = new Map(items.map((item) => [item.id, item]));
   for (const input of inputItems) {
     const itemId = text(input.itemId);
@@ -732,7 +732,7 @@ export async function orderSettlementItems(projectId: string, inputItems: Array<
     if (values.amount < 0 || purchaseQty <= 0) throw new Error("采购数量和单价必须有效");
     const amounts = settlementAmounts({ amount: Math.trunc(purchaseQty) * values.amount, currency: values.currency, priceType: values.priceType, taxRate: values.taxRate }, project);
     await execute(
-      `UPDATE po_settlement_items
+      `UPDATE merge_po_settlement_items
           SET purchaseQty = :purchaseQty, purchaseUnitPrice = :purchaseUnitPrice, currency = :currency,
               priceType = :priceType, taxRate = :taxRate, purchasedCostUsd = :purchasedCostUsd,
               invoiceNo = :invoiceNo, ordered = 1, orderedAt = CURRENT_TIMESTAMP
@@ -746,13 +746,13 @@ export async function orderSettlementItems(projectId: string, inputItems: Array<
 export async function updateSettlementItem(projectId: string, itemId: string, input: Record<string, unknown>, actor: OperationActor | null) {
   const project = await getProject(projectId);
   assertPurchasingEditable(project);
-  const item = (await queryRows<SettlementItem>("SELECT * FROM po_settlement_items WHERE id = :id AND projectId = :projectId LIMIT 1", { id: itemId, projectId }))[0];
+  const item = (await queryRows<SettlementItem>("SELECT * FROM merge_po_settlement_items WHERE id = :id AND projectId = :projectId LIMIT 1", { id: itemId, projectId }))[0];
   if (!item || !Boolean(item.ordered)) throw new Error("已采购明细不存在");
   const values = inputValues(input, { currency: validCurrency(item.currency) ? item.currency : "USD", priceType: validPriceType(item.priceType) ? item.priceType : "tax_excluded" });
   if (numeric(input.purchaseQty) <= 0 || values.amount < 0) throw new Error("采购数量和单价必须有效");
   const amounts = settlementAmounts({ amount: Math.trunc(numeric(input.purchaseQty)) * values.amount, currency: values.currency, priceType: values.priceType, taxRate: values.taxRate }, project);
   await execute(
-    `UPDATE po_settlement_items SET purchaseQty=:purchaseQty, purchaseUnitPrice=:purchaseUnitPrice, currency=:currency,
+    `UPDATE merge_po_settlement_items SET purchaseQty=:purchaseQty, purchaseUnitPrice=:purchaseUnitPrice, currency=:currency,
       priceType=:priceType, taxRate=:taxRate, purchasedCostUsd=:purchasedCostUsd, invoiceNo=:invoiceNo
       WHERE id=:id AND projectId=:projectId`,
     { id: itemId, projectId, purchaseQty: Math.trunc(numeric(input.purchaseQty)), purchaseUnitPrice: values.amount, currency: values.currency, priceType: values.priceType, taxRate: values.taxRate, purchasedCostUsd: amounts.taxExcludedUsd, invoiceNo: text(input.invoiceNo) || null },
@@ -763,7 +763,7 @@ export async function updateSettlementItem(projectId: string, itemId: string, in
 export async function returnSettlementItem(projectId: string, itemId: string, actor: OperationActor | null) {
   const project = await getProject(projectId);
   assertPurchasingEditable(project);
-  await execute("UPDATE po_settlement_items SET ordered=0, orderedAt=NULL, purchasedCostUsd=0 WHERE id=:id AND projectId=:projectId", { id: itemId, projectId });
+  await execute("UPDATE merge_po_settlement_items SET ordered=0, orderedAt=NULL, purchasedCostUsd=0 WHERE id=:id AND projectId=:projectId", { id: itemId, projectId });
   return touchAndRecalculate(projectId, actor);
 }
 
@@ -773,7 +773,7 @@ export async function addSettlementExpense(projectId: string, input: Record<stri
   const type = text(input.type) || "other";
   const amounts = settlementAmounts(values, project);
   await execute(
-    `INSERT INTO po_settlement_expenses (id,projectId,type,description,amount,currency,priceType,taxRate,costUsd,invoiceNo)
+    `INSERT INTO merge_po_settlement_expenses (id,projectId,type,description,amount,currency,priceType,taxRate,costUsd,invoiceNo)
      VALUES (:id,:projectId,:type,:description,:amount,:currency,:priceType,:taxRate,:costUsd,:invoiceNo)`,
     { id: randomUUID(), projectId, type, description: text(input.description) || null, ...values, costUsd: amounts.taxExcludedUsd, invoiceNo: text(input.invoiceNo) || null },
   );
@@ -782,12 +782,12 @@ export async function addSettlementExpense(projectId: string, input: Record<stri
 
 export async function updateSettlementExpense(projectId: string, expenseId: string, input: Record<string, unknown>, actor: OperationActor | null) {
   const project = await getProject(projectId); assertEditable(project);
-  const expense = (await queryRows<SettlementExpense>("SELECT * FROM po_settlement_expenses WHERE id=:id AND projectId=:projectId LIMIT 1", { id: expenseId, projectId }))[0];
+  const expense = (await queryRows<SettlementExpense>("SELECT * FROM merge_po_settlement_expenses WHERE id=:id AND projectId=:projectId LIMIT 1", { id: expenseId, projectId }))[0];
   if (!expense) throw new Error("成本费用不存在");
   const values = inputValues(input, { currency: validCurrency(expense.currency) ? expense.currency : "CNY", priceType: validPriceType(expense.priceType) ? expense.priceType : "tax_included" });
   const amounts = settlementAmounts(values, project);
   await execute(
-    `UPDATE po_settlement_expenses SET type=:type,description=:description,amount=:amount,currency=:currency,priceType=:priceType,taxRate=:taxRate,costUsd=:costUsd,invoiceNo=:invoiceNo WHERE id=:id AND projectId=:projectId`,
+    `UPDATE merge_po_settlement_expenses SET type=:type,description=:description,amount=:amount,currency=:currency,priceType=:priceType,taxRate=:taxRate,costUsd=:costUsd,invoiceNo=:invoiceNo WHERE id=:id AND projectId=:projectId`,
     { id: expenseId, projectId, type: text(input.type) || "other", description: text(input.description) || null, ...values, costUsd: amounts.taxExcludedUsd, invoiceNo: text(input.invoiceNo) || null },
   );
   return touchAndRecalculate(projectId, actor);
@@ -795,7 +795,7 @@ export async function updateSettlementExpense(projectId: string, expenseId: stri
 
 export async function deleteSettlementExpense(projectId: string, expenseId: string, actor: OperationActor | null) {
   const project = await getProject(projectId); assertEditable(project);
-  await execute("DELETE FROM po_settlement_expenses WHERE id=:id AND projectId=:projectId", { id: expenseId, projectId });
+  await execute("DELETE FROM merge_po_settlement_expenses WHERE id=:id AND projectId=:projectId", { id: expenseId, projectId });
   return touchAndRecalculate(projectId, actor);
 }
 
@@ -804,7 +804,7 @@ export async function addSettlementSale(projectId: string, input: Record<string,
   const values = inputValues(input, { currency: "USD", priceType: "tax_included" });
   const amounts = settlementAmounts(values, project);
   await execute(
-    `INSERT INTO po_settlement_sales (id,projectId,description,amount,currency,priceType,taxRate,receivedRevenueTaxIncludedUsd,receivedRevenueUsd,invoiceNo,receivedAt)
+    `INSERT INTO merge_po_settlement_sales (id,projectId,description,amount,currency,priceType,taxRate,receivedRevenueTaxIncludedUsd,receivedRevenueUsd,invoiceNo,receivedAt)
      VALUES (:id,:projectId,:description,:amount,:currency,:priceType,:taxRate,:includedUsd,:excludedUsd,:invoiceNo,:receivedAt)`,
     { id: randomUUID(), projectId, description: text(input.description) || null, ...values, includedUsd: amounts.taxIncludedUsd, excludedUsd: amounts.taxExcludedUsd, invoiceNo: text(input.invoiceNo) || null, receivedAt: text(input.receivedAt) || new Date().toISOString().slice(0, 10) },
   );
@@ -813,12 +813,12 @@ export async function addSettlementSale(projectId: string, input: Record<string,
 
 export async function updateSettlementSale(projectId: string, saleId: string, input: Record<string, unknown>, actor: OperationActor | null) {
   const project = await getProject(projectId); assertEditable(project);
-  const sale = (await queryRows<SettlementSale>("SELECT * FROM po_settlement_sales WHERE id=:id AND projectId=:projectId LIMIT 1", { id: saleId, projectId }))[0];
+  const sale = (await queryRows<SettlementSale>("SELECT * FROM merge_po_settlement_sales WHERE id=:id AND projectId=:projectId LIMIT 1", { id: saleId, projectId }))[0];
   if (!sale) throw new Error("销售收入不存在");
   const values = inputValues(input, { currency: validCurrency(sale.currency) ? sale.currency : "USD", priceType: validPriceType(sale.priceType) ? sale.priceType : "tax_included" });
   const amounts = settlementAmounts(values, project);
   await execute(
-    `UPDATE po_settlement_sales SET description=:description,amount=:amount,currency=:currency,priceType=:priceType,taxRate=:taxRate,receivedRevenueTaxIncludedUsd=:includedUsd,receivedRevenueUsd=:excludedUsd,invoiceNo=:invoiceNo,receivedAt=:receivedAt WHERE id=:id AND projectId=:projectId`,
+    `UPDATE merge_po_settlement_sales SET description=:description,amount=:amount,currency=:currency,priceType=:priceType,taxRate=:taxRate,receivedRevenueTaxIncludedUsd=:includedUsd,receivedRevenueUsd=:excludedUsd,invoiceNo=:invoiceNo,receivedAt=:receivedAt WHERE id=:id AND projectId=:projectId`,
     { id: saleId, projectId, description: text(input.description) || null, ...values, includedUsd: amounts.taxIncludedUsd, excludedUsd: amounts.taxExcludedUsd, invoiceNo: text(input.invoiceNo) || null, receivedAt: text(input.receivedAt) || null },
   );
   return touchAndRecalculate(projectId, actor);
@@ -826,7 +826,7 @@ export async function updateSettlementSale(projectId: string, saleId: string, in
 
 export async function deleteSettlementSale(projectId: string, saleId: string, actor: OperationActor | null) {
   const project = await getProject(projectId); assertEditable(project);
-  await execute("DELETE FROM po_settlement_sales WHERE id=:id AND projectId=:projectId", { id: saleId, projectId });
+  await execute("DELETE FROM merge_po_settlement_sales WHERE id=:id AND projectId=:projectId", { id: saleId, projectId });
   return touchAndRecalculate(projectId, actor);
 }
 
@@ -846,7 +846,7 @@ export async function addSettlementInvoice(projectId: string, input: Record<stri
   const project = await getProject(projectId); assertEditable(project);
   const values = invoiceValues(projectId, input);
   await execute(
-    `INSERT INTO po_settlement_invoices (id,projectId,type,accountPeriod,accountingDate,companyEntity,invoiceEntity,invoiceDate,invoiceNo,invoiceTotal,invoiceTaxExcludedTotal,taxRate,invoiceTaxAmount,currency,exchangeRate,usdAmount,isPaid,isInvoiced)
+    `INSERT INTO merge_po_settlement_invoices (id,projectId,type,accountPeriod,accountingDate,companyEntity,invoiceEntity,invoiceDate,invoiceNo,invoiceTotal,invoiceTaxExcludedTotal,taxRate,invoiceTaxAmount,currency,exchangeRate,usdAmount,isPaid,isInvoiced)
      VALUES (:id,:projectId,:type,:accountPeriod,:accountingDate,:companyEntity,:invoiceEntity,:invoiceDate,:invoiceNo,:invoiceTotal,:invoiceTaxExcludedTotal,:taxRate,:invoiceTaxAmount,:currency,:exchangeRate,:usdAmount,:isPaid,:isInvoiced)`,
     { id: randomUUID(), projectId, ...values },
   );
@@ -855,11 +855,11 @@ export async function addSettlementInvoice(projectId: string, input: Record<stri
 
 export async function updateSettlementInvoice(projectId: string, invoiceId: string, input: Record<string, unknown>, actor: OperationActor | null) {
   const project = await getProject(projectId); assertEditable(project);
-  const invoice = (await queryRows<SettlementInvoice>("SELECT * FROM po_settlement_invoices WHERE id=:id AND projectId=:projectId LIMIT 1", { id: invoiceId, projectId }))[0];
+  const invoice = (await queryRows<SettlementInvoice>("SELECT * FROM merge_po_settlement_invoices WHERE id=:id AND projectId=:projectId LIMIT 1", { id: invoiceId, projectId }))[0];
   if (!invoice) throw new Error("发票不存在");
   const values = invoiceValues(projectId, input);
   await execute(
-    `UPDATE po_settlement_invoices SET type=:type,accountPeriod=:accountPeriod,accountingDate=:accountingDate,companyEntity=:companyEntity,invoiceEntity=:invoiceEntity,invoiceDate=:invoiceDate,invoiceNo=:invoiceNo,invoiceTotal=:invoiceTotal,invoiceTaxExcludedTotal=:invoiceTaxExcludedTotal,taxRate=:taxRate,invoiceTaxAmount=:invoiceTaxAmount,currency=:currency,exchangeRate=:exchangeRate,usdAmount=:usdAmount,isPaid=:isPaid,isInvoiced=:isInvoiced WHERE id=:id AND projectId=:projectId`,
+    `UPDATE merge_po_settlement_invoices SET type=:type,accountPeriod=:accountPeriod,accountingDate=:accountingDate,companyEntity=:companyEntity,invoiceEntity=:invoiceEntity,invoiceDate=:invoiceDate,invoiceNo=:invoiceNo,invoiceTotal=:invoiceTotal,invoiceTaxExcludedTotal=:invoiceTaxExcludedTotal,taxRate=:taxRate,invoiceTaxAmount=:invoiceTaxAmount,currency=:currency,exchangeRate=:exchangeRate,usdAmount=:usdAmount,isPaid=:isPaid,isInvoiced=:isInvoiced WHERE id=:id AND projectId=:projectId`,
     { id: invoiceId, projectId, ...values },
   );
   return touchAndRecalculate(projectId, actor);
@@ -867,8 +867,8 @@ export async function updateSettlementInvoice(projectId: string, invoiceId: stri
 
 export async function deleteSettlementInvoice(projectId: string, invoiceId: string, actor: OperationActor | null) {
   const project = await getProject(projectId); assertEditable(project);
-  await execute("DELETE FROM po_settlement_attachments WHERE invoiceId=:invoiceId AND projectId=:projectId", { invoiceId, projectId });
-  await execute("DELETE FROM po_settlement_invoices WHERE id=:id AND projectId=:projectId", { id: invoiceId, projectId });
+  await execute("DELETE FROM merge_po_settlement_attachments WHERE invoiceId=:invoiceId AND projectId=:projectId", { invoiceId, projectId });
+  await execute("DELETE FROM merge_po_settlement_invoices WHERE id=:id AND projectId=:projectId", { id: invoiceId, projectId });
   return touchAndRecalculate(projectId, actor);
 }
 
@@ -878,11 +878,11 @@ export async function addSettlementAttachment(projectId: string, input: Record<s
   const dataUrl = text(input.dataUrl);
   if (!fileName || !dataUrl) throw new Error("附件文件不能为空");
   if (invoiceId) {
-    const invoice = (await queryRows("SELECT id FROM po_settlement_invoices WHERE id=:invoiceId AND projectId=:projectId LIMIT 1", { invoiceId, projectId }))[0];
+    const invoice = (await queryRows("SELECT id FROM merge_po_settlement_invoices WHERE id=:invoiceId AND projectId=:projectId LIMIT 1", { invoiceId, projectId }))[0];
     if (!invoice) throw new Error("发票不存在");
   }
   await execute(
-    `INSERT INTO po_settlement_attachments (id,projectId,invoiceId,fileName,fileType,fileSize,dataUrl,description,uploadedByUserId,uploadedByName)
+    `INSERT INTO merge_po_settlement_attachments (id,projectId,invoiceId,fileName,fileType,fileSize,dataUrl,description,uploadedByUserId,uploadedByName)
      VALUES (:id,:projectId,:invoiceId,:fileName,:fileType,:fileSize,:dataUrl,:description,:userId,:userName)`,
     { id: randomUUID(), projectId, invoiceId, fileName, fileType: text(input.fileType) || null, fileSize: Math.max(0, numeric(input.fileSize)), dataUrl, description: text(input.description) || null, userId: actor?.userId ?? null, userName: actor?.displayName ?? null },
   );
@@ -891,12 +891,12 @@ export async function addSettlementAttachment(projectId: string, input: Record<s
 
 export async function deleteSettlementAttachment(projectId: string, attachmentId: string, actor: OperationActor | null) {
   const project = await getProject(projectId); assertEditable(project);
-  await execute("DELETE FROM po_settlement_attachments WHERE id=:id AND projectId=:projectId", { id: attachmentId, projectId });
+  await execute("DELETE FROM merge_po_settlement_attachments WHERE id=:id AND projectId=:projectId", { id: attachmentId, projectId });
   return touchAndRecalculate(projectId, actor);
 }
 
 export async function findSettlementAttachment(projectId: string, invoiceId: string | null, attachmentId: string) {
-  const rows = await queryRows<SettlementAttachment>("SELECT * FROM po_settlement_attachments WHERE id=:id AND projectId=:projectId LIMIT 1", { id: attachmentId, projectId });
+  const rows = await queryRows<SettlementAttachment>("SELECT * FROM merge_po_settlement_attachments WHERE id=:id AND projectId=:projectId LIMIT 1", { id: attachmentId, projectId });
   const attachment = rows[0];
   if (!attachment || (invoiceId && attachment.invoiceId !== invoiceId)) throw new Error("附件不存在");
   return { ...normalizeAttachment(attachment), dataUrl: attachment.dataUrl || "" };
@@ -923,18 +923,18 @@ export async function changeSettlementStatus(projectId: string, nextStatus: Sett
   if (status === "accepting") { assignments.push("acceptanceStartedAt = CURRENT_TIMESTAMP"); }
   if (status === "closed") { assignments.push("closedAt = CURRENT_TIMESTAMP"); Object.assign(fields, actorFields(actor, "confirm")); assignments.push("confirmedByUserId=:confirmedByUserId", "confirmedByName=:confirmedByName", "confirmedAt=:confirmedAt"); }
   if (actor) assignments.push("updatedByUserId=:updatedByUserId", "updatedByName=:updatedByName");
-  await execute(`UPDATE po_settlement_projects SET ${assignments.join(", ")} WHERE id=:id`, { ...fields, ...(actor ? { updatedByUserId: actor.userId, updatedByName: actor.displayName } : {}) });
+  await execute(`UPDATE merge_po_settlement_projects SET ${assignments.join(", ")} WHERE id=:id`, { ...fields, ...(actor ? { updatedByUserId: actor.userId, updatedByName: actor.displayName } : {}) });
   return getSettlementProjectDetail(projectId);
 }
 
 export async function deleteSettlementProject(projectId: string, actor: OperationActor | null) {
   const project = await getProject(projectId); assertEditable(project);
-  await execute("DELETE FROM po_settlement_attachments WHERE projectId=:projectId", { projectId });
-  await execute("DELETE FROM po_settlement_invoices WHERE projectId=:projectId", { projectId });
-  await execute("DELETE FROM po_settlement_sales WHERE projectId=:projectId", { projectId });
-  await execute("DELETE FROM po_settlement_expenses WHERE projectId=:projectId", { projectId });
-  await execute("DELETE FROM po_settlement_items WHERE projectId=:projectId", { projectId });
-  await execute("DELETE FROM po_settlement_projects WHERE id=:projectId", { projectId });
+  await execute("DELETE FROM merge_po_settlement_attachments WHERE projectId=:projectId", { projectId });
+  await execute("DELETE FROM merge_po_settlement_invoices WHERE projectId=:projectId", { projectId });
+  await execute("DELETE FROM merge_po_settlement_sales WHERE projectId=:projectId", { projectId });
+  await execute("DELETE FROM merge_po_settlement_expenses WHERE projectId=:projectId", { projectId });
+  await execute("DELETE FROM merge_po_settlement_items WHERE projectId=:projectId", { projectId });
+  await execute("DELETE FROM merge_po_settlement_projects WHERE id=:projectId", { projectId });
   void actor;
 }
 
@@ -1037,7 +1037,7 @@ export async function importUnpurchasedSettlementItems(projectId: string, source
   const project = await getProject(projectId);
   assertPurchasingEditable(project);
   const items = await queryRows<SettlementItem>(
-    "SELECT * FROM po_settlement_items WHERE projectId = :projectId ORDER BY lineNo, createdAt, id",
+    "SELECT * FROM merge_po_settlement_items WHERE projectId = :projectId ORDER BY lineNo, createdAt, id",
     { projectId },
   );
   const byId = new Map(items.map((item) => [item.id, item]));
@@ -1080,7 +1080,7 @@ export async function importUnpurchasedSettlementItems(projectId: string, source
       if (taxRate < 0) throw new Error("税率不能小于0");
       const invoiceNo = String(source["发票号"] ?? source.invoiceNo ?? "").trim() || target.invoiceNo || null;
       await execute(
-        `UPDATE po_settlement_items
+        `UPDATE merge_po_settlement_items
             SET purchaseQty=:purchaseQty, purchaseUnitPrice=:purchaseUnitPrice, currency=:currency,
                 priceType=:priceType, taxRate=:taxRate, invoiceNo=:invoiceNo
           WHERE id=:id AND projectId=:projectId AND ordered=0`,

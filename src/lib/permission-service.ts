@@ -3,7 +3,7 @@ import { permissionMask, type PermissionState } from "./permission-definitions";
 
 export async function getPermissionStateForEmail(email: string): Promise<PermissionState> {
   const users = await queryRowsRaw<{ userId: string; role: string }>(
-    "SELECT userId, role FROM common_users WHERE email = :email AND status = 'active' LIMIT 1",
+    "SELECT userId, role FROM merge_common_users WHERE email = :email AND status = 'active' LIMIT 1",
     { email: email.trim().toLowerCase() },
   );
   const user = users[0];
@@ -20,7 +20,7 @@ export async function getPermissionStateForEmail(email: string): Promise<Permiss
     canConfirm: number;
   }>(
     `SELECT moduleKey, canView, canCreate, canUpdate, canDelete, canExport, canImport, canConfirm
-       FROM common_user_permissions WHERE userId = :userId`,
+       FROM merge_common_user_permissions WHERE userId = :userId`,
     { userId: user.userId },
   );
   return {

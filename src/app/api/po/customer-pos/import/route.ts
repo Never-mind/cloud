@@ -118,7 +118,7 @@ async function importMasters(
       if (referenceError) throw new Error(referenceError);
       const validationError = validateEntityImportRow(config, row);
       if (validationError) throw new Error(validationError);
-      const existingRows = await queryRows<Row>("SELECT id, status FROM po_customer_pos WHERE poNo = :poNo LIMIT 1", { poNo });
+      const existingRows = await queryRows<Row>("SELECT id, status FROM merge_po_customer_pos WHERE poNo = :poNo LIMIT 1", { poNo });
       const existing = existingRows[0];
       if (String(existing?.status ?? "") === "confirmed") throw new Error("已确认的客户PO不能通过导入修改");
       const id = String(existing?.id ?? row.id ?? randomUUID());
@@ -147,7 +147,7 @@ async function importItems(
   const report: ImportReport = { total: rows.length, success: 0, failed: [] };
   const poNos = Array.from(new Set(rows.map((row) => String(row[itemKey("客户PO号")] ?? row.poNo ?? "").trim()).filter(Boolean)));
   const existingMasters = poNos.length
-    ? await queryRows<Row>("SELECT id, poNo, status FROM po_customer_pos WHERE poNo IN (:poNos)", { poNos })
+    ? await queryRows<Row>("SELECT id, poNo, status FROM merge_po_customer_pos WHERE poNo IN (:poNos)", { poNos })
     : [];
   for (const master of existingMasters) {
     const poNo = String(master.poNo ?? "");
@@ -156,7 +156,7 @@ async function importItems(
   }
   const poIds = Array.from(new Set(masterIdsByPoNo.values()));
   const existingItems = poIds.length
-    ? await queryRows<Row>("SELECT id, poId, lineNo FROM po_customer_po_items WHERE poId IN (:poIds)", { poIds })
+    ? await queryRows<Row>("SELECT id, poId, lineNo FROM merge_po_customer_po_items WHERE poId IN (:poIds)", { poIds })
     : [];
   const itemByKey = new Map(existingItems.map((item) => [`${item.poId}:${item.lineNo}`, String(item.id)]));
   const codes = Array.from(new Set(rows.map((source) => String(mapRow(source, itemAliases, allowedKeys).matchedProductCode ?? "").trim()).filter(Boolean)));
@@ -211,9 +211,9 @@ function itemKey(label: string) {
 
 async function loadPartyReferences(): Promise<PartyReferenceCollections> {
   const [suppliers, undertakingUnits, customers] = await Promise.all([
-    queryRows("SELECT supplierId, supplierCode, shortName, nameCn, name FROM common_suppliers"),
-    queryRows("SELECT undertakingUnitId, undertakingUnitCode, entityCode, shortName, entityName, name FROM common_undertaking_units"),
-    queryRows("SELECT customerId, customerCode, shortName, nameCn, name FROM common_customers"),
+    queryRows("SELECT supplierId, supplierCode, shortName, nameCn, name FROM merge_common_suppliers"),
+    queryRows("SELECT undertakingUnitId, undertakingUnitCode, entityCode, shortName, entityName, name FROM merge_common_undertaking_units"),
+    queryRows("SELECT customerId, customerCode, shortName, nameCn, name FROM merge_common_customers"),
   ]);
   return { suppliers, undertakingUnits, customers };
 }

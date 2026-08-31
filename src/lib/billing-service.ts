@@ -304,9 +304,9 @@ export async function listAvailableBillingLines(options: {
     LEFT JOIN requestitems ri ON ri.id = poi.requestItemId
     LEFT JOIN requests req ON req.requestNo = COALESCE(poi.requestNo, po.requestNo, ri.requestNo)
     LEFT JOIN instancemodels im ON im.deviceCode = ri.deviceCode
-    LEFT JOIN common_undertaking_units unit ON unit.undertakingUnitId = ri.undertakingUnitId OR unit.undertakingUnitCode = ri.undertakingUnitId OR unit.entityCode = ri.undertakingUnitId
-    LEFT JOIN common_suppliers supplier ON supplier.supplierId = ri.supplierId OR supplier.supplierCode = ri.supplierId
-    LEFT JOIN common_customers customer ON customer.customerId = ri.customerId OR customer.customerCode = ri.customerId
+    LEFT JOIN merge_common_undertaking_units unit ON unit.undertakingUnitId = ri.undertakingUnitId OR unit.undertakingUnitCode = ri.undertakingUnitId OR unit.entityCode = ri.undertakingUnitId
+    LEFT JOIN merge_common_suppliers supplier ON supplier.supplierId = ri.supplierId OR supplier.supplierCode = ri.supplierId
+    LEFT JOIN merge_common_customers customer ON customer.customerId = ri.customerId OR customer.customerCode = ri.customerId
     LEFT JOIN countries country ON country.code = req.countryCode
     WHERE ${conditions.join(" AND ")}
   `;
@@ -397,9 +397,9 @@ export async function listAvailableBillingLineFilterOptions(searchParams: URLSea
       LEFT JOIN requestitems ri ON ri.id = poi.requestItemId
       LEFT JOIN requests req ON req.requestNo = COALESCE(poi.requestNo, po.requestNo, ri.requestNo)
       LEFT JOIN instancemodels im ON im.deviceCode = ri.deviceCode
-      LEFT JOIN common_undertaking_units unit ON unit.undertakingUnitId = ri.undertakingUnitId OR unit.undertakingUnitCode = ri.undertakingUnitId OR unit.entityCode = ri.undertakingUnitId
-      LEFT JOIN common_suppliers supplier ON supplier.supplierId = ri.supplierId OR supplier.supplierCode = ri.supplierId
-      LEFT JOIN common_customers customer ON customer.customerId = ri.customerId OR customer.customerCode = ri.customerId`,
+      LEFT JOIN merge_common_undertaking_units unit ON unit.undertakingUnitId = ri.undertakingUnitId OR unit.undertakingUnitCode = ri.undertakingUnitId OR unit.entityCode = ri.undertakingUnitId
+      LEFT JOIN merge_common_suppliers supplier ON supplier.supplierId = ri.supplierId OR supplier.supplierCode = ri.supplierId
+      LEFT JOIN merge_common_customers customer ON customer.customerId = ri.customerId OR customer.customerCode = ri.customerId`,
     conditions: [
       "po.status LIKE :availablePurchaseStatus",
       "req.status <> :availableRequestDraftStatus",
@@ -806,7 +806,7 @@ function monthlyBillingPartyNameExpression(party: "supplier" | "undertakingUnit"
     : party === "undertakingUnit"
       ? "COALESCE(NULLIF(mbw.undertakingUnitId, ''), ri.undertakingUnitId, riByBusinessKey.undertakingUnitId)"
       : "COALESCE(NULLIF(mbw.customerId, ''), ri.customerId, riByBusinessKey.customerId)";
-  const table = party === "supplier" ? "common_suppliers" : party === "undertakingUnit" ? "common_undertaking_units" : "common_customers";
+  const table = party === "supplier" ? "merge_common_suppliers" : party === "undertakingUnit" ? "merge_common_undertaking_units" : "merge_common_customers";
   const idColumn = party === "supplier" ? "supplierId" : party === "undertakingUnit" ? "undertakingUnitId" : "customerId";
   const codeColumn = party === "supplier" ? "supplierCode" : party === "undertakingUnit" ? "undertakingUnitCode" : "customerCode";
   const fullNameColumn = party === "supplier" ? "nameCn" : party === "undertakingUnit" ? "entityName" : "nameCn";

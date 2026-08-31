@@ -300,9 +300,9 @@ export async function listInstanceSettlementCandidates({
     LEFT JOIN requestitems ri ON ri.id = poi.requestItemId
     LEFT JOIN requests req ON req.requestNo = COALESCE(poi.requestNo, ri.requestNo, po.requestNo)
     LEFT JOIN instancemodels im ON im.deviceCode = ri.deviceCode
-    LEFT JOIN common_suppliers supplier ON supplier.supplierId = ri.supplierId
-    LEFT JOIN common_undertaking_units undertaking ON undertaking.undertakingUnitId = ri.undertakingUnitId
-    LEFT JOIN common_customers customer ON customer.customerId = ri.customerId
+    LEFT JOIN merge_common_suppliers supplier ON supplier.supplierId = ri.supplierId
+    LEFT JOIN merge_common_undertaking_units undertaking ON undertaking.undertakingUnitId = ri.undertakingUnitId
+    LEFT JOIN merge_common_customers customer ON customer.customerId = ri.customerId
     LEFT JOIN capexpricingitems anchor ON anchor.versionId = :pricingVersionId AND anchor.deviceCode = ri.deviceCode
     LEFT JOIN (
       SELECT purchaseOrderItemId, MAX(deliveredAt) AS receiptDate
@@ -376,9 +376,9 @@ export async function listInstanceSettlementCandidateFilterOptions(searchParams:
       LEFT JOIN requestitems ri ON ri.id = poi.requestItemId
       LEFT JOIN requests req ON req.requestNo = COALESCE(poi.requestNo, ri.requestNo, po.requestNo)
       LEFT JOIN instancemodels im ON im.deviceCode = ri.deviceCode
-      LEFT JOIN common_suppliers supplier ON supplier.supplierId = ri.supplierId
-      LEFT JOIN common_undertaking_units undertaking ON undertaking.undertakingUnitId = ri.undertakingUnitId
-      LEFT JOIN common_customers customer ON customer.customerId = ri.customerId
+      LEFT JOIN merge_common_suppliers supplier ON supplier.supplierId = ri.supplierId
+      LEFT JOIN merge_common_undertaking_units undertaking ON undertaking.undertakingUnitId = ri.undertakingUnitId
+      LEFT JOIN merge_common_customers customer ON customer.customerId = ri.customerId
       LEFT JOIN capexpricingitems anchor ON anchor.versionId = :pricingVersionId AND anchor.deviceCode = ri.deviceCode`,
     conditions,
     params: { purchaseStatus: CONFIRMED, spareType: SPARE_PART, instanceType: INSTANCE, voidedStatus: VOIDED, pricingVersionId, ...(selectedCountry ? { candidateCountry: selectedCountry } : {}) },
@@ -568,9 +568,9 @@ export async function getBalanceSettlement(settlementNo: string) {
     `
       SELECT item.*, supplier.supplierCode, undertaking.undertakingUnitCode, customer.customerCode
       FROM balancesettlementitems item
-      LEFT JOIN common_suppliers supplier ON supplier.supplierId = item.supplierId
-      LEFT JOIN common_undertaking_units undertaking ON undertaking.undertakingUnitId = item.undertakingUnitId
-      LEFT JOIN common_customers customer ON customer.customerId = item.customerId
+      LEFT JOIN merge_common_suppliers supplier ON supplier.supplierId = item.supplierId
+      LEFT JOIN merge_common_undertaking_units undertaking ON undertaking.undertakingUnitId = item.undertakingUnitId
+      LEFT JOIN merge_common_customers customer ON customer.customerId = item.customerId
       WHERE item.settlementNo = :settlementNo
       ORDER BY item.lineNo ASC
     `,

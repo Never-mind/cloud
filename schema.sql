@@ -4,7 +4,7 @@ CREATE DATABASE IF NOT EXISTS `merge`
 
 USE `merge`;
 
-CREATE TABLE IF NOT EXISTS `power_countries` (
+CREATE TABLE IF NOT EXISTS `merge_power_countries` (
   `code` VARCHAR(32) NOT NULL COMMENT 'country code PK',
   `nameZh` VARCHAR(255) NULL COMMENT 'country name zh',
   `nameEn` VARCHAR(255) NULL COMMENT 'country name en',
@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS `power_countries` (
   PRIMARY KEY (`code`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Countries';
 
-CREATE TABLE IF NOT EXISTS `power_deliverylocations` (
+CREATE TABLE IF NOT EXISTS `merge_power_deliverylocations` (
   `locationId` VARCHAR(64) NOT NULL COMMENT 'location id PK',
   `countryCode` VARCHAR(32) NOT NULL COMMENT 'country code',
   `locationType` VARCHAR(64) NULL COMMENT 'Datacenter/Warehouse/Office/Broker',
@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS `power_deliverylocations` (
   KEY `idx_DeliveryLocations_countryCode` (`countryCode`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='DeliveryLocations';
 
-CREATE TABLE IF NOT EXISTS `power_deliverycontacts` (
+CREATE TABLE IF NOT EXISTS `merge_power_deliverycontacts` (
   `contactId` VARCHAR(64) NOT NULL COMMENT 'contact id PK',
   `locationId` VARCHAR(64) NOT NULL COMMENT 'default location id',
   `name` VARCHAR(255) NULL COMMENT 'name',
@@ -40,7 +40,7 @@ CREATE TABLE IF NOT EXISTS `power_deliverycontacts` (
   KEY `idx_DeliveryContacts_locationId` (`locationId`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='DeliveryContacts';
 
-CREATE TABLE IF NOT EXISTS `power_datacenters` (
+CREATE TABLE IF NOT EXISTS `merge_power_datacenters` (
   `dcCode` VARCHAR(128) NOT NULL COMMENT 'datacenter code PK',
   `locationId` VARCHAR(512) NOT NULL COMMENT 'physical address or location id',
   `nameZh` VARCHAR(512) NULL COMMENT 'datacenter name zh',
@@ -51,7 +51,7 @@ CREATE TABLE IF NOT EXISTS `power_datacenters` (
   UNIQUE KEY `uk_Datacenters_locationId` (`locationId`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Datacenters';
 
-CREATE TABLE IF NOT EXISTS `power_instancemodels` (
+CREATE TABLE IF NOT EXISTS `merge_power_instancemodels` (
   `deviceCode` VARCHAR(64) NOT NULL COMMENT 'device code PK',
   `modelCode` VARCHAR(128) NOT NULL COMMENT 'model code UK',
   `xxllCode` VARCHAR(128) NULL COMMENT 'xxll code',
@@ -63,7 +63,7 @@ CREATE TABLE IF NOT EXISTS `power_instancemodels` (
   PRIMARY KEY (`deviceCode`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='InstanceModels';
 
-CREATE TABLE IF NOT EXISTS `power_suppliers` (
+CREATE TABLE IF NOT EXISTS `merge_power_suppliers` (
   `supplierId` VARCHAR(64) NOT NULL COMMENT 'supplier id PK',
   `supplierCode` VARCHAR(128) NOT NULL COMMENT 'ODM supplier code UK',
   `name` VARCHAR(255) NULL COMMENT 'name',
@@ -73,7 +73,7 @@ CREATE TABLE IF NOT EXISTS `power_suppliers` (
   UNIQUE KEY `uk_Suppliers_supplierCode` (`supplierCode`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Suppliers';
 
-CREATE TABLE IF NOT EXISTS `power_undertakingunits` (
+CREATE TABLE IF NOT EXISTS `merge_power_undertakingunits` (
   `undertakingUnitId` VARCHAR(64) NOT NULL COMMENT 'undertaking unit id PK',
   `undertakingUnitCode` VARCHAR(128) NOT NULL COMMENT 'undertaking unit code UK',
   `name` VARCHAR(255) NULL COMMENT 'name',
@@ -83,7 +83,7 @@ CREATE TABLE IF NOT EXISTS `power_undertakingunits` (
   UNIQUE KEY `uk_UndertakingUnits_code` (`undertakingUnitCode`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='UndertakingUnits';
 
-CREATE TABLE IF NOT EXISTS `power_customers` (
+CREATE TABLE IF NOT EXISTS `merge_power_customers` (
   `customerId` VARCHAR(64) NOT NULL COMMENT 'customer id PK',
   `customerCode` VARCHAR(128) NOT NULL COMMENT 'customer code UK',
   `name` VARCHAR(255) NULL COMMENT 'name',
@@ -93,7 +93,7 @@ CREATE TABLE IF NOT EXISTS `power_customers` (
   UNIQUE KEY `uk_Customers_customerCode` (`customerCode`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Customers';
 
-CREATE TABLE IF NOT EXISTS `power_instancecontracts` (
+CREATE TABLE IF NOT EXISTS `merge_power_instancecontracts` (
   `id` VARCHAR(128) NOT NULL COMMENT 'PK',
   `contractNo` VARCHAR(128) NOT NULL COMMENT 'contract no',
   `countryCode` VARCHAR(32) NOT NULL COMMENT 'country code',
@@ -114,7 +114,7 @@ CREATE TABLE IF NOT EXISTS `power_instancecontracts` (
   KEY `idx_InstanceContracts_deviceCode` (`deviceCode`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='InstanceContracts';
 
-CREATE TABLE IF NOT EXISTS `power_contractitems` (
+CREATE TABLE IF NOT EXISTS `merge_power_contractitems` (
   `id` VARCHAR(64) NOT NULL COMMENT 'PK',
   `contractNo` VARCHAR(128) NOT NULL COMMENT 'contract no',
   `deviceCode` VARCHAR(64) NOT NULL COMMENT 'device code',
@@ -127,7 +127,7 @@ CREATE TABLE IF NOT EXISTS `power_contractitems` (
   KEY `idx_ContractItems_deviceCode` (`deviceCode`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='ContractItems';
 
-CREATE TABLE IF NOT EXISTS `power_requests` (
+CREATE TABLE IF NOT EXISTS `merge_power_requests` (
   `requestNo` VARCHAR(128) NOT NULL COMMENT 'request no PK',
   `countryCode` VARCHAR(32) NULL COMMENT 'country code',
   `contractNo` VARCHAR(128) NOT NULL COMMENT 'instance contract no',
@@ -148,7 +148,7 @@ CREATE TABLE IF NOT EXISTS `power_requests` (
   KEY `idx_Requests_countryCode` (`countryCode`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Requests';
 
-CREATE TABLE IF NOT EXISTS `power_requestitems` (
+CREATE TABLE IF NOT EXISTS `merge_power_requestitems` (
   `id` VARCHAR(64) NOT NULL COMMENT 'PK',
   `requestNo` VARCHAR(128) NOT NULL COMMENT 'request no',
   `deviceCode` VARCHAR(64) NOT NULL COMMENT 'device code',
@@ -170,7 +170,7 @@ CREATE TABLE IF NOT EXISTS `power_requestitems` (
   CONSTRAINT `chk_RequestItems_quantity_nonnegative` CHECK (`quantity` >= 0)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='RequestItems';
 
-CREATE TABLE IF NOT EXISTS `power_purchaseorders` (
+CREATE TABLE IF NOT EXISTS `merge_power_purchaseorders` (
   `purchaseOrderId` VARCHAR(128) NOT NULL COMMENT 'system purchase order id',
   `poNo` VARCHAR(128) NOT NULL COMMENT 'PO no PK',
   `requestNo` VARCHAR(128) NULL COMMENT 'source request no',
@@ -194,7 +194,7 @@ CREATE TABLE IF NOT EXISTS `power_purchaseorders` (
   KEY `idx_PurchaseOrders_status` (`status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='PurchaseOrders';
 
-CREATE TABLE IF NOT EXISTS `power_purchaseorderitems` (
+CREATE TABLE IF NOT EXISTS `merge_power_purchaseorderitems` (
   `id` VARCHAR(64) NOT NULL COMMENT 'PK',
   `purchaseOrderId` VARCHAR(128) NULL COMMENT 'system purchase order id',
   `poNo` VARCHAR(128) NOT NULL COMMENT 'PO no',
@@ -217,7 +217,7 @@ CREATE TABLE IF NOT EXISTS `power_purchaseorderitems` (
   KEY `idx_PurchaseOrderItems_poNo` (`poNo`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='PurchaseOrderItems';
 
-CREATE TABLE IF NOT EXISTS `power_purchaseordersnitems` (
+CREATE TABLE IF NOT EXISTS `merge_power_purchaseordersnitems` (
   `id` VARCHAR(64) NOT NULL COMMENT 'PK',
   `purchaseOrderId` VARCHAR(128) NOT NULL COMMENT 'system purchase order id',
   `poNo` VARCHAR(128) NOT NULL COMMENT 'PO no',
@@ -275,7 +275,7 @@ CREATE TABLE IF NOT EXISTS `power_purchaseordersnitems` (
   KEY `idx_PurchaseOrderSnItems_sn` (`sn`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='PurchaseOrderSnItems';
 
-CREATE TABLE IF NOT EXISTS `power_purchaseorderplanitems` (
+CREATE TABLE IF NOT EXISTS `merge_power_purchaseorderplanitems` (
   `id` VARCHAR(64) NOT NULL COMMENT 'PK',
   `purchaseOrderId` VARCHAR(128) NOT NULL COMMENT 'system purchase order id',
   `poNo` VARCHAR(128) NOT NULL COMMENT 'PO no',
@@ -392,7 +392,7 @@ CREATE TABLE IF NOT EXISTS `power_purchaseorderplanitems` (
   KEY `idx_PurchaseOrderPlanItems_poNo` (`poNo`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='PurchaseOrderPlanItems';
 
-CREATE TABLE IF NOT EXISTS `power_prepaymentcontracts` (
+CREATE TABLE IF NOT EXISTS `merge_power_prepaymentcontracts` (
   `contractNo` VARCHAR(128) NOT NULL COMMENT 'contract no PK',
   `status` VARCHAR(64) NOT NULL DEFAULT '草稿' COMMENT 'prepayment contract status',
   `currency` VARCHAR(16) NULL COMMENT 'contract currency',
@@ -404,7 +404,7 @@ CREATE TABLE IF NOT EXISTS `power_prepaymentcontracts` (
   PRIMARY KEY (`contractNo`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='PrepaymentContracts';
 
-CREATE TABLE IF NOT EXISTS `power_prepaymentcontractitems` (
+CREATE TABLE IF NOT EXISTS `merge_power_prepaymentcontractitems` (
   `id` VARCHAR(64) NOT NULL COMMENT 'PK',
   `contractNo` VARCHAR(128) NOT NULL COMMENT 'prepayment contract no',
   `lineType` VARCHAR(32) NOT NULL DEFAULT 'instance' COMMENT 'instance/fee',
@@ -442,7 +442,7 @@ CREATE TABLE IF NOT EXISTS `power_prepaymentcontractitems` (
   UNIQUE KEY `uk_PrepaymentContractItems_purchaseOrderItemId` (`purchaseOrderItemId`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='PrepaymentContractItems';
 
-CREATE TABLE IF NOT EXISTS `power_monthlyprepaymentwriteoffs` (
+CREATE TABLE IF NOT EXISTS `merge_power_monthlyprepaymentwriteoffs` (
   `id` VARCHAR(96) NOT NULL COMMENT 'monthly write-off id',
   `contractNo` VARCHAR(128) NOT NULL COMMENT 'prepayment contract no',
   `contractLineId` VARCHAR(64) NOT NULL COMMENT 'prepayment contract line id',
@@ -479,7 +479,7 @@ CREATE TABLE IF NOT EXISTS `power_monthlyprepaymentwriteoffs` (
   KEY `idx_MonthlyPrepaymentWriteOffs_batch_month` (`batchName`, `writeOffMonth`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='MonthlyPrepaymentWriteOffs';
 
-CREATE TABLE IF NOT EXISTS `power_prepaymentwriteoffadjustments` (
+CREATE TABLE IF NOT EXISTS `merge_power_prepaymentwriteoffadjustments` (
   `adjustmentNo` VARCHAR(128) NOT NULL COMMENT 'adjustment no',
   `status` VARCHAR(64) NOT NULL DEFAULT '草稿' COMMENT 'adjustment status',
   `countryCode` VARCHAR(32) NULL COMMENT 'country code',
@@ -496,7 +496,7 @@ CREATE TABLE IF NOT EXISTS `power_prepaymentwriteoffadjustments` (
   KEY `idx_PrepaymentWriteOffAdjustments_contractNo` (`contractNo`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='PrepaymentWriteOffAdjustments';
 
-CREATE TABLE IF NOT EXISTS `power_prepaymentwriteoffadjustmentitems` (
+CREATE TABLE IF NOT EXISTS `merge_power_prepaymentwriteoffadjustmentitems` (
   `id` VARCHAR(160) NOT NULL COMMENT 'adjustment item id',
   `adjustmentNo` VARCHAR(128) NOT NULL COMMENT 'adjustment no',
   `monthlyWriteOffId` VARCHAR(96) NOT NULL COMMENT 'monthly write-off id',
@@ -523,7 +523,7 @@ CREATE TABLE IF NOT EXISTS `power_prepaymentwriteoffadjustmentitems` (
   KEY `idx_PrepaymentWriteOffAdjustmentItems_monthlyWriteOffId` (`monthlyWriteOffId`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='PrepaymentWriteOffAdjustmentItems';
 
-CREATE TABLE IF NOT EXISTS `power_billinginstanceledgers` (
+CREATE TABLE IF NOT EXISTS `merge_power_billinginstanceledgers` (
   `ledgerId` VARCHAR(96) NOT NULL COMMENT 'billing ledger id',
   `purchaseOrderItemId` VARCHAR(64) NOT NULL COMMENT 'purchase order item id',
   `countryCode` VARCHAR(32) NULL COMMENT 'country code',
@@ -561,7 +561,7 @@ CREATE TABLE IF NOT EXISTS `power_billinginstanceledgers` (
   KEY `idx_BillingInstanceLedgers_deviceCode` (`deviceCode`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='BillingInstanceLedgers';
 
-CREATE TABLE IF NOT EXISTS `power_monthlybillingwriteoffs` (
+CREATE TABLE IF NOT EXISTS `merge_power_monthlybillingwriteoffs` (
   `id` VARCHAR(112) NOT NULL COMMENT 'monthly billing write-off id',
   `ledgerId` VARCHAR(96) NOT NULL COMMENT 'billing ledger id',
   `writeOffMonth` DATE NOT NULL COMMENT 'write-off month first day',
@@ -598,7 +598,7 @@ CREATE TABLE IF NOT EXISTS `power_monthlybillingwriteoffs` (
   KEY `idx_MonthlyBillingWriteOffs_adjustmentNo` (`adjustmentNo`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='MonthlyBillingWriteOffs';
 
-CREATE TABLE IF NOT EXISTS `power_billingadjustments` (
+CREATE TABLE IF NOT EXISTS `merge_power_billingadjustments` (
   `adjustmentNo` VARCHAR(128) NOT NULL COMMENT 'adjustment no',
   `instanceContractNo` VARCHAR(128) NULL COMMENT 'adjustment instance contract no',
   `status` VARCHAR(64) NOT NULL DEFAULT '草稿' COMMENT 'adjustment status',
@@ -620,7 +620,7 @@ CREATE TABLE IF NOT EXISTS `power_billingadjustments` (
   KEY `idx_BillingAdjustments_effectiveMonth` (`effectiveMonth`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='BillingAdjustments';
 
-CREATE TABLE IF NOT EXISTS `power_billingadjustmentitems` (
+CREATE TABLE IF NOT EXISTS `merge_power_billingadjustmentitems` (
   `id` VARCHAR(160) NOT NULL COMMENT 'adjustment item id',
   `adjustmentNo` VARCHAR(128) NOT NULL COMMENT 'adjustment no',
   `countryCode` VARCHAR(32) NULL COMMENT 'country code',
@@ -643,7 +643,7 @@ CREATE TABLE IF NOT EXISTS `power_billingadjustmentitems` (
   KEY `idx_BillingAdjustmentItems_effectiveMonth` (`effectiveMonth`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='BillingAdjustmentItems';
 
-CREATE TABLE IF NOT EXISTS `power_billingstatementsnapshots` (
+CREATE TABLE IF NOT EXISTS `merge_power_billingstatementsnapshots` (
   `snapshotNo` VARCHAR(128) NOT NULL COMMENT 'billing statement snapshot no',
   `status` VARCHAR(64) NOT NULL DEFAULT '未确认' COMMENT 'statement status',
   `countryCode` VARCHAR(32) NOT NULL COMMENT 'country code',
@@ -661,7 +661,7 @@ CREATE TABLE IF NOT EXISTS `power_billingstatementsnapshots` (
   KEY `idx_BillingStatementSnapshots_dates` (`startDate`, `endDate`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='BillingStatementSnapshots';
 
-CREATE TABLE IF NOT EXISTS `power_billingstatementsnapshotitems` (
+CREATE TABLE IF NOT EXISTS `merge_power_billingstatementsnapshotitems` (
   `id` VARCHAR(160) NOT NULL COMMENT 'billing statement snapshot item id',
   `snapshotNo` VARCHAR(128) NOT NULL COMMENT 'billing statement snapshot no',
   `countryCode` VARCHAR(32) NOT NULL COMMENT 'country code',
@@ -683,7 +683,7 @@ CREATE TABLE IF NOT EXISTS `power_billingstatementsnapshotitems` (
   KEY `idx_BillingStatementSnapshotItems_currency` (`currency`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='BillingStatementSnapshotItems';
 
-CREATE TABLE IF NOT EXISTS `power_servicefeesnapshots` (
+CREATE TABLE IF NOT EXISTS `merge_power_servicefeesnapshots` (
   `snapshotNo` VARCHAR(128) NOT NULL COMMENT 'service fee snapshot no',
   `status` VARCHAR(64) NOT NULL DEFAULT '未确认' COMMENT 'statement status',
   `writeOffMonth` DATE NULL COMMENT 'write-off month',
@@ -734,7 +734,7 @@ CREATE TABLE IF NOT EXISTS `power_servicefeesnapshots` (
   KEY `idx_ServiceFeeSnapshots_repaymentStatus` (`repaymentStatus`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='ServiceFeeSnapshots';
 
-CREATE TABLE IF NOT EXISTS `power_servicefeesnapshotitems` (
+CREATE TABLE IF NOT EXISTS `merge_power_servicefeesnapshotitems` (
   `id` VARCHAR(160) NOT NULL COMMENT 'service fee snapshot item id',
   `snapshotNo` VARCHAR(128) NOT NULL COMMENT 'service fee snapshot no',
   `writeOffMonth` DATE NOT NULL COMMENT 'write-off month',
@@ -770,7 +770,7 @@ CREATE TABLE IF NOT EXISTS `power_servicefeesnapshotitems` (
   KEY `idx_ServiceFeeSnapshotItems_deviceCode` (`deviceCode`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='ServiceFeeSnapshotItems';
 
-CREATE TABLE IF NOT EXISTS `power_writeoffitems` (
+CREATE TABLE IF NOT EXISTS `merge_power_writeoffitems` (
   `id` VARCHAR(64) NOT NULL COMMENT 'PK',
   `requestItemId` VARCHAR(64) NOT NULL COMMENT 'request item id',
   `prepaymentContractItemId` VARCHAR(64) NOT NULL COMMENT 'prepayment contract item id',
@@ -787,7 +787,7 @@ CREATE TABLE IF NOT EXISTS `power_writeoffitems` (
   CONSTRAINT `chk_WriteOffItems_totalMonths_positive` CHECK (`totalMonths` IS NULL OR `totalMonths` > 0)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='WriteOffItems';
 
-CREATE TABLE IF NOT EXISTS `power_shipments` (
+CREATE TABLE IF NOT EXISTS `merge_power_shipments` (
     `shipmentId` VARCHAR(64) NOT NULL COMMENT 'shipment id PK',
     `poNo` VARCHAR(128) NOT NULL COMMENT 'PO no',
     `batchName` VARCHAR(255) NULL COMMENT 'batch name',
@@ -823,7 +823,7 @@ CREATE TABLE IF NOT EXISTS `power_shipments` (
   KEY `idx_Shipments_recipientContactId` (`recipientContactId`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Shipments';
 
-CREATE TABLE IF NOT EXISTS `power_documentfolders` (
+CREATE TABLE IF NOT EXISTS `merge_power_documentfolders` (
   `folderId` VARCHAR(80) NOT NULL COMMENT 'folder id',
   `parentId` VARCHAR(80) NULL COMMENT 'parent folder id',
   `name` VARCHAR(255) NOT NULL COMMENT 'folder name',
@@ -835,7 +835,7 @@ CREATE TABLE IF NOT EXISTS `power_documentfolders` (
   KEY `idx_DocumentFolders_parentId` (`parentId`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='DocumentFolders';
 
-CREATE TABLE IF NOT EXISTS `power_documentfiles` (
+CREATE TABLE IF NOT EXISTS `merge_power_documentfiles` (
   `fileId` VARCHAR(80) NOT NULL COMMENT 'file id',
   `folderId` VARCHAR(80) NOT NULL COMMENT 'folder id',
   `originalName` VARCHAR(255) NOT NULL COMMENT 'original file name',
@@ -853,7 +853,7 @@ CREATE TABLE IF NOT EXISTS `power_documentfiles` (
   KEY `idx_DocumentFiles_originalName` (`originalName`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='DocumentFiles';
 
-CREATE TABLE IF NOT EXISTS `power_importjobs` (
+CREATE TABLE IF NOT EXISTS `merge_power_importjobs` (
   `jobId` VARCHAR(96) NOT NULL COMMENT 'import job id',
   `targetKey` VARCHAR(64) NOT NULL COMMENT 'import target key',
   `targetTitle` VARCHAR(255) NOT NULL COMMENT 'import target title',
@@ -874,7 +874,7 @@ CREATE TABLE IF NOT EXISTS `power_importjobs` (
   KEY `idx_ImportJobs_createdAt` (`createdAt`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='ImportJobs';
 
-CREATE TABLE IF NOT EXISTS `power_appusers` (
+CREATE TABLE IF NOT EXISTS `merge_power_appusers` (
   `userId` VARCHAR(80) NOT NULL COMMENT 'user id',
   `email` VARCHAR(255) NOT NULL COMMENT 'login email',
   `passwordHash` VARCHAR(128) NOT NULL COMMENT 'password hash',
@@ -890,7 +890,7 @@ CREATE TABLE IF NOT EXISTS `power_appusers` (
   KEY `idx_AppUsers_status` (`status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='AppUsers';
 
-CREATE TABLE IF NOT EXISTS `power_userpreferences` (
+CREATE TABLE IF NOT EXISTS `merge_power_userpreferences` (
   `userId` VARCHAR(80) NOT NULL COMMENT 'app user id',
   `preferenceKey` VARCHAR(80) NOT NULL COMMENT 'preference key',
   `preferenceValue` LONGTEXT NOT NULL COMMENT 'preference JSON value',
@@ -900,7 +900,7 @@ CREATE TABLE IF NOT EXISTS `power_userpreferences` (
   KEY `idx_UserPreferences_updatedAt` (`updatedAt`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='UserPreferences';
 
-CREATE TABLE IF NOT EXISTS `power_modulefeatures` (
+CREATE TABLE IF NOT EXISTS `merge_power_modulefeatures` (
   `moduleKey` VARCHAR(128) NOT NULL COMMENT 'module key',
   `moduleName` VARCHAR(255) NOT NULL COMMENT 'module display name',
   `parentModuleKey` VARCHAR(128) NULL COMMENT 'parent navigation group',
@@ -914,7 +914,7 @@ CREATE TABLE IF NOT EXISTS `power_modulefeatures` (
   KEY `idx_ModuleFeatures_enabled_sort` (`enabled`, `sortOrder`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='ModuleFeatures';
 
-CREATE TABLE IF NOT EXISTS `power_capexpricingversions` (
+CREATE TABLE IF NOT EXISTS `merge_power_capexpricingversions` (
   `versionId` VARCHAR(96) NOT NULL COMMENT 'CAPEX/OPEX pricing version id',
   `versionNo` VARCHAR(128) NOT NULL COMMENT 'pricing version number',
   `countryCode` VARCHAR(32) NOT NULL COMMENT 'country code',
@@ -931,7 +931,7 @@ CREATE TABLE IF NOT EXISTS `power_capexpricingversions` (
   KEY `idx_CapexPricingVersions_status` (`status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='CapexOpexPricingVersions';
 
-CREATE TABLE IF NOT EXISTS `power_b6typeconfigs` (
+CREATE TABLE IF NOT EXISTS `merge_power_b6typeconfigs` (
   `b6Type` VARCHAR(64) NOT NULL COMMENT 'B6 type code',
   `alias` VARCHAR(128) NULL COMMENT 'B6 type alias',
   `scope` VARCHAR(255) NULL COMMENT 'applicable scope',
@@ -952,7 +952,7 @@ CREATE TABLE IF NOT EXISTS `power_b6typeconfigs` (
   KEY `idx_B6TypeConfigs_status_sort` (`status`, `sortOrder`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='B6TypeConfigs';
 
-INSERT IGNORE INTO `power_b6typeconfigs` (
+INSERT IGNORE INTO `merge_power_b6typeconfigs` (
   `b6Type`, `alias`, `scope`, `fundingCostIncluded`, `spareCostIncluded`, `defaultFundingMonths`,
   `defaultSpareOccupancyMonths`, `overseasSpareServiceAvailable`, `defaultSpareRate`,
   `spareSettlementMethod`, `slPricingInstruction`, `notes`, `status`, `sortOrder`
@@ -962,7 +962,7 @@ INSERT IGNORE INTO `power_b6typeconfigs` (
   ('B62-A8 (HT)', 'B62-A8', 'HT整机不含资金占用费', 0, 0, 2, NULL, 0, 0, '备件单独结差', '整机价不含资金占用费。', '备件占用月数待确认；不提供海外备件服务。', '启用', 30),
   ('B63 (HT)', 'B63', 'HT整机服务场景', 0, 0, 0, NULL, 0, 0, '备件单独结差', '整机价不含资金占用费。', '资金占用月数暂按0，需复核；备件占用月数待确认。', '启用', 40);
 
-CREATE TABLE IF NOT EXISTS `power_capexpricingitems` (
+CREATE TABLE IF NOT EXISTS `merge_power_capexpricingitems` (
   `id` VARCHAR(128) NOT NULL COMMENT 'CAPEX/OPEX pricing item id',
   `versionId` VARCHAR(96) NOT NULL COMMENT 'pricing version id',
   `lineNo` INT NOT NULL DEFAULT 0 COMMENT 'line sequence',
@@ -1009,7 +1009,7 @@ CREATE TABLE IF NOT EXISTS `power_capexpricingitems` (
   KEY `idx_CapexPricingItems_version_device_b6` (`versionId`, `deviceCode`, `b6Type`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='CapexOpexPricingItems';
 
-CREATE TABLE IF NOT EXISTS `power_balancesettlements` (
+CREATE TABLE IF NOT EXISTS `merge_power_balancesettlements` (
   `settlementNo` VARCHAR(128) NOT NULL COMMENT 'settlement document number',
   `title` VARCHAR(255) NULL COMMENT 'settlement title',
   `countryCode` VARCHAR(32) NULL COMMENT 'country code',
@@ -1033,7 +1033,7 @@ CREATE TABLE IF NOT EXISTS `power_balancesettlements` (
   KEY `idx_BalanceSettlements_createdAt` (`createdAt`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='BalanceSettlements';
 
-CREATE TABLE IF NOT EXISTS `power_balancesettlementitems` (
+CREATE TABLE IF NOT EXISTS `merge_power_balancesettlementitems` (
   `id` VARCHAR(128) NOT NULL COMMENT 'settlement line id',
   `settlementNo` VARCHAR(128) NOT NULL COMMENT 'settlement document number',
   `lineNo` INT NOT NULL DEFAULT 0 COMMENT 'line sequence',
@@ -1108,7 +1108,7 @@ CREATE TABLE IF NOT EXISTS `power_balancesettlementitems` (
   KEY `idx_BalanceSettlementItems_type` (`itemType`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='BalanceSettlementItems';
 
-CREATE TABLE IF NOT EXISTS `power_balancesettlementfinals` (
+CREATE TABLE IF NOT EXISTS `merge_power_balancesettlementfinals` (
   `finalSettlementNo` VARCHAR(128) NOT NULL COMMENT 'final settlement document number',
   `title` VARCHAR(255) NULL COMMENT 'final settlement title',
   `countryCode` VARCHAR(32) NOT NULL COMMENT 'country code',
@@ -1130,7 +1130,7 @@ CREATE TABLE IF NOT EXISTS `power_balancesettlementfinals` (
   KEY `idx_BalanceSettlementFinals_createdAt` (`createdAt`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='BalanceSettlementFinals';
 
-CREATE TABLE IF NOT EXISTS `power_balancesettlementfinalsources` (
+CREATE TABLE IF NOT EXISTS `merge_power_balancesettlementfinalsources` (
   `id` VARCHAR(128) NOT NULL COMMENT 'final settlement source id',
   `finalSettlementNo` VARCHAR(128) NOT NULL COMMENT 'final settlement document number',
   `sourceSettlementNo` VARCHAR(128) NOT NULL COMMENT 'source settlement document number',
@@ -1153,7 +1153,7 @@ CREATE TABLE IF NOT EXISTS `power_balancesettlementfinalsources` (
   KEY `idx_BalanceSettlementFinalSources_final` (`finalSettlementNo`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='BalanceSettlementFinalSources';
 
-CREATE TABLE IF NOT EXISTS `power_internalserviceledgers` (
+CREATE TABLE IF NOT EXISTS `merge_power_internalserviceledgers` (
   `ledgerId` VARCHAR(96) NOT NULL,
   `countryCode` VARCHAR(32) NULL, `batchName` VARCHAR(255) NULL, `requestNo` VARCHAR(128) NULL, `poNo` VARCHAR(128) NULL,
   `deviceCode` VARCHAR(64) NULL, `modelCode` VARCHAR(128) NULL, `nameEn` VARCHAR(255) NULL,
@@ -1167,7 +1167,7 @@ CREATE TABLE IF NOT EXISTS `power_internalserviceledgers` (
   PRIMARY KEY (`ledgerId`), KEY `idx_InternalServiceLedgers_country` (`countryCode`), KEY `idx_InternalServiceLedgers_request` (`requestNo`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='InternalServiceLedgers';
 
-CREATE TABLE IF NOT EXISTS `power_monthlyinternalservicefees` (
+CREATE TABLE IF NOT EXISTS `merge_power_monthlyinternalservicefees` (
   `id` VARCHAR(128) NOT NULL, `ledgerId` VARCHAR(96) NOT NULL, `writeOffMonth` DATE NOT NULL, `monthIndex` INT NOT NULL,
   `countryCode` VARCHAR(32) NULL, `batchName` VARCHAR(255) NULL, `requestNo` VARCHAR(128) NULL, `poNo` VARCHAR(128) NULL,
   `deviceCode` VARCHAR(64) NULL, `modelCode` VARCHAR(128) NULL, `nameEn` VARCHAR(255) NULL, `supplierId` VARCHAR(64) NULL,
@@ -1179,7 +1179,7 @@ CREATE TABLE IF NOT EXISTS `power_monthlyinternalservicefees` (
   KEY `idx_MonthlyInternalServiceFees_month` (`writeOffMonth`), KEY `idx_MonthlyInternalServiceFees_country` (`countryCode`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='MonthlyInternalServiceFees';
 
-CREATE TABLE IF NOT EXISTS `power_internalservicefeeadjustments` (
+CREATE TABLE IF NOT EXISTS `merge_power_internalservicefeeadjustments` (
   `adjustmentNo` VARCHAR(128) NOT NULL, `ledgerId` VARCHAR(96) NOT NULL, `countryCode` VARCHAR(32) NULL,
   `batchName` VARCHAR(255) NULL, `requestNo` VARCHAR(128) NULL, `poNo` VARCHAR(128) NULL, `deviceCode` VARCHAR(64) NULL,
   `supplierId` VARCHAR(64) NULL, `undertakingUnitId` VARCHAR(64) NULL, `customerId` VARCHAR(64) NULL, `startMonth` DATE NOT NULL, `endMonth` DATE NOT NULL,
@@ -1189,7 +1189,7 @@ CREATE TABLE IF NOT EXISTS `power_internalservicefeeadjustments` (
   PRIMARY KEY (`adjustmentNo`), KEY `idx_InternalServiceFeeAdjustments_ledger` (`ledgerId`), KEY `idx_InternalServiceFeeAdjustments_range` (`startMonth`, `endMonth`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='InternalServiceFeeAdjustments';
 
-CREATE TABLE IF NOT EXISTS `power_internalservicefeesnapshots` (
+CREATE TABLE IF NOT EXISTS `merge_power_internalservicefeesnapshots` (
   `snapshotNo` VARCHAR(128) NOT NULL, `archiveMonth` DATE NOT NULL, `countryCode` VARCHAR(32) NULL,
   `itemCount` INT NOT NULL DEFAULT 0, `totalAmount` DECIMAL(18,2) NOT NULL DEFAULT 0, `confirmedAt` DATETIME NULL,
   `createdAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -1197,7 +1197,7 @@ CREATE TABLE IF NOT EXISTS `power_internalservicefeesnapshots` (
   PRIMARY KEY (`snapshotNo`), KEY `idx_InternalServiceFeeSnapshots_month` (`archiveMonth`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='InternalServiceFeeSnapshots';
 
-CREATE TABLE IF NOT EXISTS `power_internalservicefeesnapshotitems` (
+CREATE TABLE IF NOT EXISTS `merge_power_internalservicefeesnapshotitems` (
   `id` VARCHAR(160) NOT NULL, `snapshotNo` VARCHAR(128) NOT NULL, `monthlyFeeId` VARCHAR(128) NOT NULL, `ledgerId` VARCHAR(96) NOT NULL,
   `writeOffMonth` DATE NOT NULL, `countryCode` VARCHAR(32) NULL, `batchName` VARCHAR(255) NULL, `requestNo` VARCHAR(128) NULL,
   `poNo` VARCHAR(128) NULL, `deviceCode` VARCHAR(64) NULL, `supplierId` VARCHAR(64) NULL, `undertakingUnitId` VARCHAR(64) NULL, `customerId` VARCHAR(64) NULL,

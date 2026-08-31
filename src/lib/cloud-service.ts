@@ -74,7 +74,7 @@ const CLOUD_ROW_FILTER_EXPRESSIONS: Record<string, string> = {
 };
 
 const CLOUD_MAPPING_FROM = `(SELECT m.*, GROUP_CONCAT(a.account ORDER BY a.account SEPARATOR ', ') AS accounts
-  FROM cloud_mappings m LEFT JOIN cloud_mapping_accounts a ON a.mappingId = m.id GROUP BY m.id) AS cloudMappingRows`;
+  FROM merge_cloud_mappings m LEFT JOIN merge_cloud_mapping_accounts a ON a.mappingId = m.id GROUP BY m.id) AS cloudMappingRows`;
 
 const CLOUD_MAPPING_FILTER_EXPRESSIONS: Record<string, string> = {
   supplierName: "supplierName",
@@ -154,15 +154,15 @@ const CLOUD_SUPPLIER_PAYMENT_FROM = `(SELECT
     MIN(r.createdAt) AS createdAt,
     GREATEST(MAX(r.updatedAt), COALESCE(MAX(p.updatedAt), MAX(r.updatedAt))) AS updatedAt,
     GROUP_CONCAT(DISTINCT CONCAT(COALESCE(r.customer, ''), ' ', COALESCE(r.account, '')) SEPARATOR ' ') AS searchText
-  FROM cloud_rows r
-  LEFT JOIN cloud_supplier_payments p ON p.period = r.period
+  FROM merge_cloud_rows r
+  LEFT JOIN merge_cloud_supplier_payments p ON p.period = r.period
     AND ((NULLIF(r.supplierId, '') IS NOT NULL AND p.supplierId = r.supplierId)
       OR (NULLIF(r.supplierId, '') IS NULL AND p.supplierId IS NULL AND p.supplierName = r.supplierName))
   GROUP BY r.period, COALESCE(NULLIF(r.supplierId, ''), CONCAT('name:', COALESCE(r.supplierName, '未匹配供应商')))) AS cloudSupplierPaymentRows`;
 
 const CLOUD_SUPPLIER_KEY_SQL = `COALESCE(NULLIF(m.supplierId, ''), NULLIF(r.supplierId, ''), CONCAT('name:', COALESCE(NULLIF(m.supplierName, ''), NULLIF(r.supplierName, ''), '未匹配供应商')))`;
 const CLOUD_SUPPLIER_NAME_SQL = `COALESCE(NULLIF(s.shortName, ''), NULLIF(s.nameCn, ''), NULLIF(m.supplierName, ''), NULLIF(r.supplierName, ''), '未匹配供应商')`;
-const CLOUD_ACCOUNT_MAPPING_ID_SQL = `(SELECT a.mappingId FROM cloud_mapping_accounts a
+const CLOUD_ACCOUNT_MAPPING_ID_SQL = `(SELECT a.mappingId FROM merge_cloud_mapping_accounts a
   WHERE FIND_IN_SET(REPLACE(r.account, ' ', ''), REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(a.account, ' ', ''), '，', ','), ';', ','), '；', ','), '\\r', ''), '\\n', ',')) > 0
   ORDER BY a.updatedAt DESC LIMIT 1)`;
 const CLOUD_SUPPLIER_PAYMENT_GROUPS = `(SELECT
@@ -180,9 +180,9 @@ const CLOUD_SUPPLIER_PAYMENT_GROUPS = `(SELECT
     MIN(r.createdAt) AS createdAt,
     MAX(r.updatedAt) AS updatedAt,
     GROUP_CONCAT(DISTINCT CONCAT(COALESCE(r.customer, ''), ' ', COALESCE(r.account, '')) SEPARATOR ' ') AS searchText
-  FROM cloud_rows r
-  LEFT JOIN cloud_mappings m ON m.id = COALESCE(NULLIF(r.mappingId, ''), ${CLOUD_ACCOUNT_MAPPING_ID_SQL})
-  LEFT JOIN common_suppliers s ON s.supplierId = COALESCE(NULLIF(m.supplierId, ''), NULLIF(r.supplierId, ''))
+  FROM merge_cloud_rows r
+  LEFT JOIN merge_cloud_mappings m ON m.id = COALESCE(NULLIF(r.mappingId, ''), ${CLOUD_ACCOUNT_MAPPING_ID_SQL})
+  LEFT JOIN merge_common_suppliers s ON s.supplierId = COALESCE(NULLIF(m.supplierId, ''), NULLIF(r.supplierId, ''))
   GROUP BY r.period, ${CLOUD_SUPPLIER_KEY_SQL}, ${CLOUD_SUPPLIER_NAME_SQL})`;
 const CLOUD_SUPPLIER_PAYMENT_FROM_V2 = `(SELECT
     CONCAT(g.period, '::', g.groupKey) AS id,
@@ -194,7 +194,7 @@ const CLOUD_SUPPLIER_PAYMENT_FROM_V2 = `(SELECT
     COALESCE(p.paid, 0) AS paid,
     p.updatedAt AS paymentUpdatedAt
   FROM ${CLOUD_SUPPLIER_PAYMENT_GROUPS} g
-  LEFT JOIN cloud_supplier_payments p ON p.period = g.period
+  LEFT JOIN merge_cloud_supplier_payments p ON p.period = g.period
     AND ((g.supplierId IS NOT NULL AND p.supplierId = g.supplierId)
       OR (g.supplierId IS NULL AND p.supplierId IS NULL AND p.supplierName = g.supplierName))) AS cloudSupplierPaymentRows`;
 
@@ -339,11 +339,11 @@ async function findCloudAccountMappings(accounts: string[]) {
        COALESCE(NULLIF(c.customerId, ''), NULLIF(m.customerId, '')) AS customerId,
        COALESCE(NULLIF(c.shortName, ''), NULLIF(c.nameCn, ''), NULLIF(c.name, ''), NULLIF(m.customerName, ''), '未匹配客户') AS customerName,
        m.reconciler
-     FROM cloud_mapping_accounts a
-     INNER JOIN cloud_mappings m ON m.id = a.mappingId
-     LEFT JOIN common_suppliers s ON s.supplierId = m.supplierId
-     LEFT JOIN common_undertaking_units u ON u.undertakingUnitId = m.undertakingUnitId
-     LEFT JOIN common_customers c ON c.customerId = m.customerId
+     FROM merge_cloud_mapping_accounts a
+     INNER JOIN merge_cloud_mappings m ON m.id = a.mappingId
+     LEFT JOIN merge_common_suppliers s ON s.supplierId = m.supplierId
+     LEFT JOIN merge_common_undertaking_units u ON u.undertakingUnitId = m.undertakingUnitId
+     LEFT JOIN merge_common_customers c ON c.customerId = m.customerId
      WHERE a.account IS NOT NULL AND TRIM(a.account) <> ''
      ORDER BY m.updatedAt DESC, a.account`,
   );
@@ -389,12 +389,12 @@ export async function listCloudRows(params: URLSearchParams) {
   const { where, values } = cloudWhere(params);
   const requestedSort = getTableSort(params, CLOUD_ROW_FILTER_EXPRESSIONS);
   const [count, rows, periodRows] = await Promise.all([
-    queryRowsRaw<{ total: number }>(`SELECT COUNT(*) AS total FROM cloud_rows ${where}`, values),
-    queryRowsRaw<Row>(`SELECT * FROM cloud_rows ${where} ${requestedSort || "ORDER BY period DESC, updatedAt DESC"} LIMIT :limit OFFSET :offset`, { ...values, limit: pageSize, offset }),
+    queryRowsRaw<{ total: number }>(`SELECT COUNT(*) AS total FROM merge_cloud_rows ${where}`, values),
+    queryRowsRaw<Row>(`SELECT * FROM merge_cloud_rows ${where} ${requestedSort || "ORDER BY period DESC, updatedAt DESC"} LIMIT :limit OFFSET :offset`, { ...values, limit: pageSize, offset }),
       queryRowsRaw<{ period: string; rowCount: number; receivable: number; collected: number }>(
       `SELECT period, COUNT(*) AS rowCount, COALESCE(SUM(COALESCE(customerReceivableTotalAmount, customerReceivable)), 0) AS receivable,
               COALESCE(SUM(CASE WHEN collected = 1 THEN COALESCE(customerReceivableTotalAmount, customerReceivable) ELSE 0 END), 0) AS collected
-         FROM cloud_rows GROUP BY period ORDER BY period DESC LIMIT 24`,
+         FROM merge_cloud_rows GROUP BY period ORDER BY period DESC LIMIT 24`,
     ),
   ]);
   const summaryRows = await queryRowsRaw<{ receivable: number; collected: number; outstanding: number; overdueCount: number }>(
@@ -402,7 +402,7 @@ export async function listCloudRows(params: URLSearchParams) {
             COALESCE(SUM(CASE WHEN collected = 1 THEN COALESCE(customerReceivableTotalAmount, customerReceivable) ELSE 0 END), 0) AS collected,
             COALESCE(SUM(CASE WHEN collected = 0 THEN COALESCE(customerReceivableTotalAmount, customerReceivable) ELSE 0 END), 0) AS outstanding,
             SUM(CASE WHEN collected = 0 AND paymentDate IS NOT NULL AND paymentDate < CURRENT_DATE THEN 1 ELSE 0 END) AS overdueCount
-       FROM cloud_rows ${where}`,
+       FROM merge_cloud_rows ${where}`,
     values,
   );
   return {
@@ -418,7 +418,7 @@ export async function listCloudRows(params: URLSearchParams) {
 export async function listCloudRowFilterOptions(params: URLSearchParams) {
   const base = cloudBaseWhere(params);
   return listSqlFilterOptions({
-    from: "cloud_rows",
+    from: "merge_cloud_rows",
     expressions: CLOUD_ROW_FILTER_EXPRESSIONS,
     searchParams: params,
     conditions: base.conditions,
@@ -517,7 +517,7 @@ export async function createCloudRow(body: Row, actor: OperationActor | null) {
     updatedByUserId: actor?.userId ?? null,
     updatedByName: actor?.displayName ?? null,
   };
-  await executeRaw(`INSERT INTO cloud_rows
+  await executeRaw(`INSERT INTO merge_cloud_rows
     (id,importBatchId,period,batchCode,mappingId,supplierId,supplierName,undertakingUnitId,customerId,customer,account,owner,collectionEntity,
      cloudReconciler,catalogAmount,partnerAmount,voucherCustomerAmount,voucherSupplierAmount,supplierPayablePayer,supplierPayablePayee,supplierPayableNetAmount,
      supplierTaxRate,supplierTaxAmount,supplierPayableTotalAmount,supplierPayable,customerReceivablePayer,customerReceivablePayee,customerReceivableNetAmount,
@@ -532,11 +532,11 @@ export async function createCloudRow(body: Row, actor: OperationActor | null) {
      :calculationLogic,:customerDiscount,:remark,:collectionInvoice,:collected,:collectionPayer,:collectionPayee,:collectionPayerCustomerId,:collectionPayeeUndertakingUnitId,:collectionCurrency,:collectionExchangeRate,
      :collectionNetAmount,:collectionTaxRate,:collectionTaxAmount,:collectionTotalAmount,:collectionDate,:invoiceNo,:invoiceCurrency,:invoicePayer,:invoicePayee,
      :invoiceNetAmount,:invoiceTaxRate,:invoiceTaxAmount,:invoiceTotalAmount,:invoiceExchangeRate,:invoiceDate,:createdByUserId,:createdByName,:updatedByUserId,:updatedByName)`, row);
-  return (await queryRowsRaw<Row>("SELECT * FROM cloud_rows WHERE id = :id", { id: row.id }))[0] ?? null;
+  return (await queryRowsRaw<Row>("SELECT * FROM merge_cloud_rows WHERE id = :id", { id: row.id }))[0] ?? null;
 }
 
 export async function updateCloudRow(id: string, body: Row, actor: OperationActor | null) {
-  const existing = (await queryRowsRaw<Row>("SELECT * FROM cloud_rows WHERE id = :id", { id }))[0];
+  const existing = (await queryRowsRaw<Row>("SELECT * FROM merge_cloud_rows WHERE id = :id", { id }))[0];
   if (!existing) throw new Error("对账单不存在");
   if (existing.confirmed) throw new Error("对账单已确认，不能修改");
   const accountMapping = Object.prototype.hasOwnProperty.call(body, "account")
@@ -577,18 +577,18 @@ export async function updateCloudRow(id: string, body: Row, actor: OperationActo
     values.updatedByUserId = actor.userId;
     values.updatedByName = actor.displayName;
   }
-  await executeRaw(`UPDATE cloud_rows SET ${assignments.join(", ")} WHERE id = :id`, values);
-  return (await queryRowsRaw<Row>("SELECT * FROM cloud_rows WHERE id = :id", { id }))[0] ?? null;
+  await executeRaw(`UPDATE merge_cloud_rows SET ${assignments.join(", ")} WHERE id = :id`, values);
+  return (await queryRowsRaw<Row>("SELECT * FROM merge_cloud_rows WHERE id = :id", { id }))[0] ?? null;
 }
 
 export async function confirmCloudRow(id: string, confirmed: boolean, actor: OperationActor | null) {
   await executeRaw(
-    `UPDATE cloud_rows SET confirmed = :confirmed, confirmedAt = CASE WHEN :confirmed = 1 THEN CURRENT_TIMESTAMP ELSE NULL END,
+    `UPDATE merge_cloud_rows SET confirmed = :confirmed, confirmedAt = CASE WHEN :confirmed = 1 THEN CURRENT_TIMESTAMP ELSE NULL END,
        confirmedByUserId = CASE WHEN :confirmed = 1 THEN :userId ELSE NULL END,
        confirmedByName = CASE WHEN :confirmed = 1 THEN :userName ELSE NULL END WHERE id = :id`,
     { id, confirmed: confirmed ? 1 : 0, userId: actor?.userId ?? null, userName: actor?.displayName ?? null },
   );
-  return (await queryRowsRaw<Row>("SELECT * FROM cloud_rows WHERE id = :id", { id }))[0] ?? null;
+  return (await queryRowsRaw<Row>("SELECT * FROM merge_cloud_rows WHERE id = :id", { id }))[0] ?? null;
 }
 
 export async function listCloudMappings(params: URLSearchParams) {
@@ -624,32 +624,32 @@ export async function saveCloudMapping(body: Row, id: string | null, actor: Oper
     updatedByUserId: actor?.userId ?? null, updatedByName: actor?.displayName ?? null,
   };
   if (id) {
-    await executeRaw(`UPDATE cloud_mappings SET supplierId=:supplierId, supplierName=:supplierName, undertakingUnitId=:undertakingUnitId,
+    await executeRaw(`UPDATE merge_cloud_mappings SET supplierId=:supplierId, supplierName=:supplierName, undertakingUnitId=:undertakingUnitId,
       undertakingUnitName=:undertakingUnitName, customerId=:customerId, customerName=:customerName, reconciler=:reconciler,
       calculationLogic=:calculationLogic, customCalculationLogic=:customCalculationLogic, userDiscount=:userDiscount, remark=:remark,
       updatedByUserId=:updatedByUserId, updatedByName=:updatedByName WHERE id=:id`, values);
   } else {
-    await executeRaw(`INSERT INTO cloud_mappings
+    await executeRaw(`INSERT INTO merge_cloud_mappings
       (id,supplierId,supplierName,undertakingUnitId,undertakingUnitName,customerId,customerName,reconciler,calculationLogic,customCalculationLogic,userDiscount,remark,createdByUserId,createdByName,updatedByUserId,updatedByName)
       VALUES (:id,:supplierId,:supplierName,:undertakingUnitId,:undertakingUnitName,:customerId,:customerName,:reconciler,:calculationLogic,:customCalculationLogic,:userDiscount,:remark,:createdByUserId,:createdByName,:updatedByUserId,:updatedByName)`, values);
   }
-  await executeRaw("DELETE FROM cloud_mapping_accounts WHERE mappingId = :mappingId", { mappingId });
+  await executeRaw("DELETE FROM merge_cloud_mapping_accounts WHERE mappingId = :mappingId", { mappingId });
   const accounts = Array.isArray(body.accounts) ? body.accounts.flatMap(splitCloudAccounts) : splitCloudAccounts(body.accounts);
-  for (const account of accounts) await executeRaw("INSERT IGNORE INTO cloud_mapping_accounts (id,mappingId,account) VALUES (:id,:mappingId,:account)", { id: randomUUID(), mappingId, account });
-  return (await queryRowsRaw<Row>("SELECT * FROM cloud_mappings WHERE id = :id", { id: mappingId }))[0] ?? null;
+  for (const account of accounts) await executeRaw("INSERT IGNORE INTO merge_cloud_mapping_accounts (id,mappingId,account) VALUES (:id,:mappingId,:account)", { id: randomUUID(), mappingId, account });
+  return (await queryRowsRaw<Row>("SELECT * FROM merge_cloud_mappings WHERE id = :id", { id: mappingId }))[0] ?? null;
 }
 
 export async function deleteCloudMapping(id: string) {
-  await executeRaw("DELETE FROM cloud_mapping_accounts WHERE mappingId = :id", { id });
-  await executeRaw("DELETE FROM cloud_mappings WHERE id = :id", { id });
+  await executeRaw("DELETE FROM merge_cloud_mapping_accounts WHERE mappingId = :id", { id });
+  await executeRaw("DELETE FROM merge_cloud_mappings WHERE id = :id", { id });
 }
 
 export async function cloudMasterData(keyword = "") {
   const like = `%${keyword}%`;
   const [suppliers, undertakingUnits, customers] = await Promise.all([
-    queryRowsRaw<Row>("SELECT supplierId AS id, supplierCode AS code, nameCn AS name, shortName FROM common_suppliers WHERE status='active' AND (supplierCode LIKE :like OR nameCn LIKE :like OR shortName LIKE :like) ORDER BY COALESCE(NULLIF(shortName, ''), nameCn) LIMIT 100", { like }),
-    queryRowsRaw<Row>("SELECT undertakingUnitId AS id, undertakingUnitCode AS code, COALESCE(NULLIF(shortName, ''), NULLIF(entityName, ''), name) AS name, shortName FROM common_undertaking_units WHERE status='active' AND (undertakingUnitCode LIKE :like OR name LIKE :like OR shortName LIKE :like OR entityName LIKE :like) ORDER BY COALESCE(NULLIF(shortName, ''), NULLIF(entityName, ''), name) LIMIT 100", { like }),
-    queryRowsRaw<Row>("SELECT customerId AS id, customerCode AS code, COALESCE(NULLIF(shortName, ''), NULLIF(nameCn, ''), name) AS name, shortName FROM common_customers WHERE status='active' AND (customerCode LIKE :like OR name LIKE :like OR nameCn LIKE :like OR shortName LIKE :like) ORDER BY COALESCE(NULLIF(shortName, ''), NULLIF(nameCn, ''), name) LIMIT 100", { like }),
+    queryRowsRaw<Row>("SELECT supplierId AS id, supplierCode AS code, nameCn AS name, shortName FROM merge_common_suppliers WHERE status='active' AND (supplierCode LIKE :like OR nameCn LIKE :like OR shortName LIKE :like) ORDER BY COALESCE(NULLIF(shortName, ''), nameCn) LIMIT 100", { like }),
+    queryRowsRaw<Row>("SELECT undertakingUnitId AS id, undertakingUnitCode AS code, COALESCE(NULLIF(shortName, ''), NULLIF(entityName, ''), name) AS name, shortName FROM merge_common_undertaking_units WHERE status='active' AND (undertakingUnitCode LIKE :like OR name LIKE :like OR shortName LIKE :like OR entityName LIKE :like) ORDER BY COALESCE(NULLIF(shortName, ''), NULLIF(entityName, ''), name) LIMIT 100", { like }),
+    queryRowsRaw<Row>("SELECT customerId AS id, customerCode AS code, COALESCE(NULLIF(shortName, ''), NULLIF(nameCn, ''), name) AS name, shortName FROM merge_common_customers WHERE status='active' AND (customerCode LIKE :like OR name LIKE :like OR nameCn LIKE :like OR shortName LIKE :like) ORDER BY COALESCE(NULLIF(shortName, ''), NULLIF(nameCn, ''), name) LIMIT 100", { like }),
   ]);
   return { suppliers, undertakingUnits, customers };
 }
@@ -679,8 +679,8 @@ export async function listCloudSupplierPayments(params: URLSearchParams) {
          COALESCE(r.supplierTaxAmount, COALESCE(r.supplierPayableNetAmount, r.supplierPayable, 0) * COALESCE(r.supplierTaxRate, 0.16)) AS supplierTaxAmount,
          COALESCE(r.supplierPayableTotalAmount, COALESCE(r.supplierPayableNetAmount, r.supplierPayable, 0) + COALESCE(r.supplierTaxAmount, COALESCE(r.supplierPayableNetAmount, r.supplierPayable, 0) * COALESCE(r.supplierTaxRate, 0.16))) AS supplierPayableTotalAmount,
          r.createdAt, r.updatedAt
-       FROM cloud_rows r
-       LEFT JOIN cloud_mappings m ON m.id = COALESCE(NULLIF(r.mappingId, ''), ${CLOUD_ACCOUNT_MAPPING_ID_SQL})
+       FROM merge_cloud_rows r
+       LEFT JOIN merge_cloud_mappings m ON m.id = COALESCE(NULLIF(r.mappingId, ''), ${CLOUD_ACCOUNT_MAPPING_ID_SQL})
        WHERE r.period = :detailPeriod AND ${CLOUD_SUPPLIER_KEY_SQL} = :detailGroupKey
        ORDER BY r.customer ASC, r.account ASC`,
       { detailPeriod: row.period, detailGroupKey: row.groupKey },
@@ -704,9 +704,9 @@ export async function updateCloudSupplierPayment(id: string, body: Row, actor: O
   const allowed = ["payerUnitId", "payerUnitName", "currency", "paymentExchangeRate", "paymentNetAmount", "paymentTaxRate", "paymentTaxAmount", "paymentTotalAmount", "paymentDate", "invoiceNo", "invoiceCurrency", "invoiceExchangeRate", "invoiceNetAmount", "invoiceTaxRate", "invoiceTaxAmount", "invoiceTotalAmount", "invoiceDate", "invoiceStatus", "paid"];
   const fields = allowed.filter((key) => Object.prototype.hasOwnProperty.call(body, key));
   if (!fields.length) throw new Error("没有可保存的付款字段");
-  const target = (await queryRowsRaw<Row>("SELECT * FROM cloud_supplier_payments WHERE id = :id", { id }))[0]
+  const target = (await queryRowsRaw<Row>("SELECT * FROM merge_cloud_supplier_payments WHERE id = :id", { id }))[0]
     ?? (text(body.period) ? (await queryRowsRaw<Row>(
-      `SELECT * FROM cloud_supplier_payments WHERE period = :period
+      `SELECT * FROM merge_cloud_supplier_payments WHERE period = :period
          AND ((:supplierId <> '' AND supplierId = :supplierId) OR (:supplierId = '' AND supplierId IS NULL AND supplierName = :supplierName)) LIMIT 1`,
       { period: text(body.period), supplierId: text(body.supplierId), supplierName: text(body.supplierName) },
     ))[0] : undefined);
@@ -732,9 +732,9 @@ export async function updateCloudSupplierPayment(id: string, body: Row, actor: O
   }
   if (actor) { assignments.push("updatedByUserId = :userId", "updatedByName = :userName"); values.userId = actor.userId; values.userName = actor.displayName; }
   if (target) {
-    await executeRaw(`UPDATE cloud_supplier_payments SET ${assignments.join(", ")} WHERE id = :id`, values);
+    await executeRaw(`UPDATE merge_cloud_supplier_payments SET ${assignments.join(", ")} WHERE id = :id`, values);
   } else {
-    await executeRaw(`INSERT INTO cloud_supplier_payments
+    await executeRaw(`INSERT INTO merge_cloud_supplier_payments
       (id,period,supplierId,supplierName,payerUnitId,payerUnitName,currency,paymentExchangeRate,paymentNetAmount,paymentTaxRate,paymentTaxAmount,paymentTotalAmount,paymentDate,
        invoiceNo,invoiceCurrency,invoiceExchangeRate,invoiceNetAmount,invoiceTaxRate,invoiceTaxAmount,invoiceTotalAmount,invoiceDate,invoiceStatus,paid,createdByUserId,createdByName,updatedByUserId,updatedByName)
       VALUES (:id,:period,:supplierId,:supplierName,:payerUnitId,:payerUnitName,:currency,:paymentExchangeRate,:paymentNetAmount,:paymentTaxRate,:paymentTaxAmount,:paymentTotalAmount,:paymentDate,
@@ -750,7 +750,7 @@ export async function updateCloudSupplierPayment(id: string, body: Row, actor: O
       createdByUserId: actor?.userId ?? null, createdByName: actor?.displayName ?? null, updatedByUserId: actor?.userId ?? null, updatedByName: actor?.displayName ?? null,
     });
   }
-  return (await queryRowsRaw<Row>("SELECT * FROM cloud_supplier_payments WHERE id = :id", { id: values.id }))[0] ?? null;
+  return (await queryRowsRaw<Row>("SELECT * FROM merge_cloud_supplier_payments WHERE id = :id", { id: values.id }))[0] ?? null;
 }
 
 async function resolveCloudPartner(kind: "customers" | "undertakingUnits", value: unknown) {
@@ -758,8 +758,8 @@ async function resolveCloudPartner(kind: "customers" | "undertakingUnits", value
   if (!raw) return { id: null, name: "" };
   const candidates = Array.from(new Set([raw, raw.split(/\s+-\s+/)[0]?.trim() ?? raw]));
   const config = kind === "customers"
-    ? { table: "common_customers", id: "customerId", code: "customerCode", names: ["name", "nameCn", "shortName"] }
-    : { table: "common_undertaking_units", id: "undertakingUnitId", code: "undertakingUnitCode", names: ["name", "nameCn", "entityName", "shortName"] };
+    ? { table: "merge_common_customers", id: "customerId", code: "customerCode", names: ["name", "nameCn", "shortName"] }
+    : { table: "merge_common_undertaking_units", id: "undertakingUnitId", code: "undertakingUnitCode", names: ["name", "nameCn", "entityName", "shortName"] };
   const conditions = candidates.flatMap((_, index) => [`${config.code} = :value${index}`, ...config.names.map((field) => `${field} = :value${index}`)]);
   const values = Object.fromEntries(candidates.map((candidate, index) => [`value${index}`, candidate]));
   const rows = await queryRowsRaw<Row>(
@@ -790,7 +790,7 @@ export async function importCloudWorkbook(buffer: Buffer, fileName: string, peri
   const resolvedPeriod = period || text(normalized[0]?.period) || new Date().toISOString().slice(0, 7);
   const batchId = randomUUID();
   const batchCode = `HC-${resolvedPeriod.replace(/[^0-9]/g, "")}-${Date.now().toString().slice(-6)}`;
-  await executeRaw(`INSERT INTO cloud_import_batches (id,batchCode,period,fileName,rowCount,importedByUserId,importedByName) VALUES (:id,:batchCode,:period,:fileName,:rowCount,:userId,:userName)`, { id: batchId, batchCode, period: resolvedPeriod, fileName, rowCount: normalized.length, userId: actor?.userId ?? null, userName: actor?.displayName ?? null });
+  await executeRaw(`INSERT INTO merge_cloud_import_batches (id,batchCode,period,fileName,rowCount,importedByUserId,importedByName) VALUES (:id,:batchCode,:period,:fileName,:rowCount,:userId,:userName)`, { id: batchId, batchCode, period: resolvedPeriod, fileName, rowCount: normalized.length, userId: actor?.userId ?? null, userName: actor?.displayName ?? null });
   for (const source of normalized) {
     const account = text(source.account);
     const accountMapping = accountMappings.get(account);
@@ -836,7 +836,7 @@ export async function importCloudWorkbook(buffer: Buffer, fileName: string, peri
       invoiceExchangeRate: nullableNumber(source.invoiceExchangeRate),
       createdByUserId: actor?.userId ?? null, createdByName: actor?.displayName ?? null, updatedByUserId: actor?.userId ?? null, updatedByName: actor?.displayName ?? null,
     };
-    await executeRaw(`INSERT INTO cloud_rows
+    await executeRaw(`INSERT INTO merge_cloud_rows
       (id,importBatchId,period,batchCode,mappingId,supplierId,supplierName,undertakingUnitId,customerId,customer,account,owner,cloudReconciler,collectionEntity,catalogAmount,partnerAmount,voucherCustomerAmount,voucherSupplierAmount,
        supplierPayablePayer,supplierPayablePayee,supplierPayableNetAmount,supplierTaxRate,supplierTaxAmount,supplierPayableTotalAmount,supplierPayable,
        customerReceivablePayer,customerReceivablePayee,customerReceivableNetAmount,customerTaxRate,customerReceivableTaxAmount,customerReceivableTotalAmount,customerReceivable,
@@ -860,20 +860,20 @@ function isCloudImportNoteRow(row: Record<string, unknown>) {
 }
 
 export async function listCloudAttachments(ownerType: string, ownerId: string) {
-  return queryRowsRaw<Row>("SELECT id,ownerType,ownerId,fileName,fileType,fileSize,uploadedByName,uploadedAt FROM cloud_attachments WHERE ownerType = :ownerType AND ownerId = :ownerId ORDER BY uploadedAt DESC", { ownerType, ownerId });
+  return queryRowsRaw<Row>("SELECT id,ownerType,ownerId,fileName,fileType,fileSize,uploadedByName,uploadedAt FROM merge_cloud_attachments WHERE ownerType = :ownerType AND ownerId = :ownerId ORDER BY uploadedAt DESC", { ownerType, ownerId });
 }
 
 export async function addCloudAttachment(ownerType: string, ownerId: string, file: { fileName: string; fileType: string; fileSize: number; dataUrl: string }, actor: OperationActor | null) {
   const id = randomUUID();
-  await executeRaw(`INSERT INTO cloud_attachments (id,ownerType,ownerId,fileName,fileType,fileSize,dataUrl,uploadedByUserId,uploadedByName)
+  await executeRaw(`INSERT INTO merge_cloud_attachments (id,ownerType,ownerId,fileName,fileType,fileSize,dataUrl,uploadedByUserId,uploadedByName)
     VALUES (:id,:ownerType,:ownerId,:fileName,:fileType,:fileSize,:dataUrl,:userId,:userName)`, { id, ownerType, ownerId, ...file, userId: actor?.userId ?? null, userName: actor?.displayName ?? null });
-  return (await queryRowsRaw<Row>("SELECT id,ownerType,ownerId,fileName,fileType,fileSize,uploadedByName,uploadedAt FROM cloud_attachments WHERE id = :id", { id }))[0] ?? null;
+  return (await queryRowsRaw<Row>("SELECT id,ownerType,ownerId,fileName,fileType,fileSize,uploadedByName,uploadedAt FROM merge_cloud_attachments WHERE id = :id", { id }))[0] ?? null;
 }
 
 export async function findCloudAttachment(id: string) {
-  return (await queryRowsRaw<Row>("SELECT * FROM cloud_attachments WHERE id = :id", { id }))[0] ?? null;
+  return (await queryRowsRaw<Row>("SELECT * FROM merge_cloud_attachments WHERE id = :id", { id }))[0] ?? null;
 }
 
 export async function deleteCloudAttachment(id: string) {
-  await executeRaw("DELETE FROM cloud_attachments WHERE id = :id", { id });
+  await executeRaw("DELETE FROM merge_cloud_attachments WHERE id = :id", { id });
 }

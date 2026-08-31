@@ -13,7 +13,7 @@ export async function GET(request: NextRequest) {
   const rows = await queryRows(
     `SELECT id, quotationId, quotationDate, customerId, productCode, productName,
             productMasterId, productModelId, productSpecId, customerPrice, currency, remark
-       FROM po_history_quotations
+       FROM merge_po_history_quotations
       WHERE customerId = :customerId AND productCode = :productCode
       ORDER BY quotationDate DESC, createdAt DESC
       LIMIT :limit`,

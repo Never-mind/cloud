@@ -91,7 +91,7 @@ function roundAmount(value: number) {
 
 export async function recalculateQuotationSummary(quotationIdOrNo: string, actor: OperationActor | null = null) {
   const quotations = await queryRows<Row>(
-    `SELECT * FROM po_quotations
+    `SELECT * FROM merge_po_quotations
       WHERE id = :quotationId OR quotationNo = :quotationId
       LIMIT 1`,
     { quotationId: quotationIdOrNo },
@@ -105,8 +105,8 @@ export async function recalculateQuotationSummary(quotationIdOrNo: string, actor
             master.length AS masterLength, master.width AS masterWidth, master.height AS masterHeight,
             master.grossWeight AS masterGrossWeight, master.tariffRate AS masterTariffRate,
             master.needNom AS masterNeedNom
-       FROM po_quotation_items item
-       LEFT JOIN po_product_masters master ON master.id = item.productMasterId
+       FROM merge_po_quotation_items item
+       LEFT JOIN merge_po_product_masters master ON master.id = item.productMasterId
       WHERE item.quotationId = :quotationId
       ORDER BY item.lineNo ASC, item.id ASC`,
     { quotationId: quotation.id },
@@ -120,7 +120,7 @@ export async function recalculateQuotationSummary(quotationIdOrNo: string, actor
     updatedByName: actor.displayName,
   } : {};
   await execute(
-    `UPDATE po_quotations
+    `UPDATE merge_po_quotations
         SET publicFeeTotal = :publicFeeTotal,
             totalCifUsd = :totalCifUsd,
             totalDdpUsd = :totalDdpUsd,
@@ -160,7 +160,7 @@ export async function createQuotationFromCustomerPo(poId: string, actor: Operati
   const [pos] = await Promise.all([
     queryRows<CustomerPoRow>(
       `SELECT id, poNo, projectName, undertakingUnitId, customerId, currency
-         FROM po_customer_pos
+         FROM merge_po_customer_pos
         WHERE id = :poId OR poNo = :poId
         LIMIT 1`,
       { poId },
@@ -170,7 +170,7 @@ export async function createQuotationFromCustomerPo(poId: string, actor: Operati
   if (!customerPo) throw new Error("客户PO不存在");
   const existing = await queryRows<QuotationRow>(
     `SELECT id, quotationNo, customerId, contractingUnitId, sourcePoId, sourcePoNo, currency, totalAmount, totalProfit, grossMarginRate, status
-       FROM po_quotations
+       FROM merge_po_quotations
       WHERE sourcePoId = :sourcePoId OR sourcePoNo = :sourcePoNo
       LIMIT 1`,
     { sourcePoId: customerPo.id, sourcePoNo: customerPo.poNo },
@@ -178,7 +178,7 @@ export async function createQuotationFromCustomerPo(poId: string, actor: Operati
   if (existing[0]) return { quotationId: existing[0].id, quotationNo: existing[0].quotationNo, sourcePoId: customerPo.id, sourcePoNo: customerPo.poNo, itemCount: 0, existing: true };
 
   const items = await queryRows<Row>(
-    `SELECT * FROM po_customer_po_items WHERE poId = :poId ORDER BY lineNo ASC, id ASC`,
+    `SELECT * FROM merge_po_customer_po_items WHERE poId = :poId ORDER BY lineNo ASC, id ASC`,
     { poId: customerPo.id },
   );
   if (!items.length) throw new Error("客户PO没有明细");
@@ -192,7 +192,7 @@ export async function createQuotationFromCustomerPo(poId: string, actor: Operati
     `SELECT id AS productMasterId, masterCode AS productCode, name AS productName, brand,
             specification, category, unit, suggestedPurchaseUnitPrice, length, width,
             height, grossWeight, tariffRate, needNom
-       FROM po_product_masters
+       FROM merge_po_product_masters
       WHERE status = 'active'
         AND (id IN (:productMasterIds) OR masterCode IN (:productCodes))`,
     {
@@ -208,7 +208,7 @@ export async function createQuotationFromCustomerPo(poId: string, actor: Operati
   const histories = productCodes.length
     ? await queryRows<HistoryQuotationRow>(
         `SELECT productCode, customerPrice, currency
-           FROM po_history_quotations
+           FROM merge_po_history_quotations
           WHERE customerId = :customerId
             AND productCode IN (:productCodes)
             AND (quotationDate < CURRENT_DATE OR (quotationDate = CURRENT_DATE AND createdAt < CURRENT_TIMESTAMP))
@@ -248,7 +248,7 @@ export async function createQuotationFromCustomerPo(poId: string, actor: Operati
   const quotationNo = buildQuotationNo(customerPo.poNo);
   const quotationParams = { ...DEFAULT_QUOTATION_PARAMS, ...calculation };
   await execute(
-    `INSERT INTO po_quotations
+    `INSERT INTO merge_po_quotations
       (id, quotationNo, projectName, customerId, contractingUnitId, sourcePoId, sourcePoNo, currency,
        exchangeRateUsd, exchangeRateMxn, capitalCostRate, accountPeriod, badDebtRate,
        customsFeeRate, vatOverseas, markupRate, seaFreightRate, airFreightRate, nomFee,
@@ -284,7 +284,7 @@ export async function createQuotationFromCustomerPo(poId: string, actor: Operati
   );
   for (const item of calculation.items) {
     await execute(
-      `INSERT INTO po_quotation_items
+      `INSERT INTO merge_po_quotation_items
         (id, quotationId, lineNo, productCode, productName, brand, productMasterId, productModelId,
          productSpecId, quantity, unitPrice, amount, currency, purchaseCurrency, purchaseUnitPrice,
          purchaseTotalOriginal, purchaseTotalUsd, transportType, isCustomsClearance, firstMileFreightUsd,
@@ -307,7 +307,7 @@ export async function createQuotationFromCustomerPo(poId: string, actor: Operati
 export async function confirmQuotation(quotationIdOrNo: string, actor: OperationActor | null = null) {
   const rows = await queryRows<QuotationRow>(
     `SELECT id, quotationNo, customerId, contractingUnitId, sourcePoId, sourcePoNo, currency, totalAmount, totalProfit, grossMarginRate, status
-       FROM po_quotations
+       FROM merge_po_quotations
       WHERE id = :id OR quotationNo = :id
       LIMIT 1`,
     { id: quotationIdOrNo },
@@ -320,7 +320,7 @@ export async function confirmQuotation(quotationIdOrNo: string, actor: Operation
   }
 
   await execute(
-    `UPDATE po_quotations
+    `UPDATE merge_po_quotations
         SET status = 'confirmed',
             confirmedByUserId = :confirmedByUserId,
             confirmedByName = :confirmedByName,
@@ -339,7 +339,7 @@ export async function confirmQuotation(quotationIdOrNo: string, actor: Operation
 
   const items = await queryRows<Row>(
     `SELECT id, quotationId, lineNo, productCode, productName, productMasterId, productModelId, productSpecId, quantity, unitPrice, amount, currency, remark
-       FROM po_quotation_items
+       FROM merge_po_quotation_items
       WHERE quotationId = :quotationId
       ORDER BY lineNo ASC, id ASC`,
     { quotationId: quotation.id },
@@ -347,7 +347,7 @@ export async function confirmQuotation(quotationIdOrNo: string, actor: Operation
   const quotationDate = new Date().toISOString().slice(0, 10);
   for (const item of items) {
     await execute(
-      `INSERT INTO po_history_quotations
+      `INSERT INTO merge_po_history_quotations
         (id, quotationId, quotationDate, customerId, productCode, productName, productMasterId, productModelId, productSpecId, customerPrice, currency, remark)
        VALUES
         (:id, :quotationId, :quotationDate, :customerId, :productCode, :productName, :productMasterId, :productModelId, :productSpecId, :customerPrice, :currency, :remark)`,
@@ -464,7 +464,7 @@ function toStoredQuotationItem(item: Row) {
 
 async function updateCalculatedQuotationItem(item: Row) {
   await execute(
-    `UPDATE po_quotation_items
+    `UPDATE merge_po_quotation_items
         SET productCode = :productCode,
             productName = :productName,
             brand = :brand,

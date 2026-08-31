@@ -24,11 +24,11 @@ async function getRequestOrderDetail(requestNo: string): Promise<OrderDetailData
         COALESCE(NULLIF(undertakingUnit.shortName, ''), NULLIF(undertakingUnit.entityName, ''), NULLIF(undertakingUnit.name, ''), undertakingUnit.undertakingUnitCode, requestItem.undertakingUnitId) AS undertakingUnitDisplayName,
         COALESCE(NULLIF(customer.shortName, ''), NULLIF(customer.nameCn, ''), NULLIF(customer.name, ''), customer.customerCode, requestItem.customerId) AS customerDisplayName
       FROM requestitems AS requestItem
-      LEFT JOIN common_suppliers AS supplier
+      LEFT JOIN merge_common_suppliers AS supplier
         ON supplier.supplierId = requestItem.supplierId OR supplier.supplierCode = requestItem.supplierId
-      LEFT JOIN common_undertaking_units AS undertakingUnit
+      LEFT JOIN merge_common_undertaking_units AS undertakingUnit
         ON undertakingUnit.undertakingUnitId = requestItem.undertakingUnitId OR undertakingUnit.undertakingUnitCode = requestItem.undertakingUnitId
-      LEFT JOIN common_customers AS customer
+      LEFT JOIN merge_common_customers AS customer
         ON customer.customerId = requestItem.customerId OR customer.customerCode = requestItem.customerId
       WHERE requestItem.requestNo = :requestNo
       ORDER BY requestItem.id

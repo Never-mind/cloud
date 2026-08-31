@@ -48,11 +48,11 @@ export type PoInvoiceSummaryResult = {
 };
 
 const invoiceFrom = `
-  po_settlement_invoices i
-  LEFT JOIN po_settlement_projects p ON p.id = i.projectId
-  LEFT JOIN common_customers customer
+  merge_po_settlement_invoices i
+  LEFT JOIN merge_po_settlement_projects p ON p.id = i.projectId
+  LEFT JOIN merge_common_customers customer
     ON customer.customerId = p.customerId OR customer.customerCode = p.customerId
-  LEFT JOIN common_undertaking_units undertaking
+  LEFT JOIN merge_common_undertaking_units undertaking
     ON undertaking.undertakingUnitId = p.contractingUnitId
     OR undertaking.undertakingUnitCode = p.contractingUnitId
     OR undertaking.entityCode = p.contractingUnitId

@@ -38,7 +38,7 @@ export async function getUserByEmail(email: string) {
   const rows = await queryRows<AuthUser>(
     `
       SELECT userId, email, displayName, passwordHash, passwordSalt, role, status
-      FROM common_users
+      FROM merge_common_users
       WHERE email = :email
       LIMIT 1
     `,
@@ -62,7 +62,7 @@ export async function validateLogin(email: string, password: string, loadUser: A
   const valid = hashesMatch(inputHash, user.passwordHash);
   if (valid && loadUser === getUserByEmail) {
     await executeRaw(
-      "UPDATE common_users SET lastLoginAt = CURRENT_TIMESTAMP WHERE email = :email",
+      "UPDATE merge_common_users SET lastLoginAt = CURRENT_TIMESTAMP WHERE email = :email",
       { email: normalizedEmail },
     );
   }

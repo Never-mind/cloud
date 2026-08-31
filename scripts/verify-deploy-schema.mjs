@@ -11,10 +11,10 @@ const connection = await mysql.createConnection({
 
 try {
   const [tables] = await connection.query(
-    "SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME LIKE 'power\\_%' ESCAPE '\\\\'",
+    "SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME LIKE 'merge\\_power\\_%' ESCAPE '\\\\'",
   );
   const tableCounts = {};
-  for (const tableName of ["power_requests", "power_purchaseorders", "power_shipments", "power_prepaymentcontracts"]) {
+  for (const tableName of ["merge_power_requests", "merge_power_purchaseorders", "merge_power_shipments", "merge_power_prepaymentcontracts"]) {
     const [[row]] = await connection.query(`SELECT COUNT(*) AS total FROM \`${tableName}\``);
     tableCounts[tableName] = Number(row.total ?? 0);
   }

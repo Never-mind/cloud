@@ -24,7 +24,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ qu
   try {
     const quotations = await queryRows<Row>(
       `SELECT id, quotationNo, status
-         FROM po_quotations
+         FROM merge_po_quotations
         WHERE id = :quotationId OR quotationNo = :quotationId
         LIMIT 1`,
       { quotationId },
@@ -46,7 +46,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ qu
     const items = await queryRows<Row>(
       `SELECT id, lineNo, productCode, purchaseCurrency, purchaseUnitPrice, quantity,
               transportType, isCustomsClearance, enableNom, ddpQuoteUnitUsd, markupRate, remark
-         FROM po_quotation_items
+         FROM merge_po_quotation_items
         WHERE quotationId = :quotationId
         ORDER BY lineNo ASC, id ASC`,
       { quotationId: quotation.id },
@@ -101,7 +101,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ qu
         if (markupRate !== undefined && markupRate < -100) throw new Error("加价率不能小于-100%");
 
         await execute(
-          `UPDATE po_quotation_items
+          `UPDATE merge_po_quotation_items
               SET purchaseUnitPrice = :purchaseUnitPrice,
                   purchaseCurrency = :purchaseCurrency,
                   ddpQuoteUnitUsd = :ddpQuoteUnitUsd,

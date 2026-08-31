@@ -11,7 +11,7 @@ export async function GET(request: NextRequest) {
   }
 
   const isCustomer = kind === "customers";
-  const table = isCustomer ? "common_customers" : "common_undertaking_units";
+  const table = isCustomer ? "merge_common_customers" : "merge_common_undertaking_units";
   const id = isCustomer ? "customerId" : "undertakingUnitId";
   const code = isCustomer ? "customerCode" : "undertakingUnitCode";
   const fullName = isCustomer ? "nameCn" : "entityName";

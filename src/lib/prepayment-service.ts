@@ -35,7 +35,7 @@ function monthlyPrepaymentPartyNameExpression(party: "supplier" | "undertakingUn
     : party === "undertakingUnit"
       ? "COALESCE(NULLIF(mpw.undertakingUnitId, ''), ri.linkedUndertakingUnitId, riByBusinessKey.fallbackUndertakingUnitId)"
       : "COALESCE(NULLIF(mpw.customerId, ''), ri.linkedCustomerId, riByBusinessKey.fallbackCustomerId)";
-  const table = party === "supplier" ? "common_suppliers" : party === "undertakingUnit" ? "common_undertaking_units" : "common_customers";
+  const table = party === "supplier" ? "merge_common_suppliers" : party === "undertakingUnit" ? "merge_common_undertaking_units" : "merge_common_customers";
   const idColumn = party === "supplier" ? "supplierId" : party === "undertakingUnit" ? "undertakingUnitId" : "customerId";
   const codeColumn = party === "supplier" ? "supplierCode" : party === "undertakingUnit" ? "undertakingUnitCode" : "customerCode";
   const fullNameColumn = party === "supplier" ? "nameCn" : party === "undertakingUnit" ? "entityName" : "nameCn";
@@ -102,9 +102,9 @@ export async function listAvailablePrepaymentLines(options: {
     LEFT JOIN requestitems ri ON ri.id = poi.requestItemId
     LEFT JOIN requests req ON req.requestNo = COALESCE(poi.requestNo, po.requestNo, ri.requestNo)
     LEFT JOIN instancemodels im ON im.deviceCode = ri.deviceCode
-    LEFT JOIN common_undertaking_units unit ON unit.undertakingUnitId = ri.undertakingUnitId OR unit.undertakingUnitCode = ri.undertakingUnitId OR unit.entityCode = ri.undertakingUnitId
-    LEFT JOIN common_suppliers supplier ON supplier.supplierId = ri.supplierId OR supplier.supplierCode = ri.supplierId
-    LEFT JOIN common_customers customer ON customer.customerId = ri.customerId OR customer.customerCode = ri.customerId
+    LEFT JOIN merge_common_undertaking_units unit ON unit.undertakingUnitId = ri.undertakingUnitId OR unit.undertakingUnitCode = ri.undertakingUnitId OR unit.entityCode = ri.undertakingUnitId
+    LEFT JOIN merge_common_suppliers supplier ON supplier.supplierId = ri.supplierId OR supplier.supplierCode = ri.supplierId
+    LEFT JOIN merge_common_customers customer ON customer.customerId = ri.customerId OR customer.customerCode = ri.customerId
     WHERE ${conditions.join(" AND ")}
   `;
   const [{ total: totalValue }] = await queryRows<{ total: number }>(`SELECT COUNT(*) AS total ${sourceFrom}`, params);
@@ -164,9 +164,9 @@ export async function listAvailablePrepaymentLineFilterOptions(searchParams: URL
       LEFT JOIN requestitems ri ON ri.id = poi.requestItemId
       LEFT JOIN requests req ON req.requestNo = COALESCE(poi.requestNo, po.requestNo, ri.requestNo)
       LEFT JOIN instancemodels im ON im.deviceCode = ri.deviceCode
-      LEFT JOIN common_undertaking_units unit ON unit.undertakingUnitId = ri.undertakingUnitId OR unit.undertakingUnitCode = ri.undertakingUnitId OR unit.entityCode = ri.undertakingUnitId
-      LEFT JOIN common_suppliers supplier ON supplier.supplierId = ri.supplierId OR supplier.supplierCode = ri.supplierId
-      LEFT JOIN common_customers customer ON customer.customerId = ri.customerId OR customer.customerCode = ri.customerId`,
+      LEFT JOIN merge_common_undertaking_units unit ON unit.undertakingUnitId = ri.undertakingUnitId OR unit.undertakingUnitCode = ri.undertakingUnitId OR unit.entityCode = ri.undertakingUnitId
+      LEFT JOIN merge_common_suppliers supplier ON supplier.supplierId = ri.supplierId OR supplier.supplierCode = ri.supplierId
+      LEFT JOIN merge_common_customers customer ON customer.customerId = ri.customerId OR customer.customerCode = ri.customerId`,
     conditions: [
       "po.status LIKE :availablePurchaseStatus",
       "req.status <> :availableRequestDraftStatus",

@@ -13,6 +13,21 @@ const connection = await mysql.createConnection({
   multipleStatements: true,
 });
 
+const LEGACY_TABLE_PREFIXES = ["power_", "po_", "cloud_", "common_"];
+
+function physicalTableName(tableName) {
+  const normalized = String(tableName).toLowerCase();
+  if (normalized.startsWith("merge_")) return normalized;
+  return LEGACY_TABLE_PREFIXES.some((prefix) => normalized.startsWith(prefix)) ? `merge_${normalized}` : normalized;
+}
+
+function prefixSchemaTables(sql) {
+  return sql.replace(
+    /((?:CREATE\s+TABLE(?:\s+IF\s+NOT\s+EXISTS)?|INSERT\s+IGNORE\s+INTO)\s+`?)(power_|po_|cloud_|common_)([A-Za-z0-9_]+)(`?)/gi,
+    (_match, start, prefix, suffix, end) => `${start}merge_${prefix}${suffix}${end}`,
+  );
+}
+
 const commonSchema = `
 CREATE TABLE IF NOT EXISTS common_customers (
   customerId VARCHAR(64) NOT NULL PRIMARY KEY,
@@ -913,43 +928,47 @@ function hashPassword(password, salt) {
 }
 
 async function ensureColumn(tableName, columnName, definition) {
+  const physicalName = physicalTableName(tableName);
   const [rows] = await connection.execute(
     `SELECT COUNT(*) AS count
        FROM information_schema.columns
       WHERE table_schema = ? AND table_name = ? AND column_name = ?`,
-    [database, tableName, columnName],
+    [database, physicalName, columnName],
   );
   if (Number(rows[0]?.count ?? 0) === 0) {
-    await connection.query(`ALTER TABLE \`${tableName}\` ADD COLUMN \`${columnName}\` ${definition}`);
+    await connection.query(`ALTER TABLE \`${physicalName}\` ADD COLUMN \`${columnName}\` ${definition}`);
   }
 }
 
 async function hasColumn(tableName, columnName) {
+  const physicalName = physicalTableName(tableName);
   const [rows] = await connection.execute(
     `SELECT COUNT(*) AS count
        FROM information_schema.columns
       WHERE table_schema = ? AND table_name = ? AND column_name = ?`,
-    [database, tableName, columnName],
+    [database, physicalName, columnName],
   );
   return Number(rows[0]?.count ?? 0) > 0;
 }
 
 async function hasIndex(tableName, indexName) {
+  const physicalName = physicalTableName(tableName);
   const [rows] = await connection.execute(
     `SELECT COUNT(*) AS count
        FROM information_schema.statistics
       WHERE table_schema = ? AND table_name = ? AND index_name = ?`,
-    [database, tableName, indexName],
+    [database, physicalName, indexName],
   );
   return Number(rows[0]?.count ?? 0) > 0;
 }
 
 async function dropColumn(tableName, columnName, dependentIndexName) {
+  const physicalName = physicalTableName(tableName);
   if (!(await hasColumn(tableName, columnName))) return;
   if (dependentIndexName && await hasIndex(tableName, dependentIndexName)) {
-    await connection.query(`ALTER TABLE \`${tableName}\` DROP INDEX \`${dependentIndexName}\``);
+    await connection.query(`ALTER TABLE \`${physicalName}\` DROP INDEX \`${dependentIndexName}\``);
   }
-  await connection.query(`ALTER TABLE \`${tableName}\` DROP COLUMN \`${columnName}\``);
+  await connection.query(`ALTER TABLE \`${physicalName}\` DROP COLUMN \`${columnName}\``);
 }
 
 const adminSalt = createPasswordSalt();
@@ -1073,7 +1092,7 @@ try {
       /(`deviceCode` VARCHAR\(64\) NULL COMMENT 'device code',\r?\n\s+)`requestType` VARCHAR\(64\) NULL COMMENT 'whole machine\/spare parts snapshot',(\r?\n\s+`modelCode` VARCHAR\(128\) NULL COMMENT 'model code',)/,
       "$1$2",
     );
-  await connection.query(powerSchema);
+  await connection.query(prefixSchemaTables(powerSchema));
   await ensureDemandPlanColumns();
   for (const tableName of ["power_requests", "power_purchaseorders"]) {
     for (const [columnName, definition] of [
@@ -1087,11 +1106,11 @@ try {
       await ensureColumn(tableName, columnName, definition);
     }
   }
-  await connection.query(commonSchema);
+  await connection.query(prefixSchemaTables(commonSchema));
   await ensureColumn("po_customer_pos", "projectName", "VARCHAR(255) NULL AFTER `poNo`");
   await ensureColumn("po_customer_pos", "undertakingUnitId", "VARCHAR(64) NULL AFTER `poNo`");
   if (!(await hasIndex("po_customer_pos", "idx_po_customer_pos_undertaking_unit"))) {
-    await connection.query("ALTER TABLE `po_customer_pos` ADD KEY `idx_po_customer_pos_undertaking_unit` (`undertakingUnitId`, `status`)");
+    await connection.query(`ALTER TABLE \`${physicalTableName("po_customer_pos")}\` ADD KEY \`idx_po_customer_pos_undertaking_unit\` (\`undertakingUnitId\`, \`status\`)`);
   }
   for (const [columnName, definition] of [
     ["entityCode", "VARCHAR(100) NULL"],
@@ -1114,7 +1133,7 @@ try {
     ["common_undertaking_unit_bank_accounts", "idx_common_undertaking_accounts_unit"],
   ]) {
     if (await hasIndex(tableName, indexName)) {
-      await connection.query(`ALTER TABLE \`${tableName}\` DROP INDEX \`${indexName}\``);
+      await connection.query(`ALTER TABLE \`${physicalTableName(tableName)}\` DROP INDEX \`${indexName}\``);
     }
   }
   for (const tableName of [
@@ -1133,25 +1152,25 @@ try {
         ? `${tableName.includes("contacts") ? "idx_common_supplier_contacts_supplier" : "idx_common_supplier_accounts_supplier"}`
         : `${tableName.includes("contacts") ? "idx_common_undertaking_contacts_unit" : "idx_common_undertaking_accounts_unit"}`;
     if (!(await hasIndex(tableName, indexName))) {
-      await connection.query(`ALTER TABLE \`${tableName}\` ADD KEY \`${indexName}\` (\`${ownerColumn}\`)`);
+      await connection.query(`ALTER TABLE \`${physicalTableName(tableName)}\` ADD KEY \`${indexName}\` (\`${ownerColumn}\`)`);
     }
   }
   await dropColumn("common_customers", "postalCode");
-  await connection.query(settlementSchema);
+  await connection.query(prefixSchemaTables(settlementSchema));
   await ensureColumn("po_quotations", "projectName", "VARCHAR(255) NULL AFTER `quotationNo`");
   await ensureColumn("po_settlement_projects", "projectName", "VARCHAR(255) NULL AFTER `quotationNo`");
   await ensureColumn("po_settlement_invoices", "isInvoiced", "TINYINT(1) NOT NULL DEFAULT 0 AFTER `isPaid`");
-  await connection.query(cloudSchema);
+  await connection.query(prefixSchemaTables(cloudSchema));
   await ensureCloudRowColumns();
   await ensureCloudSupplierPaymentColumns();
   await connection.execute(
-    `INSERT IGNORE INTO common_users
+    `INSERT IGNORE INTO ${physicalTableName("common_users")}
       (userId, displayName, email, passwordHash, passwordSalt, role, status)
      VALUES (?, ?, ?, ?, ?, 'admin', 'active')`,
     ["admin", "管理员", "admin@luzcorp.com", adminHash, adminSalt],
   );
   await connection.execute(
-    `INSERT IGNORE INTO common_modules
+    `INSERT IGNORE INTO ${physicalTableName("common_modules")}
       (moduleKey, moduleName, domainKey, route, sortOrder, enabled, adminOnly, remark)
      VALUES
       ('domain-power', '算力交付', 'power', '/', 10, 1, 0, '算力交付一级目录'),

@@ -222,9 +222,9 @@ export async function createImportPreviewJob({
       ? await queryRows("SELECT deviceCode, modelCode, nameEn FROM instancemodels")
       : [];
   const [suppliers, undertakingUnits, customers] = await Promise.all([
-    queryRows<PartyReferenceRow>("SELECT supplierId, supplierCode, shortName, nameCn FROM common_suppliers"),
-    queryRows<PartyReferenceRow>("SELECT undertakingUnitId, undertakingUnitCode, entityCode, shortName, entityName, name FROM common_undertaking_units"),
-    queryRows<PartyReferenceRow>("SELECT customerId, customerCode, shortName, nameCn, name FROM common_customers"),
+    queryRows<PartyReferenceRow>("SELECT supplierId, supplierCode, shortName, nameCn FROM merge_common_suppliers"),
+    queryRows<PartyReferenceRow>("SELECT undertakingUnitId, undertakingUnitCode, entityCode, shortName, entityName, name FROM merge_common_undertaking_units"),
+    queryRows<PartyReferenceRow>("SELECT customerId, customerCode, shortName, nameCn, name FROM merge_common_customers"),
   ]);
   const billingPurchaseLines =
     targetKey === "billing-ledgers"

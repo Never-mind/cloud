@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, CheckCircle2, Download, Edit3, Eye, FileDown, FileUp, RefreshCw, Save, Search, Trash2, X } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { formatDisplayValue } from "@/lib/display-format";
+import { summarizeQuotationDetails } from "@/lib/quotation-detail-summary";
 import { postWorkspaceMessage } from "@/lib/tab-workspace";
 import type { EntityConfig, EntityField } from "@/lib/modules";
 import { PaginationBar } from "./pagination-bar";
@@ -421,7 +422,14 @@ export function QuotationDetailPage({ id }: { id: string }) {
       const data = await response.json().catch(() => ({})) as QuotationImportReport & { error?: string };
       if (!response.ok) throw new Error(data.error ?? "报价明细导入失败");
       setImportReport(data);
-      if (data.success > 0) await load();
+      if (data.success > 0) {
+        // The import endpoint persists and recalculates rows immediately. Clear any
+        // stale edit drafts so a later save cannot overwrite the imported values.
+        setEditing(false);
+        setDraft({});
+        setItemDrafts({});
+        await load();
+      }
     } catch (importError) {
       setError(importError instanceof Error ? importError.message : "报价明细导入失败");
     } finally {
@@ -518,6 +526,7 @@ export function QuotationDetailPage({ id }: { id: string }) {
   if (!quotation) return <div className="space-y-4 p-5"><Button onClick={() => postWorkspaceMessage({ type: "cloud-power:route", route: returnTo, title: "报价列表" })}><ArrowLeft size={15} />返回报价列表</Button><Panel><div className="p-6 text-sm text-[#f56c6c]">{error || "报价单不存在"}</div></Panel></div>;
 
   const totalQuantity = items.reduce((sum, row) => sum + Number(row.quantity ?? 0), 0);
+  const quotationSummary = summarizeQuotationDetails(visibleItems);
   const summaryCards = [
     { label: "总数量", value: formatQuotationValue(totalQuantity, "number") },
     { label: "公共费用合计（USD）", value: formatQuotationValue(quotation.publicFeeTotal, "money") },
@@ -567,6 +576,7 @@ export function QuotationDetailPage({ id }: { id: string }) {
         <StickyTable className="table-scroll overflow-auto" tableKey="quotation-detail-items">
           <table className="w-max min-w-full table-auto border-collapse text-sm"><thead className="bg-[#f5f7fa] text-[#303133]"><tr>{itemFields.map((field) => <th className={`whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium ${field.key === "lineNo" ? "w-[72px] min-w-[72px] max-w-[72px]" : ""}`} key={field.key}><TableColumnMenu column={field} filterValues={itemFilters[field.key] ?? []} loadOptions={(keyword) => loadItemOptions(field.key, keyword)} onFilter={(values) => setItemFilters((current) => ({ ...current, [field.key]: values }))} onSort={(order) => { setItemSortField(field.key); setItemSortOrder(order); }} sortOrder={itemSortField === field.key ? itemSortOrder : ""} /></th>)}</tr></thead>
             <tbody>{visibleItems.map((row) => <tr className="hover:bg-[#fafafa]" key={String(row.id)}>{itemFields.map((field) => <td className={`max-w-[240px] truncate whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3 ${field.key === "lineNo" ? "w-[72px] min-w-[72px] max-w-[72px]" : ""}`} key={field.key}>{renderItemValue(row, field)}</td>)}</tr>)}{!visibleItems.length ? <tr><td className="px-4 py-10 text-center text-[#909399]" colSpan={itemFields.length}>暂无报价明细</td></tr> : null}</tbody>
+            <tfoot><tr>{itemFields.map((field) => <td className="whitespace-nowrap border-t border-r border-[#ebeef5] bg-[#fcfcfd] px-3 py-3 font-medium" key={field.key}>{formatQuotationSummaryValue(field, quotationSummary)}</td>)}</tr></tfoot>
           </table>
         </StickyTable>
        </Panel>
@@ -602,6 +612,35 @@ function formatQuotationValue(value: Value, type?: string, fixedTwoDecimals = fa
   if (value === "sea") return "海运";
   if (value === "none") return "无运输";
   return formatDisplayValue(value, type);
+}
+
+function formatQuotationSummaryValue(field: EntityField, summary: ReturnType<typeof summarizeQuotationDetails>) {
+  if (field.key === "lineNo") return "合计";
+  if (field.key === "quantity") return formatQuotationValue(summary.quantity, "number");
+  if (field.key === "purchaseTotalOriginal") {
+    return formatCurrencyTotals(summary.purchaseTotalOriginalByCurrency);
+  }
+  if ([
+    "purchaseTotalUsd",
+    "firstMileFreightUsd",
+    "cifUsd",
+    "tariffUsd",
+    "capitalCostUsd",
+    "customsFeeUsd",
+    "nomFeeUsd",
+    "publicFeeAllocationUsd",
+    "ddpTotalUsd",
+    "amount",
+    "operatingProfitUsd",
+  ].includes(field.key)) {
+    return formatQuotationValue(summary.totals[field.key] ?? 0, "money");
+  }
+  return "";
+}
+
+function formatCurrencyTotals(amounts: Record<string, number>) {
+  const keys = Object.keys(amounts).sort();
+  return keys.length ? keys.map((currency) => `${currency} ${formatQuotationValue(amounts[currency], "money")}`).join(" / ") : "";
 }
 
 function toBooleanValue(value: Value) {

@@ -150,7 +150,7 @@ export const entityConfigs: EntityConfig[] = [
   {
     key: "suppliers",
     title: "供应商管理",
-    table: "common_suppliers",
+    table: "merge_common_suppliers",
     primaryKey: "supplierId",
     navGroup: "业务伙伴",
     route: "/suppliers",
@@ -228,7 +228,7 @@ export const entityConfigs: EntityConfig[] = [
   {
     key: "undertaking-units",
     title: "承接单位管理",
-    table: "common_undertaking_units",
+    table: "merge_common_undertaking_units",
     primaryKey: "undertakingUnitId",
     uniqueKeys: ["entityCode"],
     navGroup: "业务伙伴",
@@ -268,7 +268,7 @@ export const entityConfigs: EntityConfig[] = [
   {
     key: "customers",
     title: "客户管理",
-    table: "common_customers",
+    table: "merge_common_customers",
     primaryKey: "customerId",
     uniqueKeys: ["customerCode"],
     navGroup: "业务伙伴",
@@ -1441,7 +1441,7 @@ function getEntitiesByKeys(keys: string[]) {
 entityConfigs.push({
   key: "customer-pos",
   title: "客户PO",
-  table: "po_customer_pos",
+  table: "merge_po_customer_pos",
   primaryKey: "id",
   uniqueKeys: ["poNo"],
   navGroup: "客户PO",
@@ -1485,7 +1485,7 @@ entityConfigs.push({
 }, {
   key: "customer-po-items",
   title: "客户PO明细",
-  table: "po_customer_po_items",
+  table: "merge_po_customer_po_items",
   primaryKey: "id",
   navGroup: "隐藏",
   route: "/customer-pos/items",
@@ -1522,7 +1522,7 @@ entityConfigs.push({
 }, {
   key: "quotations",
   title: "报价单",
-  table: "po_quotations",
+  table: "merge_po_quotations",
   primaryKey: "id",
   uniqueKeys: ["quotationNo"],
   navGroup: "客户PO",
@@ -1587,7 +1587,7 @@ entityConfigs.push({
 }, {
   key: "quotation-items",
   title: "报价明细",
-  table: "po_quotation_items",
+  table: "merge_po_quotation_items",
   primaryKey: "id",
   navGroup: "隐藏",
   route: "/quotation/items",
@@ -1667,7 +1667,7 @@ entityConfigs.push({
 }, {
   key: "settlement-projects",
   title: "项目结算",
-  table: "po_settlement_projects",
+  table: "merge_po_settlement_projects",
   primaryKey: "id",
   navGroup: "客户PO",
   route: "/po/settlement-projects",
@@ -1700,7 +1700,7 @@ entityConfigs.push({
 }, {
   key: "history-quotations",
   title: "历史报价",
-  table: "po_history_quotations",
+  table: "merge_po_history_quotations",
   primaryKey: "id",
   navGroup: "客户PO",
   route: "/history-quotations",
@@ -1736,7 +1736,7 @@ entityConfigs.push({
 entityConfigs.push({
   key: "product-masters",
   title: "产品主档",
-  table: "po_product_masters",
+  table: "merge_po_product_masters",
   primaryKey: "id",
   uniqueKeys: ["masterCode"],
   navGroup: "产品管理",
@@ -1786,7 +1786,7 @@ entityConfigs.push({
 }, {
   key: "product-models",
   title: "品牌型号",
-  table: "po_product_models",
+  table: "merge_po_product_models",
   primaryKey: "id",
   uniqueKeys: ["modelCode"],
   navGroup: "隐藏",
@@ -1829,7 +1829,7 @@ entityConfigs.push({
 }, {
   key: "product-specifications",
   title: "产品规格",
-  table: "po_product_specifications",
+  table: "merge_po_product_specifications",
   primaryKey: "id",
   uniqueKeys: ["specProductCode", "specCode"],
   navGroup: "隐藏",
@@ -1872,7 +1872,7 @@ entityConfigs.push(
   {
     key: "product-categories",
     title: "产品类别",
-    table: "po_tariff_rates",
+    table: "merge_po_tariff_rates",
     primaryKey: "id",
     uniqueKeys: ["deviceType"],
     navGroup: "产品管理",
@@ -1899,7 +1899,7 @@ entityConfigs.push(
   {
     key: "po-invoice-summary",
     title: "发票汇总",
-    table: "po_settlement_invoices",
+    table: "merge_po_settlement_invoices",
     primaryKey: "id",
     navGroup: "发票汇总",
     route: "/po/invoices",
@@ -1937,7 +1937,7 @@ entityConfigs.push(
   {
     key: "customer-product-aliases",
     title: "客户产品别名",
-    table: "po_customer_product_aliases",
+    table: "merge_po_customer_product_aliases",
     primaryKey: "id",
     navGroup: "客户PO",
     route: "/customer-product-aliases",
@@ -1972,12 +1972,12 @@ entityConfigs.push(
     defaultSort: "updatedAt DESC",
   },
   ...[
-    ["customer-contacts", "客户联系人", "common_customer_contacts", "contactId", "customerId", "客户"],
-    ["customer-bank-accounts", "客户银行账户", "common_customer_bank_accounts", "accountId", "customerId", "客户"],
-    ["supplier-contacts", "供应商联系人", "common_supplier_contacts", "contactId", "supplierId", "供应商"],
-    ["supplier-bank-accounts", "供应商银行账户", "common_supplier_bank_accounts", "accountId", "supplierId", "供应商"],
-    ["undertaking-unit-contacts", "承接单位联系人", "common_undertaking_unit_contacts", "contactId", "undertakingUnitId", "承接单位"],
-    ["undertaking-unit-bank-accounts", "承接单位银行账户", "common_undertaking_unit_bank_accounts", "accountId", "undertakingUnitId", "承接单位"],
+    ["customer-contacts", "客户联系人", "merge_common_customer_contacts", "contactId", "customerId", "客户"],
+    ["customer-bank-accounts", "客户银行账户", "merge_common_customer_bank_accounts", "accountId", "customerId", "客户"],
+    ["supplier-contacts", "供应商联系人", "merge_common_supplier_contacts", "contactId", "supplierId", "供应商"],
+    ["supplier-bank-accounts", "供应商银行账户", "merge_common_supplier_bank_accounts", "accountId", "supplierId", "供应商"],
+    ["undertaking-unit-contacts", "承接单位联系人", "merge_common_undertaking_unit_contacts", "contactId", "undertakingUnitId", "承接单位"],
+    ["undertaking-unit-bank-accounts", "承接单位银行账户", "merge_common_undertaking_unit_bank_accounts", "accountId", "undertakingUnitId", "承接单位"],
   ].map(([key, title, table, primaryKey, ownerKey, ownerLabel]) => ({
     key,
     title,
@@ -2031,7 +2031,7 @@ entityConfigs.push(
   {
     key: "huawei-cloud",
     title: "华为云对账",
-    table: "cloud_rows",
+    table: "merge_cloud_rows",
     primaryKey: "id",
     navGroup: "隐藏",
     route: "/cloud/reconciliation",
@@ -2043,7 +2043,7 @@ entityConfigs.push(
   {
     key: "huawei-cloud-mappings",
     title: "华为云服务映射",
-    table: "cloud_mappings",
+    table: "merge_cloud_mappings",
     primaryKey: "id",
     navGroup: "隐藏",
     route: "/cloud/mappings",
@@ -2055,7 +2055,7 @@ entityConfigs.push(
   {
     key: "huawei-cloud-supplier-payments",
     title: "华为云供应商付款",
-    table: "cloud_supplier_payments",
+    table: "merge_cloud_supplier_payments",
     primaryKey: "id",
     navGroup: "隐藏",
     route: "/cloud/supplier-payments",
@@ -2257,7 +2257,7 @@ const userManagementChildren: NonNullable<NavGroup["children"]> = [
     items: [{
       key: "system-module-features",
       title: "功能启用",
-      table: "common_modules",
+      table: "merge_common_modules",
       primaryKey: "moduleKey",
       navGroup: "用户管理",
       route: "/system/module-features",
@@ -2274,7 +2274,7 @@ const userManagementChildren: NonNullable<NavGroup["children"]> = [
     items: [{
       key: "system-users",
       title: "账户管理",
-      table: "common_users",
+      table: "merge_common_users",
       primaryKey: "userId",
       navGroup: "用户管理",
       route: "/system/users",
@@ -2291,7 +2291,7 @@ const userManagementChildren: NonNullable<NavGroup["children"]> = [
 const documentManagementItems: EntityConfig[] = [{
   key: "documents",
   title: "文档库",
-  table: "common_document_files",
+  table: "merge_common_document_files",
   primaryKey: "fileId",
   navGroup: "文档管理",
   route: "/documents",
@@ -2313,7 +2313,7 @@ const powerChildren: NonNullable<NavGroup["children"]> = [
     items: [{
       key: "data-imports",
       title: "数据导入中心",
-      table: "power_importjobs",
+      table: "merge_power_importjobs",
       primaryKey: "jobId",
       navGroup: "数据工具",
       route: "/data-imports",

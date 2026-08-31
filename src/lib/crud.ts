@@ -6,6 +6,7 @@ import { DEFAULT_PAGE_SIZE, getKnownTotal, normalizePageSize } from "./paginatio
 import { requireRequestType } from "./request-type";
 import { formatTableDateExpression, formatTableDateTimeExpression, getNaturalBatchSort, getTableFilterOptionsOrderBy } from "./table-query";
 import { findProductByCode } from "./po-product-service";
+import { normalizeDateOnlyValue } from "./date-only";
 
 function quoteIdentifier(identifier: string) {
   return `\`${identifier.replace(/`/g, "``")}\``;
@@ -61,7 +62,8 @@ function withShipmentReceiptStatus(config: EntityConfig, body: Row) {
 
 async function normalizeEntityBody(config: EntityConfig, body: Row) {
   const nextBody = withQuotationPartyAliases(config, withShipmentReceiptStatus(config, body));
-  const normalizedProductBody = await normalizeProductMasterCategory(config, nextBody);
+  const normalizedPoBody = normalizeCustomerPoBody(config, nextBody);
+  const normalizedProductBody = await normalizeProductMasterCategory(config, normalizedPoBody);
   const normalizedQuotationBody = await normalizeQuotationItemProduct(config, normalizedProductBody);
   if (["requests", "request-items", "purchase-order-items"].includes(config.key)) {
     return normalizePurchasePrices(config, {
@@ -70,6 +72,29 @@ async function normalizeEntityBody(config: EntityConfig, body: Row) {
     });
   }
   return normalizePurchasePrices(config, normalizedQuotationBody);
+}
+
+function normalizeCustomerPoBody(config: EntityConfig, body: Row) {
+  if (config.key === "customer-pos") {
+    return {
+      ...body,
+      poDate: normalizeDateOnlyValue(body.poDate),
+      deliveryDate: normalizeDateOnlyValue(body.deliveryDate),
+    };
+  }
+
+  if (config.key === "customer-po-items") {
+    return {
+      ...body,
+      targetUnitPrice: body.targetUnitPrice === null || body.targetUnitPrice === undefined || String(body.targetUnitPrice).trim() === ""
+        ? 0
+        : Number(body.targetUnitPrice),
+      currency: String(body.currency ?? "").trim() || "USD",
+      matchStatus: String(body.matchStatus ?? "").trim() || "unmatched",
+    };
+  }
+
+  return body;
 }
 
 async function normalizeQuotationItemProduct(config: EntityConfig, body: Row) {
@@ -101,7 +126,7 @@ async function normalizeProductMasterCategory(config: EntityConfig, body: Row) {
 
   const rows = await queryRows<{ hsCode: string | null; taxRate: number | null; needNom: number | boolean | null }>(
     `SELECT hsCode, taxRate, needNom
-       FROM po_tariff_rates
+       FROM merge_po_tariff_rates
       WHERE deviceType = :category
       ORDER BY updatedAt DESC, id ASC
       LIMIT 1`,
@@ -197,7 +222,7 @@ export async function listEntityRows(config: EntityConfig, searchParams: URLSear
       const reference = fieldReference(field);
       const type = fieldTypes.get(field);
       const displayReference = config.key === "quotation-items" && field === "brand"
-        ? `(SELECT COALESCE(NULLIF(quotationItem.brand, ''), master.brand, '') FROM po_quotation_items quotationItem LEFT JOIN po_product_masters master ON master.id = quotationItem.productMasterId WHERE quotationItem.id = ${quoteIdentifier(config.table)}.${quoteIdentifier(config.primaryKey)} LIMIT 1)`
+        ? `(SELECT COALESCE(NULLIF(quotationItem.brand, ''), master.brand, '') FROM merge_po_quotation_items quotationItem LEFT JOIN merge_po_product_masters master ON master.id = quotationItem.productMasterId WHERE quotationItem.id = ${quoteIdentifier(config.table)}.${quoteIdentifier(config.primaryKey)} LIMIT 1)`
         : getPartyPrimaryContactExpression(config, field, reference) ?? reference;
       const selectedReference = type === "date"
         ? formatTableDateExpression(reference)
@@ -230,7 +255,7 @@ export async function listEntityRows(config: EntityConfig, searchParams: URLSear
       : [])
     .concat(config.key === "product-models"
         ? [
-            "(SELECT COUNT(*) FROM `po_product_specifications` productSpecification WHERE productSpecification.`modelId` = `po_product_models`.`id` AND productSpecification.`mode` = 'fixed') AS `specCount`",
+            "(SELECT COUNT(*) FROM `merge_po_product_specifications` productSpecification WHERE productSpecification.`modelId` = `merge_po_product_models`.`id` AND productSpecification.`mode` = 'fixed') AS `specCount`",
           ]
         : [])
     .concat(config.key === "purchase-orders"
@@ -359,7 +384,7 @@ export async function listEntityRows(config: EntityConfig, searchParams: URLSear
   }
 
   if (config.key === "product-specifications" && searchParams.get("masterId")?.trim()) {
-    whereParts.push("`modelId` IN (SELECT `id` FROM `po_product_models` WHERE `masterId` = :productMasterId)");
+    whereParts.push("`modelId` IN (SELECT `id` FROM `merge_po_product_models` WHERE `masterId` = :productMasterId)");
     params.productMasterId = searchParams.get("masterId")!.trim();
   }
 
@@ -420,11 +445,11 @@ function normalizeQuotationPartyRow(config: EntityConfig, row: Row) {
 
 function getPartyPrimaryContactExpression(config: EntityConfig, field: string, fallback: string) {
   const relation = config.key === "suppliers"
-    ? { table: "common_supplier_contacts", ownerColumn: "supplierId", ownerReference: `${quoteIdentifier(config.table)}.supplierId` }
+    ? { table: "merge_common_supplier_contacts", ownerColumn: "supplierId", ownerReference: `${quoteIdentifier(config.table)}.supplierId` }
     : config.key === "customers"
-      ? { table: "common_customer_contacts", ownerColumn: "customerId", ownerReference: `${quoteIdentifier(config.table)}.customerId` }
+      ? { table: "merge_common_customer_contacts", ownerColumn: "customerId", ownerReference: `${quoteIdentifier(config.table)}.customerId` }
       : config.key === "undertaking-units"
-        ? { table: "common_undertaking_unit_contacts", ownerColumn: "undertakingUnitId", ownerReference: `${quoteIdentifier(config.table)}.undertakingUnitId` }
+        ? { table: "merge_common_undertaking_unit_contacts", ownerColumn: "undertakingUnitId", ownerReference: `${quoteIdentifier(config.table)}.undertakingUnitId` }
         : null;
   const contactColumn = field === "contactName" ? "name" : field === "contactPhone" ? "phone" : field === "contactEmail" ? "email" : "";
   if (!relation || !contactColumn) return null;
@@ -668,35 +693,35 @@ function getEntityDisplayFieldExpression(config: EntityConfig, field: string, sh
   if (derivedRequestType) return derivedRequestType;
   if (config.key === "customer-pos") {
     if (field === "undertakingUnitName") {
-      return `(SELECT COALESCE(NULLIF(unit.shortName, ''), NULLIF(unit.entityName, ''), NULLIF(unit.name, ''), NULLIF(unit.undertakingUnitCode, ''), ${source}undertakingUnitId) FROM common_undertaking_units unit WHERE unit.undertakingUnitId = ${source}undertakingUnitId OR unit.undertakingUnitCode = ${source}undertakingUnitId OR unit.entityCode = ${source}undertakingUnitId LIMIT 1)`;
+      return `(SELECT COALESCE(NULLIF(unit.shortName, ''), NULLIF(unit.entityName, ''), NULLIF(unit.name, ''), NULLIF(unit.undertakingUnitCode, ''), ${source}undertakingUnitId) FROM merge_common_undertaking_units unit WHERE unit.undertakingUnitId = ${source}undertakingUnitId OR unit.undertakingUnitCode = ${source}undertakingUnitId OR unit.entityCode = ${source}undertakingUnitId LIMIT 1)`;
     }
     if (field === "customerName") {
-      return `(SELECT COALESCE(NULLIF(customer.shortName, ''), NULLIF(customer.nameCn, ''), NULLIF(customer.name, ''), NULLIF(customer.customerCode, ''), ${source}customerId) FROM common_customers customer WHERE customer.customerId = ${source}customerId OR customer.customerCode = ${source}customerId LIMIT 1)`;
+      return `(SELECT COALESCE(NULLIF(customer.shortName, ''), NULLIF(customer.nameCn, ''), NULLIF(customer.name, ''), NULLIF(customer.customerCode, ''), ${source}customerId) FROM merge_common_customers customer WHERE customer.customerId = ${source}customerId OR customer.customerCode = ${source}customerId LIMIT 1)`;
     }
   }
   if (config.key === "quotations") {
     if (field === "contractingUnitName") {
-      return `(SELECT COALESCE(NULLIF(unit.shortName, ''), NULLIF(unit.entityName, ''), NULLIF(unit.name, ''), NULLIF(unit.undertakingUnitCode, ''), ${source}contractingUnitId) FROM common_undertaking_units unit WHERE unit.undertakingUnitId = ${source}contractingUnitId OR unit.undertakingUnitCode = ${source}contractingUnitId OR unit.entityCode = ${source}contractingUnitId LIMIT 1)`;
+      return `(SELECT COALESCE(NULLIF(unit.shortName, ''), NULLIF(unit.entityName, ''), NULLIF(unit.name, ''), NULLIF(unit.undertakingUnitCode, ''), ${source}contractingUnitId) FROM merge_common_undertaking_units unit WHERE unit.undertakingUnitId = ${source}contractingUnitId OR unit.undertakingUnitCode = ${source}contractingUnitId OR unit.entityCode = ${source}contractingUnitId LIMIT 1)`;
     }
     if (field === "customerName") {
-      return `(SELECT COALESCE(NULLIF(customer.shortName, ''), NULLIF(customer.nameCn, ''), NULLIF(customer.name, ''), NULLIF(customer.customerCode, ''), ${source}customerId) FROM common_customers customer WHERE customer.customerId = ${source}customerId OR customer.customerCode = ${source}customerId LIMIT 1)`;
+      return `(SELECT COALESCE(NULLIF(customer.shortName, ''), NULLIF(customer.nameCn, ''), NULLIF(customer.name, ''), NULLIF(customer.customerCode, ''), ${source}customerId) FROM merge_common_customers customer WHERE customer.customerId = ${source}customerId OR customer.customerCode = ${source}customerId LIMIT 1)`;
     }
   }
   if (config.key === "history-quotations" && field === "customerId") {
-    return `(SELECT COALESCE(NULLIF(customer.shortName, ''), NULLIF(customer.nameCn, ''), NULLIF(customer.name, ''), NULLIF(customer.customerCode, ''), ${source}customerId) FROM common_customers customer WHERE customer.customerId = ${source}customerId OR customer.customerCode = ${source}customerId LIMIT 1)`;
+    return `(SELECT COALESCE(NULLIF(customer.shortName, ''), NULLIF(customer.nameCn, ''), NULLIF(customer.name, ''), NULLIF(customer.customerCode, ''), ${source}customerId) FROM merge_common_customers customer WHERE customer.customerId = ${source}customerId OR customer.customerCode = ${source}customerId LIMIT 1)`;
   }
   if (config.key === "service-fee-snapshots") {
     if (field === "undertakingUnitName") {
-      return `(SELECT GROUP_CONCAT(DISTINCT COALESCE(NULLIF(unit.shortName, ''), NULLIF(unit.entityName, ''), NULLIF(unit.name, ''), NULLIF(unit.undertakingUnitCode, ''), NULLIF(snapshotItem.undertakingUnitId, '')) SEPARATOR ', ') FROM servicefeesnapshotitems snapshotItem LEFT JOIN common_undertaking_units unit ON unit.undertakingUnitId = snapshotItem.undertakingUnitId OR unit.undertakingUnitCode = snapshotItem.undertakingUnitId OR unit.entityCode = snapshotItem.undertakingUnitId WHERE snapshotItem.snapshotNo = ${source}snapshotNo)`;
+      return `(SELECT GROUP_CONCAT(DISTINCT COALESCE(NULLIF(unit.shortName, ''), NULLIF(unit.entityName, ''), NULLIF(unit.name, ''), NULLIF(unit.undertakingUnitCode, ''), NULLIF(snapshotItem.undertakingUnitId, '')) SEPARATOR ', ') FROM servicefeesnapshotitems snapshotItem LEFT JOIN merge_common_undertaking_units unit ON unit.undertakingUnitId = snapshotItem.undertakingUnitId OR unit.undertakingUnitCode = snapshotItem.undertakingUnitId OR unit.entityCode = snapshotItem.undertakingUnitId WHERE snapshotItem.snapshotNo = ${source}snapshotNo)`;
     }
     if (field === "customerName") {
-      return `(SELECT GROUP_CONCAT(DISTINCT COALESCE(NULLIF(customer.shortName, ''), NULLIF(customer.nameCn, ''), NULLIF(customer.name, ''), NULLIF(customer.customerCode, ''), NULLIF(snapshotItem.customerId, '')) SEPARATOR ', ') FROM servicefeesnapshotitems snapshotItem LEFT JOIN common_customers customer ON customer.customerId = snapshotItem.customerId OR customer.customerCode = snapshotItem.customerId WHERE snapshotItem.snapshotNo = ${source}snapshotNo)`;
+      return `(SELECT GROUP_CONCAT(DISTINCT COALESCE(NULLIF(customer.shortName, ''), NULLIF(customer.nameCn, ''), NULLIF(customer.name, ''), NULLIF(customer.customerCode, ''), NULLIF(snapshotItem.customerId, '')) SEPARATOR ', ') FROM servicefeesnapshotitems snapshotItem LEFT JOIN merge_common_customers customer ON customer.customerId = snapshotItem.customerId OR customer.customerCode = snapshotItem.customerId WHERE snapshotItem.snapshotNo = ${source}snapshotNo)`;
     }
     if (field === "receivingUnitCode") {
-      return `(SELECT COALESCE(NULLIF(unit.shortName, ''), NULLIF(unit.entityName, ''), NULLIF(unit.name, ''), unit.undertakingUnitCode) FROM common_undertaking_units unit WHERE unit.undertakingUnitId = ${source}receivingUnitId OR unit.undertakingUnitCode = ${source}receivingUnitId OR unit.entityCode = ${source}receivingUnitId LIMIT 1)`;
+      return `(SELECT COALESCE(NULLIF(unit.shortName, ''), NULLIF(unit.entityName, ''), NULLIF(unit.name, ''), unit.undertakingUnitCode) FROM merge_common_undertaking_units unit WHERE unit.undertakingUnitId = ${source}receivingUnitId OR unit.undertakingUnitCode = ${source}receivingUnitId OR unit.entityCode = ${source}receivingUnitId LIMIT 1)`;
     }
     if (field === "payerCustomerCode") {
-      return `(SELECT COALESCE(NULLIF(customer.shortName, ''), NULLIF(customer.nameCn, ''), NULLIF(customer.name, ''), customer.customerCode) FROM common_customers customer WHERE customer.customerId = ${source}payerCustomerId OR customer.customerCode = ${source}payerCustomerId LIMIT 1)`;
+      return `(SELECT COALESCE(NULLIF(customer.shortName, ''), NULLIF(customer.nameCn, ''), NULLIF(customer.name, ''), customer.customerCode) FROM merge_common_customers customer WHERE customer.customerId = ${source}payerCustomerId OR customer.customerCode = ${source}payerCustomerId LIMIT 1)`;
     }
   }
   if (config.key === "shipments") {
@@ -725,7 +750,7 @@ function getEntityDisplayFieldExpression(config: EntityConfig, field: string, sh
       const isSupplier = field === "supplierName";
       const isUndertakingUnit = field === "undertakingUnitName";
       const idField = isSupplier ? "supplierId" : isUndertakingUnit ? "undertakingUnitId" : "customerId";
-      const tableName = isSupplier ? "common_suppliers" : isUndertakingUnit ? "common_undertaking_units" : "common_customers";
+      const tableName = isSupplier ? "merge_common_suppliers" : isUndertakingUnit ? "merge_common_undertaking_units" : "merge_common_customers";
       const idColumn = isSupplier ? "supplierId" : isUndertakingUnit ? "undertakingUnitId" : "customerId";
       const nameExpression = isSupplier
         ? "COALESCE(NULLIF(party.shortName, ''), NULLIF(party.nameCn, ''), party.supplierCode)"
@@ -744,7 +769,7 @@ function getEntityDisplayFieldExpression(config: EntityConfig, field: string, sh
     const isSupplier = field === "supplierCode" || field === "supplierName";
     const isUndertakingUnit = field === "undertakingUnitCode" || field === "undertakingUnitName";
     const idField = isSupplier ? "supplierId" : isUndertakingUnit ? "undertakingUnitId" : "customerId";
-    const tableName = isSupplier ? "common_suppliers" : isUndertakingUnit ? "common_undertaking_units" : "common_customers";
+    const tableName = isSupplier ? "merge_common_suppliers" : isUndertakingUnit ? "merge_common_undertaking_units" : "merge_common_customers";
     const nameExpression = isSupplier
       ? "COALESCE(NULLIF(party.shortName, ''), NULLIF(party.nameCn, ''), party.supplierCode)"
       : isUndertakingUnit
@@ -877,10 +902,10 @@ async function enrichServiceFeeSnapshotParties(rows: Row[]) {
   const payerCustomerIds = uniqueValues(rows, "payerCustomerId");
   const [units, customers] = await Promise.all([
     receivingUnitIds.length
-      ? queryRows("SELECT undertakingUnitId, undertakingUnitCode, shortName, entityName, name FROM common_undertaking_units WHERE undertakingUnitId IN (:receivingUnitIds) OR undertakingUnitCode IN (:receivingUnitIds) OR entityCode IN (:receivingUnitIds)", { receivingUnitIds })
+      ? queryRows("SELECT undertakingUnitId, undertakingUnitCode, shortName, entityName, name FROM merge_common_undertaking_units WHERE undertakingUnitId IN (:receivingUnitIds) OR undertakingUnitCode IN (:receivingUnitIds) OR entityCode IN (:receivingUnitIds)", { receivingUnitIds })
       : [],
     payerCustomerIds.length
-      ? queryRows("SELECT customerId, customerCode, shortName, nameCn, name FROM common_customers WHERE customerId IN (:payerCustomerIds) OR customerCode IN (:payerCustomerIds)", { payerCustomerIds })
+      ? queryRows("SELECT customerId, customerCode, shortName, nameCn, name FROM merge_common_customers WHERE customerId IN (:payerCustomerIds) OR customerCode IN (:payerCustomerIds)", { payerCustomerIds })
       : [],
   ]);
   const unitCodeById = new Map<string, string>();
@@ -930,7 +955,7 @@ export async function createEntityRow(config: EntityConfig, body: Row) {
   const table = quoteIdentifier(config.table);
   const columns = fields.map(quoteIdentifier).join(", ");
   const values = fields.map((field) => `:${field}`).join(", ");
-  const params = Object.fromEntries(fields.map((field) => [field, nextBody[field] ?? null]));
+  const params = Object.fromEntries(fields.map((field) => [field, getPersistenceValue(config, field, nextBody[field])]));
 
   await clearOtherDefaultRelationRows(config, nextBody, String(nextBody[config.primaryKey] ?? ""));
   await execute(`INSERT INTO ${table} (${columns}) VALUES (${values})`, params);
@@ -951,7 +976,7 @@ export async function updateEntityRow(config: EntityConfig, id: string, body: Ro
   validateRequiredFields(config, nextBody);
   const previousBody = config.key.endsWith("-contacts") ? await getEntityRow(config, id) : null;
   if (config.key === "requests") await assertRequestTypeCanChange(id, String(nextBody.requestType));
-  const params = Object.fromEntries(fields.map((field) => [field, nextBody[field] ?? null]));
+  const params = Object.fromEntries(fields.map((field) => [field, getPersistenceValue(config, field, nextBody[field])]));
 
   await clearOtherDefaultRelationRows(config, nextBody, id);
   await execute(`UPDATE ${table} SET ${assignments} WHERE ${primaryKey} = :id`, {
@@ -969,7 +994,7 @@ async function assignCustomerPoItemLineNo(config: EntityConfig, body: Row) {
   const poId = String(body.poId ?? "").trim();
   if (!poId) return body;
   const rows = await queryRows<{ maxLineNo: number | null }>(
-    "SELECT COALESCE(MAX(lineNo), 0) AS maxLineNo FROM po_customer_po_items WHERE poId = :poId",
+    "SELECT COALESCE(MAX(lineNo), 0) AS maxLineNo FROM merge_po_customer_po_items WHERE poId = :poId",
     { poId },
   );
   return { ...body, lineNo: Number(rows[0]?.maxLineNo ?? 0) + 1 };
@@ -980,10 +1005,19 @@ function validateRequiredFields(config: EntityConfig, body: Row) {
   if (missing) throw new Error(`请填写${missing.label}`);
 }
 
+function getPersistenceValue(config: EntityConfig, field: string, value: unknown) {
+  if (config.key === "customer-po-items") {
+    if (field === "targetUnitPrice") return value === null || value === undefined || String(value).trim() === "" ? 0 : Number(value);
+    if (field === "currency") return String(value ?? "").trim() || "USD";
+    if (field === "matchStatus") return String(value ?? "").trim() || "unmatched";
+  }
+  return value ?? null;
+}
+
 function getContactRelation(config: EntityConfig) {
-  if (config.key === "supplier-contacts") return { relationTable: "common_supplier_contacts", ownerField: "supplierId", ownerTable: "common_suppliers", ownerIdField: "supplierId" };
-  if (config.key === "customer-contacts") return { relationTable: "common_customer_contacts", ownerField: "customerId", ownerTable: "common_customers", ownerIdField: "customerId" };
-  if (config.key === "undertaking-unit-contacts") return { relationTable: "common_undertaking_unit_contacts", ownerField: "undertakingUnitId", ownerTable: "common_undertaking_units", ownerIdField: "undertakingUnitId" };
+  if (config.key === "supplier-contacts") return { relationTable: "merge_common_supplier_contacts", ownerField: "supplierId", ownerTable: "merge_common_suppliers", ownerIdField: "supplierId" };
+  if (config.key === "customer-contacts") return { relationTable: "merge_common_customer_contacts", ownerField: "customerId", ownerTable: "merge_common_customers", ownerIdField: "customerId" };
+  if (config.key === "undertaking-unit-contacts") return { relationTable: "merge_common_undertaking_unit_contacts", ownerField: "undertakingUnitId", ownerTable: "merge_common_undertaking_units", ownerIdField: "undertakingUnitId" };
   return null;
 }
 

@@ -164,17 +164,17 @@ async function main() {
   // Customer PO was introduced after the original migration script. Keep the
   // existing table compatible with the current master/detail screens.
   await addColumnIfMissing(
-    "po_customer_pos",
+    "merge_po_customer_pos",
     "undertakingUnitId",
     "`undertakingUnitId` VARCHAR(64) NULL COMMENT 'undertaking unit id' AFTER `poNo`",
   );
   await addColumnIfMissing(
-    "po_customer_pos",
+    "merge_po_customer_pos",
     "projectName",
     "`projectName` VARCHAR(255) NULL COMMENT 'project name' AFTER `poNo`",
   );
   await addIndexIfMissing(
-    "po_customer_pos",
+    "merge_po_customer_pos",
     "idx_po_customer_pos_undertaking_unit",
     "KEY `idx_po_customer_pos_undertaking_unit` (`undertakingUnitId`, `status`)",
   );
@@ -190,7 +190,7 @@ async function main() {
     ["grossWeight", "`grossWeight` DECIMAL(14, 4) NOT NULL DEFAULT 0 COMMENT 'gross weight kg' AFTER `height`"],
     ["needNom", "`needNom` TINYINT(1) NOT NULL DEFAULT 0 COMMENT 'NOM certification' AFTER `hsCodeMx`"],
   ] as const) {
-    await addColumnIfMissing("po_product_masters", columnName, ddl);
+    await addColumnIfMissing("merge_po_product_masters", columnName, ddl);
   }
 
   for (const [columnName, ddl] of [
@@ -216,16 +216,16 @@ async function main() {
     ["totalRevenueUsd", "`totalRevenueUsd` DECIMAL(18, 4) NOT NULL DEFAULT 0"],
     ["totalProfitUsd", "`totalProfitUsd` DECIMAL(18, 4) NOT NULL DEFAULT 0"],
   ] as const) {
-    await addColumnIfMissing("po_quotations", columnName, ddl);
+    await addColumnIfMissing("merge_po_quotations", columnName, ddl);
   }
 
   await addColumnIfMissing(
-    "po_settlement_projects",
+    "merge_po_settlement_projects",
     "projectName",
     "`projectName` VARCHAR(255) NULL COMMENT 'project name' AFTER `quotationNo`",
   );
   await addColumnIfMissing(
-    "po_settlement_invoices",
+    "merge_po_settlement_invoices",
     "isInvoiced",
     "`isInvoiced` TINYINT(1) NOT NULL DEFAULT 0 COMMENT 'whether invoice has been issued' AFTER `isPaid`",
   );
@@ -256,7 +256,7 @@ async function main() {
     ["enableNom", "`enableNom` TINYINT(1) NOT NULL DEFAULT 0"],
     ["historicalDdpQuoteUsd", "`historicalDdpQuoteUsd` DECIMAL(18, 4) NULL"],
   ] as const) {
-    await addColumnIfMissing("po_quotation_items", columnName, ddl);
+    await addColumnIfMissing("merge_po_quotation_items", columnName, ddl);
   }
 
   // Existing imports use this field for a full physical address, not only a short location ID.

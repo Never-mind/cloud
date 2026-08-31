@@ -95,9 +95,9 @@ export async function POST(request: NextRequest, context: { params: Promise<{ en
 async function loadPartyReferences(enabled: boolean): Promise<PartyReferenceCollections | undefined> {
   if (!enabled) return undefined;
   const [suppliers, undertakingUnits, customers] = await Promise.all([
-    queryRows("SELECT supplierId, supplierCode, shortName, nameCn FROM common_suppliers"),
-    queryRows("SELECT undertakingUnitId, undertakingUnitCode, entityCode, shortName, entityName, name FROM common_undertaking_units"),
-    queryRows("SELECT customerId, customerCode, shortName, nameCn, name FROM common_customers"),
+    queryRows("SELECT supplierId, supplierCode, shortName, nameCn FROM merge_common_suppliers"),
+    queryRows("SELECT undertakingUnitId, undertakingUnitCode, entityCode, shortName, entityName, name FROM merge_common_undertaking_units"),
+    queryRows("SELECT customerId, customerCode, shortName, nameCn, name FROM merge_common_customers"),
   ]);
   return { suppliers, undertakingUnits, customers };
 }

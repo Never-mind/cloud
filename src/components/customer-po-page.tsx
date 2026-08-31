@@ -80,12 +80,27 @@ const itemFields = [
   "remark",
 ] as const;
 
+const itemColumnClasses: Record<string, string> = {
+  lineNo: "w-[52px]",
+  customerSku: "w-[90px]",
+  customerProductName: "w-[140px]",
+  customerBrand: "w-[100px]",
+  customerSpec: "w-[140px]",
+  quantity: "w-[70px]",
+  unit: "w-[70px]",
+  targetUnitPrice: "w-[100px]",
+  currency: "w-[75px]",
+  matchedProductCode: "w-[170px]",
+  matchStatus: "w-[84px]",
+  remark: "w-[120px]",
+};
+
 const emptyMaster = (): Row => ({
   poNo: "",
   projectName: "",
   undertakingUnitId: "",
   customerId: "",
-  poDate: new Date().toISOString().slice(0, 10),
+  poDate: formatDateInputValue(new Date()),
   deliveryDate: "",
   currency: "USD",
   status: "draft",
@@ -409,7 +424,12 @@ export function CustomerPoDetailPage({ config, id }: { config: EntityConfig; id:
     setError("");
     setNotice("");
     try {
-      const masterPayload = Object.fromEntries(config.formFields.map((field) => [field.key, masterDraft[field.key] ?? null]));
+      const masterPayload = Object.fromEntries(config.formFields.map((field) => [
+        field.key,
+        field.key === "poDate" || field.key === "deliveryDate"
+          ? formatDateInputValue(masterDraft[field.key]) || null
+          : masterDraft[field.key] ?? null,
+      ]));
       const masterResponse = await fetch(isNew ? "/api/entities/customer-pos" : `/api/entities/customer-pos/${encodeURIComponent(id)}`, {
         method: isNew ? "POST" : "PUT",
         headers: { "Content-Type": "application/json" },
@@ -429,8 +449,11 @@ export function CustomerPoDetailPage({ config, id }: { config: EntityConfig; id:
       for (const row of items) {
         const payload = Object.fromEntries(itemFields.map((field) => {
           if (field === "lineNo" || field === "quantity" || field === "targetUnitPrice") {
-            return [field, row[field] === "" || row[field] === null || row[field] === undefined ? null : Number(row[field])];
+            const isEmpty = row[field] === "" || row[field] === null || row[field] === undefined;
+            return [field, isEmpty ? (field === "targetUnitPrice" ? 0 : null) : Number(row[field])];
           }
+          if (field === "currency") return [field, String(row[field] ?? "").trim() || "USD"];
+          if (field === "matchStatus") return [field, String(row[field] ?? "").trim() || "unmatched"];
           return [field, row[field] ?? null];
         }));
         payload.poId = savedId;
@@ -549,10 +572,10 @@ export function CustomerPoDetailPage({ config, id }: { config: EntityConfig; id:
       <Panel>
         <div className="flex flex-wrap items-center gap-2 border-b border-[#ebeef5] px-4 py-3"><h2 className="font-medium text-[#303133]">产品明细</h2><span className="text-xs text-[#909399]">共 {items.length} 行</span>{editing ? <div className="ml-auto flex gap-2"><Button onClick={() => itemFileRef.current?.click()} disabled={importingItems}><Upload size={15} />{importingItems ? "导入中..." : "导入明细"}</Button><a href="/api/po/customer-pos/items/template"><Button><FileSpreadsheet size={15} />明细模板</Button></a><Button onClick={addItem}><Plus size={15} />新增明细</Button><input ref={itemFileRef} className="hidden" type="file" accept=".xlsx,.xls" onChange={(event) => { const file = event.target.files?.[0]; if (file) void importItemsFile(file); event.currentTarget.value = ""; }} /></div> : null}</div>
         <StickyTable className="table-scroll overflow-auto" tableKey="customer-po-items-detail">
-          <table className="w-max min-w-full table-auto border-collapse text-sm">
+          <table className="w-full min-w-[1160px] table-fixed border-collapse text-sm">
             <thead className="bg-[#f5f7fa] text-[#303133]"><tr>{[
               ["lineNo", "行号"], ["customerSku", "客户SKU"], ["customerProductName", "产品名称"], ["customerBrand", "品牌"], ["customerSpec", "规格"], ["quantity", "数量"], ["unit", "单位"], ["targetUnitPrice", "目标单价"], ["currency", "币种"], ["matchedProductCode", "产品主档匹配"], ["matchStatus", "匹配状态"], ["remark", "备注"],
-            ].map(([key, label]) => <th className={`whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium ${key === "lineNo" ? "w-[72px] min-w-[72px] max-w-[72px]" : ""}`} key={key}>{label}</th>)}{editing ? <th className="sticky right-0 border-b border-[#ebeef5] bg-[#f5f7fa] px-3 py-3 text-left font-medium">操作</th> : null}</tr></thead>
+            ].map(([key, label]) => <th className={`whitespace-nowrap border-b border-r border-[#ebeef5] px-2 py-3 text-left font-medium ${itemColumnClasses[key] ?? ""}`} key={key}>{label}</th>)}{editing ? <th className="sticky right-0 w-[56px] border-b border-[#ebeef5] bg-[#f5f7fa] px-2 py-3 text-left font-medium">操作</th> : null}</tr></thead>
             <tbody>{items.map((row) => <CustomerPoItemRow editing={editing} key={String(row.id)} row={row} onChange={updateItem} onRemove={removeItem} />)}{!items.length ? <tr><td className="px-4 py-12 text-center text-[#909399]" colSpan={editing ? 13 : 12}>暂无产品明细，请点击“新增明细”</td></tr> : null}</tbody>
           </table>
         </StickyTable>
@@ -564,19 +587,19 @@ export function CustomerPoDetailPage({ config, id }: { config: EntityConfig; id:
 
 function CustomerPoItemRow({ editing, row, onChange, onRemove }: { editing: boolean; row: Row; onChange: (id: string, key: string, value: Value) => void; onRemove: (row: Row) => void }) {
   const id = String(row.id ?? "");
-  const input = (key: string, type: "text" | "number" = "text", className = "w-full") => editing
+  const input = (key: string, type: "text" | "number" = "text", className = "w-full !min-w-0") => editing
     ? <Input className={className} type={type} value={String(row[key] ?? "")} onChange={(event) => onChange(id, key, type === "number" ? event.target.value : event.target.value)} />
     : formatDisplayValue(row[key], type === "number" ? "number" : undefined);
   return <tr className="hover:bg-[#fafafa]">
-    <td className="w-[72px] min-w-[72px] max-w-[72px] border-b border-r border-[#ebeef5] px-2 py-2 text-[#606266]">{formatDisplayValue(row.lineNo, "number")}</td>
+    <td className="border-b border-r border-[#ebeef5] px-2 py-2 text-[#606266]">{formatDisplayValue(row.lineNo, "number")}</td>
     <td className="border-b border-r border-[#ebeef5] px-2 py-2">{input("customerSku")}</td>
     <td className="border-b border-r border-[#ebeef5] px-2 py-2">{input("customerProductName")}</td>
     <td className="border-b border-r border-[#ebeef5] px-2 py-2">{input("customerBrand")}</td>
     <td className="border-b border-r border-[#ebeef5] px-2 py-2">{input("customerSpec")}</td>
-    <td className="border-b border-r border-[#ebeef5] px-2 py-2">{input("quantity", "number", "w-24")}</td>
-    <td className="border-b border-r border-[#ebeef5] px-2 py-2">{input("unit", "text", "w-24")}</td>
-    <td className="border-b border-r border-[#ebeef5] px-2 py-2">{input("targetUnitPrice", "number", "w-28")}</td>
-    <td className="border-b border-r border-[#ebeef5] px-2 py-2">{input("currency", "text", "w-24")}</td>
+    <td className="border-b border-r border-[#ebeef5] px-2 py-2">{input("quantity", "number", "w-full !min-w-0")}</td>
+    <td className="border-b border-r border-[#ebeef5] px-2 py-2">{input("unit", "text", "w-full !min-w-0")}</td>
+    <td className="border-b border-r border-[#ebeef5] px-2 py-2">{input("targetUnitPrice", "number", "w-full !min-w-0")}</td>
+    <td className="border-b border-r border-[#ebeef5] px-2 py-2">{input("currency", "text", "w-full !min-w-0")}</td>
     <td className="border-b border-r border-[#ebeef5] px-2 py-2"><ProductMasterPicker disabled={!editing} value={String(row.matchedProductCode ?? "")} label={String(row.matchedProductName ?? "")} onChange={(product) => { onChange(id, "matchedProductCode", product?.productCode ?? ""); onChange(id, "productMasterId", product?.productMasterId ?? null); onChange(id, "productModelId", product?.productModelId ?? null); onChange(id, "productSpecId", product?.productSpecId ?? null); onChange(id, "matchStatus", product ? "matched" : "unmatched"); }} /></td>
     <td className="border-b border-r border-[#ebeef5] px-2 py-2">{String(row.matchStatus ?? "unmatched") === "matched" ? <span className="text-[#13a561]">已匹配</span> : <span className="text-[#909399]">未匹配</span>}</td>
     <td className="border-b border-r border-[#ebeef5] px-2 py-2">{input("remark")}</td>
@@ -703,7 +726,7 @@ export function ProductMasterPicker({ disabled, value, label, onChange }: { disa
     document.body,
   ) : null;
 
-  return <div className="relative min-w-[260px]" ref={wrapperRef}><div className="relative"><Input ref={inputRef} className="w-full pr-8" value={open ? query : value} placeholder="搜索产品编码、名称、品牌或规格" onFocus={openPicker} onChange={(event) => { setQuery(event.target.value); setOpen(true); }} />{value || label ? <button className="absolute right-2 top-2 text-[#909399] hover:text-[#f56c6c]" type="button" aria-label="取消产品匹配" title="取消产品匹配" onClick={() => onChange(null)}><X size={15} /></button> : <Search className="pointer-events-none absolute right-2 top-2 text-[#909399]" size={15} />}</div>{dropdown}</div>;
+  return <div className="relative w-full !min-w-0" ref={wrapperRef}><div className="relative"><Input ref={inputRef} className="w-full !min-w-0 pr-8" value={open ? query : value} placeholder="搜索产品编码、名称、品牌或规格" onFocus={openPicker} onChange={(event) => { setQuery(event.target.value); setOpen(true); }} />{value || label ? <button className="absolute right-2 top-2 text-[#909399] hover:text-[#f56c6c]" type="button" aria-label="取消产品匹配" title="取消产品匹配" onClick={() => onChange(null)}><X size={15} /></button> : <Search className="pointer-events-none absolute right-2 top-2 text-[#909399]" size={15} />}</div>{dropdown}</div>;
 }
 
 function formatPoStatus(value: Value) {

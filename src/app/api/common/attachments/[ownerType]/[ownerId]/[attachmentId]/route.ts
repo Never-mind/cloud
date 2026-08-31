@@ -21,7 +21,7 @@ async function getAccess(request: NextRequest, ownerType: string, action: "view"
 
 async function findAttachment(ownerType: string, ownerId: string, attachmentId: string) {
   return (await queryRowsRaw<{ attachmentId: string; fileName: string; fileType: string | null; dataUrl: string }>(
-    `SELECT attachmentId, fileName, fileType, dataUrl FROM common_attachments
+    `SELECT attachmentId, fileName, fileType, dataUrl FROM merge_common_attachments
      WHERE attachmentId = :attachmentId AND ownerType = :ownerType AND ownerId = :ownerId LIMIT 1`,
     { attachmentId, ownerType, ownerId },
   ))[0];
@@ -52,7 +52,7 @@ export async function DELETE(request: NextRequest, context: { params: Promise<{ 
     const { ownerType, ownerId, attachmentId } = await context.params;
     await getAccess(request, ownerType, "delete");
     await executeRaw(
-      "DELETE FROM common_attachments WHERE attachmentId = :attachmentId AND ownerType = :ownerType AND ownerId = :ownerId",
+      "DELETE FROM merge_common_attachments WHERE attachmentId = :attachmentId AND ownerType = :ownerType AND ownerId = :ownerId",
       { attachmentId, ownerType, ownerId },
     );
     return NextResponse.json({ ok: true });

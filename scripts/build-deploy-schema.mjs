@@ -57,7 +57,7 @@ sql = sql.replaceAll("`suanli`", `\`${targetDatabase}\``);
 
 for (const tableName of tableNames) {
   const logicalName = tableName.toLowerCase();
-  const physicalName = logicalName.startsWith("power_") ? logicalName : `power_${logicalName}`;
+  const physicalName = logicalName.startsWith("merge_power_") ? logicalName : `merge_power_${logicalName}`;
   sql = sql.replaceAll(`\`${tableName}\``, `\`${physicalName}\``);
   sql = sql.replaceAll(`\`${logicalName}\``, `\`${physicalName}\``);
 }

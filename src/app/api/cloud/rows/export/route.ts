@@ -10,7 +10,7 @@ export async function GET(request: NextRequest) {
   const values: Record<string, unknown> = {};
   if (keyword) { conditions.push("(customer LIKE :keyword OR account LIKE :keyword OR batchCode LIKE :keyword OR supplierName LIKE :keyword)"); values.keyword = `%${keyword}%`; }
   if (period) { conditions.push("period = :period"); values.period = period; }
-  const rows = await queryRowsRaw<Record<string, unknown>>(`SELECT * FROM cloud_rows ${conditions.length ? `WHERE ${conditions.join(" AND ")}` : ""} ORDER BY period DESC, updatedAt DESC`, values);
+  const rows = await queryRowsRaw<Record<string, unknown>>(`SELECT * FROM merge_cloud_rows ${conditions.length ? `WHERE ${conditions.join(" AND ")}` : ""} ORDER BY period DESC, updatedAt DESC`, values);
   const worksheet = XLSX.utils.json_to_sheet(rows.map((row) => ({
     "账期": row.period, "客户名称": row.customer, "华为ID": row.account, "华为对账人": row.cloudReconciler,
     "目录价（USD）": row.catalogAmount, "伙伴结算金额（USD）": row.partnerAmount, "代金券-客户（USD）": row.voucherCustomerAmount, "代金券-供应商（USD）": row.voucherSupplierAmount,

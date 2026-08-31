@@ -9,8 +9,9 @@ const dbGlobal = globalThis as DbGlobal;
 const DB_COUNT_CACHE_MS = 5_000;
 const countQueryCache = new Map<string, { expiresAt: number; rows: QueryResult }>();
 
-export const DB_TABLE_PREFIX = "power_";
-export const DB_TABLE_PREFIXES = ["power_", "po_", "cloud_", "common_"] as const;
+export const DB_TABLE_PREFIX = "merge_power_";
+export const DB_TABLE_PREFIXES = ["merge_power_", "merge_po_", "merge_cloud_", "merge_common_"] as const;
+const LEGACY_DB_TABLE_PREFIXES = ["power_", "po_", "cloud_", "common_"] as const;
 
 export const LOGICAL_TABLE_NAMES = [
   "countries",
@@ -68,6 +69,10 @@ export const LOGICAL_TABLE_NAMES = [
 ] as const;
 
 const LOGICAL_TABLE_SET = new Set<string>(LOGICAL_TABLE_NAMES);
+const LEGACY_TABLE_PATTERN = new RegExp(
+  `(?<![\\w])(${LEGACY_DB_TABLE_PREFIXES.join("|")})[A-Za-z0-9_]+(?![\\w])`,
+  "gi",
+);
 const tablePattern = new RegExp(
   `(?<!${DB_TABLE_PREFIX})(?<![\\w])(${LOGICAL_TABLE_NAMES.join("|")})(?![\\w])`,
   "gi",
@@ -75,14 +80,28 @@ const tablePattern = new RegExp(
 
 export function physicalTableName(tableName: string) {
   const normalizedTableName = tableName.toLowerCase();
-  if (DB_TABLE_PREFIXES.some((prefix) => normalizedTableName.startsWith(prefix)) || !LOGICAL_TABLE_SET.has(normalizedTableName)) {
+  if (DB_TABLE_PREFIXES.some((prefix) => normalizedTableName.startsWith(prefix))) {
     return tableName;
   }
+  const legacyPrefix = LEGACY_DB_TABLE_PREFIXES.find((prefix) => normalizedTableName.startsWith(prefix));
+  if (legacyPrefix) return `merge_${normalizedTableName}`;
+  if (!LOGICAL_TABLE_SET.has(normalizedTableName)) return tableName;
   return `${DB_TABLE_PREFIX}${normalizedTableName}`;
 }
 
+export function legacyPhysicalTableName(tableName: string) {
+  const normalizedTableName = tableName.toLowerCase();
+  if (LEGACY_DB_TABLE_PREFIXES.some((prefix) => normalizedTableName.startsWith(prefix))) {
+    return tableName;
+  }
+  if (!LOGICAL_TABLE_SET.has(normalizedTableName)) return tableName;
+  return `power_${normalizedTableName}`;
+}
+
 export function rewriteSqlTables(sql: string) {
-  return sql.replace(tablePattern, (tableName) => physicalTableName(tableName));
+  return sql
+    .replace(LEGACY_TABLE_PATTERN, (tableName) => physicalTableName(tableName))
+    .replace(tablePattern, (tableName) => physicalTableName(tableName));
 }
 
 export function buildDbConfig(env: Partial<NodeJS.ProcessEnv>) {
@@ -121,13 +140,14 @@ export async function queryRows<T extends Row>(sql: string, params: Row = {}): P
 }
 
 export async function queryRowsRaw<T extends Row>(sql: string, params: Row = {}): Promise<T[]> {
-  const cacheKey = getCountQueryCacheKey(sql, params);
+  const rewrittenSql = rewriteSqlTables(sql);
+  const cacheKey = getCountQueryCacheKey(rewrittenSql, params);
   if (cacheKey) {
     const cached = countQueryCache.get(cacheKey);
     if (cached && cached.expiresAt > Date.now()) return cached.rows as T[];
     if (cached) countQueryCache.delete(cacheKey);
   }
-  const [rows] = await getDb().query<QueryResult>(sql, params as any);
+  const [rows] = await getDb().query<QueryResult>(rewrittenSql, params as any);
   if (cacheKey) countQueryCache.set(cacheKey, { expiresAt: Date.now() + DB_COUNT_CACHE_MS, rows });
   return rows as T[];
 }
@@ -137,7 +157,7 @@ export async function execute(sql: string, params: Row = {}) {
 }
 
 export async function executeRaw(sql: string, params: Row = {}) {
-  const [result] = await getDb().execute(sql, params as any);
+  const [result] = await getDb().execute(rewriteSqlTables(sql), params as any);
   countQueryCache.clear();
   return result;
 }

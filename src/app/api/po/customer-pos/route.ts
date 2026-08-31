@@ -47,12 +47,12 @@ export async function GET(request: NextRequest) {
       OR po.undertakingUnitId LIKE :keyword
       OR po.customerId LIKE :keyword
       OR EXISTS (
-        SELECT 1 FROM common_undertaking_units keywordUnit
+        SELECT 1 FROM merge_common_undertaking_units keywordUnit
         WHERE (keywordUnit.undertakingUnitId = po.undertakingUnitId OR keywordUnit.undertakingUnitCode = po.undertakingUnitId OR keywordUnit.entityCode = po.undertakingUnitId)
           AND CONCAT_WS(' ', keywordUnit.undertakingUnitCode, keywordUnit.entityCode, keywordUnit.shortName, keywordUnit.entityName, keywordUnit.name) LIKE :keyword
       )
       OR EXISTS (
-        SELECT 1 FROM common_customers keywordCustomer
+        SELECT 1 FROM merge_common_customers keywordCustomer
         WHERE (keywordCustomer.customerId = po.customerId OR keywordCustomer.customerCode = po.customerId)
           AND CONCAT_WS(' ', keywordCustomer.customerCode, keywordCustomer.shortName, keywordCustomer.nameCn, keywordCustomer.name, keywordCustomer.nameEn) LIKE :keyword
       )
@@ -77,12 +77,12 @@ export async function GET(request: NextRequest) {
   const where = `WHERE ${whereParts.join(" AND ")}`;
   const countRows = await queryRows<{ total: number }>(
     `SELECT COUNT(DISTINCT po.id) AS total
-       FROM po_customer_pos po
-       LEFT JOIN common_undertaking_units unit
+       FROM merge_po_customer_pos po
+       LEFT JOIN merge_common_undertaking_units unit
          ON unit.undertakingUnitId = po.undertakingUnitId
          OR unit.undertakingUnitCode = po.undertakingUnitId
          OR unit.entityCode = po.undertakingUnitId
-       LEFT JOIN common_customers customer
+       LEFT JOIN merge_common_customers customer
          ON customer.customerId = po.customerId
          OR customer.customerCode = po.customerId
       ${where}`,
@@ -101,12 +101,12 @@ export async function GET(request: NextRequest) {
     `SELECT po.*,
             ${undertakingUnitNameExpression} AS undertakingUnitName,
             ${customerNameExpression} AS customerName
-       FROM po_customer_pos po
-       LEFT JOIN common_undertaking_units unit
+       FROM merge_po_customer_pos po
+       LEFT JOIN merge_common_undertaking_units unit
          ON unit.undertakingUnitId = po.undertakingUnitId
          OR unit.undertakingUnitCode = po.undertakingUnitId
          OR unit.entityCode = po.undertakingUnitId
-       LEFT JOIN common_customers customer
+       LEFT JOIN merge_common_customers customer
          ON customer.customerId = po.customerId
          OR customer.customerCode = po.customerId
       ${where}

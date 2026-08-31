@@ -50,7 +50,7 @@ function normalizeStatus(value: unknown) {
 
 async function assertAdmin(email: string) {
   const rows = await queryRowsRaw<{ role: string }>(
-    "SELECT role FROM common_users WHERE email = :email AND status = 'active' LIMIT 1",
+    "SELECT role FROM merge_common_users WHERE email = :email AND status = 'active' LIMIT 1",
     { email: normalizeEmail(email) },
   );
   if (rows[0]?.role !== "admin") throw new Error("只有管理员可以管理用户");
@@ -68,7 +68,7 @@ async function loadPermissions(userId: string) {
     canConfirm: number;
   }>(
     `SELECT moduleKey, canView, canCreate, canUpdate, canDelete, canExport, canImport, canConfirm
-     FROM common_user_permissions WHERE userId = :userId ORDER BY moduleKey`,
+     FROM merge_common_user_permissions WHERE userId = :userId ORDER BY moduleKey`,
     { userId },
   );
   const storedByKey = new Map(rows.map((row) => [row.moduleKey, row]));
@@ -91,7 +91,7 @@ export async function listManagedUsers(email: string) {
   await assertAdmin(email);
   const users = await queryRowsRaw<UserRow>(
     `SELECT userId, displayName, email, role, status, lastLoginAt, createdAt, updatedAt
-     FROM common_users ORDER BY createdAt ASC, email ASC`,
+     FROM merge_common_users ORDER BY createdAt ASC, email ASC`,
   );
   return Promise.all(users.map(async (user) => ({ ...user, permissions: await loadPermissions(user.userId) })));
 }
@@ -108,7 +108,7 @@ export async function createManagedUser(adminEmail: string, input: Record<string
   const userId = randomUUID();
   const salt = createPasswordSalt();
   await executeRaw(
-    `INSERT INTO common_users
+    `INSERT INTO merge_common_users
       (userId, displayName, email, passwordHash, passwordSalt, role, status)
      VALUES (:userId, :displayName, :email, :passwordHash, :passwordSalt, :role, :status)`,
     {
@@ -127,7 +127,7 @@ export async function createManagedUser(adminEmail: string, input: Record<string
 export async function updateManagedUser(adminEmail: string, userId: string, input: Record<string, unknown>) {
   await assertAdmin(adminEmail);
   const target = (await queryRowsRaw<{ email: string; role: string }>(
-    "SELECT email, role FROM common_users WHERE userId = :userId LIMIT 1",
+    "SELECT email, role FROM merge_common_users WHERE userId = :userId LIMIT 1",
     { userId },
   ))[0];
   if (target && normalizeEmail(target.email) === normalizeEmail(adminEmail)) {
@@ -158,7 +158,7 @@ export async function updateManagedUser(adminEmail: string, userId: string, inpu
     params.passwordSalt = salt;
   }
   if (!fields.length) return;
-  await executeRaw(`UPDATE common_users SET ${fields.join(", ")} WHERE userId = :userId`, params);
+  await executeRaw(`UPDATE merge_common_users SET ${fields.join(", ")} WHERE userId = :userId`, params);
 }
 
 export async function updateUserPermissions(adminEmail: string, userId: string, permissions: unknown) {
@@ -166,7 +166,7 @@ export async function updateUserPermissions(adminEmail: string, userId: string, 
   if (!Array.isArray(permissions)) throw new Error("权限数据格式错误");
   const validKeys = new Set(permissionDefinitions.map((definition) => definition.moduleKey));
   const updatedByUserId = (await queryRowsRaw<{ userId: string }>(
-    "SELECT userId FROM common_users WHERE email = :email LIMIT 1",
+    "SELECT userId FROM merge_common_users WHERE email = :email LIMIT 1",
     { email: normalizeEmail(adminEmail) },
   ))[0]?.userId ?? null;
   for (const item of permissions) {
@@ -175,7 +175,7 @@ export async function updateUserPermissions(adminEmail: string, userId: string, 
     const moduleKey = String(permission.moduleKey ?? "").trim();
     if (!moduleKey || !validKeys.has(moduleKey)) continue;
     await executeRaw(
-      `INSERT INTO common_user_permissions
+      `INSERT INTO merge_common_user_permissions
         (userId, moduleKey, canView, canCreate, canUpdate, canDelete, canExport, canImport, canConfirm, updatedByUserId)
        VALUES (:userId, :moduleKey, :canView, :canCreate, :canUpdate, :canDelete, :canExport, :canImport, :canConfirm, :updatedByUserId)
        ON DUPLICATE KEY UPDATE

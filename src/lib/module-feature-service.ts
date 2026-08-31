@@ -105,7 +105,7 @@ async function seedFeatureDefinitions() {
 
   if (!values) return;
   await executeRaw(`
-    INSERT IGNORE INTO common_modules
+    INSERT IGNORE INTO merge_common_modules
       (moduleKey, moduleName, parentModuleKey, domainKey, route, enabled, sortOrder, remark, adminOnly)
     VALUES ${values}
   `, params);
@@ -113,7 +113,7 @@ async function seedFeatureDefinitions() {
   // Repair metadata from older seeds without changing an administrator's switch choices.
   for (const [index, definition] of definitions.entries()) {
     await executeRaw(`
-      UPDATE common_modules
+      UPDATE merge_common_modules
       SET moduleName = :moduleName,
           parentModuleKey = :parentModuleKey,
           domainKey = :domainKey,
@@ -156,7 +156,7 @@ async function loadStoredFeatures() {
   }).join(", ");
   const rows = await queryRowsRaw<StoredFeature>(`
     SELECT moduleKey, domainKey, enabled, remark, updatedByUserId AS updatedBy, updatedAt
-    FROM common_modules
+    FROM merge_common_modules
     WHERE moduleKey IN (${keys})
     ORDER BY sortOrder ASC, moduleKey ASC
   `, params);
@@ -177,7 +177,7 @@ export async function listModuleFeatures(email?: string) {
   const state = getDefaultModuleFeatureState();
   for (const row of storedRows) state[row.moduleKey] = Boolean(row.enabled);
   const user = email ? (await queryRows<{ role: string }>(
-    "SELECT role FROM common_users WHERE email = :email AND status = :status LIMIT 1",
+    "SELECT role FROM merge_common_users WHERE email = :email AND status = :status LIMIT 1",
     { email, status: "active" },
   ))[0] : undefined;
 
@@ -199,7 +199,7 @@ export async function listModuleFeatures(email?: string) {
 
 export async function updateModuleFeature(email: string, moduleKey: string, enabled: boolean) {
   const user = (await queryRows<{ role: string }>(
-    "SELECT role FROM common_users WHERE email = :email AND status = :status LIMIT 1",
+    "SELECT role FROM merge_common_users WHERE email = :email AND status = :status LIMIT 1",
     { email, status: "active" },
   ))[0];
   if (user?.role !== "admin") throw new Error("只有管理员可以修改功能模块开关");
@@ -209,9 +209,9 @@ export async function updateModuleFeature(email: string, moduleKey: string, enab
 
   await ensureFeatureStore();
   await executeRaw(`
-    UPDATE common_modules
+    UPDATE merge_common_modules
     SET enabled = :enabled, updatedByUserId = (
-      SELECT userId FROM common_users WHERE email = :updatedBy LIMIT 1
+      SELECT userId FROM merge_common_users WHERE email = :updatedBy LIMIT 1
     )
     WHERE moduleKey = :moduleKey
   `, { moduleKey, enabled: enabled ? 1 : 0, updatedBy: email });

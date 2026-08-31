@@ -20,7 +20,7 @@ export async function findProductByCode(productCode: string) {
        'CNY' AS purchaseCurrency,
        NULL AS productModelId,
        NULL AS productSpecId
-     FROM po_product_masters
+     FROM merge_po_product_masters
     WHERE masterCode = :productCode
       AND status = 'active'
     LIMIT 1`,
@@ -34,8 +34,8 @@ export async function findProductByCode(productCode: string) {
 export async function matchCustomerPoItems(poId: string) {
   const items = await queryRows<Row>(
     `SELECT item.id, item.matchedProductCode, item.customerSku, item.customerProductName, item.customerSpec, po.customerId
-       FROM po_customer_po_items item
-       INNER JOIN po_customer_pos po ON po.id = item.poId
+       FROM merge_po_customer_po_items item
+       INNER JOIN merge_po_customer_pos po ON po.id = item.poId
       WHERE item.poId = :poId
       ORDER BY item.lineNo ASC, item.id ASC`,
     { poId },
@@ -44,7 +44,7 @@ export async function matchCustomerPoItems(poId: string) {
   const aliases = customerIds.length
     ? await queryRows<Row>(
         `SELECT customerId, customerSku, customerProductName, customerSpec, productCode
-           FROM po_customer_product_aliases
+           FROM merge_po_customer_product_aliases
           WHERE customerId IN (:customerIds)`,
         { customerIds },
       )
@@ -84,7 +84,7 @@ export async function matchCustomerPoItems(poId: string) {
        'CNY' AS purchaseCurrency,
        NULL AS productModelId,
        NULL AS productSpecId
-     FROM po_product_masters
+     FROM merge_po_product_masters
     WHERE masterCode IN (:codes)
       AND status = 'active'`,
     { codes },
@@ -97,7 +97,7 @@ export async function matchCustomerPoItems(poId: string) {
     const product = productByCode.get(code);
     if (product) {
       await execute(
-        `UPDATE po_customer_po_items
+        `UPDATE merge_po_customer_po_items
             SET productMasterId = :productMasterId,
                 productModelId = :productModelId,
                 productSpecId = :productSpecId,
@@ -109,7 +109,7 @@ export async function matchCustomerPoItems(poId: string) {
       matched += 1;
     } else {
       await execute(
-        `UPDATE po_customer_po_items
+        `UPDATE merge_po_customer_po_items
             SET productMasterId = NULL,
                 productModelId = NULL,
                 productSpecId = NULL,

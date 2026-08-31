@@ -30,7 +30,7 @@ export async function GET(request: NextRequest, context: { params: Promise<{ own
     await requireAccess(request, ownerType, "view");
     const rows = await queryRowsRaw(
       `SELECT attachmentId, ownerType, ownerId, fileName, fileType, fileSize, uploadedAt, createdAt, updatedAt
-       FROM common_attachments WHERE ownerType = :ownerType AND ownerId = :ownerId
+       FROM merge_common_attachments WHERE ownerType = :ownerType AND ownerId = :ownerId
        ORDER BY uploadedAt DESC, fileName ASC`,
       { ownerType, ownerId },
     );
@@ -57,13 +57,13 @@ export async function POST(request: NextRequest, context: { params: Promise<{ ow
       `SELECT COLUMN_NAME AS columnName
          FROM INFORMATION_SCHEMA.COLUMNS
         WHERE TABLE_SCHEMA = DATABASE()
-          AND TABLE_NAME = 'common_attachments'
+          AND TABLE_NAME = 'merge_common_attachments'
           AND COLUMN_NAME IN ('uploadedByUserId', 'uploadedByName')`,
     );
     const availableColumns = new Set(optionalColumns.map((column) => column.columnName));
     const user = availableColumns.size && email
       ? (await queryRowsRaw<{ userId: string; displayName: string }>(
-        "SELECT userId, displayName FROM common_users WHERE email = :email LIMIT 1",
+        "SELECT userId, displayName FROM merge_common_users WHERE email = :email LIMIT 1",
         { email },
       ))[0]
       : null;
@@ -86,7 +86,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ ow
       insertParams.uploadedByName = user?.displayName ?? null;
     }
     await executeRaw(
-      `INSERT INTO common_attachments
+      `INSERT INTO merge_common_attachments
         (${insertFields.join(", ")})
        VALUES (${insertFields.map((field) => `:${field}`).join(", ")})`,
       insertParams,

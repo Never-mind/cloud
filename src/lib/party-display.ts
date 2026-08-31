@@ -13,9 +13,9 @@ export async function attachPartyCodes<T extends Row>(rows: T[]): Promise<Array<
   const undertakingUnitIds = unique(rows.map((row) => row.undertakingUnitId));
   const customerIds = unique(rows.map((row) => row.customerId));
   const [suppliers, undertakingUnits, customers] = await Promise.all([
-    supplierIds.length ? queryRows<Row>("SELECT supplierId, supplierCode, shortName, nameCn FROM common_suppliers WHERE supplierId IN (:supplierIds) OR supplierCode IN (:supplierIds)", { supplierIds }) : [],
-    undertakingUnitIds.length ? queryRows<Row>("SELECT undertakingUnitId, undertakingUnitCode, entityCode, shortName, entityName, name FROM common_undertaking_units WHERE undertakingUnitId IN (:undertakingUnitIds) OR undertakingUnitCode IN (:undertakingUnitIds) OR entityCode IN (:undertakingUnitIds)", { undertakingUnitIds }) : [],
-    customerIds.length ? queryRows<Row>("SELECT customerId, customerCode, shortName, nameCn, name FROM common_customers WHERE customerId IN (:customerIds) OR customerCode IN (:customerIds)", { customerIds }) : [],
+    supplierIds.length ? queryRows<Row>("SELECT supplierId, supplierCode, shortName, nameCn FROM merge_common_suppliers WHERE supplierId IN (:supplierIds) OR supplierCode IN (:supplierIds)", { supplierIds }) : [],
+    undertakingUnitIds.length ? queryRows<Row>("SELECT undertakingUnitId, undertakingUnitCode, entityCode, shortName, entityName, name FROM merge_common_undertaking_units WHERE undertakingUnitId IN (:undertakingUnitIds) OR undertakingUnitCode IN (:undertakingUnitIds) OR entityCode IN (:undertakingUnitIds)", { undertakingUnitIds }) : [],
+    customerIds.length ? queryRows<Row>("SELECT customerId, customerCode, shortName, nameCn, name FROM merge_common_customers WHERE customerId IN (:customerIds) OR customerCode IN (:customerIds)", { customerIds }) : [],
   ]);
   const supplierByReference = buildReferenceMap(suppliers, ["supplierId", "supplierCode"]);
   const undertakingUnitByReference = buildReferenceMap(undertakingUnits, ["undertakingUnitId", "undertakingUnitCode", "entityCode"]);

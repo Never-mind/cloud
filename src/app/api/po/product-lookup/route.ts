@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
          id AS productMasterId,
          NULL AS productModelId,
          NULL AS productSpecId
-       FROM po_product_masters
+       FROM merge_po_product_masters
       WHERE status = 'active'
         AND CONCAT_WS(' ', masterCode, name, nameEn, specification, brand, category) LIKE :keyword
       ORDER BY masterCode
@@ -48,7 +48,7 @@ export async function GET(request: NextRequest) {
            id AS productMasterId,
            NULL AS productModelId,
            NULL AS productSpecId
-         FROM po_product_masters
+         FROM merge_po_product_masters
         WHERE status = 'active'
         ORDER BY masterCode
         LIMIT 500`,

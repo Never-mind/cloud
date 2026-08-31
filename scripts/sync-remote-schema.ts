@@ -31,12 +31,12 @@ async function main() {
       "internalservicefeesnapshots",
       "internalservicefeesnapshotitems",
     ]);
-    await remote.execute("ALTER TABLE `power_purchaseorders` MODIFY COLUMN `purchaseOrderId` VARCHAR(128) NULL");
+    await remote.execute("ALTER TABLE `merge_power_purchaseorders` MODIFY COLUMN `purchaseOrderId` VARCHAR(128) NULL");
     for (const field of [
       "childSparePartCode", "childTopSn", "customerChildComponentOriginalSn", "childComponentDescription",
       "rowId", "tenantId", "template", "version",
     ]) {
-      await remote.execute(`ALTER TABLE \`power_purchaseordersnitems\` MODIFY COLUMN \`${field}\` VARCHAR(1024) NULL`);
+      await remote.execute(`ALTER TABLE \`merge_power_purchaseordersnitems\` MODIFY COLUMN \`${field}\` VARCHAR(1024) NULL`);
     }
     console.log("Remote schema correction completed.");
   } finally {

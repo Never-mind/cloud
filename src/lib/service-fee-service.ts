@@ -654,9 +654,9 @@ function buildServiceFeeQuery(filters: ServiceFeeFilters, searchParams = new URL
       LEFT JOIN requestitems ri ON ri.id = purchaseItem.requestItemId
       LEFT JOIN requests req ON req.requestNo = COALESCE(NULLIF(purchaseItem.requestNo, ''), NULLIF(ri.requestNo, ''), m.requestNo)
       LEFT JOIN requestitems fallback ON fallback.requestNo = m.requestNo AND fallback.deviceCode = m.deviceCode
-      LEFT JOIN common_suppliers supplier ON supplier.supplierId = COALESCE(NULLIF(m.supplierId, ''), ri.supplierId, fallback.supplierId) OR supplier.supplierCode = COALESCE(NULLIF(m.supplierId, ''), ri.supplierId, fallback.supplierId)
-      LEFT JOIN common_undertaking_units undertaking ON undertaking.undertakingUnitId = COALESCE(NULLIF(m.undertakingUnitId, ''), ri.undertakingUnitId, fallback.undertakingUnitId) OR undertaking.undertakingUnitCode = COALESCE(NULLIF(m.undertakingUnitId, ''), ri.undertakingUnitId, fallback.undertakingUnitId) OR undertaking.entityCode = COALESCE(NULLIF(m.undertakingUnitId, ''), ri.undertakingUnitId, fallback.undertakingUnitId)
-      LEFT JOIN common_customers customer ON customer.customerId = COALESCE(NULLIF(m.customerId, ''), ri.customerId, fallback.customerId) OR customer.customerCode = COALESCE(NULLIF(m.customerId, ''), ri.customerId, fallback.customerId)
+      LEFT JOIN merge_common_suppliers supplier ON supplier.supplierId = COALESCE(NULLIF(m.supplierId, ''), ri.supplierId, fallback.supplierId) OR supplier.supplierCode = COALESCE(NULLIF(m.supplierId, ''), ri.supplierId, fallback.supplierId)
+      LEFT JOIN merge_common_undertaking_units undertaking ON undertaking.undertakingUnitId = COALESCE(NULLIF(m.undertakingUnitId, ''), ri.undertakingUnitId, fallback.undertakingUnitId) OR undertaking.undertakingUnitCode = COALESCE(NULLIF(m.undertakingUnitId, ''), ri.undertakingUnitId, fallback.undertakingUnitId) OR undertaking.entityCode = COALESCE(NULLIF(m.undertakingUnitId, ''), ri.undertakingUnitId, fallback.undertakingUnitId)
+      LEFT JOIN merge_common_customers customer ON customer.customerId = COALESCE(NULLIF(m.customerId, ''), ri.customerId, fallback.customerId) OR customer.customerCode = COALESCE(NULLIF(m.customerId, ''), ri.customerId, fallback.customerId)
       LEFT JOIN countries country ON country.code = m.countryCode
       ${whereBilling}
       GROUP BY rowKey, DATE_FORMAT(m.writeOffMonth, '%Y-%m-%d'), m.countryCode, m.batchName, m.requestNo, m.poNo, m.deviceCode
@@ -689,9 +689,9 @@ function buildServiceFeeQuery(filters: ServiceFeeFilters, searchParams = new URL
       LEFT JOIN prepaymentcontractitems contractItem ON contractItem.id = p.contractLineId
       LEFT JOIN requestitems ri ON ri.id = contractItem.requestItemId
       LEFT JOIN requestitems fallback ON fallback.requestNo = p.requestNo AND fallback.deviceCode = p.deviceCode
-      LEFT JOIN common_suppliers supplier ON supplier.supplierId = COALESCE(NULLIF(p.supplierId, ''), ri.supplierId, fallback.supplierId) OR supplier.supplierCode = COALESCE(NULLIF(p.supplierId, ''), ri.supplierId, fallback.supplierId)
-      LEFT JOIN common_undertaking_units undertaking ON undertaking.undertakingUnitId = COALESCE(NULLIF(p.undertakingUnitId, ''), ri.undertakingUnitId, fallback.undertakingUnitId) OR undertaking.undertakingUnitCode = COALESCE(NULLIF(p.undertakingUnitId, ''), ri.undertakingUnitId, fallback.undertakingUnitId) OR undertaking.entityCode = COALESCE(NULLIF(p.undertakingUnitId, ''), ri.undertakingUnitId, fallback.undertakingUnitId)
-      LEFT JOIN common_customers customer ON customer.customerId = COALESCE(NULLIF(p.customerId, ''), ri.customerId, fallback.customerId) OR customer.customerCode = COALESCE(NULLIF(p.customerId, ''), ri.customerId, fallback.customerId)
+      LEFT JOIN merge_common_suppliers supplier ON supplier.supplierId = COALESCE(NULLIF(p.supplierId, ''), ri.supplierId, fallback.supplierId) OR supplier.supplierCode = COALESCE(NULLIF(p.supplierId, ''), ri.supplierId, fallback.supplierId)
+      LEFT JOIN merge_common_undertaking_units undertaking ON undertaking.undertakingUnitId = COALESCE(NULLIF(p.undertakingUnitId, ''), ri.undertakingUnitId, fallback.undertakingUnitId) OR undertaking.undertakingUnitCode = COALESCE(NULLIF(p.undertakingUnitId, ''), ri.undertakingUnitId, fallback.undertakingUnitId) OR undertaking.entityCode = COALESCE(NULLIF(p.undertakingUnitId, ''), ri.undertakingUnitId, fallback.undertakingUnitId)
+      LEFT JOIN merge_common_customers customer ON customer.customerId = COALESCE(NULLIF(p.customerId, ''), ri.customerId, fallback.customerId) OR customer.customerCode = COALESCE(NULLIF(p.customerId, ''), ri.customerId, fallback.customerId)
       LEFT JOIN countries country ON country.code = p.countryCode
       ${wherePrepayment}
       GROUP BY rowKey, DATE_FORMAT(p.writeOffMonth, '%Y-%m-%d'), p.countryCode, p.batchName, p.requestNo, p.poNo, p.deviceCode
@@ -976,8 +976,8 @@ export async function listServiceFeeStatements(searchParams: URLSearchParams) {
             GROUP_CONCAT(DISTINCT NULLIF(COALESCE(NULLIF(unit.shortName, ''), NULLIF(unit.entityName, ''), NULLIF(unit.name, ''), NULLIF(unit.undertakingUnitCode, ''), NULLIF(items.undertakingUnitId, '')), '') ORDER BY unit.shortName SEPARATOR ', ') AS undertakingUnitName,
             GROUP_CONCAT(DISTINCT NULLIF(COALESCE(NULLIF(customer.shortName, ''), NULLIF(customer.nameCn, ''), NULLIF(customer.name, ''), NULLIF(customer.customerCode, ''), NULLIF(items.customerId, '')), '') ORDER BY customer.shortName SEPARATOR ', ') AS customerName
           FROM servicefeesnapshotitems AS items
-          LEFT JOIN common_undertaking_units AS unit ON unit.undertakingUnitId = items.undertakingUnitId OR unit.undertakingUnitCode = items.undertakingUnitId OR unit.entityCode = items.undertakingUnitId
-          LEFT JOIN common_customers AS customer ON customer.customerId = items.customerId OR customer.customerCode = items.customerId
+          LEFT JOIN merge_common_undertaking_units AS unit ON unit.undertakingUnitId = items.undertakingUnitId OR unit.undertakingUnitCode = items.undertakingUnitId OR unit.entityCode = items.undertakingUnitId
+          LEFT JOIN merge_common_customers AS customer ON customer.customerId = items.customerId OR customer.customerCode = items.customerId
           WHERE items.snapshotNo IN (:snapshotNos)
           GROUP BY items.snapshotNo
         `,
@@ -1031,8 +1031,8 @@ async function attachRepaymentPartyCodes(rows: Row[]) {
     firstNonBlank(row.invoicePayerCustomerId, row.defaultPayerCustomerId),
   ]).filter(Boolean)));
   const [units, customers] = await Promise.all([
-    receivingIds.length ? queryRows<Row>("SELECT undertakingUnitId, undertakingUnitCode, entityCode, shortName, entityName, name FROM common_undertaking_units WHERE undertakingUnitId IN (:receivingIds) OR undertakingUnitCode IN (:receivingIds) OR entityCode IN (:receivingIds)", { receivingIds }) : [],
-    payerIds.length ? queryRows<Row>("SELECT customerId, customerCode, shortName, nameCn, name FROM common_customers WHERE customerId IN (:payerIds) OR customerCode IN (:payerIds)", { payerIds }) : [],
+    receivingIds.length ? queryRows<Row>("SELECT undertakingUnitId, undertakingUnitCode, entityCode, shortName, entityName, name FROM merge_common_undertaking_units WHERE undertakingUnitId IN (:receivingIds) OR undertakingUnitCode IN (:receivingIds) OR entityCode IN (:receivingIds)", { receivingIds }) : [],
+    payerIds.length ? queryRows<Row>("SELECT customerId, customerCode, shortName, nameCn, name FROM merge_common_customers WHERE customerId IN (:payerIds) OR customerCode IN (:payerIds)", { payerIds }) : [],
   ]);
   const unitIds = new Map<string, string>();
   const unitNames = new Map<string, string>();

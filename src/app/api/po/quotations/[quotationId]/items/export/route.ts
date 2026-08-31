@@ -10,7 +10,7 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ qu
   const { quotationId } = await context.params;
   const quotations = await queryRows<Row>(
     `SELECT id, quotationNo
-       FROM po_quotations
+       FROM merge_po_quotations
       WHERE id = :quotationId OR quotationNo = :quotationId
       LIMIT 1`,
     { quotationId: decodeURIComponent(quotationId) },
@@ -20,7 +20,7 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ qu
 
   const rows = await queryRows<Row>(
     `SELECT *
-       FROM po_quotation_items
+       FROM merge_po_quotation_items
       WHERE quotationId = :quotationId
       ORDER BY lineNo ASC, id ASC`,
     { quotationId: quotation.id },
