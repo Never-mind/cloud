@@ -47,6 +47,7 @@ export function BillingAdjustmentsPage() {
   const [sortOrder, setSortOrder] = useState<TableSortOrder>("");
   const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({});
   const pageSizeRef = useRef(pageSize);
+  const queryMountedRef = useRef(false);
   const currentRoute = getCurrentRoute(pathname, searchParams.toString());
 
   useListScrollPosition(currentRoute, !loading);
@@ -82,7 +83,11 @@ export function BillingAdjustmentsPage() {
   }, []);
 
   useEffect(() => {
-    if (!Object.keys(columnFilters).length && !sortField && !sortOrder) return;
+    if (!queryMountedRef.current) {
+      queryMountedRef.current = true;
+      return;
+    }
+    setPage(1);
     void loadRows(1);
   }, [columnFilters, sortField, sortOrder]);
 

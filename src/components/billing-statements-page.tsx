@@ -62,6 +62,7 @@ export function BillingStatementsPage() {
   const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({});
   const pageSizeRef = useRef(pageSize);
   const skipNextPageChangeRef = useRef(false);
+  const queryMountedRef = useRef(false);
 
   async function loadSnapshots(nextPage = page, nextPageSize = pageSizeRef.current) {
     setLoading(true);
@@ -147,7 +148,11 @@ export function BillingStatementsPage() {
   }, []);
 
   useEffect(() => {
-    if (!Object.keys(columnFilters).length && !sortField && !sortOrder) return;
+    if (!queryMountedRef.current) {
+      queryMountedRef.current = true;
+      return;
+    }
+    setPage(1);
     void loadSnapshots(1);
   }, [columnFilters, sortField, sortOrder]);
 

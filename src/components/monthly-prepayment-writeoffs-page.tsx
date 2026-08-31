@@ -68,6 +68,7 @@ export function MonthlyPrepaymentWriteOffsPage() {
   );
   const pageSizeRef = useRef(pageSize);
   const skipNextPageChangeRef = useRef(false);
+  const queryMountedRef = useRef(false);
   const beginRequest = useRequestGuard();
   const currentRoute = getCurrentRoute(pathname, searchParams.toString());
 
@@ -159,6 +160,15 @@ export function MonthlyPrepaymentWriteOffsPage() {
   useEffect(() => {
     void loadData();
   }, []);
+
+  useEffect(() => {
+    if (!queryMountedRef.current) {
+      queryMountedRef.current = true;
+      return;
+    }
+    setPage(1);
+    void loadData(1, pageSizeRef.current, appliedFilters);
+  }, [columnFilters, sortField, sortOrder]);
 
   async function exportCsv() {
     let exportRows: Row[];

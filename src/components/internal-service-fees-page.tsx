@@ -54,6 +54,7 @@ export function InternalServiceFeesPage() {
   const pageSizeRef = useRef(pageSize);
   const skipNextPageChangeRef = useRef(false);
   const beginRequest = useRequestGuard();
+  const queryMountedRef = useRef(false);
   const [adjustingRow, setAdjustingRow] = useState<Row | null>(null);
   const [adjustmentStart, setAdjustmentStart] = useState("");
   const [adjustmentEnd, setAdjustmentEnd] = useState("");
@@ -107,7 +108,11 @@ export function InternalServiceFeesPage() {
   useEffect(() => { void loadData(); }, []);
 
   useEffect(() => {
-    if (!Object.keys(columnFilters).length && !sortField && !sortOrder) return;
+    if (!queryMountedRef.current) {
+      queryMountedRef.current = true;
+      return;
+    }
+    setPage(1);
     void loadData(1);
   }, [columnFilters, sortField, sortOrder]);
 

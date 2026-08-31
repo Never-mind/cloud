@@ -84,6 +84,7 @@ export function ServiceFeeStatementsPage() {
   const [sortOrder, setSortOrder] = useState<TableSortOrder>("");
   const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({});
   const pageSizeRef = useRef(pageSize);
+  const queryMountedRef = useRef(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const uploadTargetRef = useRef<{ snapshotNo: string; invoiceStatus: string } | null>(null);
   const beginRequest = useRequestGuard();
@@ -129,7 +130,11 @@ export function ServiceFeeStatementsPage() {
   }, []);
 
   useEffect(() => {
-    if (!Object.keys(columnFilters).length && !sortField && !sortOrder) return;
+    if (!queryMountedRef.current) {
+      queryMountedRef.current = true;
+      return;
+    }
+    setPage(1);
     void loadData(1);
   }, [columnFilters, sortField, sortOrder]);
 
