@@ -68,4 +68,22 @@ describe("permission definitions", () => {
     expect(definitions.map((item) => item.level)).toEqual([1, 1, 1, 1, 1, 1, 2, 3]);
     expect(definitions.at(-1)).toMatchObject({ moduleKey: "customers", parentKey: "group:domain:business-partners:客户管理", level: 3 });
   });
+
+  it("orders permission rows by the sidebar hierarchy", () => {
+    const definitions = getPermissionDefinitions([
+      { key: "countries", title: "国家管理", navGroup: "基础信息" },
+      { key: "requests", title: "需求单", navGroup: "客户需求" },
+      { key: "request-items", title: "需求明细一览", navGroup: "客户需求" },
+      { key: "system-users", title: "账户管理", navGroup: "用户管理" },
+      { key: "system-module-features", title: "功能启用", navGroup: "用户管理" },
+      { key: "suppliers", title: "供应商管理", navGroup: "业务伙伴" },
+    ]);
+    const titles = definitions.map((definition) => definition.title);
+
+    expect(titles.slice(0, 6)).toEqual(["算力系统", "集采系统", "华为云业务", "业务伙伴", "用户管理", "公共功能"]);
+    expect(titles.indexOf("客户需求")).toBeLessThan(titles.indexOf("基础信息"));
+    expect(titles.indexOf("需求单")).toBeLessThan(titles.indexOf("需求明细一览"));
+    expect(titles.indexOf("功能启用")).toBeLessThan(titles.indexOf("账户管理"));
+    expect(titles.indexOf("业务伙伴")).toBeLessThan(titles.indexOf("用户管理"));
+  });
 });

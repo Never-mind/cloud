@@ -44,27 +44,43 @@ export type ServiceFeeStatementFilters = {
 const invoiceUploadRoot = path.join(process.cwd(), "uploads", "service-fee-invoices");
 const allowedInvoiceExtensions = new Set([".pdf", ".doc", ".docx", ".xls", ".xlsx", ".jpg", ".jpeg", ".png"]);
 const maxInvoiceFileSize = 25 * 1024 * 1024;
+const SERVICE_FEE_READY_CACHE_MS = 10_000;
+const FAST_SERVICE_FEE_ROWS_CACHE_MS = 10_000;
+let serviceFeeRowsReadyAt = 0;
+let serviceFeeRowsReadyPromise: Promise<unknown> | null = null;
+let fastServiceFeeRowsCache: { rows: ServiceFeeRow[]; expiresAt: number } | null = null;
+let fastServiceFeeRowsPromise: Promise<ServiceFeeRow[]> | null = null;
 
 export async function calculateServiceFees(searchParams: URLSearchParams) {
-  await ensureMonthlyBillingRows();
   const filters = getFilters(searchParams);
   const exportAll = searchParams.get("export") === "1";
   const includeSummary = searchParams.get("includeSummary") !== "0";
   // Snapshot confirmation omits `page`, so it deliberately persists every
   // filtered row instead of silently saving only the first result page.
   const shouldPaginate = !exportAll && searchParams.has("page");
+  // The first page prepares any missing monthly rows. Subsequent pagination
+  // requests carry includeSummary=0 and only read the already prepared data.
+  if (!(shouldPaginate && !includeSummary)) await ensureServiceFeeRowsReady();
   const requestedPage = Math.max(1, Math.floor(Number(searchParams.get("page") ?? 1) || 1));
   const pageSize = normalizePageSize(Number(searchParams.get("pageSize") ?? DEFAULT_PAGE_SIZE));
-  const { sql, params } = buildServiceFeeQuery(filters, searchParams);
-  const loadPage = (targetPage: number) => queryRows<ServiceFeeRow>(
-    `
-      SELECT serviceFeeRows.*
-      FROM (${sql}) serviceFeeRows
-      ${getTableSort(searchParams, Object.fromEntries(Object.entries(getServiceFeeSortExpressions()).map(([key, expression]) => [key, expression.replace("combined.", "serviceFeeRows.")]))) || "ORDER BY writeOffMonth, countryCode, batchName, requestNo, poNo, deviceCode, nameEn"}
-      ${shouldPaginate ? "LIMIT :limit OFFSET :offset" : ""}
-    `,
-    shouldPaginate ? { ...params, limit: pageSize, offset: (targetPage - 1) * pageSize } : params,
-  );
+  const useFastPageQuery = shouldUseFastServiceFeePage(searchParams, filters);
+  const { sql, params } = useFastPageQuery
+    ? buildFastServiceFeePageQuery()
+    : buildServiceFeeQuery(filters, searchParams);
+  const loadPage = (targetPage: number) => {
+    if (useFastPageQuery) {
+      return loadFastServiceFeePage(sql, params, targetPage, pageSize);
+    }
+    return queryRows<ServiceFeeRow>(
+      `
+        SELECT serviceFeeRows.*
+        FROM (${sql}) serviceFeeRows
+        ${getTableSort(searchParams, Object.fromEntries(Object.entries(getServiceFeeSortExpressions()).map(([key, expression]) => [key, expression.replace("combined.", "serviceFeeRows.")]))) || "ORDER BY writeOffMonth, countryCode, batchName, requestNo, poNo, deviceCode, nameEn"}
+        ${shouldPaginate ? "LIMIT :limit OFFSET :offset" : ""}
+      `,
+      shouldPaginate ? { ...params, limit: pageSize, offset: (targetPage - 1) * pageSize } : params,
+    );
+  };
   const queryRowsWithSummary = shouldPaginate
     ? await loadPage(requestedPage)
     : await loadPage(1);
@@ -112,7 +128,7 @@ export async function calculateServiceFees(searchParams: URLSearchParams) {
 }
 
 export async function listServiceFeeFilterOptions(searchParams: URLSearchParams) {
-  await ensureMonthlyBillingRows();
+  await ensureServiceFeeRowsReady();
   const field = searchParams.get("field")?.trim() ?? "";
   const optionExpressions = Object.fromEntries(Object.entries(getServiceFeeSortExpressions()).map(([key, value]) => [key, value.replace(/^combined\./, "")])) as Record<string, string>;
   const expression = optionExpressions[field];
@@ -166,6 +182,21 @@ function emptyServiceFeeSummary() {
   };
 }
 
+async function ensureServiceFeeRowsReady() {
+  if (Date.now() - serviceFeeRowsReadyAt < SERVICE_FEE_READY_CACHE_MS) return;
+  if (!serviceFeeRowsReadyPromise) {
+    serviceFeeRowsReadyPromise = ensureMonthlyBillingRows()
+      .then((result) => {
+        serviceFeeRowsReadyAt = Date.now();
+        return result;
+      })
+      .finally(() => {
+        serviceFeeRowsReadyPromise = null;
+      });
+  }
+  await serviceFeeRowsReadyPromise;
+}
+
 function normalizeServiceFeeSummary(row: ServiceFeeSummaryRow) {
   return {
     billingTotal: Number(row.billingTotal ?? 0),
@@ -196,6 +227,48 @@ function summarizeServiceFeeRows(rows: ServiceFeeRow[]) {
 function canUseLightweightServiceFeeSummary(filters: ServiceFeeFilters) {
   // 类型筛选需要沿着月账单/预付款关联链路回填历史空值，使用完整查询保证汇总和明细一致。
   return !filters.keyword && !filters.requestType;
+}
+
+function shouldUseFastServiceFeePage(searchParams: URLSearchParams, filters: ServiceFeeFilters) {
+  return searchParams.has("page")
+    && !searchParams.has("sortField")
+    && !Array.from(searchParams.keys()).some((key) => key.startsWith("filter."))
+    && !filters.keyword
+    && !filters.startMonth
+    && !filters.endMonth
+    && !filters.countryCode
+    && !filters.batchName
+    && !filters.lineType
+    && !filters.requestType;
+}
+
+async function loadFastServiceFeePage(sql: string, params: Row, page: number, pageSize: number) {
+  const rows = await loadFastServiceFeeRows(sql, params);
+  return rows.slice((page - 1) * pageSize, page * pageSize);
+}
+
+async function loadFastServiceFeeRows(sql: string, params: Row) {
+  if (fastServiceFeeRowsCache && fastServiceFeeRowsCache.expiresAt > Date.now()) {
+    return fastServiceFeeRowsCache.rows;
+  }
+  if (!fastServiceFeeRowsPromise) {
+    fastServiceFeeRowsPromise = queryRows<ServiceFeeRow>(
+      `
+        SELECT serviceFeeRows.*
+        FROM (${sql}) serviceFeeRows
+        ORDER BY writeOffMonth, countryCode, batchName, requestNo, poNo, deviceCode, nameEn
+      `,
+      params,
+    )
+      .then((rows) => {
+        fastServiceFeeRowsCache = { rows, expiresAt: Date.now() + FAST_SERVICE_FEE_ROWS_CACHE_MS };
+        return rows;
+      })
+      .finally(() => {
+        fastServiceFeeRowsPromise = null;
+      });
+  }
+  return fastServiceFeeRowsPromise;
 }
 
 function serviceFeeBillingRequestTypeExpression() {
@@ -285,6 +358,108 @@ function buildLightweightServiceFeeSummaryQuery(filters: ServiceFeeFilters) {
       ${lineFilter}
     `,
     params,
+  };
+}
+
+function buildFastServiceFeePageQuery() {
+  return {
+    sql: `
+      WITH billing AS (
+        SELECT
+          CONCAT_WS('::', DATE_FORMAT(m.writeOffMonth, '%Y-%m-%d'), m.countryCode, m.batchName, m.requestNo, m.poNo, m.deviceCode, 'instance') AS rowKey,
+          DATE_FORMAT(m.writeOffMonth, '%Y-%m-%d') AS writeOffMonth,
+          m.countryCode, m.batchName, m.requestNo, m.poNo, m.deviceCode,
+          MAX(m.modelCode) AS modelCode,
+          MAX(m.nameEn) AS nameEn,
+          MIN(DATE_FORMAT(m.createdAt, '%Y-%m-%d')) AS createdAt,
+          MAX(DATE_FORMAT(m.updatedAt, '%Y-%m-%d')) AS updatedAt,
+          MAX(COALESCE(NULLIF(m.supplierId, ''), ri.supplierId, fallback.supplierId)) AS supplierId,
+          MAX(COALESCE(NULLIF(m.undertakingUnitId, ''), ri.undertakingUnitId, fallback.undertakingUnitId)) AS undertakingUnitId,
+          MAX(COALESCE(NULLIF(m.customerId, ''), ri.customerId, fallback.customerId)) AS customerId,
+          MAX(m.quantity) AS quantity,
+          MAX(m.currency) AS currency,
+          MAX(${serviceFeeBillingRequestTypeExpression()}) AS requestType,
+          MAX(COALESCE(country.vatRate, 0)) AS vatRate,
+          SUM(COALESCE(m.monthlyTotalAmount, m.quantity * m.monthlyAmount, 0)) AS billingAmount,
+          GROUP_CONCAT(m.id ORDER BY m.id SEPARATOR ',') AS billingSourceIds
+        FROM monthlybillingwriteoffs m
+        LEFT JOIN billinginstanceledgers ledger ON ledger.ledgerId = m.ledgerId
+        LEFT JOIN purchaseorderitems purchaseItem ON purchaseItem.id = ledger.purchaseOrderItemId
+        LEFT JOIN requestitems ri ON ri.id = purchaseItem.requestItemId
+        LEFT JOIN requests req ON req.requestNo = COALESCE(NULLIF(purchaseItem.requestNo, ''), NULLIF(ri.requestNo, ''), m.requestNo)
+        LEFT JOIN requestitems fallback ON fallback.requestNo = m.requestNo AND fallback.deviceCode = m.deviceCode
+        LEFT JOIN countries country ON country.code = m.countryCode
+        GROUP BY rowKey, DATE_FORMAT(m.writeOffMonth, '%Y-%m-%d'), m.countryCode, m.batchName, m.requestNo, m.poNo, m.deviceCode
+      ), prepayment AS (
+        SELECT
+          CASE WHEN p.lineType = 'fee'
+            THEN CONCAT_WS('::', DATE_FORMAT(p.writeOffMonth, '%Y-%m-%d'), p.countryCode, p.batchName, p.requestNo, p.poNo, p.contractNo, COALESCE(p.contractLineId, p.id), 'fee')
+            ELSE CONCAT_WS('::', DATE_FORMAT(p.writeOffMonth, '%Y-%m-%d'), p.countryCode, p.batchName, p.requestNo, p.poNo, p.deviceCode, 'instance') END AS rowKey,
+          DATE_FORMAT(p.writeOffMonth, '%Y-%m-%d') AS writeOffMonth,
+          p.countryCode, p.batchName, p.requestNo, p.poNo, p.deviceCode,
+          MAX(p.modelCode) AS modelCode,
+          MAX(p.nameEn) AS nameEn,
+          MIN(DATE_FORMAT(p.createdAt, '%Y-%m-%d')) AS createdAt,
+          MAX(DATE_FORMAT(p.updatedAt, '%Y-%m-%d')) AS updatedAt,
+          MAX(COALESCE(NULLIF(p.supplierId, ''), ri.supplierId, fallback.supplierId)) AS supplierId,
+          MAX(COALESCE(NULLIF(p.undertakingUnitId, ''), ri.undertakingUnitId, fallback.undertakingUnitId)) AS undertakingUnitId,
+          MAX(COALESCE(NULLIF(p.customerId, ''), ri.customerId, fallback.customerId)) AS customerId,
+          MAX(p.quantity) AS quantity,
+          MAX(p.currency) AS currency,
+          MAX(COALESCE(NULLIF(p.requestType, ''), NULLIF(contractItem.requestType, ''), NULLIF(ri.requestType, ''), NULLIF(fallback.requestType, ''), CASE WHEN p.lineType = 'fee' THEN '费用' ELSE '整机' END)) AS requestType,
+          MAX(COALESCE(country.vatRate, 0)) AS vatRate,
+          MAX(CASE WHEN p.lineType = 'fee' THEN 'fee' ELSE 'instance' END) AS lineType,
+          SUM(COALESCE(p.monthlyAmount, 0)) AS prepaymentAmount,
+          GROUP_CONCAT(p.id ORDER BY p.id SEPARATOR ',') AS prepaymentSourceIds,
+          GROUP_CONCAT(DISTINCT p.contractNo ORDER BY p.contractNo SEPARATOR ',') AS prepaymentContractNos
+        FROM monthlyprepaymentwriteoffs p
+        LEFT JOIN prepaymentcontractitems contractItem ON contractItem.id = p.contractLineId
+        LEFT JOIN requestitems ri ON ri.id = contractItem.requestItemId
+        LEFT JOIN requestitems fallback ON fallback.requestNo = p.requestNo AND fallback.deviceCode = p.deviceCode
+        LEFT JOIN countries country ON country.code = p.countryCode
+        GROUP BY rowKey, DATE_FORMAT(p.writeOffMonth, '%Y-%m-%d'), p.countryCode, p.batchName, p.requestNo, p.poNo, p.deviceCode
+      ), rowKeys AS (
+        SELECT rowKey FROM billing UNION SELECT rowKey FROM prepayment
+      ), combined AS (
+        SELECT
+          CONCAT('SFC-', rk.rowKey) AS id,
+          COALESCE(b.writeOffMonth, p.writeOffMonth) AS writeOffMonth,
+          COALESCE(b.countryCode, p.countryCode) AS countryCode,
+          COALESCE(b.batchName, p.batchName) AS batchName,
+          COALESCE(b.requestNo, p.requestNo) AS requestNo,
+          COALESCE(b.poNo, p.poNo) AS poNo,
+          COALESCE(b.deviceCode, p.deviceCode) AS deviceCode,
+          COALESCE(b.requestType, p.requestType, CASE WHEN p.lineType = 'fee' THEN '费用' ELSE '整机' END) AS requestType,
+          COALESCE(b.modelCode, p.modelCode) AS modelCode,
+          COALESCE(b.nameEn, p.nameEn) AS nameEn,
+          COALESCE(b.supplierId, p.supplierId) AS supplierId,
+          COALESCE(b.undertakingUnitId, p.undertakingUnitId) AS undertakingUnitId,
+          COALESCE(b.customerId, p.customerId) AS customerId,
+          CASE WHEN COALESCE(b.createdAt, '9999-12-31') <= COALESCE(p.createdAt, '9999-12-31') THEN b.createdAt ELSE p.createdAt END AS createdAt,
+          CASE WHEN COALESCE(b.updatedAt, '') >= COALESCE(p.updatedAt, '') THEN b.updatedAt ELSE p.updatedAt END AS updatedAt,
+          COALESCE(b.quantity, p.quantity, 0) AS quantity,
+          COALESCE(b.currency, p.currency) AS currency,
+          COALESCE(b.vatRate, p.vatRate, 0) AS vatRate,
+          b.currency AS billingCurrency,
+          p.currency AS prepaymentCurrency,
+          COALESCE(p.lineType, 'instance') AS lineType,
+          COALESCE(b.billingAmount, 0) AS billingAmount,
+          COALESCE(p.prepaymentAmount, 0) AS prepaymentAmount,
+          COALESCE(b.billingAmount, 0) - COALESCE(p.prepaymentAmount, 0) AS serviceFeeAmount,
+          (COALESCE(b.billingAmount, 0) - COALESCE(p.prepaymentAmount, 0)) / (1 + COALESCE(b.vatRate, p.vatRate, 0)) AS serviceFeeAmountExcludingTax,
+          COALESCE(b.billingSourceIds, '') AS billingSourceIds,
+          COALESCE(p.prepaymentSourceIds, '') AS prepaymentSourceIds,
+          COALESCE(p.prepaymentContractNos, '') AS prepaymentContractNos,
+          CASE WHEN b.rowKey IS NOT NULL AND p.rowKey IS NOT NULL THEN '月账单与预付款均存在'
+               WHEN b.rowKey IS NOT NULL THEN '仅月账单存在'
+               ELSE '仅预付款存在，月账单金额按0显示' END AS sourceNote
+        FROM rowKeys rk
+        LEFT JOIN billing b ON b.rowKey = rk.rowKey
+        LEFT JOIN prepayment p ON p.rowKey = rk.rowKey
+      )
+      SELECT * FROM combined
+    `,
+    params: {},
   };
 }
 

@@ -117,7 +117,10 @@ export function AppShell({
   }, [filteredNavGroups, isAdmin, permissionState]);
   const sidebarGroups = useMemo(() => getSidebarNavGroups(visibleNavGroups, sidebarGroupOrder), [sidebarGroupOrder, visibleNavGroups]);
   const currentSectionTitle = getTopLevelTitle(pathname);
-  const isEmbedded = embedded;
+  // The middleware marks embedded requests on the server. Keep the query
+  // marker as a client-side fallback so an older/stale server build cannot
+  // render another full workspace inside the iframe.
+  const isEmbedded = embedded || searchParams.get("embed") === "1";
 
   useEffect(() => {
     activeRouteRef.current = workspace.activeRoute;

@@ -266,7 +266,7 @@ export function ServiceFeesPage() {
           </Button>
         </div>
 
-        <div className="grid gap-3 border-b border-[#ebeef5] bg-[#fafafa] p-4 md:grid-cols-5">
+        <div className="grid grid-cols-2 gap-2 border-b border-[#ebeef5] bg-[#fafafa] p-3 md:grid-cols-3 xl:grid-cols-6">
           <SummaryItem label="月账单合计" value={summary.billingTotal} />
           <SummaryItem label="预付款合计" value={summary.prepaymentTotal} />
           <SummaryItem label="服务费合计" value={summary.serviceFeeTotal} />
@@ -342,9 +342,9 @@ export function ServiceFeesPage() {
 
 function SummaryItem({ label, value }: { label: string; value: number }) {
   return (
-    <div className="border border-[#ebeef5] bg-white px-4 py-3">
+    <div className="min-w-0 border border-[#ebeef5] bg-white px-3 py-2">
       <div className="text-xs text-[#909399]">{label}</div>
-      <div className="mt-1 text-lg font-medium text-[#303133]">{formatValue(value, "money")}</div>
+      <div className="mt-1 truncate text-base font-medium text-[#303133]">{formatValue(value, "money")}</div>
     </div>
   );
 }

@@ -43,11 +43,19 @@ export function normalizeWorkspaceState(state: WorkspaceState): WorkspaceState {
   const tabsByRoute = new Map<string, WorkspaceTab>();
   for (const tab of state.tabs) {
     if (!tab || !tab.route || tabsByRoute.has(tab.route)) continue;
-    tabsByRoute.set(tab.route, { ...tab, id: getWorkspaceTabId(tab) });
+    const route = getWorkspaceRouteFromLocation(
+      new URL(tab.route, "http://local").pathname,
+      new URL(tab.route, "http://local").search,
+    );
+    if (tabsByRoute.has(route)) continue;
+    const normalizedTab = { ...tab, route, id: getWorkspaceTabId({ ...tab, route }) };
+    tabsByRoute.set(route, normalizedTab);
   }
   if (!tabsByRoute.has("/")) tabsByRoute.set("/", HOME_TAB);
   const tabs = Array.from(tabsByRoute.values());
-  const activeRoute = tabs.some((tab) => tab.route === state.activeRoute) ? state.activeRoute : "/";
+  const activeUrl = new URL(state.activeRoute || "/", "http://local");
+  const normalizedActiveRoute = getWorkspaceRouteFromLocation(activeUrl.pathname, activeUrl.search);
+  const activeRoute = tabs.some((tab) => tab.route === normalizedActiveRoute) ? normalizedActiveRoute : "/";
   return {
     tabs,
     activeRoute,
@@ -123,9 +131,10 @@ export function closeWorkspaceTab(state: WorkspaceState, route: string): Workspa
 }
 
 export function getEmbeddedRoute(route: string) {
-  if (route === "/") return "/";
-  const separator = route.includes("?") ? "&" : "?";
-  return `${route}${separator}embed=1`;
+  const url = new URL(route, "http://local");
+  if (url.pathname === "/") return "/";
+  url.searchParams.set("embed", "1");
+  return `${url.pathname}${url.search}`;
 }
 
 export function getWorkspaceRouteFromLocation(pathname: string, search: string) {

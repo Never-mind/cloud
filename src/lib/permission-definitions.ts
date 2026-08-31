@@ -164,6 +164,44 @@ const ROOT_DEFINITIONS: PermissionDefinition[] = [
   { moduleKey: "domain:public", title: "公共功能", level: 1, kind: "domain", domainKey: "common" },
 ];
 
+const PERMISSION_GROUP_ORDER: Record<string, string[]> = {
+  "domain:power": ["客户需求", "采购管理", "合同管理", "物流管理", "财务管理", "基础信息", "数据工具", "隐藏"],
+  "domain:po": ["客户PO", "项目结算", "财务管理", "产品管理", "采购管理", "隐藏"],
+  "domain:cloud": ["华为云对账", "隐藏"],
+  "domain:business-partners": ["供应商管理", "客户管理", "承接单位", "隐藏"],
+  "domain:user-management": ["功能启用", "账户管理", "隐藏"],
+  "domain:public": ["文档管理", "数据工具", "隐藏"],
+};
+
+const PERMISSION_MODULE_ORDER: Record<string, string[]> = {
+  "domain:power:客户需求": ["requests", "request-items"],
+  "domain:power:采购管理": ["purchase-orders", "purchase-order-items", "purchase-order-sn-items", "purchase-order-plan-items"],
+  "domain:power:合同管理": ["instance-contracts", "billing-adjustments"],
+  "domain:power:物流管理": ["shipments"],
+  "domain:power:财务管理": [
+    "b6-type-configs", "capex-pricing", "balance-settlements", "non-instance-settlements", "balance-final-settlements",
+    "billing-available", "billing-ledgers", "monthly-billing-writeoffs", "billing-statements",
+    "prepayment-available", "prepayment-contracts", "monthly-prepayment-writeoffs", "prepayment-writeoff-adjustments",
+    "prepayment-contract-items", "write-off-items", "service-fees", "service-fee-snapshots", "service-fee-snapshot-items",
+    "internal-service-fee-available", "internal-service-fees", "internal-service-fee-adjustments", "internal-service-fee-snapshots",
+  ],
+  "domain:power:基础信息": ["countries", "delivery-locations", "delivery-contacts", "datacenters", "instance-models"],
+  "domain:power:数据工具": ["data-imports"],
+  "domain:po:客户PO": ["customer-pos", "quotations", "history-quotations"],
+  "domain:po:项目结算": ["settlement-projects"],
+  "domain:po:财务管理": ["po-invoice-summary"],
+  "domain:po:产品管理": ["product-categories", "product-masters"],
+  "domain:po:采购管理": ["customer-product-aliases"],
+  "domain:cloud:华为云对账": ["huawei-cloud", "huawei-cloud-mappings", "huawei-cloud-supplier-payments"],
+  "domain:business-partners:供应商管理": ["suppliers", "supplier-contacts", "supplier-bank-accounts"],
+  "domain:business-partners:客户管理": ["customers", "customer-contacts", "customer-bank-accounts"],
+  "domain:business-partners:承接单位": ["undertaking-units", "undertaking-unit-contacts", "undertaking-unit-bank-accounts"],
+  "domain:user-management:功能启用": ["system-module-features"],
+  "domain:user-management:账户管理": ["system-users"],
+  "domain:public:文档管理": ["documents"],
+  "domain:public:数据工具": ["data-imports"],
+};
+
 const ADMIN_ONLY_MODULES = new Set(["system-users", "system-module-features"]);
 
 const API_ROUTE_RULES: Array<{ prefix: string; moduleKey: string }> = [
@@ -329,24 +367,63 @@ export function hasPermission(state: PermissionState | null | undefined, moduleK
 
 export function getPermissionDefinitions(entityDefinitions: Array<{ key: string; title: string; navGroup: string; adminOnly?: boolean }>) {
   const definitions: PermissionDefinition[] = [...ROOT_DEFINITIONS];
-  const seenGroups = new Set<string>();
-  for (const entity of entityDefinitions) {
+  const grouped = new Map<string, Array<{ entity: (typeof entityDefinitions)[number]; groupTitle: string; rootKey: string; domainKey: PermissionDefinition["domainKey"]; index: number }>>();
+  for (const [index, entity] of entityDefinitions.entries()) {
     const domainKey = MODULE_DOMAIN[entity.key] ?? "power";
     const groupTitle = MODULE_GROUP[entity.key] ?? entity.navGroup;
     const rootKey = MODULE_ROOT[entity.key] ?? `domain:${domainKey}`;
     const groupKey = `group:${rootKey}:${groupTitle}`;
-    if (!seenGroups.has(groupKey)) {
-      seenGroups.add(groupKey);
-      definitions.push({
-        moduleKey: groupKey,
-        title: groupTitle,
-        level: 2,
-        kind: "group",
-        parentKey: rootKey,
-        domainKey,
-      });
-    }
-    definitions.push({ moduleKey: entity.key, title: entity.title, level: 3, kind: "module", parentKey: groupKey, domainKey });
+    const items = grouped.get(groupKey) ?? [];
+    items.push({ entity, groupTitle, rootKey, domainKey, index });
+    grouped.set(groupKey, items);
+  }
+
+  const rootOrder = new Map(ROOT_DEFINITIONS.map((definition, index) => [definition.moduleKey, index]));
+  const sortedGroups = [...grouped.entries()].sort(([leftKey, leftItems], [rightKey, rightItems]) => {
+    const leftRest = leftKey.slice("group:".length);
+    const rightRest = rightKey.slice("group:".length);
+    const leftRootEnd = leftRest.indexOf(":", "domain:".length);
+    const rightRootEnd = rightRest.indexOf(":", "domain:".length);
+    const leftRootKey = leftRootEnd >= 0 ? leftRest.slice(0, leftRootEnd) : leftRest;
+    const rightRootKey = rightRootEnd >= 0 ? rightRest.slice(0, rightRootEnd) : rightRest;
+    const leftTitle = leftRootEnd >= 0 ? leftRest.slice(leftRootEnd + 1) : "";
+    const rightTitle = rightRootEnd >= 0 ? rightRest.slice(rightRootEnd + 1) : "";
+    const leftRootIndex = rootOrder.get(leftRootKey) ?? ROOT_DEFINITIONS.length;
+    const rightRootIndex = rootOrder.get(rightRootKey) ?? ROOT_DEFINITIONS.length;
+    if (leftRootIndex !== rightRootIndex) return leftRootIndex - rightRootIndex;
+    const leftGroupOrder = PERMISSION_GROUP_ORDER[leftRootKey] ?? [];
+    const rightGroupOrder = PERMISSION_GROUP_ORDER[rightRootKey] ?? [];
+    const leftIndex = leftGroupOrder.indexOf(leftTitle);
+    const rightIndex = rightGroupOrder.indexOf(rightTitle);
+    if (leftIndex !== rightIndex) return (leftIndex < 0 ? leftGroupOrder.length : leftIndex) - (rightIndex < 0 ? rightGroupOrder.length : rightIndex);
+    return leftItems[0].index - rightItems[0].index;
+  });
+
+  for (const [groupKey, items] of sortedGroups) {
+    const first = items[0];
+    definitions.push({
+      moduleKey: groupKey,
+      title: first.groupTitle,
+      level: 2,
+      kind: "group",
+      parentKey: first.rootKey,
+      domainKey: first.domainKey,
+    });
+    const preferredOrder = PERMISSION_MODULE_ORDER[`${first.rootKey}:${first.groupTitle}`] ?? [];
+    items.sort((left, right) => {
+      const leftIndex = preferredOrder.indexOf(left.entity.key);
+      const rightIndex = preferredOrder.indexOf(right.entity.key);
+      if (leftIndex !== rightIndex) return (leftIndex < 0 ? preferredOrder.length : leftIndex) - (rightIndex < 0 ? preferredOrder.length : rightIndex);
+      return left.index - right.index;
+    });
+    definitions.push(...items.map(({ entity, domainKey }) => ({
+      moduleKey: entity.key,
+      title: entity.title,
+      level: 3 as const,
+      kind: "module" as const,
+      parentKey: groupKey,
+      domainKey,
+    })));
   }
   return definitions;
 }

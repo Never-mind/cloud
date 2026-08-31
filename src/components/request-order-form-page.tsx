@@ -12,7 +12,7 @@ import { fetchAllEntityRows } from "@/lib/client-entity-fetch";
 import { buildDetailRoute, getReturnTo } from "@/lib/client-list-navigation";
 import { exportRowsToXlsx } from "@/lib/client-xlsx-export";
 import { getPartyReferenceLabel, resolvePartyReference } from "@/lib/party-reference";
-import { Button, Input, Panel } from "./ui";
+import { AuditInfoBar, Button, Input, Panel } from "./ui";
 import { StickyTable } from "./sticky-table";
 
 type Row = Record<string, string | number | boolean | null>;
@@ -29,6 +29,14 @@ type MasterDraft = {
 
 type DetailDraft = RequestDetailDraft;
 type SaveMode = "draft" | "confirm";
+type AuditInfo = {
+  createdByName: unknown;
+  createdAt: unknown;
+  updatedByName: unknown;
+  updatedAt: unknown;
+  confirmedByName: unknown;
+  confirmedAt: unknown;
+};
 
 type SearchOption = {
   value: string;
@@ -69,6 +77,14 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
   const [countries, setCountries] = useState<Row[]>([]);
   const [saving, setSaving] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const [audit, setAudit] = useState<AuditInfo>({
+    createdByName: null,
+    createdAt: null,
+    updatedByName: null,
+    updatedAt: null,
+    confirmedByName: null,
+    confirmedAt: null,
+  });
   const [editing, setEditing] = useState(!requestNo);
   const canEdit = !requestNo || editing;
   const canConfirm = !isConfirmedRequestStatus(master.status);
@@ -116,6 +132,14 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
       if (response.ok) {
         const data = await response.json();
         const row = data.master as Row;
+        setAudit({
+          createdByName: row.createdByName,
+          createdAt: row.createdAt,
+          updatedByName: row.updatedByName,
+          updatedAt: row.updatedAt,
+          confirmedByName: row.confirmedByName,
+          confirmedAt: row.confirmedAt,
+        });
         setMaster({
           requestNo: String(row.requestNo ?? ""),
           countryCode: String(row.countryCode ?? ""),
@@ -496,6 +520,14 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
           </datalist>
         </StickyTable>
       </Panel>
+      <AuditInfoBar
+        createdBy={audit.createdByName}
+        createdAt={audit.createdAt}
+        updatedBy={audit.updatedByName}
+        updatedAt={audit.updatedAt}
+        confirmedBy={audit.confirmedByName}
+        confirmedAt={audit.confirmedAt}
+      />
     </div>
   );
 

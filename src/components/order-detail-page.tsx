@@ -13,7 +13,7 @@ import { buildPurchaseProductLines, calculatePurchaseTotalAmount } from "@/lib/p
 import { PurchaseOrderDemandPlanTabs } from "./purchase-order-demand-plan-tabs";
 import { getReturnTo } from "@/lib/client-list-navigation";
 import { readJsonResponse } from "@/lib/client-response";
-import { Button, Input, Panel } from "./ui";
+import { AuditInfoBar, Button, Input, Panel } from "./ui";
 import { StickyTable } from "./sticky-table";
 
 type Row = Record<string, string | number | boolean | null>;
@@ -363,6 +363,14 @@ export function OrderDetailPage({
           purchaseOrderId={String(master.purchaseOrderId ?? id)}
         />
       ) : null}
+      <AuditInfoBar
+        createdBy={master.createdByName}
+        createdAt={master.createdAt}
+        updatedBy={master.updatedByName}
+        updatedAt={master.updatedAt}
+        confirmedBy={master.confirmedByName}
+        confirmedAt={master.confirmedAt}
+      />
     </div>
   );
 }

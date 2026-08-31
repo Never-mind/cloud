@@ -60,6 +60,7 @@ describe("tab workspace state", () => {
   it("adds embed query for module tabs", () => {
     expect(getEmbeddedRoute("/purchase/orders")).toBe("/purchase/orders?embed=1");
     expect(getEmbeddedRoute("/purchase/orders?status=draft")).toBe("/purchase/orders?status=draft&embed=1");
+    expect(getEmbeddedRoute("/purchase/orders?status=draft&embed=1")).toBe("/purchase/orders?status=draft&embed=1");
   });
 
   it("updates the source tab title after an embedded page changes route", () => {
@@ -173,5 +174,19 @@ describe("tab workspace state", () => {
     expect(normalized.tabs.map((tab) => tab.route)).toEqual(["/", "/customers"]);
     expect(normalized.tabs.map((tab) => tab.id)).toEqual(["workspace-home", "old-a"]);
     expect(normalized.activeRoute).toBe("/customers");
+  });
+
+  it("removes stale iframe markers from restored workspace routes", () => {
+    const normalized = normalizeWorkspaceState({
+      tabs: [
+        HOME_TAB,
+        { id: "old-list", route: "/requests/orders?embed=1&page=2", title: "需求单", closable: true },
+        { id: "clean-list", route: "/requests/orders?page=2", title: "需求单", closable: true },
+      ],
+      activeRoute: "/requests/orders?embed=1&page=2",
+    });
+
+    expect(normalized.tabs.map((tab) => tab.route)).toEqual(["/", "/requests/orders?page=2"]);
+    expect(normalized.activeRoute).toBe("/requests/orders?page=2");
   });
 });
