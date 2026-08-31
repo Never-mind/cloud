@@ -11,7 +11,7 @@ import { TableColumnMenu, type TableFilterOption, type TableSortOrder } from "./
 import { useRequestGuard } from "@/lib/table-query-client";
 
 type Row = Record<string, string | number | boolean | null>;
-type ListResponse = { rows: Row[]; summary: Summary; total: number; page: number; pageSize: number; totalPages: number };
+type ListResponse = { rows: Row[]; summary: Summary; currencySummaries?: CurrencySummary[]; total: number; page: number; pageSize: number; totalPages: number };
 
 type Summary = {
   billingTotal: number;
@@ -21,6 +21,8 @@ type Summary = {
   instanceServiceFeeTotal: number;
   feeServiceFeeTotal: number;
 };
+
+type CurrencySummary = Summary & { currency: string };
 
 const columns: Array<{ key: string; label: string; type?: string }> = [
   { key: "writeOffMonth", label: "核销月份", type: "date" },
@@ -63,11 +65,13 @@ const emptySummary: Summary = {
 export function ServiceFeesPage() {
   const [rows, setRows] = useState<Row[]>([]);
   const [summary, setSummary] = useState<Summary>(emptySummary);
+  const [currencySummaries, setCurrencySummaries] = useState<CurrencySummary[]>([]);
   const [keyword, setKeyword] = useState("");
   const [startMonth, setStartMonth] = useState("");
   const [endMonth, setEndMonth] = useState("");
   const [countryCode, setCountryCode] = useState("");
   const [batchName, setBatchName] = useState("");
+  const [currency, setCurrency] = useState("");
   const [lineType, setLineType] = useState("");
   const [requestType, setRequestType] = useState("");
   const [snapshotNo, setSnapshotNo] = useState("");
@@ -84,7 +88,7 @@ export function ServiceFeesPage() {
   const beginRequest = useRequestGuard();
 
   const params = useMemo(() => {
-    const next = buildParams({ keyword, startMonth, endMonth, countryCode, batchName, lineType, requestType });
+    const next = buildParams({ keyword, startMonth, endMonth, countryCode, batchName, currency, lineType, requestType });
     if (sortField && sortOrder) { next.set("sortField", sortField); next.set("sortOrder", sortOrder); }
     for (const [key, values] of Object.entries(columnFilters)) values.forEach((value) => next.append(`filter.${key}`, value));
     return next;
@@ -94,6 +98,7 @@ export function ServiceFeesPage() {
     endMonth,
     countryCode,
     batchName,
+    currency,
     lineType,
     requestType,
     sortField,
@@ -125,6 +130,7 @@ export function ServiceFeesPage() {
       setRows(data.rows ?? []);
       if (includeSummary) {
         setSummary(data.summary ?? emptySummary);
+        setCurrencySummaries(data.currencySummaries ?? []);
         setTotal(Number(data.total ?? 0));
       }
       if (data.page !== nextPage) setPage(data.page);
@@ -152,6 +158,10 @@ export function ServiceFeesPage() {
       alert("请在上方选择起始月份和结束月份");
       return;
     }
+    if (!currency.trim()) {
+      alert("生成服务费对账单前请输入币种");
+      return;
+    }
     if (startMonth !== endMonth) {
       alert("服务费对账单仅能按单一核销月份生成，请将起始月份与结束月份选为同一个月");
       return;
@@ -162,7 +172,7 @@ export function ServiceFeesPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         snapshotNo: snapshotNo.trim() || undefined,
-        filters: { startMonth, endMonth, countryCode: countryCode.trim() },
+        filters: { startMonth, endMonth, countryCode: countryCode.trim(), currency: currency.trim() },
       }),
     });
     const data = await response.json();
@@ -204,6 +214,7 @@ export function ServiceFeesPage() {
     if (endMonth) optionParams.set("endMonth", endMonth);
     if (countryCode.trim()) optionParams.set("countryCode", countryCode.trim());
     if (batchName.trim()) optionParams.set("batchName", batchName.trim());
+    if (currency.trim()) optionParams.set("currency", currency.trim());
     if (lineType.trim()) optionParams.set("lineType", lineType.trim());
     if (requestType.trim()) optionParams.set("requestType", requestType.trim());
     for (const [key, values] of Object.entries(columnFilters)) {
@@ -234,6 +245,7 @@ export function ServiceFeesPage() {
           <label className="text-xs text-[#606266]">结束月份<Input className="ml-2" type="month" value={endMonth} onChange={(event) => setEndMonth(event.target.value)} /></label>
           <Input placeholder="国家" value={countryCode} onChange={(event) => setCountryCode(event.target.value)} />
           <Input placeholder="批次" value={batchName} onChange={(event) => setBatchName(event.target.value)} />
+          <Input placeholder="币种，如 USD / CNY" value={currency} onChange={(event) => setCurrency(event.target.value)} />
           <select
             className="h-9 rounded border border-[#dcdfe6] bg-white px-3 text-sm outline-none focus:border-[#1890ff]"
             value={lineType}
@@ -267,12 +279,12 @@ export function ServiceFeesPage() {
         </div>
 
         <div className="grid grid-cols-2 gap-2 border-b border-[#ebeef5] bg-[#fafafa] p-3 md:grid-cols-3 xl:grid-cols-6">
-          <SummaryItem label="月账单合计" value={summary.billingTotal} />
-          <SummaryItem label="预付款合计" value={summary.prepaymentTotal} />
-          <SummaryItem label="服务费合计" value={summary.serviceFeeTotal} />
-          <SummaryItem label="服务费未税合计" value={summary.serviceFeeTotalExcludingTax} />
-          <SummaryItem label="实例服务费" value={summary.instanceServiceFeeTotal} />
-          <SummaryItem label="非实例费用" value={summary.feeServiceFeeTotal} />
+          <SummaryItem label="月账单合计" summaries={currencySummaries} fallback={summary} valueKey="billingTotal" />
+          <SummaryItem label="预付款合计" summaries={currencySummaries} fallback={summary} valueKey="prepaymentTotal" />
+          <SummaryItem label="服务费合计" summaries={currencySummaries} fallback={summary} valueKey="serviceFeeTotal" />
+          <SummaryItem label="服务费未税合计" summaries={currencySummaries} fallback={summary} valueKey="serviceFeeTotalExcludingTax" />
+          <SummaryItem label="实例服务费" summaries={currencySummaries} fallback={summary} valueKey="instanceServiceFeeTotal" />
+          <SummaryItem label="非实例费用" summaries={currencySummaries} fallback={summary} valueKey="feeServiceFeeTotal" />
         </div>
 
         <div className="flex flex-wrap items-center gap-2 border-b border-[#ebeef5] p-4">
@@ -281,7 +293,7 @@ export function ServiceFeesPage() {
             <CheckCircle2 size={15} />
             {confirming ? "生成中" : "生成对账单草稿"}
           </Button>
-          <span className="text-sm text-[#909399]">请在上方将起始月份与结束月份选为同一个月；对账单将汇总所选国家当月的全部批次。</span>
+          <span className="text-sm text-[#909399]">请填写币种，并将起始月份与结束月份选为同一个月；对账单将汇总所选国家、币种当月的全部批次。</span>
         </div>
 
         <StickyTable className="table-scroll overflow-auto" tableKey="service-fees">
@@ -340,11 +352,18 @@ export function ServiceFeesPage() {
   );
 }
 
-function SummaryItem({ label, value }: { label: string; value: number }) {
+function SummaryItem({ label, summaries, fallback, valueKey }: { label: string; summaries: CurrencySummary[]; fallback: Summary; valueKey: keyof Summary }) {
+  const values = summaries.length ? summaries : [{ currency: "", ...fallback }];
   return (
     <div className="min-w-0 border border-[#ebeef5] bg-white px-3 py-2">
       <div className="text-xs text-[#909399]">{label}</div>
-      <div className="mt-1 truncate text-base font-medium text-[#303133]">{formatValue(value, "money")}</div>
+      <div className="mt-1 space-y-0.5 text-sm font-medium text-[#303133]">
+        {values.map((item) => (
+          <div className="truncate" key={`${label}-${item.currency || "total"}`}>
+            {item.currency ? `${item.currency}：` : "合计："}{formatValue(item[valueKey], "money")}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

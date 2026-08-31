@@ -11,6 +11,7 @@ import {
   type ReactElement,
   type ReactNode,
 } from "react";
+import { applyLockedColumns, getTableLockStorageKey, readLockedColumns } from "./table-column-menu";
 
 type TableElementProps = {
   children?: ReactNode;
@@ -238,6 +239,21 @@ export function StickyTable({ children, className, tableKey, topOffset = 0 }: St
     observer.observe(region, { childList: true, subtree: true });
     return () => observer.disconnect();
   }, []);
+
+  // The fixed header is a second DOM table. Re-apply persisted column locks
+  // after it is mounted or rebuilt while scrolling horizontally/vertically.
+  useEffect(() => {
+    const region = regionRef.current;
+    if (!region) return;
+    const refreshLockedTables = () => {
+      region.querySelectorAll<HTMLTableElement>("table[data-cloud-power-table-id]").forEach((table) => {
+        applyLockedColumns(table, readLockedColumns(getTableLockStorageKey(table)));
+      });
+    };
+    refreshLockedTables();
+    const frame = window.requestAnimationFrame(refreshLockedTables);
+    return () => window.cancelAnimationFrame(frame);
+  }, [metrics.columnWidths, metrics.scrollLeft, metrics.stuck, metrics.tableWidth]);
 
   useEffect(() => {
     if (!metrics.stuck || !headerViewportRef.current) return;

@@ -2,7 +2,7 @@ import { randomUUID } from "crypto";
 import { execute, queryRows, type Row } from "./db";
 import { attachPartyCodes } from "./party-display";
 import type { EntityConfig } from "./modules";
-import { DEFAULT_PAGE_SIZE, normalizePageSize } from "./pagination";
+import { DEFAULT_PAGE_SIZE, getKnownTotal, normalizePageSize } from "./pagination";
 import { requireRequestType } from "./request-type";
 import { formatTableDateExpression, formatTableDateTimeExpression, getNaturalBatchSort, getTableFilterOptionsOrderBy } from "./table-query";
 
@@ -357,11 +357,11 @@ export async function listEntityRows(config: EntityConfig, searchParams: URLSear
 
   const where = whereParts.length ? `WHERE ${whereParts.join(" AND ")}` : "";
   const orderBy = getEntityOrderBy(config, shipmentAlias, searchParams);
-  const [{ total }] = await queryRows<{ total: number }>(
+  const knownTotal = getKnownTotal(searchParams);
+  const normalizedTotal = knownTotal ?? Number((await queryRows<{ total: number }>(
     `SELECT COUNT(*) AS total FROM ${tableSource} ${where}`,
     params,
-  );
-  const normalizedTotal = Number(total ?? 0);
+  ))[0]?.total ?? 0);
   const totalPages = Math.max(1, Math.ceil(normalizedTotal / pageSize));
   const page = Math.min(requestedPage, totalPages);
   params.limit = pageSize;

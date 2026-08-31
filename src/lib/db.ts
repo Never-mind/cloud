@@ -6,6 +6,8 @@ type DbGlobal = typeof globalThis & {
 };
 
 const dbGlobal = globalThis as DbGlobal;
+const DB_COUNT_CACHE_MS = 5_000;
+const countQueryCache = new Map<string, { expiresAt: number; rows: QueryResult }>();
 
 export const DB_TABLE_PREFIX = "power_";
 export const DB_TABLE_PREFIXES = ["power_", "po_", "cloud_", "common_"] as const;
@@ -119,7 +121,14 @@ export async function queryRows<T extends Row>(sql: string, params: Row = {}): P
 }
 
 export async function queryRowsRaw<T extends Row>(sql: string, params: Row = {}): Promise<T[]> {
+  const cacheKey = getCountQueryCacheKey(sql, params);
+  if (cacheKey) {
+    const cached = countQueryCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) return cached.rows as T[];
+    if (cached) countQueryCache.delete(cacheKey);
+  }
   const [rows] = await getDb().query<QueryResult>(sql, params as any);
+  if (cacheKey) countQueryCache.set(cacheKey, { expiresAt: Date.now() + DB_COUNT_CACHE_MS, rows });
   return rows as T[];
 }
 
@@ -129,6 +138,7 @@ export async function execute(sql: string, params: Row = {}) {
 
 export async function executeRaw(sql: string, params: Row = {}) {
   const [result] = await getDb().execute(sql, params as any);
+  countQueryCache.clear();
   return result;
 }
 
@@ -154,5 +164,14 @@ export async function queryRowsInTransaction<T extends Row>(connection: mysql.Po
 
 export async function executeInTransaction(connection: mysql.PoolConnection, sql: string, params: Row = {}) {
   const [result] = await connection.execute(rewriteSqlTables(sql), params as any);
+  countQueryCache.clear();
   return result;
+}
+
+function getCountQueryCacheKey(sql: string, params: Row) {
+  if (!/^\s*SELECT\s+COUNT\(\*\)/i.test(sql) || /\bFOR\s+UPDATE\b/i.test(sql)) return null;
+  const normalizedParams = Object.keys(params)
+    .sort()
+    .map((key) => [key, params[key]]);
+  return `${sql}\n${JSON.stringify(normalizedParams)}`;
 }

@@ -31,16 +31,20 @@ type TableController = {
 
 const tableControllers = new WeakMap<HTMLTableElement, TableController>();
 
+export function getTableLockStorageKey(table: HTMLTableElement) {
+  const tableId = table.getAttribute("data-cloud-power-table-id");
+  const tableIndex = Array.from(document.querySelectorAll("table")).indexOf(table);
+  return `${LOCK_STORAGE_PREFIX}${window.location.pathname}::${tableId || tableIndex}`;
+}
+
 function getTableContext(button: HTMLButtonElement | null) {
   const table = button?.closest("table");
   if (!table) return null;
-  const tableId = table.getAttribute("data-cloud-power-table-id");
-  const tableIndex = Array.from(document.querySelectorAll("table")).indexOf(table);
-  const storageKey = `${LOCK_STORAGE_PREFIX}${window.location.pathname}::${tableId || tableIndex}`;
+  const storageKey = getTableLockStorageKey(table);
   return { table, storageKey };
 }
 
-function readLockedColumns(storageKey: string) {
+export function readLockedColumns(storageKey: string) {
   try {
     const value = JSON.parse(window.localStorage.getItem(storageKey) ?? "[]");
     return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
@@ -53,7 +57,7 @@ function writeLockedColumns(storageKey: string, columns: string[]) {
   window.localStorage.setItem(storageKey, JSON.stringify(columns));
 }
 
-function applyLockedColumns(table: HTMLTableElement, lockedColumns: string[]) {
+export function applyLockedColumns(table: HTMLTableElement, lockedColumns: string[]) {
   const headerRow = table.tHead?.rows[0];
   if (!headerRow) return;
   const headerCells = Array.from(headerRow.cells);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { PAGE_SIZE_OPTIONS, getPaginationState, normalizePageSize, paginateRows } from "./pagination";
+import { appendKnownTotal, getKnownNumber, getKnownTotal, PAGE_SIZE_OPTIONS, getPaginationState, normalizePageSize, paginateRows } from "./pagination";
 
 describe("pagination", () => {
   const rows = Array.from({ length: 25 }, (_, index) => ({ id: index + 1 }));
@@ -18,5 +18,15 @@ describe("pagination", () => {
     expect(normalizePageSize(50)).toBe(50);
     expect(normalizePageSize(7)).toBe(20);
     expect(normalizePageSize(1000)).toBe(20);
+  });
+
+  it("reads and writes reusable totals without losing decimal summaries", () => {
+    const params = new URLSearchParams();
+    appendKnownTotal(params, 125.8);
+    params.set("knownTotalAmount", "125.8");
+    expect(getKnownTotal(params)).toBe(125);
+    expect(getKnownNumber(params, "knownTotalAmount")).toBe(125.8);
+    expect(getKnownTotal(new URLSearchParams())).toBeNull();
+    expect(getKnownNumber(new URLSearchParams(), "knownTotalAmount")).toBeNull();
   });
 });

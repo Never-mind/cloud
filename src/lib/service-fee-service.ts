@@ -28,6 +28,7 @@ export type ServiceFeeFilters = {
   endMonth?: string;
   countryCode?: string;
   batchName?: string;
+  currency?: string;
   lineType?: string;
   requestType?: string;
 };
@@ -87,26 +88,31 @@ export async function calculateServiceFees(searchParams: URLSearchParams) {
   const rows = queryRowsWithSummary;
   let total = shouldPaginate ? Number(searchParams.get("knownTotal") ?? 0) : rows.length;
   let summary = shouldPaginate ? null : summarizeServiceFeeRows(rows);
+  let currencySummaries = shouldPaginate ? [] : summarizeServiceFeeRowsByCurrency(rows);
 
   if (shouldPaginate && includeSummary) {
     const summaryQuery = canUseLightweightServiceFeeSummary(filters) && !Array.from(searchParams.keys()).some((key) => key.startsWith("filter."))
       ? buildLightweightServiceFeeSummaryQuery(filters)
       : {
         sql: `
-          SELECT COUNT(*) AS total,
+          SELECT serviceFeeRows.currency,
+            COUNT(*) AS total,
             COALESCE(SUM(serviceFeeRows.billingAmount), 0) AS billingTotal,
             COALESCE(SUM(serviceFeeRows.prepaymentAmount), 0) AS prepaymentTotal,
             COALESCE(SUM(serviceFeeRows.serviceFeeAmount), 0) AS serviceFeeTotal,
+            COALESCE(SUM(serviceFeeRows.serviceFeeAmountExcludingTax), 0) AS serviceFeeTotalExcludingTax,
             COALESCE(SUM(CASE WHEN serviceFeeRows.lineType = 'instance' THEN serviceFeeRows.serviceFeeAmount ELSE 0 END), 0) AS instanceServiceFeeTotal,
             COALESCE(SUM(CASE WHEN serviceFeeRows.lineType = 'fee' THEN serviceFeeRows.serviceFeeAmount ELSE 0 END), 0) AS feeServiceFeeTotal
           FROM (${sql}) serviceFeeRows
+          GROUP BY serviceFeeRows.currency
         `,
         params,
       };
     const summaryRows = await queryRows<ServiceFeeSummaryRow>(summaryQuery.sql, summaryQuery.params);
-    const nextSummary = summaryRows[0];
-    total = Number(nextSummary?.total ?? 0);
-    summary = nextSummary ? normalizeServiceFeeSummary(nextSummary) : summarizeServiceFeeRows(rows);
+    const normalized = normalizeServiceFeeSummaryRows(summaryRows);
+    total = normalized.total;
+    summary = normalized.summary;
+    currencySummaries = normalized.currencySummaries;
   }
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -120,6 +126,7 @@ export async function calculateServiceFees(searchParams: URLSearchParams) {
   return {
     rows: await attachPartyCodes(rows),
     summary: summary ?? emptyServiceFeeSummary(),
+    currencySummaries,
     total,
     page,
     pageSize,
@@ -141,6 +148,7 @@ export async function listServiceFeeFilterOptions(searchParams: URLSearchParams)
     endMonth: searchParams.get("endMonth")?.trim() || "",
     countryCode: searchParams.get("countryCode")?.trim() || "",
     batchName: searchParams.get("batchName")?.trim() || "",
+    currency: searchParams.get("currency")?.trim() || "",
     lineType: searchParams.get("lineType")?.trim() || "",
     requestType: searchParams.get("requestType")?.trim() || "",
   };
@@ -162,6 +170,7 @@ export async function listServiceFeeFilterOptions(searchParams: URLSearchParams)
 }
 
 type ServiceFeeSummaryRow = {
+  currency?: string | null;
   total?: number | string | null;
   billingTotal?: number | string | null;
   prepaymentTotal?: number | string | null;
@@ -169,6 +178,16 @@ type ServiceFeeSummaryRow = {
   serviceFeeTotalExcludingTax?: number | string | null;
   instanceServiceFeeTotal?: number | string | null;
   feeServiceFeeTotal?: number | string | null;
+};
+
+type ServiceFeeCurrencySummary = {
+  currency: string;
+  billingTotal: number;
+  prepaymentTotal: number;
+  serviceFeeTotal: number;
+  serviceFeeTotalExcludingTax: number;
+  instanceServiceFeeTotal: number;
+  feeServiceFeeTotal: number;
 };
 
 function emptyServiceFeeSummary() {
@@ -208,6 +227,28 @@ function normalizeServiceFeeSummary(row: ServiceFeeSummaryRow) {
   };
 }
 
+function normalizeServiceFeeSummaryRows(rows: ServiceFeeSummaryRow[]) {
+  const currencySummaries = rows
+    .map((row) => ({
+      currency: firstNonBlank(row.currency) || "未指定币种",
+      ...normalizeServiceFeeSummary(row),
+    }))
+    .sort((left, right) => left.currency.localeCompare(right.currency));
+  const summary = currencySummaries.reduce((current, row) => ({
+    billingTotal: current.billingTotal + row.billingTotal,
+    prepaymentTotal: current.prepaymentTotal + row.prepaymentTotal,
+    serviceFeeTotal: current.serviceFeeTotal + row.serviceFeeTotal,
+    serviceFeeTotalExcludingTax: current.serviceFeeTotalExcludingTax + row.serviceFeeTotalExcludingTax,
+    instanceServiceFeeTotal: current.instanceServiceFeeTotal + row.instanceServiceFeeTotal,
+    feeServiceFeeTotal: current.feeServiceFeeTotal + row.feeServiceFeeTotal,
+  }), emptyServiceFeeSummary());
+  return {
+    total: rows.reduce((total, row) => total + Number(row.total ?? 0), 0),
+    summary,
+    currencySummaries,
+  };
+}
+
 function summarizeServiceFeeRows(rows: ServiceFeeRow[]) {
   return rows.reduce((summary, row) => {
     const billingAmount = Number(row.billingAmount ?? 0);
@@ -222,6 +263,19 @@ function summarizeServiceFeeRows(rows: ServiceFeeRow[]) {
     else summary.instanceServiceFeeTotal += serviceFeeAmount;
     return summary;
   }, emptyServiceFeeSummary());
+}
+
+function summarizeServiceFeeRowsByCurrency(rows: ServiceFeeRow[]): ServiceFeeCurrencySummary[] {
+  const grouped = new Map<string, ServiceFeeRow[]>();
+  for (const row of rows) {
+    const currency = firstNonBlank(row.billingCurrency, row.prepaymentCurrency, row.currency) || "未指定币种";
+    const current = grouped.get(currency) ?? [];
+    current.push(row);
+    grouped.set(currency, current);
+  }
+  return Array.from(grouped.entries())
+    .map(([currency, currencyRows]) => ({ currency, ...summarizeServiceFeeRows(currencyRows) }))
+    .sort((left, right) => left.currency.localeCompare(right.currency));
 }
 
 function canUseLightweightServiceFeeSummary(filters: ServiceFeeFilters) {
@@ -301,17 +355,23 @@ function buildLightweightServiceFeeSummaryQuery(filters: ServiceFeeFilters) {
     billingWhere.push("m.batchName = :batchName");
     prepaymentWhere.push("p.batchName = :batchName");
   }
+  if (filters.currency) {
+    params.currency = filters.currency;
+    billingWhere.push("m.currency = :currency");
+    prepaymentWhere.push("p.currency = :currency");
+  }
   if (filters.lineType) params.lineType = filters.lineType;
   if (filters.requestType) params.requestType = filters.requestType;
   const billingFilter = billingWhere.length ? `WHERE ${billingWhere.join(" AND ")}` : "";
   const prepaymentFilter = prepaymentWhere.length ? `WHERE ${prepaymentWhere.join(" AND ")}` : "";
-  const finalFilters = [filters.lineType ? "combined.lineType = :lineType" : "", filters.requestType ? "combined.requestType = :requestType" : ""].filter(Boolean);
+  const finalFilters = [filters.currency ? "combined.currency = :currency" : "", filters.lineType ? "combined.lineType = :lineType" : "", filters.requestType ? "combined.requestType = :requestType" : ""].filter(Boolean);
   const lineFilter = finalFilters.length ? `WHERE ${finalFilters.join(" AND ")}` : "";
   return {
     sql: `
       WITH billing AS (
         SELECT CONCAT_WS('::', DATE_FORMAT(m.writeOffMonth, '%Y-%m-%d'), m.countryCode, m.batchName, m.requestNo, m.poNo, m.deviceCode, 'instance') AS rowKey,
                MAX(COALESCE(NULLIF(ri.requestType, ''), NULLIF(req.requestType, ''), NULLIF(fallback.requestType, ''), '整机')) AS requestType,
+               MAX(m.currency) AS currency,
                SUM(COALESCE(m.monthlyTotalAmount, m.quantity * m.monthlyAmount, 0)) AS billingAmount,
                 MAX(COALESCE(country.vatRate, 0)) AS vatRate
         FROM monthlybillingwriteoffs m
@@ -329,8 +389,9 @@ function buildLightweightServiceFeeSummaryQuery(filters: ServiceFeeFilters) {
                  ELSE CONCAT_WS('::', DATE_FORMAT(p.writeOffMonth, '%Y-%m-%d'), p.countryCode, p.batchName, p.requestNo, p.poNo, p.deviceCode, 'instance') END AS rowKey,
                CASE WHEN p.lineType = 'fee' THEN 'fee' ELSE 'instance' END AS lineType,
                SUM(COALESCE(p.monthlyAmount, 0)) AS prepaymentAmount,
-                MAX(COALESCE(p.requestType, CASE WHEN p.lineType = 'fee' THEN '费用' ELSE '整机' END)) AS requestType,
-                MAX(COALESCE(country.vatRate, 0)) AS vatRate
+               MAX(COALESCE(p.requestType, CASE WHEN p.lineType = 'fee' THEN '费用' ELSE '整机' END)) AS requestType,
+               MAX(p.currency) AS currency,
+               MAX(COALESCE(country.vatRate, 0)) AS vatRate
         FROM monthlyprepaymentwriteoffs p
         LEFT JOIN countries country ON country.code = p.countryCode
         ${prepaymentFilter}
@@ -342,12 +403,14 @@ function buildLightweightServiceFeeSummaryQuery(filters: ServiceFeeFilters) {
                COALESCE(p.prepaymentAmount, 0) AS prepaymentAmount,
                COALESCE(b.vatRate, p.vatRate, 0) AS vatRate,
                COALESCE(p.lineType, 'instance') AS lineType,
-               COALESCE(b.requestType, p.requestType, '整机') AS requestType
+               COALESCE(b.requestType, p.requestType, '整机') AS requestType,
+               COALESCE(NULLIF(b.currency, ''), NULLIF(p.currency, ''), '未指定币种') AS currency
         FROM rowKeys rk
         LEFT JOIN billing b ON b.rowKey = rk.rowKey
         LEFT JOIN prepayment p ON p.rowKey = rk.rowKey
       )
-      SELECT COUNT(*) AS total,
+      SELECT combined.currency,
+             COUNT(*) AS total,
              COALESCE(SUM(combined.billingAmount), 0) AS billingTotal,
              COALESCE(SUM(combined.prepaymentAmount), 0) AS prepaymentTotal,
              COALESCE(SUM(combined.billingAmount - combined.prepaymentAmount), 0) AS serviceFeeTotal,
@@ -356,6 +419,7 @@ function buildLightweightServiceFeeSummaryQuery(filters: ServiceFeeFilters) {
              COALESCE(SUM(CASE WHEN combined.lineType = 'fee' THEN combined.billingAmount - combined.prepaymentAmount ELSE 0 END), 0) AS feeServiceFeeTotal
       FROM combined
       ${lineFilter}
+      GROUP BY combined.currency
     `,
     params,
   };
@@ -485,6 +549,11 @@ function buildServiceFeeQuery(filters: ServiceFeeFilters, searchParams = new URL
     billingWhere.push("m.batchName = :batchName");
     prepaymentWhere.push("p.batchName = :batchName");
   }
+  if (filters.currency) {
+    params.currency = filters.currency;
+    billingWhere.push("m.currency = :currency");
+    prepaymentWhere.push("p.currency = :currency");
+  }
   if (filters.requestType) {
     billingWhere.push(`${serviceFeeBillingRequestTypeExpression()} = :requestType`);
     prepaymentWhere.push("COALESCE(NULLIF(p.requestType, ''), NULLIF(contractItem.requestType, ''), NULLIF(ri.requestType, ''), NULLIF(fallback.requestType, ''), CASE WHEN p.lineType = 'fee' THEN '费用' ELSE '整机' END) = :requestType");
@@ -499,6 +568,9 @@ function buildServiceFeeQuery(filters: ServiceFeeFilters, searchParams = new URL
   if (filters.keyword) {
     finalWhere.push(`CONCAT_WS(' ', writeOffMonth, countryCode, batchName, requestNo, poNo, deviceCode, modelCode, nameEn, currency, billingCurrency, prepaymentCurrency, prepaymentContractNos, sourceNote) LIKE :keyword`);
     params.keyword = `%${filters.keyword}%`;
+  }
+  if (filters.currency) {
+    finalWhere.push("currency = :currency");
   }
   const filterExpressions = getServiceFeeSortExpressions();
   for (const [field, expression] of Object.entries(filterExpressions)) appendTableInFilter(finalWhere, params, expression, field, searchParams, "serviceFeeColumn");
@@ -657,7 +729,7 @@ export async function createServiceFeeStatementDraft({
     throw new Error("服务费对账单只能包含一个核销月份的数据");
   }
 
-  const finalSnapshotNo = snapshotNo?.trim() || buildSnapshotNo(statementFilters.countryCode, statementFilters.startMonth);
+  const finalSnapshotNo = snapshotNo?.trim() || buildSnapshotNo(statementFilters.countryCode, statementFilters.startMonth, statementFilters.currency);
 
   await withTransaction(async (connection) => {
     const existingRows = await queryRowsInTransaction<{ snapshotNo: string; status: string }>(
@@ -675,6 +747,18 @@ export async function createServiceFeeStatementDraft({
         WHERE countryCode = :countryCode
           AND COALESCE(writeOffMonth, startMonth, endMonth) = :writeOffMonth
           AND snapshotNo <> :snapshotNo
+          AND EXISTS (
+            SELECT 1
+            FROM servicefeesnapshotitems AS matchingItem
+            WHERE matchingItem.snapshotNo = servicefeesnapshots.snapshotNo
+              AND COALESCE(NULLIF(matchingItem.billingCurrency, ''), NULLIF(matchingItem.currency, ''), NULLIF(matchingItem.prepaymentCurrency, '')) = :currency
+          )
+          AND NOT EXISTS (
+            SELECT 1
+            FROM servicefeesnapshotitems AS differentItem
+            WHERE differentItem.snapshotNo = servicefeesnapshots.snapshotNo
+              AND COALESCE(NULLIF(differentItem.billingCurrency, ''), NULLIF(differentItem.currency, ''), NULLIF(differentItem.prepaymentCurrency, '')) <> :currency
+          )
         LIMIT 1
         FOR UPDATE
       `,
@@ -682,6 +766,7 @@ export async function createServiceFeeStatementDraft({
         countryCode: statementFilters.countryCode,
         writeOffMonth: statementFilters.startMonth,
         snapshotNo: finalSnapshotNo,
+        currency: statementFilters.currency,
       },
     );
     if (duplicateRows[0]) {
@@ -1195,12 +1280,14 @@ export async function deleteServiceFeeInvoice(snapshotNo: string) {
 
 function normalizeServiceFeeStatementFilters(filters: ServiceFeeFilters) {
   const countryCode = String(filters.countryCode ?? "").trim().split(/\s*-\s*/, 1)[0].toUpperCase();
+  const currency = String(filters.currency ?? "").trim().toUpperCase();
   const startMonth = filters.startMonth ? firstDayOfMonth(filters.startMonth) : "";
   const endMonth = filters.endMonth ? firstDayOfMonth(filters.endMonth) : startMonth;
   if (!countryCode) throw new Error("请选择国家");
   if (!startMonth) throw new Error("请选择核销月份");
+  if (!currency) throw new Error("请输入币种");
   if (startMonth !== endMonth) throw new Error("服务费对账单必须按单一核销月份生成");
-  return { countryCode, startMonth, endMonth: startMonth };
+  return { countryCode, currency, startMonth, endMonth: startMonth };
 }
 
 function getFilters(searchParams: URLSearchParams): ServiceFeeFilters {
@@ -1210,6 +1297,7 @@ function getFilters(searchParams: URLSearchParams): ServiceFeeFilters {
     endMonth: searchParams.get("endMonth")?.trim() || "",
     countryCode: searchParams.get("countryCode")?.trim() || "",
     batchName: searchParams.get("batchName")?.trim() || "",
+    currency: searchParams.get("currency")?.trim() || "",
     lineType: searchParams.get("lineType")?.trim() || "",
     requestType: searchParams.get("requestType")?.trim() || "",
   };
@@ -1376,10 +1464,11 @@ async function insertSnapshotItem(connection: PoolConnection, snapshotNo: string
   );
 }
 
-function buildSnapshotNo(countryCode: string, writeOffMonth: string) {
+function buildSnapshotNo(countryCode: string, writeOffMonth: string, currency: string) {
   const normalizedCountryCode = countryCode.trim().split(/\s*-\s*/, 1)[0].toUpperCase();
+  const normalizedCurrency = currency.trim().toUpperCase();
   const normalizedMonth = firstDayOfMonth(writeOffMonth).slice(0, 7).replace("-", "");
-  return `FWF-${normalizedCountryCode}${normalizedMonth}`;
+  return `FWF-${normalizedCountryCode}-${normalizedCurrency}${normalizedMonth}`;
 }
 
 function firstNonBlank(...values: unknown[]) {

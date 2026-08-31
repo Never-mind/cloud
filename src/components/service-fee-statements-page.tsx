@@ -51,8 +51,8 @@ const columns: Array<{ key: string; label: string; type?: string }> = [
   { key: "snapshotNo", label: "对账单号" },
   { key: "writeOffMonth", label: "核销月份", type: "month" },
   { key: "countryCode", label: "国家" },
-  { key: "billingTotal", label: "月账单金额（USD）", type: "money" },
-  { key: "prepaymentTotal", label: "预付款金额（USD）", type: "money" },
+  { key: "billingTotal", label: "月账单金额", type: "money" },
+  { key: "prepaymentTotal", label: "预付款金额", type: "money" },
   { key: "customerReceivable", label: "客户应收" },
   { key: "customerReceived", label: "客户实收" },
   { key: "customerInvoice", label: "客户开票" },
@@ -513,6 +513,13 @@ export function ServiceFeeStatementsPage() {
                             <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${confirmed ? "bg-[#f0f9eb] text-[#67c23a]" : "bg-[#fff7e6] text-[#e6a23c]"}`}>
                               {confirmed ? "已确认" : "未确认"}
                             </span>
+                          ) : column.key === "billingTotal" || column.key === "prepaymentTotal" ? (
+                            <span className="font-medium text-[#303133]">
+                              {formatAmountWithCurrency(
+                                value,
+                                column.key === "billingTotal" ? row.defaultBillingCurrency : row.defaultRepaymentCurrency,
+                              )}
+                            </span>
                           ) : column.key === "customerReceivable" ? (
                             <AmountSummary
                               currency={row.defaultBillingCurrency}
@@ -780,6 +787,12 @@ function RepaymentField({ children, label }: { children: React.ReactNode; label:
 function formatValue(value: unknown, type?: string) {
   if (type === "month") return value ? String(value).slice(0, 7) : "";
   return formatDisplayValue(value as string | number | boolean | null | undefined, type);
+}
+
+function formatAmountWithCurrency(value: unknown, currency: unknown) {
+  const amount = formatValue(value, "money");
+  const currencyText = String(currency ?? "").trim();
+  return currencyText ? `${currencyText} ${amount}` : amount;
 }
 
 function firstNonBlankValue(...values: unknown[]) {

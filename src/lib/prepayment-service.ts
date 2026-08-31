@@ -7,7 +7,7 @@ import {
   type Row,
 } from "./db";
 import { attachPartyCodes } from "./party-display";
-import { DEFAULT_PAGE_SIZE, normalizePageSize } from "./pagination";
+import { DEFAULT_PAGE_SIZE, getKnownNumber, getKnownTotal, normalizePageSize } from "./pagination";
 import { appendTableFilterOptionConditions, appendTableInFilter, formatTableDateExpression, getTableSort, listSqlFilterOptions } from "./table-query";
 import {
   buildMonthlyWriteOffRows,
@@ -499,28 +499,35 @@ export async function listMonthlyPrepaymentWriteOffs(searchParams: URLSearchPara
   }
 
   const where = whereParts.length ? `WHERE ${whereParts.join(" AND ")}` : "";
-  const [{ total, totalAmount }] = await queryRows<{ total: number; totalAmount: number }>(
-    `
-      SELECT COUNT(*) AS total, COALESCE(SUM(mpw.monthlyAmount), 0) AS totalAmount
-      FROM monthlyprepaymentwriteoffs AS mpw
-      LEFT JOIN (
-        SELECT id AS linkedContractLineId, requestItemId AS linkedRequestItemId, purchaseOrderItemId AS linkedPurchaseOrderItemId
-        FROM prepaymentcontractitems
-      ) AS contractItem ON contractItem.linkedContractLineId = mpw.contractLineId
-      LEFT JOIN purchaseorderitems AS purchaseItem ON purchaseItem.id = contractItem.linkedPurchaseOrderItemId
-      LEFT JOIN (
-        SELECT id AS linkedRequestItemId, supplierId AS linkedSupplierId, undertakingUnitId AS linkedUndertakingUnitId, customerId AS linkedCustomerId
-        FROM requestitems
-      ) AS ri ON ri.linkedRequestItemId = contractItem.linkedRequestItemId
-      LEFT JOIN (
-        SELECT requestNo AS keyRequestNo, deviceCode AS keyDeviceCode, supplierId AS fallbackSupplierId, undertakingUnitId AS fallbackUndertakingUnitId, customerId AS fallbackCustomerId
-        FROM requestitems
-      ) AS riByBusinessKey ON riByBusinessKey.keyRequestNo = mpw.requestNo AND riByBusinessKey.keyDeviceCode = mpw.deviceCode
-      ${where}
-    `,
-    params,
-  );
-  const normalizedTotal = Number(total ?? 0);
+  const knownTotal = getKnownTotal(searchParams);
+  const knownTotalAmount = getKnownNumber(searchParams, "knownTotalAmount");
+  let normalizedTotal = knownTotal ?? 0;
+  let normalizedTotalAmount = knownTotalAmount ?? 0;
+  if (knownTotal === null || knownTotalAmount === null) {
+    const [{ total, totalAmount }] = await queryRows<{ total: number; totalAmount: number }>(
+      `
+        SELECT COUNT(*) AS total, COALESCE(SUM(mpw.monthlyAmount), 0) AS totalAmount
+        FROM monthlyprepaymentwriteoffs AS mpw
+        LEFT JOIN (
+          SELECT id AS linkedContractLineId, requestItemId AS linkedRequestItemId, purchaseOrderItemId AS linkedPurchaseOrderItemId
+          FROM prepaymentcontractitems
+        ) AS contractItem ON contractItem.linkedContractLineId = mpw.contractLineId
+        LEFT JOIN purchaseorderitems AS purchaseItem ON purchaseItem.id = contractItem.linkedPurchaseOrderItemId
+        LEFT JOIN (
+          SELECT id AS linkedRequestItemId, supplierId AS linkedSupplierId, undertakingUnitId AS linkedUndertakingUnitId, customerId AS linkedCustomerId
+          FROM requestitems
+        ) AS ri ON ri.linkedRequestItemId = contractItem.linkedRequestItemId
+        LEFT JOIN (
+          SELECT requestNo AS keyRequestNo, deviceCode AS keyDeviceCode, supplierId AS fallbackSupplierId, undertakingUnitId AS fallbackUndertakingUnitId, customerId AS fallbackCustomerId
+          FROM requestitems
+        ) AS riByBusinessKey ON riByBusinessKey.keyRequestNo = mpw.requestNo AND riByBusinessKey.keyDeviceCode = mpw.deviceCode
+        ${where}
+      `,
+      params,
+    );
+    normalizedTotal = knownTotal ?? Number(total ?? 0);
+    normalizedTotalAmount = knownTotalAmount ?? Number(totalAmount ?? 0);
+  }
   const totalPages = Math.max(1, Math.ceil(normalizedTotal / pageSize));
   const page = Math.min(requestedPage, totalPages);
   if (!exportAll) {
@@ -583,7 +590,7 @@ export async function listMonthlyPrepaymentWriteOffs(searchParams: URLSearchPara
   return {
     rows: await attachPartyCodes(rows),
     total: normalizedTotal,
-    totalAmount: Number(totalAmount ?? 0),
+    totalAmount: normalizedTotalAmount,
     page: exportAll ? 1 : page,
     pageSize,
     totalPages,

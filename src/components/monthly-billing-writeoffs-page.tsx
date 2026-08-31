@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { FileDown, RefreshCw, Search } from "lucide-react";
 import { formatDisplayValue } from "@/lib/display-format";
-import { DEFAULT_PAGE_SIZE } from "@/lib/pagination";
+import { appendKnownTotal, DEFAULT_PAGE_SIZE } from "@/lib/pagination";
 import { PaginationBar } from "./pagination-bar";
 import { StickyTable } from "./sticky-table";
 import { TableColumnMenu, type TableFilterOption, type TableSortOrder } from "./table-column-menu";
@@ -94,7 +94,7 @@ export function MonthlyBillingWriteOffsPage() {
     if (nextRoute !== currentRoute) router.replace(nextRoute, { scroll: false });
   }, [appliedFilters, columnFilters, currentRoute, page, pageSize, pathname, router, searchParams, sortField, sortOrder]);
 
-  function buildRequestParams(nextPage: number, nextPageSize: number, exportAll = false, filters = appliedFilters) {
+  function buildRequestParams(nextPage: number, nextPageSize: number, exportAll = false, filters = appliedFilters, reuseKnownTotals = false) {
     const params = new URLSearchParams();
     if (filters.keyword.trim()) params.set("keyword", filters.keyword.trim());
     if (filters.countryCode.trim()) params.set("countryCode", filters.countryCode.trim());
@@ -107,6 +107,10 @@ export function MonthlyBillingWriteOffsPage() {
     if (sortField && sortOrder) { params.set("sortField", sortField); params.set("sortOrder", sortOrder); }
     for (const [key, values] of Object.entries(columnFilters)) values.forEach((value) => params.append(`filter.${key}`, value));
     if (exportAll) params.set("export", "1");
+    if (!exportAll && reuseKnownTotals) {
+      appendKnownTotal(params, total);
+      params.set("knownTotalAmount", String(totalAmount));
+    }
     return params;
   }
 
@@ -127,18 +131,18 @@ export function MonthlyBillingWriteOffsPage() {
     return <TableColumnMenu column={column} filterValues={columnFilters[column.key] ?? []} loadOptions={(keyword) => loadColumnOptions(column.key, keyword)} onFilter={(values) => { setColumnFilters((current) => ({ ...current, [column.key]: values })); setPage(1); }} onSort={(order) => { setSortField(order ? column.key : ""); setSortOrder(order); setPage(1); }} sortOrder={sortField === column.key ? sortOrder : ""} />;
   }
 
-  async function fetchData(nextPage: number, nextPageSize: number, exportAll = false, filters = appliedFilters): Promise<ListResponse> {
-    const response = await fetch(`/api/billing/monthly-writeoffs?${buildRequestParams(nextPage, nextPageSize, exportAll, filters).toString()}`);
+  async function fetchData(nextPage: number, nextPageSize: number, exportAll = false, filters = appliedFilters, reuseKnownTotals = false): Promise<ListResponse> {
+    const response = await fetch(`/api/billing/monthly-writeoffs?${buildRequestParams(nextPage, nextPageSize, exportAll, filters, reuseKnownTotals).toString()}`);
     const data = await response.json();
     if (!response.ok) throw new Error(data.error ?? "月账单明细加载失败");
     return data as ListResponse;
   }
 
-  async function loadData(nextPage = page, nextPageSize = pageSizeRef.current, filters = appliedFilters) {
+  async function loadData(nextPage = page, nextPageSize = pageSizeRef.current, filters = appliedFilters, reuseKnownTotals = false) {
     const isCurrentRequest = beginRequest();
     setLoading(true);
     try {
-      const data = await fetchData(nextPage, nextPageSize, false, filters);
+      const data = await fetchData(nextPage, nextPageSize, false, filters, reuseKnownTotals);
       if (!isCurrentRequest()) return;
       setRows(data.rows ?? []);
       setTotal(Number(data.total ?? 0));
@@ -256,14 +260,14 @@ export function MonthlyBillingWriteOffsPage() {
               return;
             }
             setPage(nextPage);
-            void loadData(nextPage, pageSizeRef.current);
+            void loadData(nextPage, pageSizeRef.current, appliedFilters, true);
           }}
           onPageSizeChange={(nextPageSize) => {
             pageSizeRef.current = nextPageSize;
             skipNextPageChangeRef.current = true;
             setPageSize(nextPageSize);
             setPage(1);
-            void loadData(1, nextPageSize);
+            void loadData(1, nextPageSize, appliedFilters, true);
           }}
         />
       </Panel>

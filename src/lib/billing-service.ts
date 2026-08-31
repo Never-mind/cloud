@@ -1,7 +1,7 @@
 import { execute, executeInTransaction, queryRows, withTransaction, type Row } from "./db";
 import { attachPartyCodes } from "./party-display";
 import { regenerateInternalServiceLedger } from "./internal-service-fee-service";
-import { DEFAULT_PAGE_SIZE, normalizePageSize } from "./pagination";
+import { DEFAULT_PAGE_SIZE, getKnownNumber, getKnownTotal, normalizePageSize } from "./pagination";
 import { appendTableFilterOptionConditions, appendTableInFilter, formatTableDateExpression, getTableFilterOptionsOrderBy, getTableSort, listSqlFilterOptions } from "./table-query";
 import {
   applyBillingAdjustments,
@@ -577,20 +577,27 @@ export async function listMonthlyBillingWriteOffs(searchParams: URLSearchParams)
   }
 
   const where = whereParts.length ? `WHERE ${whereParts.join(" AND ")}` : "";
-  const [{ total, totalAmount }] = await queryRows<{ total: number; totalAmount: number }>(
-    `
-      SELECT COUNT(*) AS total, COALESCE(SUM(mbw.monthlyTotalAmount), 0) AS totalAmount
-      FROM monthlybillingwriteoffs AS mbw
-      LEFT JOIN billinginstanceledgers AS ledger ON ledger.ledgerId = mbw.ledgerId
-      LEFT JOIN purchaseorderitems AS purchaseItem ON purchaseItem.id = ledger.purchaseOrderItemId
-      LEFT JOIN requestitems AS ri ON ri.id = purchaseItem.requestItemId
-      LEFT JOIN requests AS req ON req.requestNo = COALESCE(NULLIF(purchaseItem.requestNo, ''), NULLIF(ri.requestNo, ''), mbw.requestNo)
-      LEFT JOIN requestitems AS riByBusinessKey ON riByBusinessKey.requestNo = mbw.requestNo AND riByBusinessKey.deviceCode = mbw.deviceCode
-      ${where}
-    `,
-    params,
-  );
-  const normalizedTotal = Number(total ?? 0);
+  const knownTotal = getKnownTotal(searchParams);
+  const knownTotalAmount = getKnownNumber(searchParams, "knownTotalAmount");
+  let normalizedTotal = knownTotal ?? 0;
+  let normalizedTotalAmount = knownTotalAmount ?? 0;
+  if (knownTotal === null || knownTotalAmount === null) {
+    const [{ total, totalAmount }] = await queryRows<{ total: number; totalAmount: number }>(
+      `
+        SELECT COUNT(*) AS total, COALESCE(SUM(mbw.monthlyTotalAmount), 0) AS totalAmount
+        FROM monthlybillingwriteoffs AS mbw
+        LEFT JOIN billinginstanceledgers AS ledger ON ledger.ledgerId = mbw.ledgerId
+        LEFT JOIN purchaseorderitems AS purchaseItem ON purchaseItem.id = ledger.purchaseOrderItemId
+        LEFT JOIN requestitems AS ri ON ri.id = purchaseItem.requestItemId
+        LEFT JOIN requests AS req ON req.requestNo = COALESCE(NULLIF(purchaseItem.requestNo, ''), NULLIF(ri.requestNo, ''), mbw.requestNo)
+        LEFT JOIN requestitems AS riByBusinessKey ON riByBusinessKey.requestNo = mbw.requestNo AND riByBusinessKey.deviceCode = mbw.deviceCode
+        ${where}
+      `,
+      params,
+    );
+    normalizedTotal = knownTotal ?? Number(total ?? 0);
+    normalizedTotalAmount = knownTotalAmount ?? Number(totalAmount ?? 0);
+  }
   const totalPages = Math.max(1, Math.ceil(normalizedTotal / pageSize));
   const page = Math.min(requestedPage, totalPages);
   if (!exportAll) {
@@ -645,7 +652,7 @@ export async function listMonthlyBillingWriteOffs(searchParams: URLSearchParams)
   return {
     rows: await attachPartyCodes(rows),
     total: normalizedTotal,
-    totalAmount: Number(totalAmount ?? 0),
+    totalAmount: normalizedTotalAmount,
     page: exportAll ? 1 : page,
     pageSize,
     totalPages,

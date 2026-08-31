@@ -10,7 +10,7 @@ import { getInstanceContractModelAutofill } from "@/lib/instance-contract-form";
 import { fetchAllEntityRows } from "@/lib/client-entity-fetch";
 import { buildListRoute, getCurrentRoute, getPositiveNumber, useListScrollPosition } from "@/lib/client-list-navigation";
 import type { EntityConfig, EntityField } from "@/lib/modules";
-import { DEFAULT_PAGE_SIZE } from "@/lib/pagination";
+import { appendKnownTotal, DEFAULT_PAGE_SIZE } from "@/lib/pagination";
 import {
   getColumnSettingGroups,
   getHiddenColumns,
@@ -108,6 +108,7 @@ export function EntityPage({
   const fileRef = useRef<HTMLInputElement>(null);
   const currentRoute = getCurrentRoute(pathname, searchParams.toString());
   const beginRequest = useRequestGuard();
+  const reuseKnownTotalRef = useRef(false);
   const isPartyArchive = PARTY_ENTITY_KEYS.has(config.key);
   const partyNameField = config.key === "suppliers" ? "nameCn" : config.key === "undertaking-units" ? "entityName" : "name";
 
@@ -195,6 +196,8 @@ export function EntityPage({
       params.set("sortField", sortField);
       params.set("sortOrder", sortOrder);
     }
+    if (reuseKnownTotalRef.current) appendKnownTotal(params, total);
+    reuseKnownTotalRef.current = false;
     try {
       const response = await fetch(`/api/entities/${config.key}?${params.toString()}`);
       const data = await response.json();
@@ -825,8 +828,14 @@ export function EntityPage({
           page={page}
           pageSize={pageSize}
           total={total}
-          onPageChange={setPage}
-          onPageSizeChange={setPageSize}
+          onPageChange={(nextPage) => {
+            reuseKnownTotalRef.current = true;
+            setPage(nextPage);
+          }}
+          onPageSizeChange={(nextPageSize) => {
+            reuseKnownTotalRef.current = true;
+            setPageSize(nextPageSize);
+          }}
         />
       </Panel>
 
