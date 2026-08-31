@@ -37,7 +37,7 @@ type PartyOption = {
   label: string;
 };
 
-type ProductOption = Row & {
+export type ProductOption = Row & {
   productCode?: string;
   productName?: string;
 };
@@ -111,6 +111,13 @@ function emptyItem(lineNo: number, currency: string): Row {
     matchStatus: "unmatched",
     remark: "",
   };
+}
+
+function nextLineNo(rows: Row[]) {
+  return rows.reduce((max, row) => {
+    const lineNo = Number(row.lineNo ?? 0);
+    return Number.isFinite(lineNo) ? Math.max(max, lineNo) : max;
+  }, 0) + 1;
 }
 
 export function CustomerPoListPage({ config }: { config: EntityConfig }) {
@@ -328,7 +335,7 @@ export function CustomerPoDetailPage({ config, id }: { config: EntityConfig; id:
 
   function addItem() {
     if (!editing) return;
-    setItems((current) => [...current, emptyItem(current.length + 1, String(masterDraft.currency ?? "USD"))]);
+    setItems((current) => [...current, emptyItem(nextLineNo(current), String(masterDraft.currency ?? "USD"))]);
   }
 
   async function importItemsFile(file: File) {
@@ -348,11 +355,12 @@ export function CustomerPoDetailPage({ config, id }: { config: EntityConfig; id:
         setError(result.error ?? "产品明细导入失败");
         return;
       }
+      const importedStartLineNo = nextLineNo(items);
       const importedRows = (result.rows ?? []).map((row, index) => ({
-        ...emptyItem(Number(row.lineNo ?? items.length + index + 1), String(masterDraft.currency ?? row.currency ?? "USD")),
+        ...emptyItem(importedStartLineNo + index, String(masterDraft.currency ?? row.currency ?? "USD")),
         ...row,
         id: `new-${Date.now()}-${index}`,
-        lineNo: Number(row.lineNo ?? items.length + index + 1),
+        lineNo: importedStartLineNo + index,
         currency: row.currency || String(masterDraft.currency ?? "USD"),
       }));
       setItems((current) => [...current, ...importedRows]);
@@ -384,9 +392,16 @@ export function CustomerPoDetailPage({ config, id }: { config: EntityConfig; id:
       setError(`请先填写客户PO基础信息：${missingMaster[1]}`);
       return;
     }
-    const invalidItem = items.find((row) => !String(row.customerProductName ?? "").trim() || Number(row.quantity ?? 0) <= 0);
+    const invalidItem = items.find((row) => {
+      const quantity = Number(row.quantity ?? 0);
+      return !String(row.customerProductName ?? "").trim()
+        || !String(row.customerBrand ?? "").trim()
+        || !String(row.customerSpec ?? "").trim()
+        || !Number.isFinite(quantity)
+        || quantity <= 0;
+    });
     if (invalidItem) {
-      setError("请填写每条明细的产品名称，并确保数量大于0");
+      setError("请填写每条明细的产品名称、品牌、规格，并确保数量大于0");
       return;
     }
 
@@ -534,10 +549,10 @@ export function CustomerPoDetailPage({ config, id }: { config: EntityConfig; id:
       <Panel>
         <div className="flex flex-wrap items-center gap-2 border-b border-[#ebeef5] px-4 py-3"><h2 className="font-medium text-[#303133]">产品明细</h2><span className="text-xs text-[#909399]">共 {items.length} 行</span>{editing ? <div className="ml-auto flex gap-2"><Button onClick={() => itemFileRef.current?.click()} disabled={importingItems}><Upload size={15} />{importingItems ? "导入中..." : "导入明细"}</Button><a href="/api/po/customer-pos/items/template"><Button><FileSpreadsheet size={15} />明细模板</Button></a><Button onClick={addItem}><Plus size={15} />新增明细</Button><input ref={itemFileRef} className="hidden" type="file" accept=".xlsx,.xls" onChange={(event) => { const file = event.target.files?.[0]; if (file) void importItemsFile(file); event.currentTarget.value = ""; }} /></div> : null}</div>
         <StickyTable className="table-scroll overflow-auto" tableKey="customer-po-items-detail">
-          <table className="min-w-[1900px] border-collapse text-sm">
+          <table className="w-max min-w-full table-auto border-collapse text-sm">
             <thead className="bg-[#f5f7fa] text-[#303133]"><tr>{[
               ["lineNo", "行号"], ["customerSku", "客户SKU"], ["customerProductName", "产品名称"], ["customerBrand", "品牌"], ["customerSpec", "规格"], ["quantity", "数量"], ["unit", "单位"], ["targetUnitPrice", "目标单价"], ["currency", "币种"], ["matchedProductCode", "产品主档匹配"], ["matchStatus", "匹配状态"], ["remark", "备注"],
-            ].map(([key, label]) => <th className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium" key={key}>{label}</th>)}{editing ? <th className="sticky right-0 border-b border-[#ebeef5] bg-[#f5f7fa] px-3 py-3 text-left font-medium">操作</th> : null}</tr></thead>
+            ].map(([key, label]) => <th className={`whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium ${key === "lineNo" ? "w-[72px] min-w-[72px] max-w-[72px]" : ""}`} key={key}>{label}</th>)}{editing ? <th className="sticky right-0 border-b border-[#ebeef5] bg-[#f5f7fa] px-3 py-3 text-left font-medium">操作</th> : null}</tr></thead>
             <tbody>{items.map((row) => <CustomerPoItemRow editing={editing} key={String(row.id)} row={row} onChange={updateItem} onRemove={removeItem} />)}{!items.length ? <tr><td className="px-4 py-12 text-center text-[#909399]" colSpan={editing ? 13 : 12}>暂无产品明细，请点击“新增明细”</td></tr> : null}</tbody>
           </table>
         </StickyTable>
@@ -553,7 +568,7 @@ function CustomerPoItemRow({ editing, row, onChange, onRemove }: { editing: bool
     ? <Input className={className} type={type} value={String(row[key] ?? "")} onChange={(event) => onChange(id, key, type === "number" ? event.target.value : event.target.value)} />
     : formatDisplayValue(row[key], type === "number" ? "number" : undefined);
   return <tr className="hover:bg-[#fafafa]">
-    <td className="border-b border-r border-[#ebeef5] px-2 py-2">{input("lineNo", "number", "w-16")}</td>
+    <td className="w-[72px] min-w-[72px] max-w-[72px] border-b border-r border-[#ebeef5] px-2 py-2 text-[#606266]">{formatDisplayValue(row.lineNo, "number")}</td>
     <td className="border-b border-r border-[#ebeef5] px-2 py-2">{input("customerSku")}</td>
     <td className="border-b border-r border-[#ebeef5] px-2 py-2">{input("customerProductName")}</td>
     <td className="border-b border-r border-[#ebeef5] px-2 py-2">{input("customerBrand")}</td>
@@ -611,7 +626,7 @@ function PartySearchSelect({ kind, label, required, value, selectedLabel, disabl
   return <div className="relative" ref={wrapperRef}><span className="mb-1 block text-xs text-[#606266]">{label}{required ? <b className="text-[#f56c6c]"> *</b> : null}</span><div className="relative"><Input ref={inputRef} className="w-full pr-8 disabled:bg-[#f5f7fa]" disabled={disabled} value={open ? query : selectedLabel || value} placeholder={`请选择${label}`} onFocus={openPicker} onChange={(event) => { setQuery(event.target.value); setOpen(true); }} /><ListFilter className="pointer-events-none absolute right-2 top-2 text-[#909399]" size={15} /></div>{open ? <div className="absolute left-0 right-0 top-[62px] z-30 max-h-60 overflow-auto border border-[#dcdfe6] bg-white shadow-lg">{loading ? <div className="px-3 py-4 text-center text-xs text-[#909399]">加载中...</div> : options.map((option) => <button className="block w-full truncate px-3 py-2 text-left text-sm hover:bg-[#ecf5ff]" key={option.value} type="button" onClick={() => { onChange(option); setQuery(option.shortName); setOpen(false); }}>{option.label}</button>)}{!loading && !options.length ? <div className="px-3 py-4 text-center text-xs text-[#909399]">暂无匹配伙伴</div> : null}</div> : null}</div>;
 }
 
-function ProductMasterPicker({ disabled, value, label, onChange }: { disabled: boolean; value: string; label: string; onChange: (product: ProductOption | null) => void }) {
+export function ProductMasterPicker({ disabled, value, label, onChange }: { disabled: boolean; value: string; label: string; onChange: (product: ProductOption | null) => void }) {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -678,7 +693,7 @@ function ProductMasterPicker({ disabled, value, label, onChange }: { disabled: b
     window.setTimeout(() => inputRef.current?.select(), 0);
   }
 
-  if (disabled) return <span className={value ? "text-[#606266]" : "text-[#c0c4cc]"}>{value ? label || value : "未匹配"}</span>;
+  if (disabled) return <span className={value ? "text-[#606266]" : "text-[#c0c4cc]"}>{value || "未匹配"}</span>;
 
   const dropdown = open && typeof document !== "undefined" ? createPortal(
     <div ref={panelRef} className="fixed z-[100] max-h-60 overflow-auto border border-[#dcdfe6] bg-white shadow-lg" style={{ top: position.top, left: position.left, width: position.width }}>
@@ -688,7 +703,7 @@ function ProductMasterPicker({ disabled, value, label, onChange }: { disabled: b
     document.body,
   ) : null;
 
-  return <div className="relative min-w-[260px]" ref={wrapperRef}><div className="relative"><Input ref={inputRef} className="w-full pr-8" value={open ? query : label || value} placeholder="搜索产品编码、名称、品牌或规格" onFocus={openPicker} onChange={(event) => { setQuery(event.target.value); setOpen(true); }} />{value || label ? <button className="absolute right-2 top-2 text-[#909399] hover:text-[#f56c6c]" type="button" aria-label="取消产品匹配" title="取消产品匹配" onClick={() => onChange(null)}><X size={15} /></button> : <Search className="pointer-events-none absolute right-2 top-2 text-[#909399]" size={15} />}</div>{dropdown}</div>;
+  return <div className="relative min-w-[260px]" ref={wrapperRef}><div className="relative"><Input ref={inputRef} className="w-full pr-8" value={open ? query : value} placeholder="搜索产品编码、名称、品牌或规格" onFocus={openPicker} onChange={(event) => { setQuery(event.target.value); setOpen(true); }} />{value || label ? <button className="absolute right-2 top-2 text-[#909399] hover:text-[#f56c6c]" type="button" aria-label="取消产品匹配" title="取消产品匹配" onClick={() => onChange(null)}><X size={15} /></button> : <Search className="pointer-events-none absolute right-2 top-2 text-[#909399]" size={15} />}</div>{dropdown}</div>;
 }
 
 function formatPoStatus(value: Value) {

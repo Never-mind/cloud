@@ -5,6 +5,7 @@ import type { EntityConfig } from "./modules";
 import { DEFAULT_PAGE_SIZE, getKnownTotal, normalizePageSize } from "./pagination";
 import { requireRequestType } from "./request-type";
 import { formatTableDateExpression, formatTableDateTimeExpression, getNaturalBatchSort, getTableFilterOptionsOrderBy } from "./table-query";
+import { findProductByCode } from "./po-product-service";
 
 function quoteIdentifier(identifier: string) {
   return `\`${identifier.replace(/`/g, "``")}\``;
@@ -61,13 +62,35 @@ function withShipmentReceiptStatus(config: EntityConfig, body: Row) {
 async function normalizeEntityBody(config: EntityConfig, body: Row) {
   const nextBody = withQuotationPartyAliases(config, withShipmentReceiptStatus(config, body));
   const normalizedProductBody = await normalizeProductMasterCategory(config, nextBody);
+  const normalizedQuotationBody = await normalizeQuotationItemProduct(config, normalizedProductBody);
   if (["requests", "request-items", "purchase-order-items"].includes(config.key)) {
     return normalizePurchasePrices(config, {
-      ...normalizedProductBody,
+      ...normalizedQuotationBody,
       requestType: requireRequestType(nextBody.requestType ?? "整机"),
     });
   }
-  return normalizePurchasePrices(config, normalizedProductBody);
+  return normalizePurchasePrices(config, normalizedQuotationBody);
+}
+
+async function normalizeQuotationItemProduct(config: EntityConfig, body: Row) {
+  if (config.key !== "quotation-items") return body;
+
+  const productCode = String(body.productCode ?? "").trim();
+  if (!productCode) return body;
+  const product = await findProductByCode(productCode);
+  if (!product) return body;
+
+  return {
+    ...body,
+    productCode: product.productCode,
+    productName: product.productName,
+    brand: product.brand ?? null,
+    productMasterId: product.productMasterId ?? null,
+    productModelId: product.productModelId ?? null,
+    productSpecId: product.productSpecId ?? null,
+    tariffRate: product.tariffRate ?? 0,
+    enableNom: body.enableNom ?? product.needNom ?? false,
+  };
 }
 
 async function normalizeProductMasterCategory(config: EntityConfig, body: Row) {
@@ -900,7 +923,8 @@ export async function getEntityRow(config: EntityConfig, id: string) {
 }
 
 export async function createEntityRow(config: EntityConfig, body: Row) {
-  const nextBody = await normalizeEntityBody(config, withPrimaryKey(config, body));
+  const normalizedBody = await normalizeEntityBody(config, withPrimaryKey(config, body));
+  const nextBody = await assignCustomerPoItemLineNo(config, normalizedBody);
   validateRequiredFields(config, nextBody);
   const fields = getInsertFields(config);
   const table = quoteIdentifier(config.table);
@@ -919,7 +943,11 @@ export async function updateEntityRow(config: EntityConfig, id: string, body: Ro
   const table = quoteIdentifier(config.table);
   const primaryKey = quoteIdentifier(config.primaryKey);
   const assignments = fields.map((field) => `${quoteIdentifier(field)} = :${field}`).join(", ");
+  const previousRow = config.key === "customer-po-items" ? await getEntityRow(config, id) : null;
   const nextBody = await normalizeEntityBody(config, body);
+  if (previousRow && config.key === "customer-po-items") {
+    nextBody.lineNo = previousRow.lineNo;
+  }
   validateRequiredFields(config, nextBody);
   const previousBody = config.key.endsWith("-contacts") ? await getEntityRow(config, id) : null;
   if (config.key === "requests") await assertRequestTypeCanChange(id, String(nextBody.requestType));
@@ -933,6 +961,18 @@ export async function updateEntityRow(config: EntityConfig, id: string, body: Ro
   await syncPrimaryContact(config, nextBody);
   if (previousBody) await syncPrimaryContact(config, previousBody);
   return getEntityRow(config, id);
+}
+
+async function assignCustomerPoItemLineNo(config: EntityConfig, body: Row) {
+  if (config.key !== "customer-po-items") return body;
+
+  const poId = String(body.poId ?? "").trim();
+  if (!poId) return body;
+  const rows = await queryRows<{ maxLineNo: number | null }>(
+    "SELECT COALESCE(MAX(lineNo), 0) AS maxLineNo FROM po_customer_po_items WHERE poId = :poId",
+    { poId },
+  );
+  return { ...body, lineNo: Number(rows[0]?.maxLineNo ?? 0) + 1 };
 }
 
 function validateRequiredFields(config: EntityConfig, body: Row) {

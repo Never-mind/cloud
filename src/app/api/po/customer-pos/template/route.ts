@@ -4,7 +4,6 @@ import { getEntityConfig } from "@/lib/modules";
 
 const masterKeys = ["poNo", "projectName", "undertakingUnitId", "customerId", "poDate", "deliveryDate", "currency", "status", "remark"];
 const itemFields = [
-  ["lineNo", "行号", "数字"],
   ["customerSku", "客户SKU", "文本"],
   ["customerProductName", "产品名称", "文本"],
   ["customerBrand", "品牌", "文本"],
@@ -45,7 +44,7 @@ export async function GET() {
   const masterHeaders = Object.fromEntries(masterKeys.map((key) => [masterLabels[key], ""]));
   const masterNotesRow = Object.fromEntries(masterKeys.map((key) => [masterLabels[key], masterNotes[key]]));
   const itemHeaders = Object.fromEntries([["客户PO号", ""], ...itemFields.map(([, label]) => [label, ""])]);
-  const itemNotesRow = Object.fromEntries([["客户PO号", "必填：对应客户PO号"], ...itemFields.map(([key, label, type]) => [label, ["customerProductName", "quantity", "lineNo"].includes(key) ? `必填：${type}` : `可选：${type}`])]);
+  const itemNotesRow = Object.fromEntries([["客户PO号", "必填：对应客户PO号"], ...itemFields.map(([key, label, type]) => [label, ["customerProductName", "customerBrand", "customerSpec", "quantity"].includes(key) ? `必填：${type}` : `可选：${type}`])]);
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet([masterHeaders, masterNotesRow]), "客户PO");
   XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet([itemHeaders, itemNotesRow]), "产品明细");

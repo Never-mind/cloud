@@ -9,11 +9,11 @@ export const quotationItemImportFields: QuotationItemSpreadsheetField[] = [
   { key: "productCode", label: "产品编码", note: "可选：行号为空时按产品编码匹配" },
   { key: "purchaseUnitPrice", label: "原币不含税采购单价", note: "可选：填写采购成本，需同时填写采购币种" },
   { key: "purchaseCurrency", label: "采购币种", note: "可选：如不填写则保留原明细币种" },
-  { key: "ddpQuoteUnitUsd", label: "手动DDP不含税单价（USD）", note: "可选：填写后作为当前明细最终报价，并反算加价率" },
+  { key: "ddpQuoteUnitUsd", label: "DDP不含税单价（USD）", note: "可选：填写后作为当前明细最终报价，并反算加价率" },
   { key: "quantity", label: "采购数量", note: "可选：不填写则保留原明细数量" },
   { key: "transportType", label: "运输方式", note: "可选：空运、海运或无运输" },
   { key: "isCustomsClearance", label: "是否清关", note: "可选：是/否" },
-  { key: "enableNom", label: "是否需要NOM", note: "可选：是/否" },
+  { key: "enableNom", label: "是否NOM认证", note: "可选：是/否" },
   { key: "markupRate", label: "加价率（%）", note: "可选：不填写则保留原明细加价率" },
   { key: "remark", label: "备注", note: "可选：文本" },
 ];
@@ -30,6 +30,7 @@ export const quotationItemExportFields: QuotationItemSpreadsheetField[] = [
   { key: "purchaseTotalUsd", label: "不含税采购总价（USD）", note: "" },
   { key: "transportType", label: "运输方式", note: "" },
   { key: "isCustomsClearance", label: "是否清关", note: "" },
+  { key: "enableNom", label: "是否NOM认证", note: "" },
   { key: "firstMileFreightUsd", label: "头程运费（USD）", note: "" },
   { key: "cifUsd", label: "CIF（USD）", note: "" },
   { key: "tariffRate", label: "关税税率（%）", note: "" },
@@ -42,12 +43,10 @@ export const quotationItemExportFields: QuotationItemSpreadsheetField[] = [
   { key: "ddpUnitPriceUsd", label: "到仓单价（USD）", note: "" },
   { key: "markupRate", label: "加价率（%）", note: "" },
   { key: "historicalDdpQuoteUsd", label: "历史参考报价（USD）", note: "" },
-  { key: "ddpQuoteUnitUsd", label: "手动DDP不含税单价（USD）", note: "" },
   { key: "unitPrice", label: "DDP不含税单价（USD）", note: "" },
   { key: "amount", label: "DDP不含税总价（USD）", note: "" },
   { key: "operatingProfitUsd", label: "利润（USD）", note: "" },
   { key: "grossMarginRate", label: "毛利率（%）", note: "" },
-  { key: "productMasterId", label: "产品主档ID", note: "" },
   { key: "remark", label: "备注", note: "" },
 ];
 
@@ -62,11 +61,13 @@ export const quotationItemImportAliases: Record<string, string> = {
   "手动DDP不含税单价（USD）": "ddpQuoteUnitUsd",
   "手动DDP不含税单价": "ddpQuoteUnitUsd",
   "DDP不含税单价（USD）": "ddpQuoteUnitUsd",
+  "DDP不含税单价": "ddpQuoteUnitUsd",
   "采购数量": "quantity",
   "数量": "quantity",
   "运输方式": "transportType",
   "是否清关": "isCustomsClearance",
   "是否需要NOM": "enableNom",
+  "是否NOM认证": "enableNom",
   "加价率（%）": "markupRate",
   "加价率": "markupRate",
   "备注": "remark",
@@ -104,10 +105,16 @@ export function parseQuotationItemNumber(value: unknown) {
 
 export function formatQuotationItemExportValue(key: string, value: unknown) {
   if (value === null || value === undefined) return "";
-  if (["isCustomsClearance", "enableNom"].includes(key)) return value ? "是" : "否";
+  if (["isCustomsClearance", "enableNom"].includes(key)) return isBooleanEnabled(value) ? "是" : "否";
   if (key === "transportType") {
     return value === "air" ? "空运" : value === "sea" ? "海运" : value === "none" ? "无运输" : String(value);
   }
   if (key === "grossMarginRate") return Number(value) * 100;
   return value;
+}
+
+function isBooleanEnabled(value: unknown) {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value !== 0;
+  return ["1", "true", "yes", "是"].includes(String(value).trim().toLowerCase());
 }

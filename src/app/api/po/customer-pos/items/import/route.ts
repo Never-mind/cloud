@@ -48,10 +48,13 @@ export async function POST(request: NextRequest) {
           .filter(([key]) => allowedKeys.has(String(key))),
       );
       const row = normalizeEntityImportRow(config, mapped);
-      const lineNo = Number(row.lineNo ?? 0) || index + 1;
       const quantity = Number(row.quantity ?? 0);
       const error = !String(row.customerProductName ?? "").trim()
         ? "产品名称不能为空"
+        : !String(row.customerBrand ?? "").trim()
+          ? "品牌不能为空"
+          : !String(row.customerSpec ?? "").trim()
+            ? "规格不能为空"
         : !Number.isFinite(quantity) || quantity <= 0
           ? "数量必须是大于0的数字"
           : "";
@@ -60,7 +63,6 @@ export async function POST(request: NextRequest) {
         continue;
       }
       rows.push({
-        lineNo,
         customerSku: row.customerSku ?? null,
         customerProductName: row.customerProductName,
         customerBrand: row.customerBrand ?? null,

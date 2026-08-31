@@ -88,7 +88,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ qu
         if (!target) throw new Error("未找到对应的报价明细");
 
         const quantity = parseQuotationItemNumber(mapped.quantity);
-        if (quantity !== undefined && quantity <= 0) throw new Error("采购数量必须大于0");
+        if (quantity !== undefined && (!Number.isInteger(quantity) || quantity <= 0)) throw new Error("采购数量必须为大于0的整数");
         const transportType = mapped.transportType === undefined || String(mapped.transportType).trim() === ""
           ? undefined
           : normalizeQuotationItemTransport(mapped.transportType);

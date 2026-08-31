@@ -11,10 +11,24 @@ import { StickyTable } from "./sticky-table";
 import { TableColumnMenu, type TableFilterOption, type TableSortOrder } from "./table-column-menu";
 import { StatusTag } from "./status-tag";
 import { AuditInfoBar, Button, Input, Panel, Textarea } from "./ui";
+import { ProductMasterPicker } from "./customer-po-page";
 
 type Value = string | number | boolean | null | undefined;
 type Row = Record<string, Value>;
 type QuotationImportReport = { total: number; success: number; failed: Array<{ rowNumber: number; primaryKey: string; error: string }> };
+type QuotationItemDrafts = Record<string, Row>;
+
+const editableQuotationItemKeys = new Set([
+  "productCode",
+  "quantity",
+  "purchaseCurrency",
+  "purchaseUnitPrice",
+  "transportType",
+  "isCustomsClearance",
+  "enableNom",
+  "markupRate",
+  "unitPrice",
+]);
 
 const itemFields: EntityField[] = [
   { key: "lineNo", label: "行号", type: "number", sortable: true, filterable: true },
@@ -28,6 +42,7 @@ const itemFields: EntityField[] = [
   { key: "purchaseTotalUsd", label: "不含税采购总价（USD）", type: "money", sortable: true, filterable: true },
   { key: "transportType", label: "运输方式", sortable: true, filterable: true },
   { key: "isCustomsClearance", label: "是否清关", type: "boolean", sortable: true, filterable: true },
+  { key: "enableNom", label: "是否NOM认证", type: "boolean", sortable: true, filterable: true },
   { key: "firstMileFreightUsd", label: "头程运费（USD）", type: "money", sortable: true, filterable: true },
   { key: "cifUsd", label: "CIF（USD）", type: "money", sortable: true, filterable: true },
   { key: "tariffRate", label: "关税税率（%）", type: "number", sortable: true, filterable: true },
@@ -40,12 +55,10 @@ const itemFields: EntityField[] = [
   { key: "ddpUnitPriceUsd", label: "到仓单价（USD）", type: "money", sortable: true, filterable: true },
   { key: "markupRate", label: "加价率（%）", type: "number", sortable: true, filterable: true },
   { key: "historicalDdpQuoteUsd", label: "历史参考报价（USD）", type: "money", sortable: true, filterable: true },
-  { key: "ddpQuoteUnitUsd", label: "手动DDP不含税单价（USD）", type: "money", sortable: true, filterable: true },
   { key: "unitPrice", label: "DDP不含税单价（USD）", type: "money", sortable: true, filterable: true },
   { key: "amount", label: "DDP不含税总价（USD）", type: "money", sortable: true, filterable: true },
   { key: "operatingProfitUsd", label: "利润（USD）", type: "money", sortable: true, filterable: true },
   { key: "grossMarginRate", label: "毛利率", type: "percentage", sortable: true, filterable: true },
-  { key: "productMasterId", label: "产品主档ID" },
   { key: "remark", label: "备注" },
 ];
 
@@ -255,7 +268,7 @@ export function QuotationDetailPage({ id }: { id: string }) {
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [draft, setDraft] = useState<Row>({});
-  const [itemDrafts, setItemDrafts] = useState<Record<string, string>>({});
+  const [itemDrafts, setItemDrafts] = useState<QuotationItemDrafts>({});
   const [itemFilters, setItemFilters] = useState<Record<string, string[]>>({});
   const [itemSortField, setItemSortField] = useState("");
   const [itemSortOrder, setItemSortOrder] = useState<TableSortOrder>("");
@@ -304,7 +317,24 @@ export function QuotationDetailPage({ id }: { id: string }) {
 
   function startEditing() {
     setDraft({ ...(quotation ?? {}) });
-    setItemDrafts(Object.fromEntries(items.map((item) => [String(item.id), item.ddpQuoteUnitUsd == null ? "" : String(item.ddpQuoteUnitUsd)])));
+    setItemDrafts(Object.fromEntries(items.map((item) => [String(item.id), {
+      productCode: item.productCode ?? "",
+      productName: item.productName ?? "",
+      brand: item.brand ?? "",
+      productMasterId: item.productMasterId ?? null,
+      productModelId: item.productModelId ?? null,
+      productSpecId: item.productSpecId ?? null,
+      tariffRate: item.tariffRate ?? 0,
+      quantity: item.quantity ?? "",
+      purchaseCurrency: item.purchaseCurrency ?? "",
+      purchaseUnitPrice: item.purchaseUnitPrice ?? "",
+      transportType: item.transportType ?? "sea",
+      isCustomsClearance: toBooleanValue(item.isCustomsClearance),
+      enableNom: toBooleanValue(item.enableNom),
+      markupRate: item.markupRate ?? quotation?.markupRate ?? "",
+      unitPrice: item.unitPrice ?? "",
+      pricingMode: item.ddpQuoteUnitUsd === null || item.ddpQuoteUnitUsd === undefined ? "markup" : "unitPrice",
+    }])));
     setEditing(true);
     setError("");
   }
@@ -327,17 +357,49 @@ export function QuotationDetailPage({ id }: { id: string }) {
       });
       const masterData = await masterResponse.json().catch(() => ({}));
       if (!masterResponse.ok) throw new Error(masterData.error ?? "报价单保存失败");
-      await Promise.all(items.map(async (item) => {
+      for (const item of items) {
         const itemId = String(item.id ?? "");
-        const rawValue = itemDrafts[itemId];
+        const rawDraft = itemDrafts[itemId] ?? {};
+        const productCode = String(rawDraft.productCode ?? item.productCode ?? "").trim();
+        const quantity = Number(rawDraft.quantity ?? item.quantity ?? 0);
+        const purchaseUnitPrice = Number(rawDraft.purchaseUnitPrice ?? item.purchaseUnitPrice ?? 0);
+        const transportType = String(rawDraft.transportType ?? item.transportType ?? "sea");
+        if (!productCode) throw new Error(`行号${String(item.lineNo ?? "")}的产品编码不能为空`);
+        if (!Number.isInteger(quantity) || quantity <= 0) throw new Error(`行号${String(item.lineNo ?? "")}的采购数量必须为大于0的整数`);
+        if (!Number.isFinite(purchaseUnitPrice) || purchaseUnitPrice < 0) throw new Error(`行号${String(item.lineNo ?? "")}的不含税采购单价不能小于0`);
+        if (!["air", "sea", "none"].includes(transportType)) throw new Error(`行号${String(item.lineNo ?? "")}的运输方式无效`);
+        const rawMarkupRate = rawDraft.markupRate;
+        const markupRate = rawMarkupRate === "" || rawMarkupRate === null || rawMarkupRate === undefined
+          ? Number(item.markupRate ?? quotation.markupRate ?? 0)
+          : Number(rawMarkupRate);
+        if (!Number.isFinite(markupRate) || markupRate < -100) throw new Error(`行号${String(item.lineNo ?? "")}的加价率不能小于-100%`);
+        const rawUnitPrice = rawDraft.unitPrice;
+        const unitPrice = rawUnitPrice === "" || rawUnitPrice === null || rawUnitPrice === undefined ? null : Number(rawUnitPrice);
+        const pricingMode = String(rawDraft.pricingMode ?? "markup");
+        if (pricingMode === "unitPrice" && (unitPrice === null || !Number.isFinite(unitPrice) || unitPrice < 0)) {
+          throw new Error(`行号${String(item.lineNo ?? "")}的DDP不含税单价不能小于0`);
+        }
         const response = await fetch(`/api/entities/quotation-items/${encodeURIComponent(itemId)}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ...item, ddpQuoteUnitUsd: rawValue?.trim() ? Number(rawValue) : null }),
+          body: JSON.stringify({
+            ...item,
+            ...rawDraft,
+            productCode,
+            quantity,
+            purchaseCurrency: String(rawDraft.purchaseCurrency ?? item.purchaseCurrency ?? "CNY").trim() || "CNY",
+            purchaseUnitPrice,
+            transportType,
+            isCustomsClearance: toBooleanValue(rawDraft.isCustomsClearance),
+            enableNom: toBooleanValue(rawDraft.enableNom),
+            markupRate,
+            unitPrice: unitPrice ?? item.unitPrice ?? 0,
+            ddpQuoteUnitUsd: pricingMode === "unitPrice" ? unitPrice : null,
+          }),
         });
         const data = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(data.error ?? "报价明细保存失败");
-      }));
+      }
       cancelEditing();
       await load();
     } catch (saveError) {
@@ -381,6 +443,75 @@ export function QuotationDetailPage({ id }: { id: string }) {
       counts.set(value, (counts.get(value) ?? 0) + 1);
     }
     return Promise.resolve(Array.from(counts, ([value, count]) => ({ value, label: formatQuotationValue(value, itemFields.find((fieldConfig) => fieldConfig.key === field)?.type), count })));
+  }
+
+  function updateItemDraft(itemId: string, field: string, value: Value) {
+    setItemDrafts((current) => ({ ...current, [itemId]: { ...(current[itemId] ?? {}), [field]: value } }));
+  }
+
+  function updatePricingDraft(itemId: string, field: "markupRate" | "unitPrice", value: Value) {
+    const item = items.find((row) => String(row.id ?? "") === itemId);
+    const warehouseUnitPrice = Number(item?.ddpUnitPriceUsd ?? 0);
+    const parsed = value === "" || value === null || value === undefined ? null : Number(value);
+    const hasNumber = parsed !== null && Number.isFinite(parsed);
+    const nextValues: Row = { [field]: value, pricingMode: field === "unitPrice" ? "unitPrice" : "markup" };
+
+    if (field === "markupRate") {
+      nextValues.unitPrice = hasNumber ? Number((warehouseUnitPrice * (1 + parsed / 100)).toFixed(4)) : "";
+    } else if (hasNumber) {
+      nextValues.markupRate = warehouseUnitPrice > 0
+        ? Number(((parsed / warehouseUnitPrice - 1) * 100).toFixed(4))
+        : "";
+    } else {
+      nextValues.markupRate = "";
+    }
+
+    setItemDrafts((current) => ({
+      ...current,
+      [itemId]: { ...(current[itemId] ?? {}), ...nextValues },
+    }));
+  }
+
+  function renderItemValue(row: Row, field: EntityField) {
+    const itemId = String(row.id ?? "");
+    const itemDraft = itemDrafts[itemId];
+    const value = itemDraft && Object.prototype.hasOwnProperty.call(itemDraft, field.key)
+      ? itemDraft[field.key]
+      : row[field.key] ?? "";
+    if (!editing) return formatQuotationValue(row[field.key], field.type);
+    if (!editableQuotationItemKeys.has(field.key)) {
+      const followsProduct = ["productName", "brand", "tariffRate"].includes(field.key) && itemDraft && Object.prototype.hasOwnProperty.call(itemDraft, field.key);
+      return formatQuotationValue(followsProduct ? value : row[field.key], field.type);
+    }
+    if (field.key === "productCode") {
+      return <ProductMasterPicker
+        disabled={false}
+        value={String(value ?? "")}
+        label={String(itemDraft?.productName ?? row.productName ?? "")}
+        onChange={(product) => {
+          updateItemDraft(itemId, "productCode", product?.productCode ?? "");
+          updateItemDraft(itemId, "productName", product?.productName ?? "");
+          updateItemDraft(itemId, "brand", product?.brand ?? "");
+          updateItemDraft(itemId, "productMasterId", product?.productMasterId ?? null);
+          updateItemDraft(itemId, "productModelId", product?.productModelId ?? null);
+          updateItemDraft(itemId, "productSpecId", product?.productSpecId ?? null);
+          updateItemDraft(itemId, "tariffRate", product?.tariffRate ?? 0);
+          updateItemDraft(itemId, "enableNom", toBooleanValue(product?.needNom));
+        }}
+      />;
+    }
+    if (field.key === "transportType") {
+      return <select className="h-8 w-28 border border-[#dcdfe6] bg-white px-2 text-sm" value={String(value)} onChange={(event) => updateItemDraft(itemId, field.key, event.target.value)}><option value="air">空运</option><option value="sea">海运</option><option value="none">无运输</option></select>;
+    }
+    if (field.key === "isCustomsClearance" || field.key === "enableNom") {
+      return <select className="h-8 w-24 border border-[#dcdfe6] bg-white px-2 text-sm" value={toBooleanValue(value) ? "1" : "0"} onChange={(event) => updateItemDraft(itemId, field.key, event.target.value === "1")}><option value="0">否</option><option value="1">是</option></select>;
+    }
+    const type = ["quantity", "purchaseUnitPrice", "markupRate", "unitPrice"].includes(field.key) ? "number" : "text";
+    const step = field.key === "quantity" ? "1" : type === "number" ? "0.0001" : undefined;
+    if (field.key === "markupRate" || field.key === "unitPrice") {
+      return <Input className="h-8 w-32" type="number" min={field.key === "markupRate" ? "-100" : "0"} step={step} value={String(value)} onChange={(event) => updatePricingDraft(itemId, field.key as "markupRate" | "unitPrice", event.target.value)} />;
+    }
+    return <Input className={type === "number" ? "h-8 w-32" : "h-8 w-40"} type={type} min={field.key === "quantity" ? "1" : undefined} step={step} value={String(value)} onChange={(event) => updateItemDraft(itemId, field.key, event.target.value)} />;
   }
 
   if (loading) return <div className="p-5 text-sm text-[#909399]">加载中...</div>;
@@ -434,8 +565,8 @@ export function QuotationDetailPage({ id }: { id: string }) {
       <Panel>
         <div className="flex items-center border-b border-[#ebeef5] p-4"><div><h2 className="font-medium text-[#303133]">报价明细</h2><p className="mt-1 text-xs text-[#909399]">共 {items.length} 条，数量合计 {formatQuotationValue(totalQuantity, "number")}。</p></div></div>
         <StickyTable className="table-scroll overflow-auto" tableKey="quotation-detail-items">
-          <table className="min-w-[1250px] border-collapse text-sm"><thead className="bg-[#f5f7fa] text-[#303133]"><tr>{itemFields.map((field) => <th className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium" key={field.key}><TableColumnMenu column={field} filterValues={itemFilters[field.key] ?? []} loadOptions={(keyword) => loadItemOptions(field.key, keyword)} onFilter={(values) => setItemFilters((current) => ({ ...current, [field.key]: values }))} onSort={(order) => { setItemSortField(field.key); setItemSortOrder(order); }} sortOrder={itemSortField === field.key ? itemSortOrder : ""} /></th>)}</tr></thead>
-            <tbody>{visibleItems.map((row) => <tr className="hover:bg-[#fafafa]" key={String(row.id)}>{itemFields.map((field) => <td className="max-w-[240px] truncate whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3" key={field.key}>{editing && field.key === "ddpQuoteUnitUsd" ? <Input className="h-8 w-40" type="number" step="0.0001" value={itemDrafts[String(row.id)] ?? ""} placeholder="自动按加价率" onChange={(event) => setItemDrafts((current) => ({ ...current, [String(row.id)]: event.target.value }))} /> : formatQuotationValue(row[field.key], field.type)}</td>)}</tr>)}{!visibleItems.length ? <tr><td className="px-4 py-10 text-center text-[#909399]" colSpan={itemFields.length}>暂无报价明细</td></tr> : null}</tbody>
+          <table className="w-max min-w-full table-auto border-collapse text-sm"><thead className="bg-[#f5f7fa] text-[#303133]"><tr>{itemFields.map((field) => <th className={`whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium ${field.key === "lineNo" ? "w-[72px] min-w-[72px] max-w-[72px]" : ""}`} key={field.key}><TableColumnMenu column={field} filterValues={itemFilters[field.key] ?? []} loadOptions={(keyword) => loadItemOptions(field.key, keyword)} onFilter={(values) => setItemFilters((current) => ({ ...current, [field.key]: values }))} onSort={(order) => { setItemSortField(field.key); setItemSortOrder(order); }} sortOrder={itemSortField === field.key ? itemSortOrder : ""} /></th>)}</tr></thead>
+            <tbody>{visibleItems.map((row) => <tr className="hover:bg-[#fafafa]" key={String(row.id)}>{itemFields.map((field) => <td className={`max-w-[240px] truncate whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3 ${field.key === "lineNo" ? "w-[72px] min-w-[72px] max-w-[72px]" : ""}`} key={field.key}>{renderItemValue(row, field)}</td>)}</tr>)}{!visibleItems.length ? <tr><td className="px-4 py-10 text-center text-[#909399]" colSpan={itemFields.length}>暂无报价明细</td></tr> : null}</tbody>
           </table>
         </StickyTable>
        </Panel>
@@ -471,6 +602,12 @@ function formatQuotationValue(value: Value, type?: string, fixedTwoDecimals = fa
   if (value === "sea") return "海运";
   if (value === "none") return "无运输";
   return formatDisplayValue(value, type);
+}
+
+function toBooleanValue(value: Value) {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value !== 0;
+  return ["1", "true", "yes", "是"].includes(String(value ?? "").trim().toLowerCase());
 }
 
 function compareValues(left: Value, right: Value, order: TableSortOrder) {

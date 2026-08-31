@@ -158,7 +158,7 @@ async function importItems(
   const existingItems = poIds.length
     ? await queryRows<Row>("SELECT id, poId, lineNo FROM po_customer_po_items WHERE poId IN (:poIds)", { poIds })
     : [];
-  const itemByKey = new Map(existingItems.map((row) => [`${row.poId}:${row.lineNo}`, String(row.id)]));
+  const itemByKey = new Map(existingItems.map((item) => [`${item.poId}:${item.lineNo}`, String(item.id)]));
   const codes = Array.from(new Set(rows.map((source) => String(mapRow(source, itemAliases, allowedKeys).matchedProductCode ?? "").trim()).filter(Boolean)));
   const products = new Map<string, Row>();
   for (const code of codes) {
@@ -170,17 +170,20 @@ async function importItems(
     const mapped = mapRow(source, itemAliases, allowedKeys);
     const poNo = String(mapped.poNo ?? "").trim();
     const row = normalizeEntityImportRow(config, mapped);
-    const lineNo = Number(row.lineNo ?? 0);
+    const importedLineNo = Number(row.lineNo ?? 0);
+    const hasImportedLineNo = Number.isFinite(importedLineNo) && importedLineNo > 0;
     const poId = masterIdsByPoNo.get(poNo) ?? "";
     try {
       if (!poId) throw new Error(`未找到客户PO：${poNo || "空"}`);
       if (masterStatusByPoNo.get(poNo) === "confirmed") throw new Error("已确认的客户PO不能通过导入修改明细");
-      if (!Number.isFinite(lineNo) || lineNo <= 0) throw new Error("行号必须是大于0的数字");
       if (!String(row.customerProductName ?? "").trim()) throw new Error("产品名称不能为空");
+      if (!String(row.customerBrand ?? "").trim()) throw new Error("品牌不能为空");
+      if (!String(row.customerSpec ?? "").trim()) throw new Error("规格不能为空");
       if (!Number.isFinite(Number(row.quantity)) || Number(row.quantity) <= 0) throw new Error("数量必须是大于0的数字");
       const code = String(row.matchedProductCode ?? "").trim();
       const product = products.get(code);
-      const itemId = itemByKey.get(`${poId}:${lineNo}`) ?? String(row.id ?? randomUUID());
+      const existingItemId = hasImportedLineNo ? itemByKey.get(`${poId}:${importedLineNo}`) : undefined;
+      const itemId = existingItemId ?? String(row.id ?? randomUUID());
       const payload = {
         ...row,
         id: itemId,
@@ -191,13 +194,12 @@ async function importItems(
         productSpecId: product?.productSpecId ?? row.productSpecId ?? null,
         matchStatus: product ? "matched" : code ? "unmatched" : "unmatched",
       };
-      const existing = itemByKey.has(`${poId}:${lineNo}`);
-      if (existing) await updateEntityRow(config, itemId, payload);
+      if (existingItemId) await updateEntityRow(config, itemId, payload);
       else await createEntityRow(config, { ...payload, ...operationFields(actor, "create") });
-      itemByKey.set(`${poId}:${lineNo}`, itemId);
+      if (hasImportedLineNo) itemByKey.set(`${poId}:${importedLineNo}`, itemId);
       report.success += 1;
     } catch (error) {
-      report.failed.push({ rowNumber: index + 2, primaryKey: poNo ? `${poNo}/${lineNo || "?"}` : "", error: error instanceof Error ? error.message : String(error) });
+      report.failed.push({ rowNumber: index + 2, primaryKey: poNo, error: error instanceof Error ? error.message : String(error) });
     }
   }
   return report;
