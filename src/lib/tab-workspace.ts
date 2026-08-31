@@ -157,6 +157,8 @@ export function getWorkspaceTabTitle(route: string) {
   if (/^\/undertaking-units\/[^/]+$/.test(pathname)) return "承接单位详情";
   if (/^\/requests\/orders\/[^/]+$/.test(pathname)) return "需求单明细";
   if (/^\/purchase\/orders\/[^/]+$/.test(pathname)) return "采购订单明细";
+  if (/^\/customer-pos\/[^/]+$/.test(pathname)) return "客户PO明细";
+  if (/^\/quotation\/list\/[^/]+$/.test(pathname)) return "报价单明细";
   if (/^\/finance\/billing-adjustments\/[^/]+$/.test(pathname)) return "月账单调整单明细";
   if (/^\/finance\/prepayment-writeoff-adjustments\/[^/]+$/.test(pathname)) return "预付款核销调整单明细";
   if (/^\/finance\/balance-settlements\/[^/]+$/.test(pathname)) return "实例结差明细";

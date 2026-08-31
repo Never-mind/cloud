@@ -74,10 +74,10 @@ async function normalizeProductMasterCategory(config: EntityConfig, body: Row) {
   if (config.key !== "product-masters") return body;
 
   const category = String(body.category ?? "").trim();
-  if (!category) return { ...body, hsCodeMx: null, needNom: false };
+  if (!category) return { ...body, hsCodeMx: null, tariffRate: 0, needNom: false };
 
-  const rows = await queryRows<{ hsCode: string | null; needNom: number | boolean | null }>(
-    `SELECT hsCode, needNom
+  const rows = await queryRows<{ hsCode: string | null; taxRate: number | null; needNom: number | boolean | null }>(
+    `SELECT hsCode, taxRate, needNom
        FROM po_tariff_rates
       WHERE deviceType = :category
       ORDER BY updatedAt DESC, id ASC
@@ -88,6 +88,7 @@ async function normalizeProductMasterCategory(config: EntityConfig, body: Row) {
   return {
     ...body,
     hsCodeMx: matched?.hsCode ?? null,
+    tariffRate: Number(matched?.taxRate ?? 0),
     needNom: Number(matched?.needNom ?? 0) === 1,
   };
 }
@@ -145,7 +146,13 @@ export async function listEntityRows(config: EntityConfig, searchParams: URLSear
     ...[...config.listFields, ...config.formFields].map((field) => field.key),
     ...(financePartyEntityKeys.has(config.key) ? ["supplierId", "undertakingUnitId", "customerId"] : []),
   ]));
-  const displayOnlyFields = config.key === "request-items"
+  const displayOnlyFields = config.key === "customer-pos"
+    ? new Set(["undertakingUnitName", "customerName"])
+    : config.key === "quotations"
+      ? new Set(["contractingUnitName", "customerName"])
+      : config.key === "history-quotations"
+        ? new Set(["customerId"])
+    : config.key === "request-items"
     ? partyDisplayFields
     : config.key === "purchase-orders"
       ? new Set(["requestType"])
@@ -166,7 +173,9 @@ export async function listEntityRows(config: EntityConfig, searchParams: URLSear
     .map((field) => {
       const reference = fieldReference(field);
       const type = fieldTypes.get(field);
-      const displayReference = getPartyPrimaryContactExpression(config, field, reference) ?? reference;
+      const displayReference = config.key === "quotation-items" && field === "brand"
+        ? `(SELECT COALESCE(NULLIF(quotationItem.brand, ''), master.brand, '') FROM po_quotation_items quotationItem LEFT JOIN po_product_masters master ON master.id = quotationItem.productMasterId WHERE quotationItem.id = ${quoteIdentifier(config.table)}.${quoteIdentifier(config.primaryKey)} LIMIT 1)`
+        : getPartyPrimaryContactExpression(config, field, reference) ?? reference;
       const selectedReference = type === "date"
         ? formatTableDateExpression(reference)
         : type === "datetime"
@@ -181,6 +190,21 @@ export async function listEntityRows(config: EntityConfig, searchParams: URLSear
         .filter((field) => derivedRequestTypeEntityKeys.has(config.key) && field.key === "requestType")
         .map((field) => `${getEntityDisplayFieldExpression(config, field.key)} AS ${quoteIdentifier(field.key)}`),
     )
+    .concat(config.key === "customer-pos"
+      ? config.listFields
+        .filter((field) => ["undertakingUnitName", "customerName"].includes(field.key))
+        .map((field) => `${getEntityDisplayFieldExpression(config, field.key)} AS ${quoteIdentifier(field.key)}`)
+      : [])
+    .concat(config.key === "quotations"
+      ? config.listFields
+        .filter((field) => ["contractingUnitName", "customerName"].includes(field.key))
+        .map((field) => `${getEntityDisplayFieldExpression(config, field.key)} AS ${quoteIdentifier(field.key)}`)
+      : [])
+    .concat(config.key === "history-quotations"
+      ? config.listFields
+        .filter((field) => field.key === "customerId")
+        .map((field) => `${getEntityDisplayFieldExpression(config, field.key)} AS ${quoteIdentifier(field.key)}`)
+      : [])
     .concat(config.key === "product-models"
         ? [
             "(SELECT COUNT(*) FROM `po_product_specifications` productSpecification WHERE productSpecification.`modelId` = `po_product_models`.`id` AND productSpecification.`mode` = 'fixed') AS `specCount`",
@@ -204,10 +228,17 @@ export async function listEntityRows(config: EntityConfig, searchParams: URLSear
   if (keyword) {
     const keywordFields = config.key === "product-masters"
       ? ["masterCode", "name", "nameEn", "specification", "brand", "category"]
-      : storageFields.slice(0, 5);
-    whereParts.push(
-      `(${keywordFields.map((field) => `${fieldReference(field)} LIKE :keyword`).join(" OR ")})`,
-    );
+      : config.key === "quotations"
+        ? ["quotationNo", "projectName", "customerId", "contractingUnitId", "sourcePoNo", "remark"]
+        : storageFields.slice(0, 5);
+    const keywordExpressions = keywordFields.map((field) => `${fieldReference(field)} LIKE :keyword`);
+    if (config.key === "quotations") {
+      keywordExpressions.push(
+        `${getEntityDisplayFieldExpression(config, "customerName")} LIKE :keyword`,
+        `${getEntityDisplayFieldExpression(config, "contractingUnitName")} LIKE :keyword`,
+      );
+    }
+    whereParts.push(`(${keywordExpressions.join(" OR ")})`);
     params.keyword = `%${keyword}%`;
   }
 
@@ -452,7 +483,13 @@ function fieldReferenceForSort(config: EntityConfig, field: string, shipmentAlia
 }
 
 function getEntitySortReference(config: EntityConfig, field: string, shipmentAlias: string) {
-  const displayOnlyFields = config.key === "shipments"
+  const displayOnlyFields = config.key === "customer-pos"
+    ? new Set(["undertakingUnitName", "customerName"])
+    : config.key === "quotations"
+      ? new Set(["contractingUnitName", "customerName"])
+      : config.key === "history-quotations"
+        ? new Set(["customerId"])
+    : config.key === "shipments"
     ? shipmentDisplayFields
     : config.key === "service-fee-snapshots"
       ? new Set(["receivingUnitCode", "payerCustomerCode", "undertakingUnitName", "customerName"])
@@ -510,7 +547,13 @@ export async function listEntityFilterOptions(
     return { options: rows.map((row) => ({ value: String(row.value ?? ""), label: getFilterOptionLabel(String(row.value ?? ""), fieldConfig), count: Number(row.count ?? 0) })) };
   }
 
-  const displayOnlyFields = config.key === "shipments"
+  const displayOnlyFields = config.key === "customer-pos"
+    ? new Set(["undertakingUnitName", "customerName"])
+    : config.key === "quotations"
+      ? new Set(["contractingUnitName", "customerName"])
+      : config.key === "history-quotations"
+        ? new Set(["customerId"])
+    : config.key === "shipments"
     ? shipmentDisplayFields
     : config.key === "service-fee-snapshots"
       ? new Set(["receivingUnitCode", "payerCustomerCode", "undertakingUnitName", "customerName"])
@@ -600,6 +643,25 @@ function getEntityDisplayFieldExpression(config: EntityConfig, field: string, sh
   const source = shipmentAlias ? `${shipmentAlias}.` : `${quoteIdentifier(config.table)}.`;
   const derivedRequestType = field === "requestType" ? getDerivedRequestTypeExpression(config, source) : "";
   if (derivedRequestType) return derivedRequestType;
+  if (config.key === "customer-pos") {
+    if (field === "undertakingUnitName") {
+      return `(SELECT COALESCE(NULLIF(unit.shortName, ''), NULLIF(unit.entityName, ''), NULLIF(unit.name, ''), NULLIF(unit.undertakingUnitCode, ''), ${source}undertakingUnitId) FROM common_undertaking_units unit WHERE unit.undertakingUnitId = ${source}undertakingUnitId OR unit.undertakingUnitCode = ${source}undertakingUnitId OR unit.entityCode = ${source}undertakingUnitId LIMIT 1)`;
+    }
+    if (field === "customerName") {
+      return `(SELECT COALESCE(NULLIF(customer.shortName, ''), NULLIF(customer.nameCn, ''), NULLIF(customer.name, ''), NULLIF(customer.customerCode, ''), ${source}customerId) FROM common_customers customer WHERE customer.customerId = ${source}customerId OR customer.customerCode = ${source}customerId LIMIT 1)`;
+    }
+  }
+  if (config.key === "quotations") {
+    if (field === "contractingUnitName") {
+      return `(SELECT COALESCE(NULLIF(unit.shortName, ''), NULLIF(unit.entityName, ''), NULLIF(unit.name, ''), NULLIF(unit.undertakingUnitCode, ''), ${source}contractingUnitId) FROM common_undertaking_units unit WHERE unit.undertakingUnitId = ${source}contractingUnitId OR unit.undertakingUnitCode = ${source}contractingUnitId OR unit.entityCode = ${source}contractingUnitId LIMIT 1)`;
+    }
+    if (field === "customerName") {
+      return `(SELECT COALESCE(NULLIF(customer.shortName, ''), NULLIF(customer.nameCn, ''), NULLIF(customer.name, ''), NULLIF(customer.customerCode, ''), ${source}customerId) FROM common_customers customer WHERE customer.customerId = ${source}customerId OR customer.customerCode = ${source}customerId LIMIT 1)`;
+    }
+  }
+  if (config.key === "history-quotations" && field === "customerId") {
+    return `(SELECT COALESCE(NULLIF(customer.shortName, ''), NULLIF(customer.nameCn, ''), NULLIF(customer.name, ''), NULLIF(customer.customerCode, ''), ${source}customerId) FROM common_customers customer WHERE customer.customerId = ${source}customerId OR customer.customerCode = ${source}customerId LIMIT 1)`;
+  }
   if (config.key === "service-fee-snapshots") {
     if (field === "undertakingUnitName") {
       return `(SELECT GROUP_CONCAT(DISTINCT COALESCE(NULLIF(unit.shortName, ''), NULLIF(unit.entityName, ''), NULLIF(unit.name, ''), NULLIF(unit.undertakingUnitCode, ''), NULLIF(snapshotItem.undertakingUnitId, '')) SEPARATOR ', ') FROM servicefeesnapshotitems snapshotItem LEFT JOIN common_undertaking_units unit ON unit.undertakingUnitId = snapshotItem.undertakingUnitId OR unit.undertakingUnitCode = snapshotItem.undertakingUnitId OR unit.entityCode = snapshotItem.undertakingUnitId WHERE snapshotItem.snapshotNo = ${source}snapshotNo)`;
@@ -819,8 +881,19 @@ export async function getEntityRow(config: EntityConfig, id: string) {
   const table = quoteIdentifier(config.table);
   const primaryKey = quoteIdentifier(config.primaryKey);
   const derivedRequestType = getEntityDisplayFieldExpression(config, "requestType");
+  const detailDisplayFields = config.key === "quotations"
+    ? ["contractingUnitName", "customerName"]
+    : config.key === "history-quotations"
+      ? ["customerId"]
+      : [];
+  const detailDisplayExpressions = detailDisplayFields
+    .map((field) => getEntityDisplayFieldExpression(config, field))
+    .filter(Boolean)
+    .map((expression, index) => `${expression} AS ${quoteIdentifier(detailDisplayFields[index])}`)
+    .join(", ");
+  const extraFields = [derivedRequestType ? `${derivedRequestType} AS ${quoteIdentifier("requestType")}` : "", detailDisplayExpressions].filter(Boolean).join(", ");
   const rows = await queryRows(
-    `SELECT *${derivedRequestType ? `, ${derivedRequestType} AS ${quoteIdentifier("requestType")}` : ""} FROM ${table} WHERE ${primaryKey} = :id LIMIT 1`,
+    `SELECT *${extraFields ? `, ${extraFields}` : ""} FROM ${table} WHERE ${primaryKey} = :id LIMIT 1`,
     { id },
   );
   return rows[0] ? normalizeQuotationPartyRow(config, rows[0]) : null;

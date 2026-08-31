@@ -161,9 +161,28 @@ async function main() {
   await renameLegacyTables();
   await dropIndexIfExists("instancemodels", "uk_InstanceModels_modelCode");
 
+  // Customer PO was introduced after the original migration script. Keep the
+  // existing table compatible with the current master/detail screens.
+  await addColumnIfMissing(
+    "po_customer_pos",
+    "undertakingUnitId",
+    "`undertakingUnitId` VARCHAR(64) NULL COMMENT 'undertaking unit id' AFTER `poNo`",
+  );
+  await addColumnIfMissing(
+    "po_customer_pos",
+    "projectName",
+    "`projectName` VARCHAR(255) NULL COMMENT 'project name' AFTER `poNo`",
+  );
+  await addIndexIfMissing(
+    "po_customer_pos",
+    "idx_po_customer_pos_undertaking_unit",
+    "KEY `idx_po_customer_pos_undertaking_unit` (`undertakingUnitId`, `status`)",
+  );
+
   for (const [columnName, ddl] of [
     ["specification", "`specification` VARCHAR(255) NULL COMMENT 'product specification' AFTER `nameEn`"],
     ["brand", "`brand` VARCHAR(255) NULL COMMENT 'product brand' AFTER `specification`"],
+    ["tariffRate", "`tariffRate` DECIMAL(10, 6) NOT NULL DEFAULT 0 COMMENT 'tariff rate percent from product category' AFTER `category`"],
     ["suggestedPurchaseUnitPrice", "`suggestedPurchaseUnitPrice` DECIMAL(14, 4) NOT NULL DEFAULT 0 COMMENT 'suggested purchase price CNY' AFTER `unit`"],
     ["length", "`length` DECIMAL(14, 4) NOT NULL DEFAULT 0 COMMENT 'length cm' AFTER `suggestedPurchaseUnitPrice`"],
     ["width", "`width` DECIMAL(14, 4) NOT NULL DEFAULT 0 COMMENT 'width cm' AFTER `length`"],
@@ -172,6 +191,72 @@ async function main() {
     ["needNom", "`needNom` TINYINT(1) NOT NULL DEFAULT 0 COMMENT 'NOM certification' AFTER `hsCodeMx`"],
   ] as const) {
     await addColumnIfMissing("po_product_masters", columnName, ddl);
+  }
+
+  for (const [columnName, ddl] of [
+    ["projectName", "`projectName` VARCHAR(255) NULL COMMENT 'project name' AFTER `quotationNo`"],
+    ["exchangeRateUsd", "`exchangeRateUsd` DECIMAL(18, 8) NOT NULL DEFAULT 6.82"],
+    ["exchangeRateMxn", "`exchangeRateMxn` DECIMAL(18, 8) NOT NULL DEFAULT 0.06"],
+    ["capitalCostRate", "`capitalCostRate` DECIMAL(10, 6) NOT NULL DEFAULT 6"],
+    ["accountPeriod", "`accountPeriod` DECIMAL(10, 4) NOT NULL DEFAULT 2"],
+    ["badDebtRate", "`badDebtRate` DECIMAL(10, 6) NOT NULL DEFAULT 1"],
+    ["customsFeeRate", "`customsFeeRate` DECIMAL(10, 6) NOT NULL DEFAULT 0.8"],
+    ["vatOverseas", "`vatOverseas` DECIMAL(10, 6) NOT NULL DEFAULT 16"],
+    ["markupRate", "`markupRate` DECIMAL(10, 6) NOT NULL DEFAULT 20"],
+    ["seaFreightRate", "`seaFreightRate` DECIMAL(18, 4) NOT NULL DEFAULT 3200"],
+    ["airFreightRate", "`airFreightRate` DECIMAL(18, 4) NOT NULL DEFAULT 100"],
+    ["nomFee", "`nomFee` DECIMAL(18, 4) NOT NULL DEFAULT 700"],
+    ["customsMiscFee", "`customsMiscFee` DECIMAL(18, 4) NOT NULL DEFAULT 0"],
+    ["lastMileFee", "`lastMileFee` DECIMAL(18, 4) NOT NULL DEFAULT 0"],
+    ["storageOperationFee", "`storageOperationFee` DECIMAL(18, 4) NOT NULL DEFAULT 0"],
+    ["implementationFee", "`implementationFee` DECIMAL(18, 4) NOT NULL DEFAULT 0"],
+    ["publicFeeTotal", "`publicFeeTotal` DECIMAL(18, 4) NOT NULL DEFAULT 0"],
+    ["totalCifUsd", "`totalCifUsd` DECIMAL(18, 4) NOT NULL DEFAULT 0"],
+    ["totalDdpUsd", "`totalDdpUsd` DECIMAL(18, 4) NOT NULL DEFAULT 0"],
+    ["totalRevenueUsd", "`totalRevenueUsd` DECIMAL(18, 4) NOT NULL DEFAULT 0"],
+    ["totalProfitUsd", "`totalProfitUsd` DECIMAL(18, 4) NOT NULL DEFAULT 0"],
+  ] as const) {
+    await addColumnIfMissing("po_quotations", columnName, ddl);
+  }
+
+  await addColumnIfMissing(
+    "po_settlement_projects",
+    "projectName",
+    "`projectName` VARCHAR(255) NULL COMMENT 'project name' AFTER `quotationNo`",
+  );
+  await addColumnIfMissing(
+    "po_settlement_invoices",
+    "isInvoiced",
+    "`isInvoiced` TINYINT(1) NOT NULL DEFAULT 0 COMMENT 'whether invoice has been issued' AFTER `isPaid`",
+  );
+
+  for (const [columnName, ddl] of [
+    ["brand", "`brand` VARCHAR(255) NULL"],
+    ["purchaseCurrency", "`purchaseCurrency` VARCHAR(10) NOT NULL DEFAULT 'CNY'"],
+    ["purchaseUnitPrice", "`purchaseUnitPrice` DECIMAL(18, 4) NOT NULL DEFAULT 0"],
+    ["purchaseTotalOriginal", "`purchaseTotalOriginal` DECIMAL(18, 4) NOT NULL DEFAULT 0"],
+    ["purchaseTotalUsd", "`purchaseTotalUsd` DECIMAL(18, 4) NOT NULL DEFAULT 0"],
+    ["transportType", "`transportType` VARCHAR(20) NOT NULL DEFAULT 'sea'"],
+    ["isCustomsClearance", "`isCustomsClearance` TINYINT(1) NOT NULL DEFAULT 0"],
+    ["firstMileFreightUsd", "`firstMileFreightUsd` DECIMAL(18, 4) NOT NULL DEFAULT 0"],
+    ["cifUsd", "`cifUsd` DECIMAL(18, 4) NOT NULL DEFAULT 0"],
+    ["tariffRate", "`tariffRate` DECIMAL(10, 6) NOT NULL DEFAULT 0"],
+    ["tariffUsd", "`tariffUsd` DECIMAL(18, 4) NOT NULL DEFAULT 0"],
+    ["capitalCostUsd", "`capitalCostUsd` DECIMAL(18, 4) NOT NULL DEFAULT 0"],
+    ["customsFeeUsd", "`customsFeeUsd` DECIMAL(18, 4) NOT NULL DEFAULT 0"],
+    ["nomFeeUsd", "`nomFeeUsd` DECIMAL(18, 4) NOT NULL DEFAULT 0"],
+    ["publicFeeAllocationUsd", "`publicFeeAllocationUsd` DECIMAL(18, 4) NOT NULL DEFAULT 0"],
+    ["ddpTotalUsd", "`ddpTotalUsd` DECIMAL(18, 4) NOT NULL DEFAULT 0"],
+    ["ddpUnitPriceUsd", "`ddpUnitPriceUsd` DECIMAL(18, 4) NOT NULL DEFAULT 0"],
+    ["ddpQuoteUnitUsd", "`ddpQuoteUnitUsd` DECIMAL(18, 4) NULL"],
+    ["revenueUsd", "`revenueUsd` DECIMAL(18, 4) NOT NULL DEFAULT 0"],
+    ["operatingProfitUsd", "`operatingProfitUsd` DECIMAL(18, 4) NOT NULL DEFAULT 0"],
+    ["grossMarginRate", "`grossMarginRate` DECIMAL(10, 6) NOT NULL DEFAULT 0"],
+    ["markupRate", "`markupRate` DECIMAL(10, 6) NOT NULL DEFAULT 0"],
+    ["enableNom", "`enableNom` TINYINT(1) NOT NULL DEFAULT 0"],
+    ["historicalDdpQuoteUsd", "`historicalDdpQuoteUsd` DECIMAL(18, 4) NULL"],
+  ] as const) {
+    await addColumnIfMissing("po_quotation_items", columnName, ddl);
   }
 
   // Existing imports use this field for a full physical address, not only a short location ID.

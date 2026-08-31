@@ -13,6 +13,7 @@ export async function findProductByCode(productCode: string) {
        specification,
        brand,
        category,
+       tariffRate,
        unit,
        suggestedPurchaseUnitPrice,
        'CNY' AS purchaseCurrency,
@@ -26,35 +27,7 @@ export async function findProductByCode(productCode: string) {
   );
   if (masterRows[0]) return masterRows[0];
 
-  const rows = await queryRows<Row>(
-    `SELECT
-       specification.id AS productSpecId,
-       specification.specProductCode AS productCode,
-       specification.specCode,
-       specification.specKey,
-       specification.specName,
-       COALESCE(NULLIF(specification.suggestedPurchaseUnitPrice, 0), NULLIF(model.suggestedPurchaseUnitPrice, 0), 0) AS suggestedPurchaseUnitPrice,
-       model.id AS productModelId,
-       model.modelCode,
-       model.brand,
-       model.model,
-       master.id AS productMasterId,
-       master.masterCode,
-       master.name AS productName,
-       master.nameEn,
-       master.category,
-       master.unit
-     FROM po_product_specifications specification
-     INNER JOIN po_product_models model ON model.id = specification.modelId
-     INNER JOIN po_product_masters master ON master.id = model.masterId
-     WHERE specification.specProductCode = :productCode
-       AND specification.status = 'active'
-       AND model.status = 'active'
-       AND master.status = 'active'
-     LIMIT 1`,
-    { productCode: code },
-  );
-  return rows[0] ?? null;
+  return null;
 }
 
 export async function matchCustomerPoItems(poId: string) {
@@ -103,6 +76,7 @@ export async function matchCustomerPoItems(poId: string) {
        specification,
        brand,
        category,
+       tariffRate,
        unit,
        suggestedPurchaseUnitPrice,
        'CNY' AS purchaseCurrency,
@@ -113,27 +87,7 @@ export async function matchCustomerPoItems(poId: string) {
       AND status = 'active'`,
     { codes },
   );
-  const masterCodes = new Set(masterProducts.map((product) => String(product.productCode ?? "")));
-  const legacyCodes = codes.filter((code) => !masterCodes.has(code));
-  const legacyProducts = legacyCodes.length ? (await queryRows<Row>(
-    `SELECT
-      specification.specProductCode AS productCode,
-      specification.id AS productSpecId,
-      COALESCE(NULLIF(specification.suggestedPurchaseUnitPrice, 0), NULLIF(model.suggestedPurchaseUnitPrice, 0), 0) AS suggestedPurchaseUnitPrice,
-      model.id AS productModelId,
-      master.id AS productMasterId,
-      master.name AS productName
-     FROM po_product_specifications specification
-     INNER JOIN po_product_models model ON model.id = specification.modelId
-     INNER JOIN po_product_masters master ON master.id = model.masterId
-     WHERE specification.specProductCode IN (:codes)
-       AND specification.status = 'active'
-       AND model.status = 'active'
-       AND master.status = 'active'`,
-    { codes: legacyCodes },
-  )) ?? [] : [];
-  const products = [...masterProducts, ...legacyProducts];
-  const productByCode = new Map(products.map((product) => [String(product.productCode), product]));
+  const productByCode = new Map(masterProducts.map((product) => [String(product.productCode), product]));
   let matched = 0;
   for (const item of items) {
     const code = String(item.matchedProductCode ?? "").trim();

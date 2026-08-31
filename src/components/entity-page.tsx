@@ -489,13 +489,6 @@ export function EntityPage({
         ]);
         const quotationData = quotationResponse.ok ? await quotationResponse.json().catch(() => ({})) : {};
         const productData = productResponse.ok ? await productResponse.json().catch(() => ({})) : {};
-        const latestHistoryResponse = quotationData.customerId
-          ? await fetch(
-              `/api/po/history-quotations?customerId=${encodeURIComponent(String(quotationData.customerId ?? ""))}&productCode=${encodeURIComponent(productCode)}&limit=1`,
-            )
-          : null;
-        const latestHistoryData = latestHistoryResponse?.ok ? await latestHistoryResponse.json().catch(() => ({})) : {};
-        const latestHistory = (latestHistoryData.latest ?? null) as Row | null;
         const product = (productData.product ?? null) as Row | null;
 
         if (product) {
@@ -503,13 +496,9 @@ export function EntityPage({
           body.productModelId = body.productModelId ?? (String(product.productModelId ?? "") || null);
           body.productSpecId = body.productSpecId ?? (String(product.productSpecId ?? "") || null);
           body.productName = String(body.productName ?? "").trim() || String(product.productName ?? "");
-        }
-        if (latestHistory) {
-          if (body.unitPrice === null || body.unitPrice === undefined || body.unitPrice === "") {
-            body.unitPrice = Number(latestHistory.customerPrice ?? body.unitPrice ?? 0);
-          }
-          body.currency = String(body.currency ?? "").trim() || String(latestHistory.currency ?? "");
-          body.remark = String(body.remark ?? "").trim() || String(latestHistory.remark ?? "");
+          body.brand = String(body.brand ?? "").trim() || String(product.brand ?? "");
+          body.purchaseUnitPrice = body.purchaseUnitPrice ?? Number(product.suggestedPurchaseUnitPrice ?? 0);
+          body.tariffRate = Number(product.tariffRate ?? body.tariffRate ?? 0);
         }
       }
     }
@@ -963,6 +952,8 @@ export function EntityPage({
                             ? productCategoryDraft
                           : config.key === "product-masters" && field.key === "hsCodeMx"
                             ? String(selectedProductCategory?.hsCode ?? editing?.[field.key] ?? "")
+                          : config.key === "product-masters" && field.key === "tariffRate"
+                            ? String(selectedProductCategory?.taxRate ?? editing?.[field.key] ?? "")
                           : config.key === "billing-ledgers" && field.key === "contractCurrency"
                               ? String(selectedBillingContract?.currency ?? "")
                               : config.key === "billing-ledgers" && field.key === "first24MonthPrice"
@@ -973,7 +964,7 @@ export function EntityPage({
                       }
                       defaultValue={
                         (config.key === "instance-contracts" && ["modelCode", "instanceModelEn"].includes(field.key)) ||
-                        (config.key === "product-masters" && ["category", "hsCodeMx"].includes(field.key)) ||
+                        (config.key === "product-masters" && ["category", "hsCodeMx", "tariffRate"].includes(field.key)) ||
                         (config.key === "billing-ledgers" && ["contractCurrency", "first24MonthPrice", "next36MonthPrice"].includes(field.key))
                           ? undefined
                           : field.type === "date"

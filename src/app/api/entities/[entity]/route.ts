@@ -33,6 +33,9 @@ export async function POST(request: NextRequest, context: { params: Promise<{ en
 
   try {
     const body = await request.json();
+    if (entity === "customer-pos" && String(body.status ?? "draft") === "confirmed") {
+      return NextResponse.json({ error: "客户PO请通过确认操作确认，不能直接修改状态" }, { status: 400 });
+    }
     const actor = await getOperationActor(request);
     const auditedBody = ["requests", "purchase-orders", "customer-pos", "quotations", "history-quotations"].includes(entity)
       ? { ...body, ...operationFields(actor, "create") }

@@ -1,6 +1,4 @@
 import { randomUUID } from "crypto";
-import { mkdir, readFile, unlink, writeFile } from "fs/promises";
-import path from "path";
 import { execute, queryRows } from "./db";
 import {
   assertCanDeleteFolder,
@@ -11,7 +9,6 @@ import {
 } from "./document-utils";
 
 export const DOCUMENT_ROOT_ID = "ROOT";
-const uploadRoot = path.join(process.cwd(), "uploads", "documents");
 
 export type DocumentFolder = {
   folderId: string;
@@ -26,14 +23,24 @@ export type DocumentFile = {
   fileId: string;
   folderId: string;
   originalName: string;
-  storedName: string;
-  filePath: string;
   mimeType: string | null;
   extension: string | null;
   category: string;
   fileSize: number;
   uploadedBy: string | null;
   createdAt: string;
+  updatedAt: string;
+};
+
+type StoredDocumentFile = {
+  fileId: string;
+  folderId: string;
+  fileName: string;
+  fileType: string | null;
+  fileSize: number;
+  dataUrl: string;
+  uploadedByUserId: string | null;
+  uploadedAt: string;
   updatedAt: string;
 };
 
@@ -71,7 +78,7 @@ export async function getDocumentItems(folderId = DOCUMENT_ROOT_ID, options: { p
   const pageSize = Math.min(100, Math.max(1, Math.floor(Number(options.pageSize ?? 20) || 20)));
   const requestedPage = Math.max(1, Math.floor(Number(options.page ?? 1) || 1));
   const keyword = String(options.keyword ?? "").trim();
-  const fileWhere = keyword ? "AND originalName LIKE :keyword" : "";
+  const fileWhere = keyword ? "AND fileName LIKE :keyword" : "";
   const fileParams = keyword ? { folderId, keyword: `%${keyword}%` } : { folderId };
   const [{ total: totalValue }] = await queryRows<{ total: number }>(
     `SELECT COUNT(*) AS total FROM common_document_files WHERE folderId = :folderId ${fileWhere}`,
@@ -80,10 +87,15 @@ export async function getDocumentItems(folderId = DOCUMENT_ROOT_ID, options: { p
   const total = Number(totalValue ?? 0);
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const page = Math.min(requestedPage, totalPages);
-  const files = await queryRows<DocumentFile>(
-    `SELECT * FROM common_document_files WHERE folderId = :folderId ${fileWhere} ORDER BY createdAt DESC, originalName ASC LIMIT :limit OFFSET :offset`,
+  const storedFiles = await queryRows<StoredDocumentFile>(
+    `SELECT fileId, folderId, fileName, fileType, fileSize, uploadedByUserId, uploadedAt, updatedAt
+     FROM common_document_files
+     WHERE folderId = :folderId ${fileWhere}
+     ORDER BY uploadedAt DESC, fileName ASC
+     LIMIT :limit OFFSET :offset`,
     { ...fileParams, limit: pageSize, offset: (page - 1) * pageSize },
   );
+  const files = storedFiles.map(toDocumentFile);
   const breadcrumbs = await getFolderBreadcrumbs(folderId);
   return { folder, folders, files, breadcrumbs, total, page, pageSize, totalPages };
 }
@@ -156,66 +168,72 @@ export async function saveUploadedDocumentFile({
   uploadedBy?: string;
 }) {
   await assertFolderExists(folderId);
-  await mkdir(uploadRoot, { recursive: true });
 
   const fileId = `FILE-${randomUUID()}`;
   const safeName = sanitizeDocumentFileName(originalName);
-  const storedName = `${fileId}-${safeName}`;
-  const filePath = path.join(uploadRoot, storedName);
-  const extension = getFileExtension(originalName);
-  const category = categorizeDocumentFile(originalName, mimeType);
-
-  await writeFile(filePath, bytes);
+  const contentType = mimeType || "application/octet-stream";
+  const dataUrl = `data:${contentType};base64,${bytes.toString("base64")}`;
   await execute(
     `
       INSERT INTO common_document_files
-        (fileId, folderId, originalName, storedName, filePath, mimeType, extension, category, fileSize, uploadedBy)
+        (fileId, folderId, fileName, fileType, fileSize, dataUrl, uploadedByUserId)
       VALUES
-        (:fileId, :folderId, :originalName, :storedName, :filePath, :mimeType, :extension, :category, :fileSize, :uploadedBy)
+        (:fileId, :folderId, :fileName, :fileType, :fileSize, :dataUrl, :uploadedByUserId)
     `,
     {
       fileId,
       folderId,
-      originalName: safeName,
-      storedName,
-      filePath,
-      mimeType,
-      extension,
-      category,
+      fileName: safeName,
+      fileType: contentType,
       fileSize: bytes.length,
-      uploadedBy,
+      dataUrl,
+      uploadedByUserId: uploadedBy,
     },
   );
-  const [file] = await queryRows<DocumentFile>("SELECT * FROM common_document_files WHERE fileId = :fileId", { fileId });
-  return file;
+  const [file] = await queryRows<StoredDocumentFile>(
+    "SELECT fileId, folderId, fileName, fileType, fileSize, uploadedByUserId, uploadedAt, updatedAt FROM common_document_files WHERE fileId = :fileId",
+    { fileId },
+  );
+  return file ? toDocumentFile(file) : undefined;
 }
 
 export async function renameDocumentFile(fileId: string, rawName: string) {
   const originalName = sanitizeDocumentFileName(rawName);
+  const [file] = await queryRows<Pick<StoredDocumentFile, "fileType">>(
+    "SELECT fileType FROM common_document_files WHERE fileId = :fileId",
+    { fileId },
+  );
+  if (!file) throw new Error("文件不存在");
   await execute(
-    "UPDATE common_document_files SET originalName = :originalName, extension = :extension, category = :category WHERE fileId = :fileId",
+    "UPDATE common_document_files SET fileName = :fileName WHERE fileId = :fileId",
     {
       fileId,
-      originalName,
-      extension: getFileExtension(originalName),
-      category: categorizeDocumentFile(originalName, ""),
+      fileName: originalName,
     },
   );
-  const [file] = await queryRows<DocumentFile>("SELECT * FROM common_document_files WHERE fileId = :fileId", { fileId });
-  return file;
+  const [renamed] = await queryRows<StoredDocumentFile>(
+    "SELECT fileId, folderId, fileName, fileType, fileSize, uploadedByUserId, uploadedAt, updatedAt FROM common_document_files WHERE fileId = :fileId",
+    { fileId },
+  );
+  return renamed ? toDocumentFile(renamed) : undefined;
 }
 
 export async function deleteDocumentFile(fileId: string) {
-  const [file] = await queryRows<DocumentFile>("SELECT * FROM common_document_files WHERE fileId = :fileId", { fileId });
+  const [file] = await queryRows<{ fileId: string }>("SELECT fileId FROM common_document_files WHERE fileId = :fileId", { fileId });
   if (!file) return;
   await execute("DELETE FROM common_document_files WHERE fileId = :fileId", { fileId });
-  await unlink(file.filePath).catch(() => undefined);
 }
 
 export async function getDocumentFileForDownload(fileId: string) {
-  const [file] = await queryRows<DocumentFile>("SELECT * FROM common_document_files WHERE fileId = :fileId", { fileId });
+  const [storedFile] = await queryRows<StoredDocumentFile>(
+    "SELECT fileId, folderId, fileName, fileType, fileSize, dataUrl, uploadedByUserId, uploadedAt, updatedAt FROM common_document_files WHERE fileId = :fileId",
+    { fileId },
+  );
+  const file = storedFile ? toDocumentFile(storedFile) : undefined;
   if (!file) throw new Error("文件不存在");
-  const bytes = await readFile(file.filePath);
+  const match = String(storedFile?.dataUrl ?? "").match(/^data:[^;,]+;base64,([\s\S]*)$/);
+  if (!match) throw new Error("文件内容不存在");
+  const bytes = Buffer.from(match[1], "base64");
   return { file, bytes };
 }
 
@@ -245,7 +263,7 @@ async function assertUniqueFolderName(parentId: string | null, name: string, exc
 }
 
 async function getFolderBreadcrumbs(folderId: string) {
-  const folders = await queryRows<DocumentFolder>("SELECT * FROM documentfolders");
+  const folders = await queryRows<DocumentFolder>("SELECT * FROM common_document_folders");
   const byId = new Map(folders.map((folder) => [folder.folderId, folder]));
   const result: Array<Pick<DocumentFolder, "folderId" | "name">> = [];
   let cursor = byId.get(folderId);
@@ -254,4 +272,19 @@ async function getFolderBreadcrumbs(folderId: string) {
     cursor = cursor.parentId ? byId.get(cursor.parentId) : undefined;
   }
   return result;
+}
+
+function toDocumentFile(file: StoredDocumentFile): DocumentFile {
+  return {
+    fileId: file.fileId,
+    folderId: file.folderId,
+    originalName: file.fileName,
+    mimeType: file.fileType,
+    extension: getFileExtension(file.fileName),
+    category: categorizeDocumentFile(file.fileName, file.fileType ?? ""),
+    fileSize: Number(file.fileSize ?? 0),
+    uploadedBy: file.uploadedByUserId,
+    createdAt: file.uploadedAt,
+    updatedAt: file.updatedAt,
+  };
 }

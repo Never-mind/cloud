@@ -1,4 +1,5 @@
 import { clsx } from "clsx";
+import { forwardRef } from "react";
 
 export function Button({
   children,
@@ -29,9 +30,10 @@ export function Button({
   );
 }
 
-export function Input(props: React.InputHTMLAttributes<HTMLInputElement>) {
+export const Input = forwardRef<HTMLInputElement, React.InputHTMLAttributes<HTMLInputElement>>(function Input(props, ref) {
   return (
     <input
+      ref={ref}
       {...props}
       className={clsx(
         "h-9 min-w-[180px] rounded border border-[#dcdfe6] bg-white px-3 text-sm outline-none focus:border-[#1890ff]",
@@ -39,7 +41,7 @@ export function Input(props: React.InputHTMLAttributes<HTMLInputElement>) {
       )}
     />
   );
-}
+});
 
 export function Textarea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
   return (
@@ -56,5 +58,40 @@ export function Textarea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement
 export function Panel({ children, className }: { children: React.ReactNode; className?: string }) {
   return (
     <div className={clsx("border border-[#ebeef5] bg-white shadow-sm", className)}>{children}</div>
+  );
+}
+
+export function AuditInfoBar({
+  createdBy,
+  createdAt,
+  updatedBy,
+  updatedAt,
+  confirmedBy,
+  confirmedAt,
+}: {
+  createdBy?: unknown;
+  createdAt?: unknown;
+  updatedBy?: unknown;
+  updatedAt?: unknown;
+  confirmedBy?: unknown;
+  confirmedAt?: unknown;
+}) {
+  const fields = [
+    ["创建人", createdBy],
+    ["创建时间", createdAt],
+    ["更新人", updatedBy],
+    ["更新时间", updatedAt],
+    ["确认人", confirmedBy],
+    ["确认时间", confirmedAt],
+  ] as const;
+  return (
+    <div className="grid gap-3 border-t border-[#ebeef5] bg-[#fafafa] p-4 text-xs text-[#909399] sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6">
+      {fields.map(([label, value]) => (
+        <div className="min-w-0" key={label}>
+          <span className="block">{label}</span>
+          <span className="mt-1 block truncate text-sm text-[#606266]" title={value == null ? "-" : String(value)}>{value == null || value === "" ? "-" : String(value)}</span>
+        </div>
+      ))}
+    </div>
   );
 }

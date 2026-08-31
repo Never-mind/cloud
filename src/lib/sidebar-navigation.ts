@@ -6,6 +6,7 @@ export const DEFAULT_SIDEBAR_GROUP_ORDER = [
   "华为云业务",
   "业务伙伴",
   "用户管理",
+  "文档管理",
 ] as const;
 
 const DEFAULT_ORDER_SET = new Set<string>(DEFAULT_SIDEBAR_GROUP_ORDER);

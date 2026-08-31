@@ -4,6 +4,32 @@ import { findProductByCode } from "@/lib/po-product-service";
 
 export async function GET(request: NextRequest) {
   const productCode = request.nextUrl.searchParams.get("productCode")?.trim() ?? "";
+  const keyword = request.nextUrl.searchParams.get("keyword")?.trim() ?? "";
+  if (keyword) {
+    const rows = await queryRows<Row>(
+      `SELECT
+         masterCode AS productCode,
+         name AS productName,
+         nameEn,
+         specification,
+         brand,
+         category,
+         tariffRate,
+         unit,
+         suggestedPurchaseUnitPrice,
+         'CNY' AS purchaseCurrency,
+         id AS productMasterId,
+         NULL AS productModelId,
+         NULL AS productSpecId
+       FROM po_product_masters
+      WHERE status = 'active'
+        AND CONCAT_WS(' ', masterCode, name, nameEn, specification, brand, category) LIKE :keyword
+      ORDER BY masterCode
+      LIMIT 100`,
+      { keyword: `%${keyword}%` },
+    );
+    return NextResponse.json({ rows });
+  }
     if (!productCode) {
       const masterRows = await queryRows<Row>(
         `SELECT
@@ -13,6 +39,7 @@ export async function GET(request: NextRequest) {
            specification,
            brand,
            category,
+           tariffRate,
            unit,
            suggestedPurchaseUnitPrice,
            'CNY' AS purchaseCurrency,
@@ -24,27 +51,7 @@ export async function GET(request: NextRequest) {
         ORDER BY masterCode
         LIMIT 500`,
       );
-      const rows = masterRows.length ? masterRows : await queryRows<Row>(
-        `SELECT
-           specification.specProductCode AS productCode,
-           specification.specName,
-           COALESCE(NULLIF(specification.suggestedPurchaseUnitPrice, 0), NULLIF(model.suggestedPurchaseUnitPrice, 0), 0) AS suggestedPurchaseUnitPrice,
-           model.brand,
-           model.model,
-           master.name AS productName,
-           master.nameEn,
-           master.category,
-           master.unit
-         FROM po_product_specifications specification
-       INNER JOIN po_product_models model ON model.id = specification.modelId
-       INNER JOIN po_product_masters master ON master.id = model.masterId
-       WHERE specification.status = 'active'
-         AND model.status = 'active'
-         AND master.status = 'active'
-       ORDER BY specification.specProductCode
-       LIMIT 500`,
-      );
-    return NextResponse.json({ rows });
+    return NextResponse.json({ rows: masterRows });
   }
 
   const product = await findProductByCode(productCode);

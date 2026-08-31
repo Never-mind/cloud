@@ -59,7 +59,15 @@ describe("module configuration", () => {
       "华为云业务",
       "业务伙伴",
       "用户管理",
+      "文档管理",
     ]);
+  });
+
+  it("exposes the document library under its own top-level menu", () => {
+    const documentGroup = navGroups.find((group) => group.title === "文档管理");
+
+    expect(documentGroup?.items.map((item) => item.title)).toEqual(["文档库"]);
+    expect(documentGroup?.items.map((item) => item.key)).toEqual(["documents"]);
   });
 
   it("keeps shared parties and their related records under business partners", () => {
@@ -101,12 +109,13 @@ describe("module configuration", () => {
   it("exposes the product master workflow and quotation pages in the PO menu", () => {
     const productGroup = navGroups.find((group) => group.title === "集采系统");
 
-    expect(productGroup?.children?.map((child) => child.title)).toEqual(["客户PO", "项目结算", "产品管理", "采购管理"]);
+    expect(productGroup?.children?.map((child) => child.title)).toEqual(["客户PO", "项目结算", "财务管理", "产品管理", "采购管理"]);
     expect(productGroup?.children?.flatMap((child) => child.items.map((item) => item.key))).toEqual([
       "customer-pos",
       "quotations",
       "history-quotations",
       "settlement-projects",
+      "po-invoice-summary",
       "product-categories",
       "product-masters",
       "customer-product-aliases",
@@ -131,6 +140,7 @@ describe("module configuration", () => {
       "height",
       "grossWeight",
       "hsCodeMx",
+      "tariffRate",
       "needNom",
     ]);
   });

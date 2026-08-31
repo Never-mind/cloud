@@ -11,6 +11,7 @@ describe("module feature domains", () => {
     expect(getModuleFeatureDomainKey("集采系统")).toBe("po");
     expect(getModuleFeatureDomainKey("客户PO")).toBe("po");
     expect(getModuleFeatureDomainKey("华为云业务")).toBe("cloud");
+    expect(getModuleFeatureDomainKey("文档管理")).toBe("common");
     expect(getModuleFeatureDomainKey("公共区域")).toBe("common");
     expect(getModuleFeatureDomainKey("数据工具")).toBe("common");
     expect(getModuleFeatureDomainKey("财务管理")).toBe("power");

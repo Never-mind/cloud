@@ -53,7 +53,7 @@ describe("报价工作流", () => {
     expect(execute).not.toHaveBeenCalled();
   });
 
-  it("生成报价单时优先使用历史成交价并写入报价明细", async () => {
+  it("生成报价单时使用产品主档并仅保存历史参考价", async () => {
     queryRows
       .mockResolvedValueOnce([
         { id: "po-1", poNo: "PO-1", customerId: "cust-1", currency: "USD" },
@@ -71,16 +71,31 @@ describe("报价工作流", () => {
           currency: "USD",
           matchedProductCode: "P-001",
           productMasterId: "master-1",
-          productModelId: "model-1",
-          productSpecId: "spec-1",
+          productModelId: null,
+          productSpecId: null,
           matchStatus: "matched",
         },
       ])
       .mockResolvedValueOnce([
-        { productCode: "P-001", customerPrice: 18, currency: "USD" },
+        {
+          productMasterId: "master-1",
+          productCode: "P-001",
+          productName: "主档服务器",
+          brand: "主档品牌",
+          specification: "主档规格",
+          category: "服务器",
+          unit: "台",
+          suggestedPurchaseUnitPrice: 10,
+          length: 0,
+          width: 0,
+          height: 0,
+          grossWeight: 0,
+          tariffRate: 16,
+          needNom: 0,
+        },
       ])
       .mockResolvedValueOnce([
-        { productSpecId: "spec-1", purchaseUnitPrice: 10 },
+        { productCode: "P-001", customerPrice: 18, currency: "USD" },
       ]);
 
     await expect(createQuotationFromCustomerPo("po-1")).resolves.toEqual(
@@ -93,17 +108,21 @@ describe("报价工作流", () => {
       expect.stringContaining("INSERT INTO po_quotation_items"),
       expect.objectContaining({
         productCode: "P-001",
-        unitPrice: 18,
-        amount: 36,
-        productSpecId: "spec-1",
+        productName: "主档服务器",
+        brand: "主档品牌",
+        unitPrice: 2.0727,
+        amount: 4.1455,
+        historicalDdpQuoteUsd: 18,
+        tariffRate: 16,
+        productSpecId: null,
       }),
     );
     expect(execute).toHaveBeenCalledWith(
       expect.stringContaining("INSERT INTO po_quotations"),
       expect.objectContaining({
-        totalAmount: 36,
-        totalProfit: 16,
-        grossMarginRate: 0.4444,
+        totalAmount: 4.1455,
+        totalProfit: 0.6909,
+        grossMarginRate: 0.1667,
       }),
     );
   });
@@ -172,33 +191,33 @@ describe("报价工作流", () => {
         {
           id: "quo-1",
           quotationNo: "QUO-PO-1",
-          totalAmount: 100,
-          totalProfit: 20,
+          exchangeRateUsd: 6.82,
+          exchangeRateMxn: 0.06,
+          capitalCostRate: 6,
+          accountPeriod: 2,
+          markupRate: 20,
         },
       ])
       .mockResolvedValueOnce([
-        {
-          totalAmount: 60,
-          totalProfit: 18,
-        },
+        { id: "item-1", lineNo: 1, productCode: "P-001", productName: "产品", quantity: 2, purchaseCurrency: "USD", purchaseUnitPrice: 10, currency: "USD", transportType: "none", isCustomsClearance: false, enableNom: false, ddpQuoteUnitUsd: null, productMasterId: "master-1", brand: "品牌" },
       ]);
 
     await expect(recalculateQuotationSummary("quo-1")).resolves.toEqual(
       expect.objectContaining({
         quotationId: "quo-1",
         quotationNo: "QUO-PO-1",
-        totalAmount: 60,
-        totalProfit: 18,
-        grossMarginRate: 0.3,
+        totalAmount: 24.24,
+        totalProfit: 4.04,
+        grossMarginRate: 0.1667,
       }),
     );
     expect(execute).toHaveBeenCalledWith(
       expect.stringContaining("UPDATE po_quotations"),
       expect.objectContaining({
         id: "quo-1",
-        totalAmount: 60,
-        totalProfit: 18,
-        grossMarginRate: 0.3,
+        totalAmount: 24.24,
+        totalProfit: 4.04,
+        grossMarginRate: 0.1667,
       }),
     );
   });
@@ -213,12 +232,7 @@ describe("报价工作流", () => {
           totalProfit: 20,
         },
       ])
-      .mockResolvedValueOnce([
-        {
-          totalAmount: 0,
-          totalProfit: 0,
-        },
-      ]);
+      .mockResolvedValueOnce([]);
 
     await expect(recalculateQuotationSummary("QUO-PO-1")).resolves.toEqual(
       expect.objectContaining({

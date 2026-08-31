@@ -5,6 +5,7 @@ import { execute, type Row } from "@/lib/db";
 import { getEntityConfig } from "@/lib/modules";
 import { recalculateQuotationSummary } from "@/lib/quotation-workflow";
 import { deletePurchaseOrder, deleteRequestOrder } from "@/lib/order-delete-service";
+import { deleteCustomerPoDraft, deleteQuotationDraft } from "@/lib/po-document-delete-service";
 import { deleteBillingStatementDraft } from "@/lib/billing-statement-service";
 import { deletePrepaymentDraft } from "@/lib/prepayment-service";
 import { deleteServiceFeeStatementDraft } from "@/lib/service-fee-service";
@@ -47,6 +48,20 @@ export async function PUT(request: NextRequest, context: { params: Promise<{ ent
 
   const body = await request.json();
   const actor = await getOperationActor(request);
+  if (entity === "customer-pos") {
+    try {
+      const current = await getEntityRow(config, id);
+      if (!current) return NextResponse.json({ error: "客户PO不存在" }, { status: 404 });
+      if (String(current.status ?? "") === "confirmed") {
+        return NextResponse.json({ error: "已确认的客户PO不能修改" }, { status: 400 });
+      }
+      if (String(body.status ?? current.status ?? "draft") === "confirmed") {
+        return NextResponse.json({ error: "客户PO请通过确认操作确认，不能直接修改状态" }, { status: 400 });
+      }
+    } catch (error) {
+      return NextResponse.json({ error: error instanceof Error ? error.message : "客户PO校验失败" }, { status: 400 });
+    }
+  }
   if (entity === "billing-ledgers") {
     try {
       const row = await updateBillingLedger(id, body);
@@ -84,6 +99,9 @@ export async function PUT(request: NextRequest, context: { params: Promise<{ ent
       if (nextQuotationId) {
         await recalculateQuotationSummary(nextQuotationId, actor);
       }
+    }
+    if (entity === "quotations") {
+      await recalculateQuotationSummary(id, actor);
     }
     return NextResponse.json(row);
   } catch (error) {
@@ -133,6 +151,14 @@ export async function DELETE(_request: NextRequest, context: { params: Promise<{
     }
     if (entity === "purchase-orders") {
       await deletePurchaseOrder(id);
+      return NextResponse.json({ ok: true });
+    }
+    if (entity === "customer-pos") {
+      await deleteCustomerPoDraft(id);
+      return NextResponse.json({ ok: true });
+    }
+    if (entity === "quotations") {
+      await deleteQuotationDraft(id);
       return NextResponse.json({ ok: true });
     }
   } catch (error) {

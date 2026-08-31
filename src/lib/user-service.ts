@@ -34,7 +34,7 @@ type UserRow = ManagedUser & {
 
 const permissionDefinitions = getPermissionDefinitions([
   ...entityConfigs,
-  { key: "documents", title: "文档管理", navGroup: "公共功能" },
+  { key: "documents", title: "文档库", navGroup: "文档管理" },
   { key: "data-imports", title: "数据导入中心", navGroup: "数据工具" },
   { key: "system-users", title: "账户管理", navGroup: "用户管理", adminOnly: true },
   { key: "system-module-features", title: "功能模块管理", navGroup: "数据工具", adminOnly: true },

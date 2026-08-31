@@ -1,5 +1,5 @@
-import { SettlementProjectDetailPage } from "@/components/settlement-project-detail-page";
+import { SettlementProjectDetailWorkspace } from "@/components/settlement-project-detail-workspace";
 
 export default function Page() {
-  return <SettlementProjectDetailPage />;
+  return <SettlementProjectDetailWorkspace />;
 }

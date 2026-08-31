@@ -9,6 +9,7 @@ describe("sidebar navigation preferences", () => {
       "华为云业务",
       "业务伙伴",
       "用户管理",
+      "文档管理",
     ]);
   });
 
@@ -24,6 +25,7 @@ describe("sidebar navigation preferences", () => {
       "集采系统",
       "业务伙伴",
       "用户管理",
+      "文档管理",
     ]);
   });
 
@@ -35,10 +37,11 @@ describe("sidebar navigation preferences", () => {
         { title: "集采系统", items: [] },
         { title: "业务伙伴", items: [] },
         { title: "用户管理", items: [] },
+        { title: "文档管理", items: [] },
       ],
       [...DEFAULT_SIDEBAR_GROUP_ORDER],
     );
-    expect(groups.map((group) => group.title)).toEqual(["算力系统", "集采系统", "华为云业务", "业务伙伴", "用户管理"]);
+    expect(groups.map((group) => group.title)).toEqual(["算力系统", "集采系统", "华为云业务", "业务伙伴", "用户管理", "文档管理"]);
   });
 
     it("keeps all top-level directories draggable with the shared order", () => {
@@ -53,6 +56,7 @@ describe("sidebar navigation preferences", () => {
       "华为云业务",
       "业务伙伴",
       "用户管理",
+      "文档管理",
       ]);
   });
 

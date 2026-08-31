@@ -17,6 +17,7 @@ export type SettlementProject = {
   projectNo: string;
   quotationId: string;
   quotationNo: string;
+  projectName: string | null;
   customerId: string | null;
   customerName: string | null;
   contractingUnitId: string | null;
@@ -118,6 +119,7 @@ export type SettlementInvoice = {
   exchangeRate: number;
   usdAmount: number;
   isPaid: boolean;
+  isInvoiced: boolean;
   attachments?: SettlementAttachment[];
   createdAt: string;
   updatedAt: string;
@@ -160,6 +162,7 @@ export type SettlementPage<T> = {
 
 type SettlementInput = {
   amount?: unknown;
+  purchaseUnitPrice?: unknown;
   currency?: unknown;
   priceType?: unknown;
   taxRate?: unknown;
@@ -168,6 +171,7 @@ type SettlementInput = {
 type ProjectQuotation = {
   id: string;
   quotationNo: string;
+  projectName: string | null;
   customerId: string | null;
   customerName: string | null;
   contractingUnitId: string | null;
@@ -195,7 +199,7 @@ type ProjectQuotationItem = {
 };
 
 const PROJECT_COLUMNS = [
-  "projectNo", "remark", "exchangeRateUsd", "exchangeRateMxn",
+  "projectNo", "projectName", "remark", "exchangeRateUsd", "exchangeRateMxn",
 ] as const;
 
 function text(value: unknown) {
@@ -262,10 +266,13 @@ export function settlementAmounts(input: SettlementInput, project: Pick<Settleme
 async function getProject(projectId: string) {
   const rows = await queryRows<SettlementProject>(
     `SELECT p.*, COALESCE(NULLIF(p.customerName, ''), c.name) AS customerName,
-            COALESCE(NULLIF(p.contractingUnitName, ''), u.name) AS contractingUnitName
+            COALESCE(NULLIF(u.shortName, ''), NULLIF(u.entityName, ''), NULLIF(u.name, ''), NULLIF(p.contractingUnitName, ''), p.contractingUnitId, '') AS contractingUnitName
        FROM po_settlement_projects p
        LEFT JOIN common_customers c ON c.customerId = p.customerId
-       LEFT JOIN common_undertaking_units u ON u.undertakingUnitId = p.contractingUnitId
+       LEFT JOIN common_undertaking_units u
+         ON u.undertakingUnitId = p.contractingUnitId
+         OR u.undertakingUnitCode = p.contractingUnitId
+         OR u.entityCode = p.contractingUnitId
       WHERE p.id = :id LIMIT 1`,
     { id: projectId },
   );
@@ -321,6 +328,7 @@ function normalizeInvoice(invoice: SettlementInvoice): SettlementInvoice {
   return {
     ...invoice,
     isPaid: Boolean(invoice.isPaid),
+    isInvoiced: Boolean(invoice.isInvoiced),
     invoiceTotal: numeric(invoice.invoiceTotal),
     invoiceTaxExcludedTotal: numeric(invoice.invoiceTaxExcludedTotal),
     taxRate: numeric(invoice.taxRate),
@@ -467,7 +475,7 @@ export async function listSettlementProjects(params: URLSearchParams) {
   const keyword = text(params.get("keyword"));
   const status = text(params.get("status"));
   if (keyword) {
-    conditions.push("(p.projectNo LIKE :keyword OR p.quotationNo LIKE :keyword OR p.customerName LIKE :keyword OR c.name LIKE :keyword OR p.remark LIKE :keyword)");
+    conditions.push("(p.projectNo LIKE :keyword OR p.quotationNo LIKE :keyword OR p.projectName LIKE :keyword OR p.customerName LIKE :keyword OR c.name LIKE :keyword OR p.remark LIKE :keyword)");
     values.keyword = `%${keyword}%`;
   }
   if (SETTLEMENT_STATUSES.includes(status as SettlementProjectStatus)) {
@@ -484,10 +492,13 @@ export async function listSettlementProjects(params: URLSearchParams) {
   const page = Math.min(requestedPage, totalPages);
   const rows = await queryRows<SettlementProject>(
     `SELECT p.*, COALESCE(NULLIF(p.customerName, ''), c.name) AS customerName,
-            COALESCE(NULLIF(p.contractingUnitName, ''), u.name) AS contractingUnitName
+            COALESCE(NULLIF(u.shortName, ''), NULLIF(u.entityName, ''), NULLIF(u.name, ''), NULLIF(p.contractingUnitName, ''), p.contractingUnitId, '') AS contractingUnitName
        FROM po_settlement_projects p
        LEFT JOIN common_customers c ON c.customerId = p.customerId
-       LEFT JOIN common_undertaking_units u ON u.undertakingUnitId = p.contractingUnitId
+       LEFT JOIN common_undertaking_units u
+         ON u.undertakingUnitId = p.contractingUnitId
+         OR u.undertakingUnitCode = p.contractingUnitId
+         OR u.entityCode = p.contractingUnitId
       ${where} ORDER BY p.createdAt DESC, p.id DESC LIMIT :limit OFFSET :offset`,
     { ...values, limit: pageSize, offset: (page - 1) * pageSize },
   );
@@ -496,11 +507,16 @@ export async function listSettlementProjects(params: URLSearchParams) {
 
 export async function ensureSettlementProjectForQuotation(quotationId: string, actor: OperationActor | null = null) {
   const quotations = await queryRows<ProjectQuotation>(
-    `SELECT q.id, q.quotationNo, q.customerId, c.name AS customerName,
-            q.contractingUnitId, u.name AS contractingUnitName, q.sourcePoId, q.remark, q.currency, q.status
+    `SELECT q.id, q.quotationNo, q.projectName, q.customerId, c.name AS customerName,
+            q.contractingUnitId,
+            COALESCE(NULLIF(u.shortName, ''), NULLIF(u.entityName, ''), NULLIF(u.name, ''), q.contractingUnitId, '') AS contractingUnitName,
+            q.sourcePoId, q.remark, q.currency, q.status
        FROM po_quotations q
        LEFT JOIN common_customers c ON c.customerId = q.customerId
-       LEFT JOIN common_undertaking_units u ON u.undertakingUnitId = q.contractingUnitId
+       LEFT JOIN common_undertaking_units u
+         ON u.undertakingUnitId = q.contractingUnitId
+         OR u.undertakingUnitCode = q.contractingUnitId
+         OR u.entityCode = q.contractingUnitId
       WHERE q.id = :id OR q.quotationNo = :id LIMIT 1`,
     { id: quotationId },
   );
@@ -508,16 +524,19 @@ export async function ensureSettlementProjectForQuotation(quotationId: string, a
   if (!quotation) throw new Error("报价单不存在");
   if (quotation.status !== "confirmed") throw new Error("只有已确认报价单才能生成项目结算");
   const existing = await queryRows<SettlementProject>("SELECT * FROM po_settlement_projects WHERE quotationId = :quotationId LIMIT 1", { quotationId: quotation.id });
-  if (existing[0]) return recalculateProject(existing[0].id);
+  if (existing[0]) {
+    if (!text(existing[0].projectName) && text(quotation.projectName)) {
+      await execute("UPDATE po_settlement_projects SET projectName = :projectName WHERE id = :id", { id: existing[0].id, projectName: quotation.projectName });
+    }
+    return recalculateProject(existing[0].id);
+  }
 
   const items = await queryRows<ProjectQuotationItem>(
-    `SELECT qi.*, COALESCE(product.brand, legacyModel.brand) AS brand,
-            COALESCE(NULLIF(product.suggestedPurchaseUnitPrice, 0), NULLIF(ps.suggestedPurchaseUnitPrice, 0), NULLIF(legacyModel.suggestedPurchaseUnitPrice, 0), 0) AS purchaseUnitPrice,
-            CASE WHEN product.id IS NOT NULL THEN 'CNY' ELSE COALESCE(NULLIF(ps.purchaseCurrency, ''), NULLIF(legacyModel.purchaseCurrency, ''), 'USD') END AS purchaseCurrency
+    `SELECT qi.*, product.brand AS brand,
+            COALESCE(NULLIF(product.suggestedPurchaseUnitPrice, 0), 0) AS purchaseUnitPrice,
+            CASE WHEN product.id IS NOT NULL THEN 'CNY' ELSE COALESCE(NULLIF(qi.currency, ''), 'USD') END AS purchaseCurrency
        FROM po_quotation_items qi
        LEFT JOIN po_product_masters product ON product.id = qi.productMasterId
-       LEFT JOIN po_product_specifications ps ON ps.id = qi.productSpecId
-       LEFT JOIN po_product_models legacyModel ON legacyModel.id = qi.productModelId
       WHERE qi.quotationId = :quotationId ORDER BY qi.lineNo, qi.id`,
     { quotationId: quotation.id },
   );
@@ -531,17 +550,18 @@ export async function ensureSettlementProjectForQuotation(quotationId: string, a
   const audit = actorFields(actor, "create");
   await execute(
     `INSERT INTO po_settlement_projects
-      (id, projectNo, quotationId, quotationNo, customerId, customerName, contractingUnitId, contractingUnitName, remark,
+      (id, projectNo, quotationId, quotationNo, projectName, customerId, customerName, contractingUnitId, contractingUnitName, remark,
        exchangeRateUsd, exchangeRateMxn, quotedPurchaseCostUsd, quotedSalesRevenueUsd, status,
        createdByUserId, createdByName, updatedByUserId, updatedByName)
      VALUES
-      (:id, :projectNo, :quotationId, :quotationNo, :customerId, :customerName, :contractingUnitId, :contractingUnitName, :remark,
+      (:id, :projectNo, :quotationId, :quotationNo, :projectName, :customerId, :customerName, :contractingUnitId, :contractingUnitName, :remark,
        1, 1, 0, 0, 'purchasing', :createdByUserId, :createdByName, :updatedByUserId, :updatedByName)`,
     {
       id: projectId,
       projectNo,
       quotationId: quotation.id,
       quotationNo: quotation.quotationNo,
+      projectName: quotation.projectName,
       customerId: quotation.customerId,
       customerName: quotation.customerName,
       contractingUnitId: quotation.contractingUnitId,
@@ -588,7 +608,7 @@ function inputValues(input: SettlementInput, defaults: { currency: SettlementCur
   const currency = validCurrency(input.currency) ? input.currency : defaults.currency;
   const priceType = validPriceType(input.priceType) ? input.priceType : defaults.priceType;
   const taxRate = Math.max(0, numeric(input.taxRate));
-  return { amount: numeric(input.amount), currency, priceType, taxRate };
+  return { amount: numeric(input.amount ?? input.purchaseUnitPrice), currency, priceType, taxRate };
 }
 
 async function touchAndRecalculate(projectId: string, actor: OperationActor | null) {
@@ -606,15 +626,16 @@ export async function orderSettlementItems(projectId: string, inputItems: Array<
     const item = byId.get(itemId);
     if (!item || Boolean(item.ordered)) continue;
     const values = inputValues(input, { currency: "USD", priceType: "tax_excluded" });
-    if (values.amount < 0 || numeric(input.purchaseQty) <= 0) throw new Error("采购数量和单价必须有效");
-    const amounts = settlementAmounts({ amount: Math.trunc(numeric(input.purchaseQty)) * values.amount, currency: values.currency, priceType: values.priceType, taxRate: values.taxRate }, project);
+    const purchaseQty = text(input.purchaseQty) === "" ? numeric(item.plannedQty) : numeric(input.purchaseQty);
+    if (values.amount < 0 || purchaseQty <= 0) throw new Error("采购数量和单价必须有效");
+    const amounts = settlementAmounts({ amount: Math.trunc(purchaseQty) * values.amount, currency: values.currency, priceType: values.priceType, taxRate: values.taxRate }, project);
     await execute(
       `UPDATE po_settlement_items
           SET purchaseQty = :purchaseQty, purchaseUnitPrice = :purchaseUnitPrice, currency = :currency,
               priceType = :priceType, taxRate = :taxRate, purchasedCostUsd = :purchasedCostUsd,
               invoiceNo = :invoiceNo, ordered = 1, orderedAt = CURRENT_TIMESTAMP
         WHERE id = :id AND projectId = :projectId`,
-      { id: itemId, projectId, purchaseQty: Math.trunc(numeric(input.purchaseQty)), purchaseUnitPrice: values.amount, currency: values.currency, priceType: values.priceType, taxRate: values.taxRate, purchasedCostUsd: amounts.taxExcludedUsd, invoiceNo: text(input.invoiceNo) || null },
+      { id: itemId, projectId, purchaseQty: Math.trunc(purchaseQty), purchaseUnitPrice: values.amount, currency: values.currency, priceType: values.priceType, taxRate: values.taxRate, purchasedCostUsd: amounts.taxExcludedUsd, invoiceNo: text(input.invoiceNo) || null },
     );
   }
   return touchAndRecalculate(projectId, actor);
@@ -716,15 +737,15 @@ function invoiceValues(projectId: string, input: Record<string, unknown>) {
   const invoiceTaxAmount = round(invoiceTotal - invoiceTaxExcludedTotal);
   const exchangeRate = numeric(input.exchangeRate, 1) || 1;
   const usdAmount = round((type === "cost" ? -1 : 1) * invoiceTaxExcludedTotal / exchangeRate);
-  return { type, accountPeriod: text(input.accountPeriod) || null, accountingDate: text(input.accountingDate) || null, companyEntity: text(input.companyEntity) || null, invoiceEntity: text(input.invoiceEntity) || null, invoiceDate: text(input.invoiceDate) || null, invoiceNo: text(input.invoiceNo) || null, invoiceTotal, invoiceTaxExcludedTotal, taxRate, invoiceTaxAmount, currency, exchangeRate, usdAmount, isPaid: input.isPaid ? 1 : 0 };
+  return { type, accountPeriod: text(input.accountPeriod) || null, accountingDate: text(input.accountingDate) || null, companyEntity: text(input.companyEntity) || null, invoiceEntity: text(input.invoiceEntity) || null, invoiceDate: text(input.invoiceDate) || null, invoiceNo: text(input.invoiceNo) || null, invoiceTotal, invoiceTaxExcludedTotal, taxRate, invoiceTaxAmount, currency, exchangeRate, usdAmount, isPaid: input.isPaid ? 1 : 0, isInvoiced: input.isInvoiced ? 1 : 0 };
 }
 
 export async function addSettlementInvoice(projectId: string, input: Record<string, unknown>, actor: OperationActor | null) {
   const project = await getProject(projectId); assertEditable(project);
   const values = invoiceValues(projectId, input);
   await execute(
-    `INSERT INTO po_settlement_invoices (id,projectId,type,accountPeriod,accountingDate,companyEntity,invoiceEntity,invoiceDate,invoiceNo,invoiceTotal,invoiceTaxExcludedTotal,taxRate,invoiceTaxAmount,currency,exchangeRate,usdAmount,isPaid)
-     VALUES (:id,:projectId,:type,:accountPeriod,:accountingDate,:companyEntity,:invoiceEntity,:invoiceDate,:invoiceNo,:invoiceTotal,:invoiceTaxExcludedTotal,:taxRate,:invoiceTaxAmount,:currency,:exchangeRate,:usdAmount,:isPaid)`,
+    `INSERT INTO po_settlement_invoices (id,projectId,type,accountPeriod,accountingDate,companyEntity,invoiceEntity,invoiceDate,invoiceNo,invoiceTotal,invoiceTaxExcludedTotal,taxRate,invoiceTaxAmount,currency,exchangeRate,usdAmount,isPaid,isInvoiced)
+     VALUES (:id,:projectId,:type,:accountPeriod,:accountingDate,:companyEntity,:invoiceEntity,:invoiceDate,:invoiceNo,:invoiceTotal,:invoiceTaxExcludedTotal,:taxRate,:invoiceTaxAmount,:currency,:exchangeRate,:usdAmount,:isPaid,:isInvoiced)`,
     { id: randomUUID(), projectId, ...values },
   );
   return touchAndRecalculate(projectId, actor);
@@ -736,7 +757,7 @@ export async function updateSettlementInvoice(projectId: string, invoiceId: stri
   if (!invoice) throw new Error("发票不存在");
   const values = invoiceValues(projectId, input);
   await execute(
-    `UPDATE po_settlement_invoices SET type=:type,accountPeriod=:accountPeriod,accountingDate=:accountingDate,companyEntity=:companyEntity,invoiceEntity=:invoiceEntity,invoiceDate=:invoiceDate,invoiceNo=:invoiceNo,invoiceTotal=:invoiceTotal,invoiceTaxExcludedTotal=:invoiceTaxExcludedTotal,taxRate=:taxRate,invoiceTaxAmount=:invoiceTaxAmount,currency=:currency,exchangeRate=:exchangeRate,usdAmount=:usdAmount,isPaid=:isPaid WHERE id=:id AND projectId=:projectId`,
+    `UPDATE po_settlement_invoices SET type=:type,accountPeriod=:accountPeriod,accountingDate=:accountingDate,companyEntity=:companyEntity,invoiceEntity=:invoiceEntity,invoiceDate=:invoiceDate,invoiceNo=:invoiceNo,invoiceTotal=:invoiceTotal,invoiceTaxExcludedTotal=:invoiceTaxExcludedTotal,taxRate=:taxRate,invoiceTaxAmount=:invoiceTaxAmount,currency=:currency,exchangeRate=:exchangeRate,usdAmount=:usdAmount,isPaid=:isPaid,isInvoiced=:isInvoiced WHERE id=:id AND projectId=:projectId`,
     { id: invoiceId, projectId, ...values },
   );
   return touchAndRecalculate(projectId, actor);
@@ -821,7 +842,7 @@ function projectExportRow(project: SettlementProject) {
     报价单号: project.quotationNo,
     客户: project.customerName || "",
     承接单位: project.contractingUnitName || "",
-    项目名称: project.remark || "",
+    项目名称: project.projectName || project.remark || "",
     "采购成本（未税 USD）": project.quotedPurchaseCostUsd,
     "已采购成本（未税 USD）": project.purchasedCostUsd,
     "销售收入（未税 USD）": project.quotedSalesRevenueUsd,
@@ -853,9 +874,123 @@ export async function exportSettlementProject(projectId: string) {
     采购明细: detail.items.map((item) => ({ 产品编码: item.productCode, 产品名称: item.productName, 品牌: item.brand || "", 计划数量: item.plannedQty, 采购数量: item.purchaseQty, 采购单价: item.purchaseUnitPrice, 币种: item.currency, 价格方式: item.priceType === "tax_included" ? "含税价" : "未税价", 税率: item.taxRate, "已采购成本（未税 USD）": item.purchasedCostUsd, 发票号: item.invoiceNo || "" })),
     其他成本费用: detail.expenses.map((item) => ({ 类型: item.type, 说明: item.description || "", 金额: item.amount, 币种: item.currency, 价格方式: item.priceType === "tax_included" ? "含税价" : "未税价", 税率: item.taxRate, "成本（未税 USD）": item.costUsd, 发票号: item.invoiceNo || "" })),
     销售收入: detail.sales.map((item) => ({ 说明: item.description || "", 金额: item.amount, 币种: item.currency, 价格方式: item.priceType === "tax_included" ? "含税价" : "未税价", 税率: item.taxRate, "收入（含税 USD）": item.receivedRevenueTaxIncludedUsd, "收入（未税 USD）": item.receivedRevenueUsd, 收款日期: item.receivedAt || "", 发票号: item.invoiceNo || "" })),
-    发票管理: detail.invoices.map((item) => ({ 类型: item.type === "income" ? "收入" : "成本", 账期: item.accountPeriod || "", 发票号: item.invoiceNo || "", 发票总额: item.invoiceTotal, 发票未税金额: item.invoiceTaxExcludedTotal, 税率: item.taxRate, 发票税额: item.invoiceTaxAmount, 币种: item.currency, 汇率: item.exchangeRate, "USD金额": item.usdAmount, 是否支付: item.isPaid ? "是" : "否" })),
+    发票管理: detail.invoices.map((item) => ({ 类型: item.type === "income" ? "收入" : "成本", 账期: item.accountPeriod || "", 发票号: item.invoiceNo || "", 发票总额: item.invoiceTotal, 发票未税金额: item.invoiceTaxExcludedTotal, 税率: item.taxRate, 发票税额: item.invoiceTaxAmount, 币种: item.currency, 汇率: item.exchangeRate, "USD金额": item.usdAmount, 是否支付: item.isPaid ? "是" : "否", 是否开票: item.isInvoiced ? "是" : "否" })),
     附件管理: detail.attachments.map((item) => ({ 文件名: item.fileName, 类型: item.fileType || "", 大小: item.fileSize, 说明: item.description || "", 上传人: item.uploadedByName || "", 上传时间: item.uploadedAt })),
   });
+}
+
+const settlementItemImportFields = [
+  ["明细ID", "系统明细ID，建议保留，用于精确匹配"],
+  ["产品编码", "按产品编码匹配未采购明细"],
+  ["产品名称", "仅供核对，导入时以系统明细为准"],
+  ["品牌", "仅供核对，导入时以系统明细为准"],
+  ["报价数量（系统）", "系统报价数量，导入时不会覆盖"],
+  ["采购数量", "留空时默认使用报价数量"],
+  ["采购币种", "支持 CNY、USD、MXN"],
+  ["采购单价", "采购单价，可为0"],
+  ["价格方式", "填写未税价或含税价"],
+  ["税率（%）", "采购税率百分比"],
+  ["发票号", "可选"],
+] as const;
+
+function settlementItemExportRow(item: SettlementItem) {
+  return {
+    明细ID: item.id,
+    产品编码: item.productCode,
+    产品名称: item.productName,
+    品牌: item.brand || "",
+    "报价数量（系统）": item.plannedQty,
+    采购数量: item.purchaseQty || item.plannedQty,
+    采购币种: item.currency,
+    采购单价: item.purchaseUnitPrice,
+    价格方式: item.priceType === "tax_included" ? "含税价" : "未税价",
+    "税率（%）": item.taxRate,
+    发票号: item.invoiceNo || "",
+  };
+}
+
+function settlementWorkbook(sheetName: string, rows: Array<Record<string, unknown>>) {
+  const workbook = XLSX.utils.book_new();
+  const worksheet = XLSX.utils.json_to_sheet(rows);
+  worksheet["!cols"] = Object.keys(rows[0] ?? {}).map((label) => ({ wch: Math.max(14, label.length + 6) }));
+  XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
+  return XLSX.write(workbook, { type: "buffer", bookType: "xlsx" });
+}
+
+export async function exportUnpurchasedSettlementItems(projectId: string) {
+  const detail = await getSettlementProjectDetail(projectId);
+  const rows = detail.unpurchasedItems.map(settlementItemExportRow);
+  return settlementWorkbook("未采购商品", rows.length ? rows : [Object.fromEntries(settlementItemImportFields.map(([label]) => [label, ""]))]);
+}
+
+export function settlementItemsTemplate() {
+  const headers = Object.fromEntries(settlementItemImportFields.map(([label]) => [label, ""]));
+  const notes = Object.fromEntries(settlementItemImportFields.map(([label, note]) => [label, note]));
+  return settlementWorkbook("未采购商品", [headers, notes]);
+}
+
+type SettlementItemImportFailure = { rowNumber: number; primaryKey: string; error: string };
+
+export async function importUnpurchasedSettlementItems(projectId: string, sourceRows: Array<Record<string, unknown>>, actor: OperationActor | null) {
+  const project = await getProject(projectId);
+  assertPurchasingEditable(project);
+  const items = await queryRows<SettlementItem>(
+    "SELECT * FROM po_settlement_items WHERE projectId = :projectId ORDER BY lineNo, createdAt, id",
+    { projectId },
+  );
+  const byId = new Map(items.map((item) => [item.id, item]));
+  const byCode = new Map<string, SettlementItem[]>();
+  for (const item of items) {
+    if (!item.ordered && text(item.productCode)) byCode.set(text(item.productCode), [...(byCode.get(text(item.productCode)) ?? []), item]);
+  }
+
+  const failed: SettlementItemImportFailure[] = [];
+  let success = 0;
+  for (const [index, source] of sourceRows.entries()) {
+    const itemId = text(source["明细ID"] ?? source.itemId ?? source.id);
+    const productCode = text(source["产品编码"] ?? source.productCode);
+    const primaryKey = itemId || productCode;
+    try {
+      if (!primaryKey) throw new Error("明细ID和产品编码至少填写一个");
+      const codeMatches = productCode ? (byCode.get(productCode) ?? []) : [];
+      const target = itemId ? byId.get(itemId) : codeMatches.length === 1 ? codeMatches[0] : undefined;
+      if (itemId && (!target || target.projectId !== projectId)) throw new Error("未找到对应的项目结算明细");
+      if (target?.ordered) throw new Error("已采购明细不能通过未采购模板导入");
+      if (!target && codeMatches.length > 1) throw new Error("该产品编码对应多条未采购明细，请保留明细ID");
+      if (!target) throw new Error("未找到对应的未采购明细");
+
+      const importedQuantity = source["采购数量"] ?? source.purchaseQty;
+      const purchaseQty = String(importedQuantity ?? "").trim() === "" ? numeric(target.plannedQty) : numeric(importedQuantity);
+      if (purchaseQty <= 0) throw new Error("采购数量必须大于0");
+      const importedCurrency = text(source["采购币种"] ?? source.currency);
+      const currency = importedCurrency || (validCurrency(target.currency) ? target.currency : "USD");
+      if (!validCurrency(currency)) throw new Error("采购币种只能填写CNY、USD或MXN");
+      const importedPriceType = text(source["价格方式"] ?? source.priceType);
+      const priceType = !importedPriceType || importedPriceType === "未税价" || importedPriceType === "tax_excluded"
+        ? "tax_excluded"
+        : importedPriceType === "含税价" || importedPriceType === "tax_included" ? "tax_included" : "";
+      if (!priceType) throw new Error("价格方式只能填写未税价或含税价");
+      const importedPrice = source["采购单价"] ?? source.purchaseUnitPrice;
+      const purchaseUnitPrice = String(importedPrice ?? "").trim() === "" ? numeric(target.purchaseUnitPrice) : numeric(importedPrice);
+      if (purchaseUnitPrice < 0) throw new Error("采购单价不能小于0");
+      const importedTaxRate = source["税率（%）"] ?? source.taxRate;
+      const taxRate = String(importedTaxRate ?? "").trim() === "" ? numeric(target.taxRate) : numeric(importedTaxRate);
+      if (taxRate < 0) throw new Error("税率不能小于0");
+      const invoiceNo = String(source["发票号"] ?? source.invoiceNo ?? "").trim() || target.invoiceNo || null;
+      await execute(
+        `UPDATE po_settlement_items
+            SET purchaseQty=:purchaseQty, purchaseUnitPrice=:purchaseUnitPrice, currency=:currency,
+                priceType=:priceType, taxRate=:taxRate, invoiceNo=:invoiceNo
+          WHERE id=:id AND projectId=:projectId AND ordered=0`,
+        { id: target.id, projectId, purchaseQty: Math.trunc(purchaseQty), purchaseUnitPrice, currency, priceType, taxRate, invoiceNo },
+      );
+      success += 1;
+    } catch (error) {
+      failed.push({ rowNumber: index + 2, primaryKey, error: error instanceof Error ? error.message : String(error) });
+    }
+  }
+  if (success) await touchAndRecalculate(projectId, actor);
+  return { total: sourceRows.length, success, failed };
 }
 
 export const settlementProjectWritableColumns = PROJECT_COLUMNS;

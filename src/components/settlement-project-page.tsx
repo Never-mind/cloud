@@ -2,14 +2,16 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { Download, FileText, RefreshCw, Search, Trash2 } from "lucide-react";
+import { Download, Eye, FileText, RefreshCw, Search, Trash2 } from "lucide-react";
 import { Button, Input, Panel } from "./ui";
 import { PaginationBar } from "./pagination-bar";
 import { StickyTable } from "./sticky-table";
 import { TableColumnMenu, type TableFilterOption, type TableSortOrder } from "./table-column-menu";
+import { StatusTag } from "./status-tag";
+import { postWorkspaceMessage } from "@/lib/tab-workspace";
 
 type Project = {
-  id: string; projectNo: string; quotationId: string; quotationNo: string; customerName: string | null; contractingUnitName: string | null;
+  id: string; projectNo: string; quotationId: string; quotationNo: string; projectName: string | null; customerName: string | null; contractingUnitName: string | null;
   remark: string | null; quotedPurchaseCostUsd: number; purchasedCostUsd: number; quotedSalesRevenueUsd: number;
   receivedRevenueTaxIncludedUsd: number; receivedRevenueUsd: number; grossProfitUsd: number; status: string;
   createdByName: string | null; updatedByName: string | null; confirmedByName: string | null; createdAt: string; updatedAt: string;
@@ -18,10 +20,9 @@ type Project = {
 type ListResult = { items: Project[]; total: number; page: number; pageSize: number; totalPages: number };
 
 const columns = [
-  ["projectNo", "项目单号"], ["quotationNo", "报价单号"], ["customerName", "客户"], ["contractingUnitName", "承接单位"],
+  ["projectNo", "项目单号"], ["quotationNo", "报价单号"], ["projectName", "项目名称"], ["customerName", "客户"], ["contractingUnitName", "承接单位"], ["status", "状态"],
   ["quotedPurchaseCostUsd", "采购成本（未税 USD）"], ["purchasedCostUsd", "已采购成本（未税 USD）"], ["quotedSalesRevenueUsd", "销售收入（未税 USD）"],
   ["receivedRevenueTaxIncludedUsd", "已销售收入（含税 USD）"], ["receivedRevenueUsd", "已销售收入（未税 USD）"], ["grossProfitUsd", "项目毛利（未税 USD）"],
-  ["status", "状态"], ["createdByName", "创建人"], ["updatedByName", "修改人"], ["confirmedByName", "确认人"], ["createdAt", "创建时间"], ["updatedAt", "更新时间"],
 ] as const;
 
 export function SettlementProjectPage() {
@@ -79,7 +80,11 @@ export function SettlementProjectPage() {
   async function loadOptions(field: string): Promise<TableFilterOption[]> {
     const values = new Map<string, number>();
     for (const row of result.items) { const value = String(row[field as keyof Project] ?? ""); if (value) values.set(value, (values.get(value) ?? 0) + 1); }
-    return [...values.entries()].map(([value, count]) => ({ value, count }));
+    return [...values.entries()].map(([value, count]) => ({ value, label: field === "status" ? statusLabel(value) : value, count }));
+  }
+
+  function openRoute(route: string, title: string) {
+    postWorkspaceMessage({ type: "cloud-power:open-tab", route, title });
   }
 
   return (
@@ -96,14 +101,14 @@ export function SettlementProjectPage() {
         </div>
         {error ? <div className="m-4 border border-[#ffb4ab] bg-[#ffdad6] px-3 py-2 text-sm text-[#93000a]">{error}<button className="ml-3 underline" onClick={() => setError("")}>关闭</button></div> : null}
         <StickyTable className="table-scroll max-h-[calc(100vh-300px)] overflow-auto" tableKey="settlement-projects">
-          <table className="min-w-[2300px] border-collapse text-sm">
+         <table className="min-w-[2400px] border-collapse text-sm">
             <thead className="bg-[#f5f7fa]"><tr>{columns.map(([field, label]) => <th className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium" key={field}><TableColumnMenu column={{ key: field, label, sortable: true, filterable: true }} sortOrder={sortField === field ? sortOrder : ""} filterValues={columnFilters[field] ?? []} loadOptions={() => loadOptions(field)} onSort={(order) => { setSortField(field); setSortOrder(order); }} onFilter={(values) => setColumnFilters((current) => ({ ...current, [field]: values }))} /></th>)}<th className="border-b border-[#ebeef5] px-3 py-3 text-left font-medium">操作</th></tr></thead>
-            <tbody>{loading ? <tr><td className="px-4 py-12 text-center text-[#909399]" colSpan={17}>加载中...</td></tr> : rows.map((row) => <tr key={row.id}>
-              <td className="whitespace-nowrap px-3 py-3"><Link className="text-[#1890ff] hover:underline" href={`/po/settlement-projects/${row.id}`}>{row.projectNo}</Link></td><td className="whitespace-nowrap px-3 py-3"><Link className="text-[#1890ff] hover:underline" href={`/quotation/list?keyword=${encodeURIComponent(row.quotationNo)}`}>{row.quotationNo}</Link></td><td className="px-3 py-3">{row.customerName || "-"}</td><td className="px-3 py-3">{row.contractingUnitName || "-"}</td>
-              <td className="numeric-cell px-3 py-3">{money(row.quotedPurchaseCostUsd)}</td><td className="numeric-cell px-3 py-3">{money(row.purchasedCostUsd)}</td><td className="numeric-cell px-3 py-3">{money(row.quotedSalesRevenueUsd)}</td><td className="numeric-cell px-3 py-3">{money(row.receivedRevenueTaxIncludedUsd)}</td><td className="numeric-cell px-3 py-3">{money(row.receivedRevenueUsd)}</td><td className="numeric-cell px-3 py-3">{money(row.grossProfitUsd)}</td>
-              <td className="px-3 py-3"><span className={`rounded px-2 py-1 text-xs ${statusClass(row.status)}`}>{statusLabel(row.status)}</span></td><td className="px-3 py-3">{row.createdByName || "-"}</td><td className="px-3 py-3">{row.updatedByName || "-"}</td><td className="px-3 py-3">{row.confirmedByName || "-"}</td><td className="whitespace-nowrap px-3 py-3">{formatDate(row.createdAt)}</td><td className="whitespace-nowrap px-3 py-3">{formatDate(row.updatedAt)}</td>
-              <td className="whitespace-nowrap px-3 py-3"><Link className="mr-3 text-[#1890ff] hover:underline" href={`/po/settlement-projects/${row.id}`}>查看</Link>{row.status !== "closed" ? <button className="inline-flex items-center gap-1 text-[#f56c6c] hover:underline" onClick={() => void deleteProject(row.id)}><Trash2 size={14} />删除</button> : null}</td>
-            </tr>)}{!loading && !rows.length ? <tr><td className="px-4 py-12 text-center text-[#909399]" colSpan={17}>暂无项目结算。报价单确认后会自动生成。</td></tr> : null}</tbody>
+             <tbody>{loading ? <tr><td className="px-4 py-12 text-center text-[#909399]" colSpan={columns.length + 1}>加载中...</td></tr> : rows.map((row) => <tr key={row.id}>
+               <td className="whitespace-nowrap px-3 py-3"><button className="text-[#1890ff] hover:underline" type="button" onClick={() => openRoute(`/po/settlement-projects/${encodeURIComponent(row.id)}?returnTo=%2Fpo%2Fsettlement-projects`, "项目结算详情")}>{row.projectNo}</button></td><td className="whitespace-nowrap px-3 py-3"><button className="text-[#1890ff] hover:underline" type="button" onClick={() => openRoute(`/quotation/list?keyword=${encodeURIComponent(row.quotationNo)}`, "报价列表")}>{row.quotationNo}</button></td><td className="px-3 py-3">{row.projectName || "-"}</td><td className="px-3 py-3">{row.customerName || "-"}</td><td className="px-3 py-3">{row.contractingUnitName || "-"}</td>
+               <td className="px-3 py-3"><StatusTag status={row.status} label={statusLabel(row.status)} /></td>
+               <td className="numeric-cell px-3 py-3">{money(row.quotedPurchaseCostUsd)}</td><td className="numeric-cell px-3 py-3">{money(row.purchasedCostUsd)}</td><td className="numeric-cell px-3 py-3">{money(row.quotedSalesRevenueUsd)}</td><td className="numeric-cell px-3 py-3">{money(row.receivedRevenueTaxIncludedUsd)}</td><td className="numeric-cell px-3 py-3">{money(row.receivedRevenueUsd)}</td><td className="numeric-cell px-3 py-3">{money(row.grossProfitUsd)}</td>
+              <td className="whitespace-nowrap px-3 py-3"><button className="mr-2 inline-flex h-8 w-8 items-center justify-center text-[#606266] hover:text-[#1890ff]" type="button" aria-label="查看" title="查看" onClick={() => openRoute(`/po/settlement-projects/${encodeURIComponent(row.id)}?returnTo=%2Fpo%2Fsettlement-projects`, "项目结算详情")}><Eye size={16} /></button>{row.status !== "closed" ? <button className="inline-flex h-8 w-8 items-center justify-center text-[#f56c6c] hover:text-[#f56c6c]" type="button" aria-label="删除" title="删除" onClick={() => void deleteProject(row.id)}><Trash2 size={16} /></button> : null}</td>
+              </tr>)}{!loading && !rows.length ? <tr><td className="px-4 py-12 text-center text-[#909399]" colSpan={columns.length + 1}>暂无项目结算。报价单确认后会自动生成。</td></tr> : null}</tbody>
           </table>
         </StickyTable>
         <PaginationBar page={result.page} pageSize={result.pageSize} total={result.total} onPageChange={setPage} onPageSizeChange={(value) => { setPage(1); setPageSize(value); }} />

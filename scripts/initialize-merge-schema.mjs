@@ -307,6 +307,7 @@ CREATE TABLE IF NOT EXISTS po_product_masters (
   specification VARCHAR(255) NULL,
   brand VARCHAR(255) NULL,
   category VARCHAR(255) NULL,
+  tariffRate DECIMAL(10,6) NOT NULL DEFAULT 0,
   unit VARCHAR(50) NOT NULL DEFAULT 'pcs',
   suggestedPurchaseUnitPrice DECIMAL(14,4) NOT NULL DEFAULT 0,
   length DECIMAL(14,4) NOT NULL DEFAULT 0,
@@ -379,6 +380,8 @@ CREATE TABLE IF NOT EXISTS po_product_specifications (
 CREATE TABLE IF NOT EXISTS po_customer_pos (
   id CHAR(36) NOT NULL PRIMARY KEY,
   poNo VARCHAR(100) NOT NULL,
+  projectName VARCHAR(255) NULL,
+  undertakingUnitId VARCHAR(64) NULL,
   customerId VARCHAR(64) NOT NULL,
   poDate DATE NOT NULL,
   deliveryDate DATE NULL,
@@ -397,6 +400,7 @@ CREATE TABLE IF NOT EXISTS po_customer_pos (
   createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   UNIQUE KEY uk_po_customer_pos_no (poNo),
+  KEY idx_po_customer_pos_undertaking_unit (undertakingUnitId, status),
   KEY idx_po_customer_pos_customer (customerId, status),
   KEY idx_po_customer_pos_date (poDate)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -429,11 +433,32 @@ CREATE TABLE IF NOT EXISTS po_customer_po_items (
 CREATE TABLE IF NOT EXISTS po_quotations (
   id CHAR(36) NOT NULL PRIMARY KEY,
   quotationNo VARCHAR(100) NOT NULL,
+  projectName VARCHAR(255) NULL,
   customerId VARCHAR(64) NULL,
   contractingUnitId VARCHAR(64) NULL,
   sourcePoId CHAR(36) NULL,
   sourcePoNo VARCHAR(100) NULL,
   currency VARCHAR(10) NOT NULL DEFAULT 'USD',
+  exchangeRateUsd DECIMAL(18,8) NOT NULL DEFAULT 6.82,
+  exchangeRateMxn DECIMAL(18,8) NOT NULL DEFAULT 0.06,
+  capitalCostRate DECIMAL(10,6) NOT NULL DEFAULT 6,
+  accountPeriod DECIMAL(10,4) NOT NULL DEFAULT 2,
+  badDebtRate DECIMAL(10,6) NOT NULL DEFAULT 1,
+  customsFeeRate DECIMAL(10,6) NOT NULL DEFAULT 0.8,
+  vatOverseas DECIMAL(10,6) NOT NULL DEFAULT 16,
+  markupRate DECIMAL(10,6) NOT NULL DEFAULT 20,
+  seaFreightRate DECIMAL(18,4) NOT NULL DEFAULT 3200,
+  airFreightRate DECIMAL(18,4) NOT NULL DEFAULT 100,
+  nomFee DECIMAL(18,4) NOT NULL DEFAULT 700,
+  customsMiscFee DECIMAL(18,4) NOT NULL DEFAULT 0,
+  lastMileFee DECIMAL(18,4) NOT NULL DEFAULT 0,
+  storageOperationFee DECIMAL(18,4) NOT NULL DEFAULT 0,
+  implementationFee DECIMAL(18,4) NOT NULL DEFAULT 0,
+  publicFeeTotal DECIMAL(18,4) NOT NULL DEFAULT 0,
+  totalCifUsd DECIMAL(18,4) NOT NULL DEFAULT 0,
+  totalDdpUsd DECIMAL(18,4) NOT NULL DEFAULT 0,
+  totalRevenueUsd DECIMAL(18,4) NOT NULL DEFAULT 0,
+  totalProfitUsd DECIMAL(18,4) NOT NULL DEFAULT 0,
   totalAmount DECIMAL(14,4) NOT NULL DEFAULT 0,
   totalProfit DECIMAL(14,4) NOT NULL DEFAULT 0,
   grossMarginRate DECIMAL(10,6) NOT NULL DEFAULT 0,
@@ -458,13 +483,37 @@ CREATE TABLE IF NOT EXISTS po_quotation_items (
   lineNo INT NOT NULL DEFAULT 1,
   productCode VARCHAR(100) NOT NULL,
   productName VARCHAR(255) NOT NULL,
+  brand VARCHAR(255) NULL,
   productMasterId CHAR(36) NULL,
   productModelId CHAR(36) NULL,
   productSpecId CHAR(36) NULL,
   quantity DECIMAL(14,4) NOT NULL DEFAULT 0,
-  unitPrice DECIMAL(14,4) NOT NULL DEFAULT 0,
-  amount DECIMAL(14,4) NOT NULL DEFAULT 0,
+  unitPrice DECIMAL(14,4) NOT NULL DEFAULT 0 COMMENT 'DDP tax-exclusive quote unit price USD',
+  amount DECIMAL(14,4) NOT NULL DEFAULT 0 COMMENT 'DDP tax-exclusive quote total USD',
   currency VARCHAR(10) NOT NULL DEFAULT 'USD',
+  purchaseCurrency VARCHAR(10) NOT NULL DEFAULT 'CNY',
+  purchaseUnitPrice DECIMAL(18,4) NOT NULL DEFAULT 0,
+  purchaseTotalOriginal DECIMAL(18,4) NOT NULL DEFAULT 0,
+  purchaseTotalUsd DECIMAL(18,4) NOT NULL DEFAULT 0,
+  transportType VARCHAR(20) NOT NULL DEFAULT 'sea',
+  isCustomsClearance TINYINT(1) NOT NULL DEFAULT 0,
+  firstMileFreightUsd DECIMAL(18,4) NOT NULL DEFAULT 0,
+  cifUsd DECIMAL(18,4) NOT NULL DEFAULT 0,
+  tariffRate DECIMAL(10,6) NOT NULL DEFAULT 0,
+  tariffUsd DECIMAL(18,4) NOT NULL DEFAULT 0,
+  capitalCostUsd DECIMAL(18,4) NOT NULL DEFAULT 0,
+  customsFeeUsd DECIMAL(18,4) NOT NULL DEFAULT 0,
+  nomFeeUsd DECIMAL(18,4) NOT NULL DEFAULT 0,
+  publicFeeAllocationUsd DECIMAL(18,4) NOT NULL DEFAULT 0,
+  ddpTotalUsd DECIMAL(18,4) NOT NULL DEFAULT 0,
+  ddpUnitPriceUsd DECIMAL(18,4) NOT NULL DEFAULT 0,
+  ddpQuoteUnitUsd DECIMAL(18,4) NULL,
+  revenueUsd DECIMAL(18,4) NOT NULL DEFAULT 0,
+  operatingProfitUsd DECIMAL(18,4) NOT NULL DEFAULT 0,
+  grossMarginRate DECIMAL(10,6) NOT NULL DEFAULT 0,
+  markupRate DECIMAL(10,6) NOT NULL DEFAULT 0,
+  enableNom TINYINT(1) NOT NULL DEFAULT 0,
+  historicalDdpQuoteUsd DECIMAL(18,4) NULL,
   remark TEXT NULL,
   createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -498,6 +547,7 @@ CREATE TABLE IF NOT EXISTS po_settlement_projects (
   projectNo VARCHAR(100) NOT NULL,
   quotationId CHAR(36) NOT NULL,
   quotationNo VARCHAR(100) NOT NULL,
+  projectName VARCHAR(255) NULL,
   customerId VARCHAR(64) NULL,
   customerName VARCHAR(255) NULL,
   contractingUnitId VARCHAR(64) NULL,
@@ -608,6 +658,7 @@ CREATE TABLE IF NOT EXISTS po_settlement_invoices (
   exchangeRate DECIMAL(18,8) NOT NULL DEFAULT 1,
   usdAmount DECIMAL(18,4) NOT NULL DEFAULT 0,
   isPaid TINYINT(1) NOT NULL DEFAULT 0,
+  isInvoiced TINYINT(1) NOT NULL DEFAULT 0,
   createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   KEY idx_po_settlement_invoices_project (projectId)
@@ -1036,6 +1087,11 @@ try {
     }
   }
   await connection.query(commonSchema);
+  await ensureColumn("po_customer_pos", "projectName", "VARCHAR(255) NULL AFTER `poNo`");
+  await ensureColumn("po_customer_pos", "undertakingUnitId", "VARCHAR(64) NULL AFTER `poNo`");
+  if (!(await hasIndex("po_customer_pos", "idx_po_customer_pos_undertaking_unit"))) {
+    await connection.query("ALTER TABLE `po_customer_pos` ADD KEY `idx_po_customer_pos_undertaking_unit` (`undertakingUnitId`, `status`)");
+  }
   for (const [columnName, definition] of [
     ["entityCode", "VARCHAR(100) NULL"],
     ["entityName", "VARCHAR(255) NULL"],
@@ -1081,6 +1137,9 @@ try {
   }
   await dropColumn("common_customers", "postalCode");
   await connection.query(settlementSchema);
+  await ensureColumn("po_quotations", "projectName", "VARCHAR(255) NULL AFTER `quotationNo`");
+  await ensureColumn("po_settlement_projects", "projectName", "VARCHAR(255) NULL AFTER `quotationNo`");
+  await ensureColumn("po_settlement_invoices", "isInvoiced", "TINYINT(1) NOT NULL DEFAULT 0 AFTER `isPaid`");
   await connection.query(cloudSchema);
   await ensureCloudRowColumns();
   await ensureCloudSupplierPaymentColumns();

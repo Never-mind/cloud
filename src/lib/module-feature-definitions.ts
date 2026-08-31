@@ -22,7 +22,7 @@ export function getModuleFeatureDomainKey(groupTitle: string): ModuleFeatureDoma
   if (groupTitle === "集采系统") return "po";
   if (groupTitle === "客户PO") return "po";
   if (groupTitle === "华为云业务") return "cloud";
-  if (groupTitle === "业务伙伴" || groupTitle === "用户管理" || groupTitle === "公共区域" || groupTitle === "数据工具") return "common";
+  if (groupTitle === "业务伙伴" || groupTitle === "用户管理" || groupTitle === "文档管理" || groupTitle === "公共区域" || groupTitle === "数据工具") return "common";
   return "power";
 }
 

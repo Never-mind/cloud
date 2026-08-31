@@ -510,6 +510,7 @@ export function AppShell({
 function getTopLevelTitle(pathname: string) {
   if (pathname.startsWith("/suppliers") || pathname.startsWith("/customers") || pathname.startsWith("/undertaking-units")) return "业务伙伴";
   if (pathname.startsWith("/system/users") || pathname.startsWith("/system/module-features")) return "用户管理";
+  if (pathname.startsWith("/documents")) return "文档管理";
   if (pathname.startsWith("/cloud")) return "华为云业务";
   if (pathname.startsWith("/customer-pos") || pathname.startsWith("/quotation") || pathname.startsWith("/history-quotations") || pathname.startsWith("/product-catalog") || pathname.startsWith("/product-categories") || pathname.startsWith("/tariff-rates") || pathname.startsWith("/customer-product-aliases") || pathname.startsWith("/po/")) return "集采系统";
   return "算力系统";

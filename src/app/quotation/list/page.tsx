@@ -1,12 +1,6 @@
-import { MasterDetailPage } from "@/components/master-detail-page";
+import { QuotationListPage } from "@/components/quotation-list-page";
 import { getEntityConfig } from "@/lib/modules";
 
-export default function QuotationListPage() {
-  return (
-    <MasterDetailPage
-      masterConfig={getEntityConfig("quotations")!}
-      detailConfig={getEntityConfig("quotation-items")!}
-      relationKey="quotationId"
-    />
-  );
+export default function QuotationListRoutePage() {
+  return <QuotationListPage config={getEntityConfig("quotations")!} />;
 }
