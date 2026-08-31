@@ -17,7 +17,7 @@ type TableColumnMenuProps = {
   column: { key: string; label: string; type?: string; sortable?: boolean; filterable?: boolean };
   sortOrder?: TableSortOrder;
   filterValues?: string[];
-  loadOptions: (keyword: string) => Promise<TableFilterOption[]>;
+  loadOptions: (keyword: string, signal?: AbortSignal) => Promise<TableFilterOption[]>;
   onSort: (order: TableSortOrder) => void;
   onFilter: (values: string[]) => void;
 };
@@ -157,6 +157,7 @@ export function TableColumnMenu({
   const [position, setPosition] = useState({ top: 0, left: 0, width: 300 });
   const selectionTouchedRef = useRef(filterValues.length > 0);
   const requestIdRef = useRef(0);
+  const optionControllerRef = useRef<AbortController | null>(null);
 
   const updatePosition = useCallback(() => {
     const button = buttonRef.current;
@@ -170,21 +171,30 @@ export function TableColumnMenu({
 
   async function fetchOptions(keyword: string) {
     const requestId = ++requestIdRef.current;
+    optionControllerRef.current?.abort();
+    const controller = new AbortController();
+    optionControllerRef.current = controller;
     setLoading(true);
     try {
-      const next = await loadOptions(keyword);
+      const next = await loadOptions(keyword, controller.signal);
       if (requestId !== requestIdRef.current) return;
       setOptions(next);
       if (!filterValues.length && !selectionTouchedRef.current) {
         setSelected(new Set(next.map((option) => option.value)));
       }
     } catch {
+      if (controller.signal.aborted) return;
       if (requestId !== requestIdRef.current) return;
       setOptions([]);
     } finally {
-      if (requestId === requestIdRef.current) setLoading(false);
+      if (requestId === requestIdRef.current && optionControllerRef.current === controller) {
+        optionControllerRef.current = null;
+        setLoading(false);
+      }
     }
   }
+
+  useEffect(() => () => optionControllerRef.current?.abort(), []);
 
   function openMenu() {
     updatePosition();
@@ -199,7 +209,6 @@ export function TableColumnMenu({
     setSearch("");
     setSelected(new Set(filterValues));
     selectionTouchedRef.current = filterValues.length > 0;
-    void fetchOptions("");
   }
 
   function updateSearch(value: string) {

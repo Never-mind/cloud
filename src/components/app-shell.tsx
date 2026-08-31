@@ -47,6 +47,7 @@ import {
 import { hasPermission, type PermissionState } from "@/lib/permission-definitions";
 
 const WORKSPACE_STORAGE_KEY = "cloud-power-workspace-tabs";
+const SIDEBAR_OPEN_GROUPS_STORAGE_KEY = "cloud-power-sidebar-open-groups";
 
 // Restore the client-only workspace before the first browser paint. The server
 // still uses useEffect, so the server and hydration snapshots remain identical.
@@ -88,12 +89,16 @@ export function AppShell({
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [openGroups, setOpenGroups] = useState<SidebarGroupState>({});
+  const [sidebarGroupsReady, setSidebarGroupsReady] = useState(false);
   const [workspace, setWorkspace] = useState<WorkspaceState>(() => createInitialWorkspace());
   const [workspaceReady, setWorkspaceReady] = useState(false);
   const [loadedTabIds, setLoadedTabIds] = useState<Set<string>>(() => new Set());
   const [readyTabIds, setReadyTabIds] = useState<Set<string>>(() => new Set());
-  const [contentRoute, setContentRoute] = useState("/");
+  const [displayedTabId, setDisplayedTabId] = useState<string | null>(null);
+  const [tabFrameRoutes, setTabFrameRoutes] = useState<Record<string, string>>({});
   const activeRouteRef = useRef(workspace.activeRoute);
+  const workspaceRef = useRef(workspace);
+  const readyTabIdsRef = useRef(readyTabIds);
   const [sidebarGroupOrder, setSidebarGroupOrder] = useState<string[]>([...DEFAULT_SIDEBAR_GROUP_ORDER]);
   const [draggingGroupTitle, setDraggingGroupTitle] = useState<string | null>(null);
   const [moduleFeatureState, setModuleFeatureState] = useState<ModuleFeatureState>(() => initialModuleFeatureState);
@@ -124,7 +129,12 @@ export function AppShell({
 
   useEffect(() => {
     activeRouteRef.current = workspace.activeRoute;
-  }, [workspace.activeRoute]);
+    workspaceRef.current = workspace;
+  }, [workspace]);
+
+  useEffect(() => {
+    readyTabIdsRef.current = readyTabIds;
+  }, [readyTabIds]);
 
   useEffect(() => {
     if (isEmbedded || pathname === "/login") return;
@@ -139,6 +149,33 @@ export function AppShell({
       active = false;
     };
   }, [isEmbedded, pathname]);
+
+  useIsomorphicLayoutEffect(() => {
+    if (isEmbedded || pathname === "/login") {
+      setSidebarGroupsReady(true);
+      return;
+    }
+    try {
+      const raw = window.sessionStorage.getItem(SIDEBAR_OPEN_GROUPS_STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as SidebarGroupState;
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+          setOpenGroups(Object.fromEntries(
+            Object.entries(parsed).filter(([, value]) => typeof value === "boolean"),
+          ));
+        }
+      }
+    } catch {
+      window.sessionStorage.removeItem(SIDEBAR_OPEN_GROUPS_STORAGE_KEY);
+    }
+    setSidebarGroupsReady(true);
+  }, [isEmbedded, pathname]);
+
+  useEffect(() => {
+    if (!isEmbedded && sidebarGroupsReady) {
+      window.sessionStorage.setItem(SIDEBAR_OPEN_GROUPS_STORAGE_KEY, JSON.stringify(openGroups));
+    }
+  }, [isEmbedded, openGroups, sidebarGroupsReady]);
 
   useEffect(() => {
     if (isEmbedded || pathname === "/login") return;
@@ -166,8 +203,10 @@ export function AppShell({
           activeRouteRef.current = normalized.activeRoute;
           setWorkspace(normalized);
           const activeTab = normalized.tabs.find((tab) => tab.route === normalized.activeRoute);
-          setLoadedTabIds(activeTab && activeTab.route !== "/" ? new Set([getWorkspaceTabId(activeTab)]) : new Set());
-          setContentRoute(normalized.activeRoute);
+          const activeTabId = activeTab && activeTab.route !== "/" ? getWorkspaceTabId(activeTab) : null;
+          setLoadedTabIds(activeTabId ? new Set([activeTabId]) : new Set());
+          setDisplayedTabId(activeTabId);
+          setTabFrameRoutes(activeTabId && activeTab ? { [activeTabId]: activeTab.route } : {});
         }
       } catch {
         window.sessionStorage.removeItem(WORKSPACE_STORAGE_KEY);
@@ -211,14 +250,16 @@ export function AppShell({
         .find((candidate) => candidate.contentWindow === event.source);
       if (!frame) return;
 
-      const route = getWorkspaceRouteFromLocation(new URL(message.route, window.location.origin).pathname, new URL(message.route, window.location.origin).search);
+      const messageUrl = new URL(message.route, window.location.origin);
+      const route = getWorkspaceRouteFromLocation(messageUrl.pathname, messageUrl.search);
       const title = message.title || getWorkspaceTabTitle(route);
       if (message.type === "cloud-power:open-tab") {
-        const existing = workspace.tabs.find((tab) => tab.route === route);
+        const existing = workspaceRef.current.tabs.find((tab) => tab.route === route);
         const tabId = getWorkspaceTabId(existing ?? { route, title, closable: true });
         activeRouteRef.current = route;
         setLoadedTabIds((current) => new Set(current).add(tabId));
-        setContentRoute(route);
+        setTabFrameRoutes((current) => current[tabId] ? current : { ...current, [tabId]: route });
+        if (readyTabIdsRef.current.has(tabId)) setDisplayedTabId(tabId);
         setWorkspace((current) => openWorkspaceTab(current, { route, title, closable: true }));
         return;
       }
@@ -229,7 +270,6 @@ export function AppShell({
           // the visible iframe route in sync so a list-to-detail transition does
           // not leave the parent rendering an old, empty route.
           activeRouteRef.current = route;
-          setContentRoute(route);
           setWorkspace((current) => updateWorkspaceTabRoute(current, tabId, route, title));
         }
       }
@@ -243,7 +283,6 @@ export function AppShell({
     if (isEmbedded || workspace.activeRoute === "/") return;
     const moduleKey = getModuleFeatureKeyForRoute(workspace.activeRoute);
     if (moduleKey && !isModuleFeatureEnabled(moduleKey, moduleFeatureState)) {
-      setContentRoute("/");
       setWorkspace((current) => ({
         ...current,
         tabs: current.tabs.filter((tab) => tab.route === "/" || isModuleFeatureEnabled(getModuleFeatureKeyForRoute(tab.route) ?? "", moduleFeatureState)),
@@ -271,11 +310,15 @@ export function AppShell({
   }
 
   const openTab = (tab: WorkspaceTab) => {
-    const existing = workspace.tabs.find((item) => item.route === tab.route);
+    const existing = workspaceRef.current.tabs.find((item) => item.route === tab.route);
     const tabId = getWorkspaceTabId(existing ?? tab);
     activeRouteRef.current = tab.route;
     setLoadedTabIds((current) => new Set(current).add(tabId));
-    setContentRoute(tab.route);
+    if (tab.route !== "/") {
+      setTabFrameRoutes((current) => current[tabId] ? current : { ...current, [tabId]: tab.route });
+    }
+    if (tab.route === "/") setDisplayedTabId(null);
+    else if (readyTabIdsRef.current.has(tabId)) setDisplayedTabId(tabId);
     setWorkspace((current) => openWorkspaceTab(current, tab));
   };
 
@@ -285,15 +328,23 @@ export function AppShell({
       if (current.activeRoute === route) {
         activeRouteRef.current = next.activeRoute;
         const nextTab = next.tabs.find((tab) => tab.route === next.activeRoute);
-        if (nextTab) setLoadedTabIds((current) => new Set(current).add(getWorkspaceTabId(nextTab)));
-        setContentRoute(next.activeRoute);
+        if (nextTab) {
+          const nextTabId = getWorkspaceTabId(nextTab);
+          setLoadedTabIds((current) => new Set(current).add(nextTabId));
+          if (nextTab.route !== "/") {
+            setTabFrameRoutes((current) => current[nextTabId] ? current : { ...current, [nextTabId]: nextTab.route });
+          }
+          setDisplayedTabId(readyTabIdsRef.current.has(nextTabId) ? nextTabId : null);
+        } else {
+          setDisplayedTabId(null);
+        }
       }
       return next;
     });
   };
 
-  const contentTab = workspace.tabs.find((tab) => tab.route === contentRoute);
-  const contentLoading = contentRoute !== "/"
+  const contentTab = workspace.tabs.find((tab) => tab.route === workspace.activeRoute);
+  const contentLoading = workspace.activeRoute !== "/"
     && contentTab !== undefined
     && !readyTabIds.has(getWorkspaceTabId(contentTab));
 
@@ -457,7 +508,11 @@ export function AppShell({
                     const tabId = getWorkspaceTabId(tab);
                     activeRouteRef.current = tab.route;
                     setLoadedTabIds((current) => new Set(current).add(tabId));
-                    setContentRoute(tab.route);
+                    if (tab.route !== "/") {
+                      setTabFrameRoutes((current) => current[tabId] ? current : { ...current, [tabId]: tab.route });
+                    }
+                    if (tab.route === "/") setDisplayedTabId(null);
+                    else if (readyTabIdsRef.current.has(tabId)) setDisplayedTabId(tabId);
                     setWorkspace((current) => ({ ...current, activeRoute: tab.route }));
                   }}
                   title={tab.title}
@@ -480,28 +535,34 @@ export function AppShell({
           })}
         </div>
         <section className="relative h-[calc(100vh-88px)] overflow-hidden">
-          <div className={contentRoute === "/" ? "h-full overflow-auto p-5" : "hidden"}>{children}</div>
+          <div className={workspace.activeRoute === "/" ? "h-full overflow-auto p-5" : "hidden"}>{children}</div>
           {workspace.tabs
             .filter((tab) => tab.route !== "/" && loadedTabIds.has(getWorkspaceTabId(tab)))
             .map((tab) => {
               const tabId = getWorkspaceTabId(tab);
+              const isTarget = tab.route === workspace.activeRoute;
+              const isDisplayed = tabId === displayedTabId;
               return (
                 <iframe
-                  className={tab.route === contentRoute ? "block h-full w-full border-0" : "hidden"}
+                  className={isDisplayed ? "block h-full w-full border-0" : isTarget ? "pointer-events-none absolute inset-0 block h-full w-full border-0 opacity-0" : "hidden"}
                   data-workspace-tab-id={tabId}
                   key={tabId}
                   onLoad={() => {
                     setReadyTabIds((current) => new Set(current).add(tabId));
-                    if (activeRouteRef.current === tab.route) setContentRoute(tab.route);
+                    if (activeRouteRef.current === tab.route) {
+                      setDisplayedTabId(tabId);
+                    }
                   }}
-                  src={getEmbeddedRoute(tab.route)}
+                  src={getEmbeddedRoute(tabFrameRoutes[tabId] ?? tab.route)}
                   title={tab.title}
                 />
               );
             })}
-          {contentLoading ? (
-            <div className="absolute inset-0 flex items-center justify-center bg-[var(--color-page-bg)] text-sm text-[#909399]">
-              正在加载页面...
+          {contentLoading && !displayedTabId ? (
+            <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center bg-[var(--color-page-bg)] text-sm text-[#606266]">
+              <span className="border border-[#dcdfe6] bg-white px-3 py-2 shadow-sm">
+                正在加载页面...
+              </span>
             </div>
           ) : null}
         </section>

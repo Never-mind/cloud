@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import { pbkdf2Sync, randomBytes } from "node:crypto";
 import mysql from "mysql2/promise";
+import { applyChineseComments } from "./database-comments.mjs";
 
 const database = process.env.DB_NAME ?? "merge";
 const connection = await mysql.createConnection({
@@ -1157,6 +1158,7 @@ try {
       ('domain-po', '集采系统', 'po', NULL, 20, 1, 0, '集采系统一级目录'),
       ('domain-cloud', '华为云服务', 'cloud', NULL, 30, 1, 0, '华为云服务一级目录')`,
   );
+  await applyChineseComments(connection, database);
   console.log(`Merge schema initialized in database '${database}'.`);
 } finally {
   await connection.end();

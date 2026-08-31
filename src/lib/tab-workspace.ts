@@ -73,7 +73,7 @@ export function createInitialWorkspace(route = "/", title = "首页"): Workspace
 export function openWorkspaceTab(state: WorkspaceState, tab: WorkspaceTab): WorkspaceState {
   const existing = state.tabs.find((item) => item.route === tab.route);
   if (existing) {
-    return { ...state, activeRoute: existing.route };
+    return state.activeRoute === existing.route ? state : { ...state, activeRoute: existing.route };
   }
   const nextTab = { ...tab, id: tab.id ?? `workspace-route:${tab.route}` };
   return {
@@ -90,6 +90,8 @@ export function updateWorkspaceTabRoute(
 ): WorkspaceState {
   const index = state.tabs.findIndex((tab) => getWorkspaceTabId(tab) === tabId);
   if (index < 0) return state;
+
+  if (state.tabs[index].route === route && state.tabs[index].title === title) return state;
 
   const duplicateIndex = state.tabs.findIndex((tab, tabIndex) => tabIndex !== index && tab.route === route);
   const duplicate = duplicateIndex >= 0 ? state.tabs[duplicateIndex] : undefined;

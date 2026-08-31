@@ -47,10 +47,17 @@ const allowedInvoiceExtensions = new Set([".pdf", ".doc", ".docx", ".xls", ".xls
 const maxInvoiceFileSize = 25 * 1024 * 1024;
 const SERVICE_FEE_READY_CACHE_MS = 10_000;
 const FAST_SERVICE_FEE_ROWS_CACHE_MS = 10_000;
+const SERVICE_FEE_DATASET_CACHE_MS = 15_000;
+const SERVICE_FEE_DATASET_CACHE_MAX_ENTRIES = 24;
+const SERVICE_FEE_OPTION_ROWS_CACHE_MS = 30_000;
 let serviceFeeRowsReadyAt = 0;
 let serviceFeeRowsReadyPromise: Promise<unknown> | null = null;
 let fastServiceFeeRowsCache: { rows: ServiceFeeRow[]; expiresAt: number } | null = null;
 let fastServiceFeeRowsPromise: Promise<ServiceFeeRow[]> | null = null;
+let serviceFeeOptionRowsCache: { rows: Array<ServiceFeeRow & Row>; expiresAt: number } | null = null;
+let serviceFeeOptionRowsPromise: Promise<Array<ServiceFeeRow & Row>> | null = null;
+const serviceFeeDatasetCache = new Map<string, { rows: ServiceFeeRow[]; expiresAt: number }>();
+const serviceFeeDatasetPromises = new Map<string, Promise<ServiceFeeRow[]>>();
 
 export async function calculateServiceFees(searchParams: URLSearchParams) {
   const filters = getFilters(searchParams);
@@ -65,55 +72,17 @@ export async function calculateServiceFees(searchParams: URLSearchParams) {
   const requestedPage = Math.max(1, Math.floor(Number(searchParams.get("page") ?? 1) || 1));
   const pageSize = normalizePageSize(Number(searchParams.get("pageSize") ?? DEFAULT_PAGE_SIZE));
   const useFastPageQuery = shouldUseFastServiceFeePage(searchParams, filters);
-  const { sql, params } = useFastPageQuery
-    ? buildFastServiceFeePageQuery()
-    : buildServiceFeeQuery(filters, searchParams);
-  const loadPage = (targetPage: number) => {
-    if (useFastPageQuery) {
-      return loadFastServiceFeePage(sql, params, targetPage, pageSize);
-    }
-    return queryRows<ServiceFeeRow>(
-      `
-        SELECT serviceFeeRows.*
-        FROM (${sql}) serviceFeeRows
-        ${getTableSort(searchParams, Object.fromEntries(Object.entries(getServiceFeeSortExpressions()).map(([key, expression]) => [key, expression.replace("combined.", "serviceFeeRows.")]))) || "ORDER BY writeOffMonth, countryCode, batchName, requestNo, poNo, deviceCode, nameEn"}
-        ${shouldPaginate ? "LIMIT :limit OFFSET :offset" : ""}
-      `,
-      shouldPaginate ? { ...params, limit: pageSize, offset: (targetPage - 1) * pageSize } : params,
-    );
-  };
-  const queryRowsWithSummary = shouldPaginate
-    ? await loadPage(requestedPage)
-    : await loadPage(1);
-  const rows = queryRowsWithSummary;
-  let total = shouldPaginate ? Number(searchParams.get("knownTotal") ?? 0) : rows.length;
-  let summary = shouldPaginate ? null : summarizeServiceFeeRows(rows);
-  let currencySummaries = shouldPaginate ? [] : summarizeServiceFeeRowsByCurrency(rows);
-
-  if (shouldPaginate && includeSummary) {
-    const summaryQuery = canUseLightweightServiceFeeSummary(filters) && !Array.from(searchParams.keys()).some((key) => key.startsWith("filter."))
-      ? buildLightweightServiceFeeSummaryQuery(filters)
-      : {
-        sql: `
-          SELECT serviceFeeRows.currency,
-            COUNT(*) AS total,
-            COALESCE(SUM(serviceFeeRows.billingAmount), 0) AS billingTotal,
-            COALESCE(SUM(serviceFeeRows.prepaymentAmount), 0) AS prepaymentTotal,
-            COALESCE(SUM(serviceFeeRows.serviceFeeAmount), 0) AS serviceFeeTotal,
-            COALESCE(SUM(serviceFeeRows.serviceFeeAmountExcludingTax), 0) AS serviceFeeTotalExcludingTax,
-            COALESCE(SUM(CASE WHEN serviceFeeRows.lineType = 'instance' THEN serviceFeeRows.serviceFeeAmount ELSE 0 END), 0) AS instanceServiceFeeTotal,
-            COALESCE(SUM(CASE WHEN serviceFeeRows.lineType = 'fee' THEN serviceFeeRows.serviceFeeAmount ELSE 0 END), 0) AS feeServiceFeeTotal
-          FROM (${sql}) serviceFeeRows
-          GROUP BY serviceFeeRows.currency
-        `,
-        params,
-      };
-    const summaryRows = await queryRows<ServiceFeeSummaryRow>(summaryQuery.sql, summaryQuery.params);
-    const normalized = normalizeServiceFeeSummaryRows(summaryRows);
-    total = normalized.total;
-    summary = normalized.summary;
-    currencySummaries = normalized.currencySummaries;
-  }
+  const fastPageQuery = useFastPageQuery ? buildFastServiceFeePageQuery() : null;
+  const allRows = fastPageQuery
+    ? await loadFastServiceFeeRows(fastPageQuery.sql, fastPageQuery.params)
+    : await loadServiceFeeDataset(searchParams);
+  const total = allRows.length;
+  const rows = shouldPaginate
+    ? allRows.slice((requestedPage - 1) * pageSize, requestedPage * pageSize)
+    : allRows;
+  const summarizedRows = allRows;
+  const summary = summarizeServiceFeeRows(summarizedRows);
+  const currencySummaries = summarizeServiceFeeRowsByCurrency(summarizedRows);
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const page = shouldPaginate ? Math.min(requestedPage, totalPages) : 1;
@@ -125,7 +94,7 @@ export async function calculateServiceFees(searchParams: URLSearchParams) {
 
   return {
     rows: await attachPartyCodes(rows),
-    summary: summary ?? emptyServiceFeeSummary(),
+    summary,
     currencySummaries,
     total,
     page,
@@ -152,21 +121,32 @@ export async function listServiceFeeFilterOptions(searchParams: URLSearchParams)
     lineType: searchParams.get("lineType")?.trim() || "",
     requestType: searchParams.get("requestType")?.trim() || "",
   };
-  const { sql, params } = buildServiceFeeQuery(baseFilters, new URLSearchParams());
   const keyword = searchParams.get("keyword")?.trim() ?? "";
-  const currentValue = `valuesList.\`${field}\``;
-  const where = [`${currentValue} IS NOT NULL`, `TRIM(CAST(${currentValue} AS CHAR)) <> ''`];
-  if (keyword) { where.push(`${currentValue} LIKE :optionKeyword`); params.optionKeyword = `%${keyword}%`; }
-  for (const [candidateField] of Object.entries(optionExpressions)) {
-    if (candidateField === field) continue;
-    const values = searchParams.getAll(`filter.${candidateField}`).map((value) => value.trim()).filter(Boolean);
-    if (!values.length) continue;
-    const name = `serviceFeeOption_${candidateField}`;
-    where.push(`valuesList.\`${candidateField}\` IN (:${name})`);
-    params[name] = Array.from(new Set(values));
+  // Candidate values use the same filtered dataset as the table. This avoids
+  // rebuilding the complete billing/prepayment CTE for every keypress in the
+  // column menu; the dataset itself is cached by loadServiceFeeDataset.
+  const optionParams = new URLSearchParams(searchParams);
+  optionParams.delete("field");
+  optionParams.delete("keyword");
+  optionParams.delete("sortField");
+  optionParams.delete("sortOrder");
+  optionParams.delete(`filter.${field}`);
+  const hasOtherFilters = Array.from(optionParams.keys()).some((key) => key.startsWith("filter."));
+  const hasDatasetFilters = Object.values(baseFilters).some(Boolean);
+  const rows = !hasOtherFilters && !hasDatasetFilters
+    ? await loadServiceFeeOptionRows()
+    : await loadServiceFeeDataset(optionParams);
+  const normalizedKeyword = keyword.toLocaleLowerCase();
+  const counts = new Map<string, number>();
+  for (const row of rows) {
+    const value = String((row as unknown as Row)[field] ?? "").trim();
+    if (!value || (normalizedKeyword && !value.toLocaleLowerCase().includes(normalizedKeyword))) continue;
+    counts.set(value, (counts.get(value) ?? 0) + 1);
   }
-  const rows = await queryRows<{ value: string; count: number }>(`SELECT ${currentValue} AS value, COUNT(*) AS count FROM (SELECT ${Object.entries(optionExpressions).map(([key, value]) => `${value} AS \`${key}\``).join(", ")} FROM (${sql}) combined) valuesList WHERE ${where.join(" AND ")} GROUP BY ${currentValue} ORDER BY ${getTableFilterOptionsOrderBy(field, currentValue)} LIMIT 500`, params);
-  return { options: rows.map((row) => ({ value: String(row.value ?? ""), count: Number(row.count ?? 0) })) };
+  const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+  const options = Array.from(counts, ([value, count]) => ({ value, count }))
+    .sort((left, right) => collator.compare(left.value, right.value));
+  return { options };
 }
 
 type ServiceFeeSummaryRow = {
@@ -207,6 +187,8 @@ async function ensureServiceFeeRowsReady() {
     serviceFeeRowsReadyPromise = ensureMonthlyBillingRows()
       .then((result) => {
         serviceFeeRowsReadyAt = Date.now();
+        serviceFeeDatasetCache.clear();
+        serviceFeeOptionRowsCache = null;
         return result;
       })
       .finally(() => {
@@ -214,6 +196,72 @@ async function ensureServiceFeeRowsReady() {
       });
   }
   await serviceFeeRowsReadyPromise;
+}
+
+async function loadServiceFeeDataset(searchParams: URLSearchParams) {
+  const filters = getFilters(searchParams);
+  const { sql, params } = buildServiceFeeQuery(filters, searchParams);
+  const sortExpressions = Object.fromEntries(
+    Object.entries(getServiceFeeSortExpressions()).map(([key, expression]) => [
+      key,
+      expression.replace("combined.", "serviceFeeRows."),
+    ]),
+  );
+  const orderedSql = `
+    SELECT serviceFeeRows.*
+    FROM (${sql}) serviceFeeRows
+    ${getTableSort(searchParams, sortExpressions) || "ORDER BY writeOffMonth, countryCode, batchName, requestNo, poNo, deviceCode, nameEn"}
+  `;
+  const cacheKey = JSON.stringify([
+    orderedSql,
+    Object.entries(params)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, value]) => [key, Array.isArray(value) ? [...value].map(String).sort() : value]),
+  ]);
+  const now = Date.now();
+  const cached = serviceFeeDatasetCache.get(cacheKey);
+  if (cached && cached.expiresAt > now) return cached.rows;
+  if (cached) serviceFeeDatasetCache.delete(cacheKey);
+
+  const pending = serviceFeeDatasetPromises.get(cacheKey);
+  if (pending) return pending;
+
+  const queryPromise = queryRows<ServiceFeeRow>(orderedSql, params)
+    .then((rows) => {
+      if (serviceFeeDatasetCache.size >= SERVICE_FEE_DATASET_CACHE_MAX_ENTRIES) {
+        const oldestKey = serviceFeeDatasetCache.keys().next().value;
+        if (oldestKey) serviceFeeDatasetCache.delete(oldestKey);
+      }
+      serviceFeeDatasetCache.set(cacheKey, {
+        rows,
+        expiresAt: Date.now() + SERVICE_FEE_DATASET_CACHE_MS,
+      });
+      return rows;
+    })
+    .finally(() => {
+      serviceFeeDatasetPromises.delete(cacheKey);
+    });
+  serviceFeeDatasetPromises.set(cacheKey, queryPromise);
+  return queryPromise;
+}
+
+async function loadServiceFeeOptionRows() {
+  const now = Date.now();
+  if (serviceFeeOptionRowsCache && serviceFeeOptionRowsCache.expiresAt > now) return serviceFeeOptionRowsCache.rows;
+  if (serviceFeeOptionRowsPromise) return serviceFeeOptionRowsPromise;
+
+  const query = buildFastServiceFeePageQuery();
+  serviceFeeOptionRowsPromise = loadFastServiceFeeRows(query.sql, query.params)
+    .then((rows) => attachPartyCodes(rows as unknown as Row[]))
+    .then((rows) => {
+      const optionRows = rows as unknown as Array<ServiceFeeRow & Row>;
+      serviceFeeOptionRowsCache = { rows: optionRows, expiresAt: Date.now() + SERVICE_FEE_OPTION_ROWS_CACHE_MS };
+      return optionRows;
+    })
+    .finally(() => {
+      serviceFeeOptionRowsPromise = null;
+    });
+  return serviceFeeOptionRowsPromise;
 }
 
 function normalizeServiceFeeSummary(row: ServiceFeeSummaryRow) {
@@ -292,6 +340,7 @@ function shouldUseFastServiceFeePage(searchParams: URLSearchParams, filters: Ser
     && !filters.endMonth
     && !filters.countryCode
     && !filters.batchName
+    && !filters.currency
     && !filters.lineType
     && !filters.requestType;
 }
@@ -699,7 +748,7 @@ function buildServiceFeeQuery(filters: ServiceFeeFilters, searchParams = new URL
 
 function getServiceFeeSortExpressions() {
   return {
-    writeOffMonth: "combined.writeOffMonth", countryCode: "combined.countryCode", batchName: "combined.batchName", requestNo: "combined.requestNo",
+    writeOffMonth: "combined.writeOffMonth", countryCode: "combined.countryCode", vatRate: "combined.vatRate", batchName: "combined.batchName", requestNo: "combined.requestNo",
     poNo: "combined.poNo", deviceCode: "combined.deviceCode", requestType: "combined.requestType", modelCode: "combined.modelCode", nameEn: "combined.nameEn",
     undertakingUnitName: "combined.undertakingUnitName", supplierName: "combined.supplierName", customerName: "combined.customerName", quantity: "combined.quantity",
     lineType: "combined.lineType", billingCurrency: "combined.billingCurrency", billingAmount: "combined.billingAmount", prepaymentCurrency: "combined.prepaymentCurrency",

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Download, Eye, FileText, RefreshCw, Search, Trash2 } from "lucide-react";
 import { Button, Input, Panel } from "./ui";
 import { PaginationBar } from "./pagination-bar";
@@ -43,6 +43,13 @@ export function SettlementProjectPage() {
     try {
       const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize), keyword: appliedKeyword });
       if (status) params.set("status", status);
+      if (sortField && sortOrder) {
+        params.set("sortField", sortField);
+        params.set("sortOrder", sortOrder);
+      }
+      for (const [field, values] of Object.entries(columnFilters)) {
+        for (const value of values) params.append(`filter.${field}`, value);
+      }
       const response = await fetch(`/api/po/settlement-projects?${params}`, { cache: "no-store" });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? "项目结算加载失败");
@@ -54,20 +61,9 @@ export function SettlementProjectPage() {
     }
   }
 
-  useEffect(() => { void load(); }, [page, pageSize, appliedKeyword, status]);
+  useEffect(() => { void load(); }, [page, pageSize, appliedKeyword, status, sortField, sortOrder, columnFilters]);
 
-  const rows = useMemo(() => {
-    let next = result.items.filter((row) => Object.entries(columnFilters).every(([field, values]) => !values.length || values.includes(String(row[field as keyof Project] ?? ""))));
-    if (sortField && sortOrder) {
-      next = [...next].sort((left, right) => {
-        const a = left[sortField as keyof Project]; const b = right[sortField as keyof Project];
-        const av = typeof a === "number" ? a : String(a ?? ""); const bv = typeof b === "number" ? b : String(b ?? "");
-        const compared = av < bv ? -1 : av > bv ? 1 : 0;
-        return sortOrder === "asc" ? compared : -compared;
-      });
-    }
-    return next;
-  }, [columnFilters, result.items, sortField, sortOrder]);
+  const rows = result.items;
 
   async function deleteProject(id: string) {
     if (!window.confirm("确认删除该项目结算？删除后会同步删除其采购、费用、销售、发票和附件明细。")) return;
@@ -77,10 +73,16 @@ export function SettlementProjectPage() {
     void load();
   }
 
-  async function loadOptions(field: string): Promise<TableFilterOption[]> {
-    const values = new Map<string, number>();
-    for (const row of result.items) { const value = String(row[field as keyof Project] ?? ""); if (value) values.set(value, (values.get(value) ?? 0) + 1); }
-    return [...values.entries()].map(([value, count]) => ({ value, label: field === "status" ? statusLabel(value) : value, count }));
+  async function loadOptions(field: string, optionKeyword: string): Promise<TableFilterOption[]> {
+    const params = new URLSearchParams({ field, keyword: optionKeyword, queryKeyword: appliedKeyword, status });
+    for (const [filterField, values] of Object.entries(columnFilters)) {
+      if (filterField === field) continue;
+      for (const value of values) params.append(`filter.${filterField}`, value);
+    }
+    const response = await fetch(`/api/po/settlement-projects?${params.toString()}`);
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error ?? "筛选候选值加载失败");
+    return (data.options ?? []) as TableFilterOption[];
   }
 
   function openRoute(route: string, title: string) {
@@ -102,7 +104,7 @@ export function SettlementProjectPage() {
         {error ? <div className="m-4 border border-[#ffb4ab] bg-[#ffdad6] px-3 py-2 text-sm text-[#93000a]">{error}<button className="ml-3 underline" onClick={() => setError("")}>关闭</button></div> : null}
         <StickyTable className="table-scroll max-h-[calc(100vh-300px)] overflow-auto" tableKey="settlement-projects">
          <table className="min-w-[2400px] border-collapse text-sm">
-            <thead className="bg-[#f5f7fa]"><tr>{columns.map(([field, label]) => <th className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium" key={field}><TableColumnMenu column={{ key: field, label, sortable: true, filterable: true }} sortOrder={sortField === field ? sortOrder : ""} filterValues={columnFilters[field] ?? []} loadOptions={() => loadOptions(field)} onSort={(order) => { setSortField(field); setSortOrder(order); }} onFilter={(values) => setColumnFilters((current) => ({ ...current, [field]: values }))} /></th>)}<th className="border-b border-[#ebeef5] px-3 py-3 text-left font-medium">操作</th></tr></thead>
+            <thead className="bg-[#f5f7fa]"><tr>{columns.map(([field, label]) => <th className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium" key={field}><TableColumnMenu column={{ key: field, label, sortable: true, filterable: true }} sortOrder={sortField === field ? sortOrder : ""} filterValues={columnFilters[field] ?? []} loadOptions={(optionKeyword) => loadOptions(field, optionKeyword)} onSort={(order) => { setPage(1); setSortField(order ? field : ""); setSortOrder(order); }} onFilter={(values) => { setPage(1); setColumnFilters((current) => ({ ...current, [field]: values })); }} /></th>)}<th className="border-b border-[#ebeef5] px-3 py-3 text-left font-medium">操作</th></tr></thead>
              <tbody>{loading ? <tr><td className="px-4 py-12 text-center text-[#909399]" colSpan={columns.length + 1}>加载中...</td></tr> : rows.map((row) => <tr key={row.id}>
                <td className="whitespace-nowrap px-3 py-3"><button className="text-[#1890ff] hover:underline" type="button" onClick={() => openRoute(`/po/settlement-projects/${encodeURIComponent(row.id)}?returnTo=%2Fpo%2Fsettlement-projects`, "项目结算详情")}>{row.projectNo}</button></td><td className="whitespace-nowrap px-3 py-3"><button className="text-[#1890ff] hover:underline" type="button" onClick={() => openRoute(`/quotation/list?keyword=${encodeURIComponent(row.quotationNo)}`, "报价列表")}>{row.quotationNo}</button></td><td className="px-3 py-3">{row.projectName || "-"}</td><td className="px-3 py-3">{row.customerName || "-"}</td><td className="px-3 py-3">{row.contractingUnitName || "-"}</td>
                <td className="px-3 py-3"><StatusTag status={row.status} label={statusLabel(row.status)} /></td>

@@ -13,6 +13,7 @@
     "schema:apply": "node scripts/apply-deploy-schema.mjs",
     "schema:verify": "node scripts/verify-deploy-schema.mjs",
     "schema:init-merge": "node scripts/initialize-merge-schema.mjs",
+    "schema:comments": "node scripts/add-chinese-comments.mjs",
     "schema:compare-remote": "tsx scripts/compare-remote-schema.mjs",
     "schema:sync-remote": "tsx scripts/sync-remote-schema.ts",
     "migrate": "tsx scripts/migrate.ts",

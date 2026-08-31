@@ -85,6 +85,8 @@ export function ServiceFeesPage() {
   const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({});
   const pageSizeRef = useRef(pageSize);
   const skipNextPageChangeRef = useRef(false);
+  const queryMountedRef = useRef(false);
+  const requestControllerRef = useRef<AbortController | null>(null);
   const beginRequest = useRequestGuard();
 
   const params = useMemo(() => {
@@ -106,7 +108,7 @@ export function ServiceFeesPage() {
     columnFilters,
   ]);
 
-  async function fetchData(nextPage: number, nextPageSize: number, exportAll = false, includeSummary = true): Promise<ListResponse> {
+  async function fetchData(nextPage: number, nextPageSize: number, exportAll = false, includeSummary = true, signal?: AbortSignal): Promise<ListResponse> {
     const requestParams = new URLSearchParams(params);
     requestParams.set("page", String(nextPage));
     requestParams.set("pageSize", String(nextPageSize));
@@ -115,7 +117,7 @@ export function ServiceFeesPage() {
       requestParams.set("includeSummary", "0");
       requestParams.set("knownTotal", String(total));
     }
-    const response = await fetch(`/api/service-fees/calculate?${requestParams.toString()}`);
+    const response = await fetch(`/api/service-fees/calculate?${requestParams.toString()}`, { signal });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error ?? "服务费数据加载失败");
     return data as ListResponse;
@@ -123,9 +125,12 @@ export function ServiceFeesPage() {
 
   async function loadData(nextPage = page, nextPageSize = pageSizeRef.current, includeSummary = true) {
     const isCurrentRequest = beginRequest();
+    requestControllerRef.current?.abort();
+    const controller = new AbortController();
+    requestControllerRef.current = controller;
     setLoading(true);
     try {
-      const data = await fetchData(nextPage, nextPageSize, false, includeSummary);
+      const data = await fetchData(nextPage, nextPageSize, false, includeSummary, controller.signal);
       if (!isCurrentRequest()) return;
       setRows(data.rows ?? []);
       if (includeSummary) {
@@ -135,19 +140,34 @@ export function ServiceFeesPage() {
       }
       if (data.page !== nextPage) setPage(data.page);
     } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return;
       if (!isCurrentRequest()) return;
       setRows([]);
       setSummary(emptySummary);
       setTotal(0);
       alert(error instanceof Error ? error.message : "服务费数据加载失败");
     } finally {
-      if (isCurrentRequest()) setLoading(false);
+      if (isCurrentRequest() && requestControllerRef.current === controller) {
+        requestControllerRef.current = null;
+        setLoading(false);
+      }
     }
   }
+
+  useEffect(() => () => requestControllerRef.current?.abort(), []);
 
   useEffect(() => {
     void loadData();
   }, []);
+
+  useEffect(() => {
+    if (!queryMountedRef.current) {
+      queryMountedRef.current = true;
+      return;
+    }
+    setPage(1);
+    void loadData(1, pageSizeRef.current);
+  }, [columnFilters, sortField, sortOrder]);
 
   async function createStatementDraft() {
     if (!countryCode.trim()) {
@@ -207,7 +227,7 @@ export function ServiceFeesPage() {
     URL.revokeObjectURL(url);
   }
 
-  async function loadColumnOptions(field: string, optionKeyword: string): Promise<TableFilterOption[]> {
+  async function loadColumnOptions(field: string, optionKeyword: string, signal?: AbortSignal): Promise<TableFilterOption[]> {
     const optionParams = new URLSearchParams({ field });
     if (optionKeyword.trim()) optionParams.set("keyword", optionKeyword.trim());
     if (startMonth) optionParams.set("startMonth", startMonth);
@@ -221,14 +241,18 @@ export function ServiceFeesPage() {
       if (key === field) continue;
       for (const value of values) optionParams.append(`filter.${key}`, value);
     }
-    const response = await fetch(`/api/service-fees/calculate?${optionParams}`);
+    const response = await fetch(`/api/service-fees/calculate?${optionParams}`, { signal });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error ?? "筛选候选值加载失败");
-    return (data.options ?? []) as TableFilterOption[];
+    return (data.options ?? []).map((option: TableFilterOption) => (
+      field === "vatRate"
+        ? { ...option, label: formatValue(option.value, "percentage") }
+        : option
+    )) as TableFilterOption[];
   }
 
   function renderHeader(column: (typeof tableColumns)[number]) {
-    return <TableColumnMenu column={column} filterValues={columnFilters[column.key] ?? []} loadOptions={(keyword) => loadColumnOptions(column.key, keyword)} onFilter={(values) => { setColumnFilters((current) => ({ ...current, [column.key]: values })); setPage(1); }} onSort={(order) => { setSortField(order ? column.key : ""); setSortOrder(order); setPage(1); }} sortOrder={sortField === column.key ? sortOrder : ""} />;
+    return <TableColumnMenu column={column} filterValues={columnFilters[column.key] ?? []} loadOptions={(keyword, signal) => loadColumnOptions(column.key, keyword, signal)} onFilter={(values) => { setColumnFilters((current) => ({ ...current, [column.key]: values })); setPage(1); }} onSort={(order) => { setSortField(order ? column.key : ""); setSortOrder(order); setPage(1); }} sortOrder={sortField === column.key ? sortOrder : ""} />;
   }
 
   return (

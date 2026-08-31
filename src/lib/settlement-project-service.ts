@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import * as XLSX from "xlsx";
 import { execute, queryRows, type Row } from "./db";
 import type { OperationActor } from "./operation-actor";
+import { appendTableInFilter, getTableSort, listSqlFilterOptions } from "./table-query";
 
 export const SETTLEMENT_CURRENCIES = ["CNY", "USD", "MXN"] as const;
 export type SettlementCurrency = (typeof SETTLEMENT_CURRENCIES)[number];
@@ -179,6 +180,8 @@ type ProjectQuotation = {
   sourcePoId: string | null;
   remark: string | null;
   currency: string | null;
+  exchangeRateUsd: number | null;
+  exchangeRateMxn: number | null;
   status: string | null;
 };
 
@@ -196,6 +199,8 @@ type ProjectQuotationItem = {
   brand: string | null;
   purchaseCurrency: string | null;
   purchaseUnitPrice: number | null;
+  ddpTotalUsd: number | null;
+  revenueUsd: number | null;
 };
 
 const PROJECT_COLUMNS = [
@@ -363,11 +368,50 @@ async function updateProjectActor(projectId: string, actor: OperationActor | nul
 
 async function recalculateProject(projectId: string, actor: OperationActor | null = null) {
   const project = await getProject(projectId);
+  const quotationRows = await queryRows<Pick<ProjectQuotation, "exchangeRateUsd" | "exchangeRateMxn">>(
+    "SELECT exchangeRateUsd, exchangeRateMxn FROM po_quotations WHERE id = :quotationId LIMIT 1",
+    { quotationId: project.quotationId },
+  );
+  const quotation = quotationRows[0];
+  const quotationItems = await queryRows<Pick<ProjectQuotationItem, "id" | "ddpTotalUsd" | "revenueUsd">>(
+    "SELECT id, ddpTotalUsd, revenueUsd FROM po_quotation_items WHERE quotationId = :quotationId",
+    { quotationId: project.quotationId },
+  );
+  const quotationItemsById = new Map(quotationItems.map((item) => [String(item.id), item]));
+  const exchangeRateUsd = quotation ? numeric(quotation.exchangeRateUsd, project.exchangeRateUsd) : project.exchangeRateUsd;
+  const exchangeRateMxn = quotation ? numeric(quotation.exchangeRateMxn, project.exchangeRateMxn) : project.exchangeRateMxn;
+  if (exchangeRateUsd !== project.exchangeRateUsd || exchangeRateMxn !== project.exchangeRateMxn) {
+    await execute(
+      "UPDATE po_settlement_projects SET exchangeRateUsd=:exchangeRateUsd, exchangeRateMxn=:exchangeRateMxn WHERE id=:id",
+      { id: projectId, exchangeRateUsd, exchangeRateMxn },
+    );
+    project.exchangeRateUsd = exchangeRateUsd;
+    project.exchangeRateMxn = exchangeRateMxn;
+  }
   const items = (await queryRows<SettlementItem>("SELECT * FROM po_settlement_items WHERE projectId = :projectId ORDER BY lineNo, createdAt, id", { projectId })).map(normalizeItem);
   const expenses = (await queryRows<SettlementExpense>("SELECT * FROM po_settlement_expenses WHERE projectId = :projectId ORDER BY createdAt, id", { projectId })).map(normalizeExpense);
   const sales = (await queryRows<SettlementSale>("SELECT * FROM po_settlement_sales WHERE projectId = :projectId ORDER BY receivedAt, createdAt, id", { projectId })).map(normalizeSale);
 
   for (const item of items) {
+    const quotationItem = quotationItemsById.get(String(item.quotationItemId));
+    if (quotationItem) {
+      const quotedWarehouseCostUsd = quotationItem.ddpTotalUsd === null || quotationItem.ddpTotalUsd === undefined
+        ? item.quotedWarehouseCostUsd
+        : round(numeric(quotationItem.ddpTotalUsd));
+      const quotedSalesRevenueUsd = quotationItem.revenueUsd === null || quotationItem.revenueUsd === undefined
+        ? item.quotedSalesRevenueUsd
+        : round(numeric(quotationItem.revenueUsd));
+      if (item.quotedWarehouseCostUsd !== quotedWarehouseCostUsd || item.quotedSalesRevenueUsd !== quotedSalesRevenueUsd) {
+        await execute(
+          `UPDATE po_settlement_items
+              SET quotedWarehouseCostUsd=:quotedWarehouseCostUsd, quotedSalesRevenueUsd=:quotedSalesRevenueUsd
+            WHERE id=:id AND projectId=:projectId`,
+          { id: item.id, projectId, quotedWarehouseCostUsd, quotedSalesRevenueUsd },
+        );
+        item.quotedWarehouseCostUsd = quotedWarehouseCostUsd;
+        item.quotedSalesRevenueUsd = quotedSalesRevenueUsd;
+      }
+    }
     const amounts = settlementAmounts({ amount: item.purchaseQty * item.purchaseUnitPrice, currency: item.currency, priceType: item.priceType, taxRate: item.taxRate }, project);
     if (round(item.purchasedCostUsd) !== amounts.taxExcludedUsd) {
       await execute("UPDATE po_settlement_items SET purchasedCostUsd = :value WHERE id = :id", { id: item.id, value: amounts.taxExcludedUsd });
@@ -468,38 +512,90 @@ export async function getSettlementProjectDetail(projectId: string): Promise<Set
   };
 }
 
-export async function listSettlementProjects(params: URLSearchParams) {
-  const { pageSize, requestedPage } = pageParams(params);
+const quotedPurchaseCostExpression = "CASE WHEN EXISTS (SELECT 1 FROM po_quotation_items quoteItemExists WHERE quoteItemExists.quotationId = p.quotationId) THEN COALESCE((SELECT SUM(quoteItem.ddpTotalUsd) FROM po_quotation_items quoteItem WHERE quoteItem.quotationId = p.quotationId), 0) ELSE p.quotedPurchaseCostUsd END";
+const quotedSalesRevenueExpression = "CASE WHEN EXISTS (SELECT 1 FROM po_quotation_items quoteItemExists WHERE quoteItemExists.quotationId = p.quotationId) THEN COALESCE((SELECT SUM(quoteItem.revenueUsd) FROM po_quotation_items quoteItem WHERE quoteItem.quotationId = p.quotationId), 0) ELSE p.quotedSalesRevenueUsd END";
+
+const settlementListExpressions: Record<string, string> = {
+  projectNo: "p.projectNo",
+  quotationNo: "p.quotationNo",
+  projectName: "p.projectName",
+  customerName: "COALESCE(NULLIF(p.customerName, ''), c.name)",
+  contractingUnitName: "COALESCE(NULLIF(u.shortName, ''), NULLIF(u.entityName, ''), NULLIF(u.name, ''), NULLIF(p.contractingUnitName, ''), p.contractingUnitId, '')",
+  status: "p.status",
+  quotedPurchaseCostUsd: quotedPurchaseCostExpression,
+  purchasedCostUsd: "p.purchasedCostUsd",
+  quotedSalesRevenueUsd: quotedSalesRevenueExpression,
+  receivedRevenueTaxIncludedUsd: "p.receivedRevenueTaxIncludedUsd",
+  receivedRevenueUsd: "p.receivedRevenueUsd",
+  grossProfitUsd: "p.grossProfitUsd",
+  createdAt: "p.createdAt",
+  updatedAt: "p.updatedAt",
+};
+
+const settlementListFrom = `po_settlement_projects p
+  LEFT JOIN common_customers c ON c.customerId = p.customerId
+  LEFT JOIN common_undertaking_units u
+    ON u.undertakingUnitId = p.contractingUnitId
+    OR u.undertakingUnitCode = p.contractingUnitId
+    OR u.entityCode = p.contractingUnitId`;
+
+function settlementListConditions(params: URLSearchParams, values: Row) {
   const conditions = ["1 = 1"];
-  const values: Row = {};
-  const keyword = text(params.get("keyword"));
+  const keyword = text(params.get("queryKeyword") ?? params.get("keyword"));
   const status = text(params.get("status"));
   if (keyword) {
-    conditions.push("(p.projectNo LIKE :keyword OR p.quotationNo LIKE :keyword OR p.projectName LIKE :keyword OR p.customerName LIKE :keyword OR c.name LIKE :keyword OR p.remark LIKE :keyword)");
+    conditions.push("(p.projectNo LIKE :keyword OR p.quotationNo LIKE :keyword OR p.projectName LIKE :keyword OR COALESCE(NULLIF(p.customerName, ''), c.name) LIKE :keyword OR COALESCE(NULLIF(u.shortName, ''), NULLIF(u.entityName, ''), NULLIF(u.name, ''), NULLIF(p.contractingUnitName, ''), p.contractingUnitId, '') LIKE :keyword OR p.remark LIKE :keyword)");
     values.keyword = `%${keyword}%`;
   }
   if (SETTLEMENT_STATUSES.includes(status as SettlementProjectStatus)) {
     conditions.push("p.status = :status");
     values.status = status;
   }
+  return conditions;
+}
+
+export async function listSettlementProjectFilterOptions(params: URLSearchParams) {
+  const values: Row = {};
+  const field = params.get("field");
+  const optionKeyword = text(params.get("keyword")).toLowerCase();
+  const queryParams = new URLSearchParams(params);
+  if (field === "status") queryParams.delete("keyword");
+  const result = await listSqlFilterOptions({
+    from: settlementListFrom,
+    expressions: settlementListExpressions,
+    searchParams: queryParams,
+    conditions: settlementListConditions(queryParams, values),
+    params: values,
+  });
+  return {
+    options: result.options
+      .map((option) => field === "status" ? { ...option, label: settlementStatusLabel(option.value) } : option)
+      .filter((option) => !optionKeyword || option.value.toLowerCase().includes(optionKeyword) || String((option as { label?: string }).label ?? "").toLowerCase().includes(optionKeyword)),
+  };
+}
+
+export async function listSettlementProjects(params: URLSearchParams) {
+  const { pageSize, requestedPage } = pageParams(params);
+  const values: Row = {};
+  const conditions = settlementListConditions(params, values);
+  for (const [field, expression] of Object.entries(settlementListExpressions)) {
+    appendTableInFilter(conditions, values, expression, field, params);
+  }
   const where = `WHERE ${conditions.join(" AND ")}`;
   const [{ total }] = await queryRows<{ total: number }>(
-    `SELECT COUNT(*) AS total FROM po_settlement_projects p LEFT JOIN common_customers c ON c.customerId = p.customerId ${where}`,
+    `SELECT COUNT(DISTINCT p.id) AS total FROM ${settlementListFrom} ${where}`,
     values,
   );
   const normalizedTotal = numeric(total);
   const totalPages = Math.max(1, Math.ceil(normalizedTotal / pageSize));
   const page = Math.min(requestedPage, totalPages);
   const rows = await queryRows<SettlementProject>(
-    `SELECT p.*, COALESCE(NULLIF(p.customerName, ''), c.name) AS customerName,
+    `SELECT p.*, ${quotedPurchaseCostExpression} AS quotedPurchaseCostUsd,
+            ${quotedSalesRevenueExpression} AS quotedSalesRevenueUsd,
+            COALESCE(NULLIF(p.customerName, ''), c.name) AS customerName,
             COALESCE(NULLIF(u.shortName, ''), NULLIF(u.entityName, ''), NULLIF(u.name, ''), NULLIF(p.contractingUnitName, ''), p.contractingUnitId, '') AS contractingUnitName
-       FROM po_settlement_projects p
-       LEFT JOIN common_customers c ON c.customerId = p.customerId
-       LEFT JOIN common_undertaking_units u
-         ON u.undertakingUnitId = p.contractingUnitId
-         OR u.undertakingUnitCode = p.contractingUnitId
-         OR u.entityCode = p.contractingUnitId
-      ${where} ORDER BY p.createdAt DESC, p.id DESC LIMIT :limit OFFSET :offset`,
+       FROM ${settlementListFrom}
+      ${where} ${getTableSort(params, settlementListExpressions) || "ORDER BY p.createdAt DESC, p.id DESC"} LIMIT :limit OFFSET :offset`,
     { ...values, limit: pageSize, offset: (page - 1) * pageSize },
   );
   return { items: rows.map(normalizeProject), total: normalizedTotal, page, pageSize, totalPages } satisfies SettlementPage<SettlementProject>;
@@ -510,7 +606,7 @@ export async function ensureSettlementProjectForQuotation(quotationId: string, a
     `SELECT q.id, q.quotationNo, q.projectName, q.customerId, c.name AS customerName,
             q.contractingUnitId,
             COALESCE(NULLIF(u.shortName, ''), NULLIF(u.entityName, ''), NULLIF(u.name, ''), q.contractingUnitId, '') AS contractingUnitName,
-            q.sourcePoId, q.remark, q.currency, q.status
+            q.sourcePoId, q.remark, q.currency, q.exchangeRateUsd, q.exchangeRateMxn, q.status
        FROM po_quotations q
        LEFT JOIN common_customers c ON c.customerId = q.customerId
        LEFT JOIN common_undertaking_units u
@@ -555,7 +651,7 @@ export async function ensureSettlementProjectForQuotation(quotationId: string, a
        createdByUserId, createdByName, updatedByUserId, updatedByName)
      VALUES
       (:id, :projectNo, :quotationId, :quotationNo, :projectName, :customerId, :customerName, :contractingUnitId, :contractingUnitName, :remark,
-       1, 1, 0, 0, 'purchasing', :createdByUserId, :createdByName, :updatedByUserId, :updatedByName)`,
+        :exchangeRateUsd, :exchangeRateMxn, 0, 0, 'purchasing', :createdByUserId, :createdByName, :updatedByUserId, :updatedByName)`,
     {
       id: projectId,
       projectNo,
@@ -567,6 +663,8 @@ export async function ensureSettlementProjectForQuotation(quotationId: string, a
       contractingUnitId: quotation.contractingUnitId,
       contractingUnitName: quotation.contractingUnitName,
       remark: quotation.remark,
+      exchangeRateUsd: numeric(quotation.exchangeRateUsd) || 1,
+      exchangeRateMxn: numeric(quotation.exchangeRateMxn) || 1,
       createdByUserId: audit.createdByUserId ?? null,
       createdByName: audit.createdByName ?? null,
       updatedByUserId: audit.updatedByUserId ?? null,
@@ -575,8 +673,12 @@ export async function ensureSettlementProjectForQuotation(quotationId: string, a
   );
   for (const item of items) {
     const quantity = numeric(item.quantity);
-    const quotationAmounts = settlementAmounts({ amount: numeric(item.amount) || quantity * numeric(item.unitPrice), currency: item.currency || quotation.currency || "USD", priceType: "tax_excluded", taxRate: 0 }, { exchangeRateUsd: 1, exchangeRateMxn: 1 });
-    const costAmounts = settlementAmounts({ amount: quantity * numeric(item.purchaseUnitPrice), currency: item.purchaseCurrency || "USD", priceType: "tax_excluded", taxRate: 0 }, { exchangeRateUsd: 1, exchangeRateMxn: 1 });
+    const quotedSalesRevenueUsd = item.revenueUsd === null || item.revenueUsd === undefined
+      ? numeric(item.amount) || quantity * numeric(item.unitPrice)
+      : numeric(item.revenueUsd);
+    const quotedWarehouseCostUsd = item.ddpTotalUsd === null || item.ddpTotalUsd === undefined
+      ? settlementAmounts({ amount: quantity * numeric(item.purchaseUnitPrice), currency: item.purchaseCurrency || "USD", priceType: "tax_excluded", taxRate: 0 }, { exchangeRateUsd: numeric(quotation.exchangeRateUsd) || 1, exchangeRateMxn: numeric(quotation.exchangeRateMxn) || 1 }).taxExcludedUsd
+      : numeric(item.ddpTotalUsd);
     await execute(
       `INSERT INTO po_settlement_items
         (id, projectId, quotationItemId, lineNo, productId, productCode, productName, brand, plannedQty, purchaseQty, purchaseUnitPrice,
@@ -588,7 +690,7 @@ export async function ensureSettlementProjectForQuotation(quotationId: string, a
         id: randomUUID(), projectId, quotationItemId: item.id, lineNo: items.indexOf(item) + 1, productId: item.productSpecId || item.productModelId || item.productMasterId,
         productCode: item.productCode, productName: item.productName, brand: item.brand, plannedQty: quantity,
         purchaseUnitPrice: numeric(item.purchaseUnitPrice), currency: validCurrency(item.purchaseCurrency) ? item.purchaseCurrency : "USD",
-        quotedWarehouseCostUsd: costAmounts.taxExcludedUsd, quotedSalesRevenueUsd: quotationAmounts.taxExcludedUsd,
+        quotedWarehouseCostUsd, quotedSalesRevenueUsd,
       },
     );
   }

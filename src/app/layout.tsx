@@ -37,7 +37,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
   }
 
   return (
-    <html data-embedded-page={embedded ? "1" : undefined} lang="zh-CN">
+    <html data-embedded-page={embedded ? "1" : undefined} lang="zh-CN" suppressHydrationWarning>
       <body>
         <AppShell embedded={embedded} isAdmin={currentUser?.role === "admin"} currentUserName={currentUser?.displayName ?? ""} initialModuleFeatureState={initialModuleFeatureState} initialPermissionState={initialPermissionState}>
           {children}
