@@ -164,6 +164,48 @@ const ROOT_DEFINITIONS: PermissionDefinition[] = [
   { moduleKey: "domain:public", title: "公共功能", level: 1, kind: "domain", domainKey: "common" },
 ];
 
+// Permission cookies use short stable tokens instead of repeating long domain and group keys.
+// The full keys remain the canonical values used by route checks and the database.
+const permissionKeySet = new Set<string>(ROOT_DEFINITIONS.map((definition) => definition.moduleKey));
+for (const [moduleKey, groupTitle] of Object.entries(MODULE_GROUP)) {
+  const domainKey = MODULE_DOMAIN[moduleKey] ?? "power";
+  const rootKey = MODULE_ROOT[moduleKey] ?? `domain:${domainKey}`;
+  permissionKeySet.add(`group:${rootKey}:${groupTitle}`);
+  permissionKeySet.add(moduleKey);
+}
+
+const permissionKeyList = [...permissionKeySet];
+const permissionKeyToToken = new Map(permissionKeyList.map((key, index) => [key, index.toString(36)]));
+const permissionTokenToKey = new Map(permissionKeyList.map((key, index) => [index.toString(36), key]));
+
+function encodeBase64Url(value: string) {
+  const bytes = new TextEncoder().encode(value);
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
+}
+
+function decodeBase64Url(value: string) {
+  const base64 = value.replaceAll("-", "+").replaceAll("_", "/").padEnd(Math.ceil(value.length / 4) * 4, "=");
+  const binary = atob(base64);
+  return new TextDecoder().decode(Uint8Array.from(binary, (character) => character.charCodeAt(0)));
+}
+
+export function permissionKeyToken(key: string) {
+  return permissionKeyToToken.get(key) ?? `x${encodeBase64Url(key)}`;
+}
+
+export function permissionKeyFromToken(token: string) {
+  const knownKey = permissionTokenToKey.get(token);
+  if (knownKey) return knownKey;
+  if (!token.startsWith("x")) return null;
+  try {
+    return decodeBase64Url(token.slice(1)) || null;
+  } catch {
+    return null;
+  }
+}
+
 const PERMISSION_GROUP_ORDER: Record<string, string[]> = {
   "domain:power": ["客户需求", "采购管理", "合同管理", "物流管理", "财务管理", "基础信息", "数据工具", "隐藏"],
   "domain:po": ["客户PO", "项目结算", "财务管理", "产品管理", "采购管理", "隐藏"],

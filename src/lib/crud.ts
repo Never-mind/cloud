@@ -1,5 +1,5 @@
 import { randomUUID } from "crypto";
-import { execute, queryRows, type Row } from "./db";
+import { execute, hasTableColumn, INTERNAL_ID_COLUMN, queryRows, type Row } from "./db";
 import { attachPartyCodes } from "./party-display";
 import type { EntityConfig } from "./modules";
 import { DEFAULT_PAGE_SIZE, getKnownTotal, normalizePageSize } from "./pagination";
@@ -35,7 +35,54 @@ function getWritableFields(config: EntityConfig) {
 }
 
 function getInsertFields(config: EntityConfig) {
-  return Array.from(new Set([config.primaryKey, ...getWritableFields(config)]));
+  return Array.from(new Set([getPublicKey(config), ...getWritableFields(config)]));
+}
+
+function getPublicKey(config: EntityConfig) {
+  return config.primaryKey;
+}
+
+function getStorageKey(config: EntityConfig) {
+  return config.storagePrimaryKey ?? INTERNAL_ID_COLUMN;
+}
+
+type EntityLocator = {
+  field: string;
+  value: string;
+};
+
+async function resolveEntityLocator(config: EntityConfig, id: string): Promise<EntityLocator> {
+  const storageKey = getStorageKey(config);
+  if (!(await hasTableColumn(config.table, storageKey))) {
+    return { field: getPublicKey(config), value: id };
+  }
+
+  const publicKey = getPublicKey(config);
+  const publicRows = await queryRows<Row>(
+    `SELECT ${quoteIdentifier(storageKey)} AS storageKey
+       FROM ${quoteIdentifier(config.table)}
+      WHERE ${quoteIdentifier(publicKey)} = :publicKey
+      LIMIT 1`,
+    { publicKey: id },
+  );
+  if (publicRows[0]?.storageKey !== null && publicRows[0]?.storageKey !== undefined) {
+    return { field: storageKey, value: String(publicRows[0].storageKey) };
+  }
+
+  if (/^[1-9]\d*$/.test(id)) {
+    const internalRows = await queryRows<Row>(
+      `SELECT ${quoteIdentifier(storageKey)} AS storageKey
+         FROM ${quoteIdentifier(config.table)}
+        WHERE ${quoteIdentifier(storageKey)} = :storageKey
+        LIMIT 1`,
+      { storageKey: Number(id) },
+    );
+    if (internalRows[0]?.storageKey !== null && internalRows[0]?.storageKey !== undefined) {
+      return { field: storageKey, value: String(internalRows[0].storageKey) };
+    }
+  }
+
+  return { field: publicKey, value: id };
 }
 
 const shipmentDisplayFields = new Set([
@@ -270,6 +317,9 @@ export async function listEntityRows(config: EntityConfig, searchParams: URLSear
         `]
       : [])
     .join(", ");
+  const internalIdField = await hasTableColumn(config.table, getStorageKey(config))
+    ? `${fieldReference(getStorageKey(config))} AS ${quoteIdentifier(getStorageKey(config))}`
+    : "";
   const whereParts: string[] = [];
   const params: Row = {};
 
@@ -414,8 +464,9 @@ export async function listEntityRows(config: EntityConfig, searchParams: URLSear
   const page = Math.min(requestedPage, totalPages);
   params.limit = pageSize;
   params.offset = (page - 1) * pageSize;
+  const selectFields = [internalIdField, selectedFields].filter(Boolean).join(", ");
   const rows = await queryRows(
-    `SELECT ${selectedFields} FROM ${tableSource} ${where} ${orderBy} LIMIT :limit OFFSET :offset`,
+    `SELECT ${selectFields} FROM ${tableSource} ${where} ${orderBy} LIMIT :limit OFFSET :offset`,
     params,
   );
 
@@ -927,7 +978,8 @@ async function enrichServiceFeeSnapshotParties(rows: Row[]) {
 
 export async function getEntityRow(config: EntityConfig, id: string) {
   const table = quoteIdentifier(config.table);
-  const primaryKey = quoteIdentifier(config.primaryKey);
+  const locator = await resolveEntityLocator(config, id);
+  const locatorField = quoteIdentifier(locator.field);
   const derivedRequestType = getEntityDisplayFieldExpression(config, "requestType");
   const detailDisplayFields = config.key === "quotations"
     ? ["contractingUnitName", "customerName"]
@@ -941,8 +993,8 @@ export async function getEntityRow(config: EntityConfig, id: string) {
     .join(", ");
   const extraFields = [derivedRequestType ? `${derivedRequestType} AS ${quoteIdentifier("requestType")}` : "", detailDisplayExpressions].filter(Boolean).join(", ");
   const rows = await queryRows(
-    `SELECT *${extraFields ? `, ${extraFields}` : ""} FROM ${table} WHERE ${primaryKey} = :id LIMIT 1`,
-    { id },
+    `SELECT *${extraFields ? `, ${extraFields}` : ""} FROM ${table} WHERE ${locatorField} = :id LIMIT 1`,
+    { id: locator.value },
   );
   return rows[0] ? normalizeQuotationPartyRow(config, rows[0]) : null;
 }
@@ -951,22 +1003,23 @@ export async function createEntityRow(config: EntityConfig, body: Row) {
   const normalizedBody = await normalizeEntityBody(config, withPrimaryKey(config, body));
   const nextBody = await assignCustomerPoItemLineNo(config, normalizedBody);
   validateRequiredFields(config, nextBody);
-  const fields = getInsertFields(config);
+  const fields = getInsertFields(config).filter((field) => field !== getStorageKey(config));
   const table = quoteIdentifier(config.table);
   const columns = fields.map(quoteIdentifier).join(", ");
   const values = fields.map((field) => `:${field}`).join(", ");
   const params = Object.fromEntries(fields.map((field) => [field, getPersistenceValue(config, field, nextBody[field])]));
 
-  await clearOtherDefaultRelationRows(config, nextBody, String(nextBody[config.primaryKey] ?? ""));
+  await clearOtherDefaultRelationRows(config, nextBody, String(nextBody[getPublicKey(config)] ?? ""));
   await execute(`INSERT INTO ${table} (${columns}) VALUES (${values})`, params);
   await syncPrimaryContact(config, nextBody);
-  return getEntityRow(config, String(nextBody[config.primaryKey]));
+  return getEntityRow(config, String(nextBody[getPublicKey(config)]));
 }
 
 export async function updateEntityRow(config: EntityConfig, id: string, body: Row) {
-  const fields = getWritableFields(config).filter((field) => field !== config.primaryKey);
+  const fields = getWritableFields(config).filter((field) => field !== getPublicKey(config) && field !== getStorageKey(config));
   const table = quoteIdentifier(config.table);
-  const primaryKey = quoteIdentifier(config.primaryKey);
+  const locator = await resolveEntityLocator(config, id);
+  const locatorField = quoteIdentifier(locator.field);
   const assignments = fields.map((field) => `${quoteIdentifier(field)} = :${field}`).join(", ");
   const previousRow = config.key === "customer-po-items" ? await getEntityRow(config, id) : null;
   const nextBody = await normalizeEntityBody(config, body);
@@ -979,9 +1032,9 @@ export async function updateEntityRow(config: EntityConfig, id: string, body: Ro
   const params = Object.fromEntries(fields.map((field) => [field, getPersistenceValue(config, field, nextBody[field])]));
 
   await clearOtherDefaultRelationRows(config, nextBody, id);
-  await execute(`UPDATE ${table} SET ${assignments} WHERE ${primaryKey} = :id`, {
+  await execute(`UPDATE ${table} SET ${assignments} WHERE ${locatorField} = :id`, {
     ...params,
-    id,
+    id: locator.value,
   });
   await syncPrimaryContact(config, nextBody);
   if (previousBody) await syncPrimaryContact(config, previousBody);
@@ -1056,9 +1109,11 @@ async function clearOtherDefaultRelationRows(config: EntityConfig, body: Row, cu
   const ownerField = config.formFields.find((field) => field.key.endsWith("Id") && field.key !== config.primaryKey)?.key ?? "";
   if (!defaultField || !ownerField || !body[ownerField] || !body[defaultField]) return;
 
+  const locator = await resolveEntityLocator(config, currentId);
+
   await execute(
-    `UPDATE ${quoteIdentifier(config.table)} SET ${quoteIdentifier(defaultField)} = 0 WHERE ${quoteIdentifier(ownerField)} = :ownerId AND ${quoteIdentifier(config.primaryKey)} <> :currentId`,
-    { ownerId: body[ownerField], currentId },
+    `UPDATE ${quoteIdentifier(config.table)} SET ${quoteIdentifier(defaultField)} = 0 WHERE ${quoteIdentifier(ownerField)} = :ownerId AND ${quoteIdentifier(locator.field)} <> :currentId`,
+    { ownerId: body[ownerField], currentId: locator.value },
   );
 }
 
@@ -1097,9 +1152,10 @@ function getRequestConfig(): EntityConfig {
 
 export async function deleteEntityRow(config: EntityConfig, id: string) {
   const table = quoteIdentifier(config.table);
-  const primaryKey = quoteIdentifier(config.primaryKey);
+  const locator = await resolveEntityLocator(config, id);
+  const locatorField = quoteIdentifier(locator.field);
   const previousBody = config.key.endsWith("-contacts") ? await getEntityRow(config, id) : null;
-  await execute(`DELETE FROM ${table} WHERE ${primaryKey} = :id`, { id });
+  await execute(`DELETE FROM ${table} WHERE ${locatorField} = :id`, { id: locator.value });
   if (previousBody) await syncPrimaryContact(config, previousBody);
 }
 
@@ -1110,12 +1166,25 @@ export async function replaceEntityRows(config: EntityConfig, rows: Row[]) {
 }
 
 export async function upsertEntityRow(config: EntityConfig, row: Row) {
-  const existing = await getEntityRow(config, String(row[config.primaryKey]));
+  const identity = getRowIdentity(config, row);
+  if (!identity) {
+    await createEntityRow(config, row);
+    return;
+  }
+
+  const existing = await getEntityRow(config, identity);
   if (existing) {
-    await updateEntityRow(config, String(row[config.primaryKey]), row);
+    await updateEntityRow(config, identity, row);
   } else {
     await createEntityRow(config, row);
   }
+}
+
+function getRowIdentity(config: EntityConfig, row: Row) {
+  const publicValue = String(row[getPublicKey(config)] ?? "").trim();
+  if (publicValue) return publicValue;
+  const storageValue = String(row[getStorageKey(config)] ?? "").trim();
+  return storageValue;
 }
 
 async function enrichShipmentRows(rows: Row[]): Promise<Row[]> {

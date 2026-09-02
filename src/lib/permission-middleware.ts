@@ -1,5 +1,5 @@
 import { AUTH_PERMISSION_COOKIE_NAME, AUTH_SESSION_VALUE } from "./auth-session";
-import type { PermissionState } from "./permission-definitions";
+import { permissionKeyFromToken, type PermissionState } from "./permission-definitions";
 
 export { AUTH_PERMISSION_COOKIE_NAME } from "./auth-session";
 
@@ -29,9 +29,20 @@ export async function decodePermissionState(value: string | undefined | null): P
     const valid = await crypto.subtle.verify("HMAC", key, hexToBytes(signature), new TextEncoder().encode(encoded));
     if (!valid) return null;
     const bytes = Uint8Array.from(decodeBase64Url(encoded), (character) => character.charCodeAt(0));
-    const parsed = JSON.parse(new TextDecoder().decode(bytes)) as PermissionState;
-    if (!parsed || typeof parsed.role !== "string" || !parsed.grants || typeof parsed.grants !== "object") return null;
-    return { role: parsed.role, grants: Object.fromEntries(Object.entries(parsed.grants).filter(([, mask]) => typeof mask === "number")) };
+    const parsed = JSON.parse(new TextDecoder().decode(bytes)) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    const value = parsed as Record<string, unknown>;
+    if (value.v === 2 && typeof value.r === "string" && Array.isArray(value.g)) {
+      const grants: Record<string, number> = {};
+      for (const item of value.g) {
+        if (!Array.isArray(item) || typeof item[0] !== "string" || typeof item[1] !== "number") continue;
+        const key = permissionKeyFromToken(item[0]);
+        if (key) grants[key] = item[1];
+      }
+      return { role: value.r, grants };
+    }
+    if (typeof value.role !== "string" || !value.grants || typeof value.grants !== "object" || Array.isArray(value.grants)) return null;
+    return { role: value.role, grants: Object.fromEntries(Object.entries(value.grants).filter(([, mask]) => typeof mask === "number")) };
   } catch {
     return null;
   }

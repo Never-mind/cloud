@@ -20,7 +20,10 @@ export type EntityConfig = {
   key: string;
   title: string;
   table: string;
+  /** Public UUID, business number, or legacy key used by URLs and imports. */
   primaryKey: string;
+  /** Physical database key. Defaults to internalId after the controlled migration. */
+  storagePrimaryKey?: string;
   uniqueKeys?: string[];
   navGroup: string;
   route: string;

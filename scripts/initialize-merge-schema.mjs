@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import { pbkdf2Sync, randomBytes } from "node:crypto";
 import mysql from "mysql2/promise";
 import { applyChineseComments } from "./database-comments.mjs";
+import { buildForwardSql, countRows, getTableMetadata, listMergeTables, primaryColumns } from "./internal-id-common.mjs";
 
 const database = process.env.DB_NAME ?? "merge";
 const connection = await mysql.createConnection({
@@ -14,6 +15,10 @@ const connection = await mysql.createConnection({
 });
 
 const LEGACY_TABLE_PREFIXES = ["power_", "po_", "cloud_", "common_"];
+const INTERNAL_ID_COLUMN = "internalId";
+const MAX_UNSIGNED_INT_ROWS = 4_294_967_294;
+const mergeTablesBeforeInitialize = await listMergeTables(connection);
+const isFreshMergeDatabase = mergeTablesBeforeInitialize.length === 0;
 
 function physicalTableName(tableName) {
   const normalized = String(tableName).toLowerCase();
@@ -1085,6 +1090,44 @@ async function ensureCloudSupplierPaymentColumns() {
   ]) await ensureColumn("cloud_supplier_payments", columnName, definition);
 }
 
+async function ensureInternalIdSchema() {
+  const tables = await listMergeTables(connection);
+  const pending = [];
+
+  for (const tableName of tables) {
+    const metadata = await getTableMetadata(connection, tableName);
+    const primary = primaryColumns(metadata);
+    if (!primary.length) throw new Error(`${tableName} 没有现有主键，无法初始化 internalId`);
+    if (metadata.internalId && primary.length === 1 && primary[0] === INTERNAL_ID_COLUMN) continue;
+
+    const rows = await countRows(connection, tableName);
+    if (rows > MAX_UNSIGNED_INT_ROWS) {
+      throw new Error(`${tableName} 有 ${rows} 行，超过 INT UNSIGNED 可用范围`);
+    }
+    pending.push({ tableName, metadata, rows });
+  }
+
+  if (!pending.length) return;
+
+  const applyRequested = process.env.APPLY_INTERNAL_ID_MIGRATION === "1";
+  if (!applyRequested && !isFreshMergeDatabase) {
+    throw new Error(
+      `检测到已有 merge_* 表尚未迁移 internalId。请先备份数据库和 uploads/，确认维护窗口后设置 APPLY_INTERNAL_ID_MIGRATION=1 再执行 schema:init-merge；本次未修改这些表。`,
+    );
+  }
+
+  let operationCount = 0;
+  for (const { tableName, metadata } of pending) {
+    const statements = buildForwardSql(metadata).filter((statement) => statement.trim() && !statement.trimStart().startsWith("--"));
+    for (const statement of statements) {
+      await connection.query(statement);
+      operationCount += 1;
+    }
+    console.log(`internalId 初始化完成：${tableName}`);
+  }
+  console.log(`internalId 初始化完成：处理 ${pending.length} 张表，执行 ${operationCount} 个结构操作。`);
+}
+
 try {
   const powerSchema = (await fs.readFile(new URL("../schema.sql", import.meta.url), "utf8"))
     .replaceAll("`suanli`", `\`${database}\``)
@@ -1163,6 +1206,7 @@ try {
   await connection.query(prefixSchemaTables(cloudSchema));
   await ensureCloudRowColumns();
   await ensureCloudSupplierPaymentColumns();
+  await ensureInternalIdSchema();
   await connection.execute(
     `INSERT IGNORE INTO ${physicalTableName("common_users")}
       (userId, displayName, email, passwordHash, passwordSalt, role, status)

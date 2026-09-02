@@ -24,7 +24,13 @@ export function LoginPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
       });
-      const data = await response.json();
+      const responseText = await response.text();
+      let data: { error?: string } = {};
+      try {
+        data = JSON.parse(responseText) as { error?: string };
+      } catch {
+        throw new Error(`登录服务返回异常（HTTP ${response.status}）`);
+      }
       if (!response.ok) {
         throw new Error(data.error || "登录失败");
       }

@@ -3,13 +3,19 @@ import type { QueryResult } from "mysql2";
 
 type DbGlobal = typeof globalThis & {
   __suanliDbPool?: mysql.Pool | null;
+  __suanliDbSchemaColumnCache?: Map<string, boolean>;
 };
 
 const dbGlobal = globalThis as DbGlobal;
 const DB_COUNT_CACHE_MS = 5_000;
 const countQueryCache = new Map<string, { expiresAt: number; rows: QueryResult }>();
+const schemaColumnCache = dbGlobal.__suanliDbSchemaColumnCache ?? new Map<string, boolean>();
+dbGlobal.__suanliDbSchemaColumnCache = schemaColumnCache;
 
 export const DB_TABLE_PREFIX = "merge_power_";
+// internalId is the physical InnoDB primary key introduced by the controlled
+// migration. Public UUIDs and business numbers remain the API identity.
+export const INTERNAL_ID_COLUMN = "internalId";
 export const DB_TABLE_PREFIXES = ["merge_power_", "merge_po_", "merge_cloud_", "merge_common_"] as const;
 const LEGACY_DB_TABLE_PREFIXES = ["power_", "po_", "cloud_", "common_"] as const;
 
@@ -133,6 +139,30 @@ export async function closeDb() {
     await dbGlobal.__suanliDbPool.end();
     dbGlobal.__suanliDbPool = null;
   }
+}
+
+export async function hasTableColumn(tableName: string, columnName: string) {
+  const physicalName = physicalTableName(tableName);
+  const cacheKey = `${buildDbConfig(process.env).database}:${physicalName}:${columnName}`;
+  const cached = schemaColumnCache.get(cacheKey);
+  if (cached !== undefined) return cached;
+
+  const [rows] = await getDb().query<QueryResult>(
+    `SELECT 1 AS present
+       FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = :tableName
+        AND COLUMN_NAME = :columnName
+      LIMIT 1`,
+    { tableName: physicalName, columnName } as any,
+  );
+  const present = Array.isArray(rows) && rows.length > 0;
+  schemaColumnCache.set(cacheKey, present);
+  return present;
+}
+
+export function clearDbMetadataCache() {
+  schemaColumnCache.clear();
 }
 
 export async function queryRows<T extends Row>(sql: string, params: Row = {}): Promise<T[]> {

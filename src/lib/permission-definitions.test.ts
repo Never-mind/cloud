@@ -61,6 +61,22 @@ describe("permission definitions", () => {
     expect(decodePermissionState(`${encoded}x`)).toBeNull();
   });
 
+  it("round-trips a full ordinary-user permission matrix in compact form", () => {
+    const definitions = getPermissionDefinitions([
+      { key: "customers", title: "客户管理", navGroup: "业务伙伴" },
+      { key: "requests", title: "需求单", navGroup: "客户需求" },
+      { key: "purchase-orders", title: "采购订单", navGroup: "采购管理" },
+      { key: "huawei-cloud", title: "华为云对账", navGroup: "华为云对账" },
+    ]);
+    const grants = Object.fromEntries(definitions.map((definition) => [definition.moduleKey, 127]));
+    const encoded = encodePermissionState({ role: "user", grants });
+    const payloadLength = encoded.slice(0, encoded.indexOf(".")).length;
+    const legacyPayloadLength = Buffer.from(JSON.stringify({ role: "user", grants }), "utf8").toString("base64url").length;
+
+    expect(payloadLength).toBeLessThan(legacyPayloadLength);
+    expect(decodePermissionState(encoded)).toEqual({ role: "user", grants });
+  });
+
   it("includes first, second and third-level permission entries", () => {
     const definitions = getPermissionDefinitions([
       { key: "customers", title: "客户管理", navGroup: "基础信息" },
