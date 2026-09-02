@@ -110,6 +110,9 @@ export type SettlementInvoice = {
   accountingDate: string | null;
   companyEntity: string | null;
   invoiceEntity: string | null;
+  companyEntityId: string | null;
+  invoiceEntityId: string | null;
+  invoiceEntityType: "supplier" | "customer" | null;
   invoiceDate: string | null;
   invoiceNo: string | null;
   invoiceTotal: number;
@@ -119,6 +122,7 @@ export type SettlementInvoice = {
   currency: SettlementCurrency;
   exchangeRate: number;
   usdAmount: number;
+  receivableDate: string | null;
   isPaid: boolean;
   isInvoiced: boolean;
   attachments?: SettlementAttachment[];
@@ -839,15 +843,16 @@ function invoiceValues(projectId: string, input: Record<string, unknown>) {
   const invoiceTaxAmount = round(invoiceTotal - invoiceTaxExcludedTotal);
   const exchangeRate = numeric(input.exchangeRate, 1) || 1;
   const usdAmount = round((type === "cost" ? -1 : 1) * invoiceTaxExcludedTotal / exchangeRate);
-  return { type, accountPeriod: text(input.accountPeriod) || null, accountingDate: text(input.accountingDate) || null, companyEntity: text(input.companyEntity) || null, invoiceEntity: text(input.invoiceEntity) || null, invoiceDate: text(input.invoiceDate) || null, invoiceNo: text(input.invoiceNo) || null, invoiceTotal, invoiceTaxExcludedTotal, taxRate, invoiceTaxAmount, currency, exchangeRate, usdAmount, isPaid: input.isPaid ? 1 : 0, isInvoiced: input.isInvoiced ? 1 : 0 };
+  const invoiceEntityType = text(input.invoiceEntityType) === "supplier" || text(input.invoiceEntityType) === "customer" ? text(input.invoiceEntityType) as "supplier" | "customer" : null;
+  return { type, accountPeriod: text(input.accountPeriod) || null, accountingDate: text(input.accountingDate) || null, companyEntity: text(input.companyEntity) || null, invoiceEntity: text(input.invoiceEntity) || null, companyEntityId: text(input.companyEntityId) || null, invoiceEntityId: text(input.invoiceEntityId) || null, invoiceEntityType, invoiceDate: text(input.invoiceDate) || null, invoiceNo: text(input.invoiceNo) || null, invoiceTotal, invoiceTaxExcludedTotal, taxRate, invoiceTaxAmount, currency, exchangeRate, usdAmount, isPaid: input.isPaid ? 1 : 0, isInvoiced: input.isInvoiced ? 1 : 0, receivableDate: text(input.receivableDate) || null };
 }
 
 export async function addSettlementInvoice(projectId: string, input: Record<string, unknown>, actor: OperationActor | null) {
   const project = await getProject(projectId); assertEditable(project);
   const values = invoiceValues(projectId, input);
   await execute(
-    `INSERT INTO merge_po_settlement_invoices (id,projectId,type,accountPeriod,accountingDate,companyEntity,invoiceEntity,invoiceDate,invoiceNo,invoiceTotal,invoiceTaxExcludedTotal,taxRate,invoiceTaxAmount,currency,exchangeRate,usdAmount,isPaid,isInvoiced)
-     VALUES (:id,:projectId,:type,:accountPeriod,:accountingDate,:companyEntity,:invoiceEntity,:invoiceDate,:invoiceNo,:invoiceTotal,:invoiceTaxExcludedTotal,:taxRate,:invoiceTaxAmount,:currency,:exchangeRate,:usdAmount,:isPaid,:isInvoiced)`,
+    `INSERT INTO merge_po_settlement_invoices (id,projectId,type,accountPeriod,accountingDate,companyEntity,invoiceEntity,companyEntityId,invoiceEntityId,invoiceEntityType,invoiceDate,invoiceNo,invoiceTotal,invoiceTaxExcludedTotal,taxRate,invoiceTaxAmount,currency,exchangeRate,usdAmount,isPaid,isInvoiced,receivableDate)
+     VALUES (:id,:projectId,:type,:accountPeriod,:accountingDate,:companyEntity,:invoiceEntity,:companyEntityId,:invoiceEntityId,:invoiceEntityType,:invoiceDate,:invoiceNo,:invoiceTotal,:invoiceTaxExcludedTotal,:taxRate,:invoiceTaxAmount,:currency,:exchangeRate,:usdAmount,:isPaid,:isInvoiced,:receivableDate)`,
     { id: randomUUID(), projectId, ...values },
   );
   return touchAndRecalculate(projectId, actor);
@@ -859,7 +864,7 @@ export async function updateSettlementInvoice(projectId: string, invoiceId: stri
   if (!invoice) throw new Error("发票不存在");
   const values = invoiceValues(projectId, input);
   await execute(
-    `UPDATE merge_po_settlement_invoices SET type=:type,accountPeriod=:accountPeriod,accountingDate=:accountingDate,companyEntity=:companyEntity,invoiceEntity=:invoiceEntity,invoiceDate=:invoiceDate,invoiceNo=:invoiceNo,invoiceTotal=:invoiceTotal,invoiceTaxExcludedTotal=:invoiceTaxExcludedTotal,taxRate=:taxRate,invoiceTaxAmount=:invoiceTaxAmount,currency=:currency,exchangeRate=:exchangeRate,usdAmount=:usdAmount,isPaid=:isPaid,isInvoiced=:isInvoiced WHERE id=:id AND projectId=:projectId`,
+    `UPDATE merge_po_settlement_invoices SET type=:type,accountPeriod=:accountPeriod,accountingDate=:accountingDate,companyEntity=:companyEntity,invoiceEntity=:invoiceEntity,companyEntityId=:companyEntityId,invoiceEntityId=:invoiceEntityId,invoiceEntityType=:invoiceEntityType,invoiceDate=:invoiceDate,invoiceNo=:invoiceNo,invoiceTotal=:invoiceTotal,invoiceTaxExcludedTotal=:invoiceTaxExcludedTotal,taxRate=:taxRate,invoiceTaxAmount=:invoiceTaxAmount,currency=:currency,exchangeRate=:exchangeRate,usdAmount=:usdAmount,isPaid=:isPaid,isInvoiced=:isInvoiced,receivableDate=:receivableDate WHERE id=:id AND projectId=:projectId`,
     { id: invoiceId, projectId, ...values },
   );
   return touchAndRecalculate(projectId, actor);

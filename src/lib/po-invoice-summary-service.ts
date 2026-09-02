@@ -19,6 +19,10 @@ export type PoInvoiceSummaryRow = {
   accountingDate: string | null;
   companyEntity: string | null;
   invoiceEntity: string | null;
+  companyEntityId: string | null;
+  invoiceEntityId: string | null;
+  invoiceEntityType: "supplier" | "customer" | null;
+  receivableDate: string | null;
   invoiceDate: string | null;
   invoiceNo: string | null;
   invoiceTotal: number;
@@ -74,6 +78,7 @@ const filterExpressions: Record<string, string> = {
   accountingDate: "i.accountingDate",
   companyEntity: "i.companyEntity",
   invoiceEntity: "i.invoiceEntity",
+  receivableDate: "i.receivableDate",
   invoiceDate: "i.invoiceDate",
   invoiceNo: "i.invoiceNo",
   invoiceTotal: "i.invoiceTotal",
@@ -187,6 +192,10 @@ function normalizeRow(row: Row): PoInvoiceSummaryRow {
     accountingDate: dateText(row.accountingDate),
     companyEntity: text(row.companyEntity) || null,
     invoiceEntity: text(row.invoiceEntity) || null,
+    companyEntityId: text(row.companyEntityId) || null,
+    invoiceEntityId: text(row.invoiceEntityId) || null,
+    invoiceEntityType: text(row.invoiceEntityType) === "supplier" || text(row.invoiceEntityType) === "customer" ? text(row.invoiceEntityType) as "supplier" | "customer" : null,
+    receivableDate: dateText(row.receivableDate),
     invoiceDate: dateText(row.invoiceDate),
     invoiceNo: text(row.invoiceNo) || null,
     invoiceTotal: numeric(row.invoiceTotal),
@@ -299,14 +308,15 @@ function exportRow(row: PoInvoiceSummaryRow) {
     项目单号: row.projectNo,
     报价单号: row.quotationNo,
     项目名称: row.projectName,
-    承接单位: row.contractingUnitShortName,
+    项目承接单位: row.contractingUnitShortName,
     客户: row.customerShortName,
     项目状态: row.projectStatus,
     类型: row.type === "income" ? "收入" : "成本",
     账期: row.accountPeriod || "",
     财务记账日期: row.accountingDate || "",
-    公司主体: row.companyEntity || "",
-    发票主体: row.invoiceEntity || "",
+    承接单位: row.companyEntity || "",
+    供应商或客户: row.invoiceEntity || "",
+    应收日期: row.receivableDate || "",
     发票日期: row.invoiceDate || "",
     发票号: row.invoiceNo || "",
     发票总额: money(row.invoiceTotal),

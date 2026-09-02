@@ -229,6 +229,24 @@ async function main() {
     "isInvoiced",
     "`isInvoiced` TINYINT(1) NOT NULL DEFAULT 0 COMMENT 'whether invoice has been issued' AFTER `isPaid`",
   );
+  for (const [columnName, ddl] of [
+    ["companyEntityId", "`companyEntityId` VARCHAR(64) NULL COMMENT 'undertaking unit id' AFTER `companyEntity`"],
+    ["invoiceEntityId", "`invoiceEntityId` VARCHAR(64) NULL COMMENT 'supplier or customer id' AFTER `invoiceEntity`"],
+    ["invoiceEntityType", "`invoiceEntityType` VARCHAR(20) NULL COMMENT 'invoice entity type' AFTER `invoiceEntityId`"],
+    ["receivableDate", "`receivableDate` DATE NULL COMMENT '应收日期' AFTER `invoiceDate`"],
+  ] as const) {
+    await addColumnIfMissing("merge_po_settlement_invoices", columnName, ddl);
+  }
+  await addColumnIfMissing(
+    "merge_cloud_rows",
+    "receivableDate",
+    "`receivableDate` DATE NULL COMMENT '应收日期' AFTER `collectionDate`",
+  );
+  await addColumnIfMissing(
+    "merge_cloud_supplier_payments",
+    "receivableDate",
+    "`receivableDate` DATE NULL COMMENT '应收日期' AFTER `paymentDate`",
+  );
 
   for (const [columnName, ddl] of [
     ["brand", "`brand` VARCHAR(255) NULL"],
@@ -1374,6 +1392,7 @@ async function main() {
   await addColumnIfMissing("servicefeesnapshots", "invoiceAmountExcludingTax", "`invoiceAmountExcludingTax` DECIMAL(18, 4) NULL COMMENT 'invoice amount VAT excluded' AFTER `invoicePayerCustomerId`");
   await addColumnIfMissing("servicefeesnapshots", "invoiceVatRate", "`invoiceVatRate` DECIMAL(10, 6) NULL COMMENT 'invoice VAT rate' AFTER `invoiceAmountExcludingTax`");
   await addColumnIfMissing("servicefeesnapshots", "invoiceAmountIncludingTax", "`invoiceAmountIncludingTax` DECIMAL(18, 4) NULL COMMENT 'invoice amount VAT included' AFTER `invoiceVatRate`");
+  await addColumnIfMissing("servicefeesnapshots", "receivableDate", "`receivableDate` DATE NULL COMMENT '应收日期' AFTER `invoiceAmountIncludingTax`");
   await addColumnIfMissing("servicefeesnapshots", "serviceFeeTotalExcludingTax", "`serviceFeeTotalExcludingTax` DECIMAL(18, 4) NULL COMMENT 'service fee total VAT excluded' AFTER `serviceFeeTotal`");
   await addColumnIfMissing("servicefeesnapshots", "vatRate", "`vatRate` DECIMAL(10, 6) NULL COMMENT 'VAT rate snapshot' AFTER `serviceFeeTotalExcludingTax`");
   await modifyColumnIfPresent(

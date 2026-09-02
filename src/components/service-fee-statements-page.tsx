@@ -45,6 +45,7 @@ type InvoiceDraft = {
   invoiceAmountExcludingTax: string;
   invoiceVatRate: string;
   invoiceAmountIncludingTax: string;
+  receivableDate: string;
 };
 
 const columns: Array<{ key: string; label: string; type?: string }> = [
@@ -179,6 +180,7 @@ export function ServiceFeeStatementsPage() {
       invoiceAmountExcludingTax: String(row.invoiceAmountExcludingTax ?? ""),
       invoiceVatRate: formatRateInput(row.invoiceVatRate),
       invoiceAmountIncludingTax: String(row.invoiceAmountIncludingTax ?? ""),
+      receivableDate: String(row.receivableDate ?? "").slice(0, 10),
     });
   }
 
@@ -255,6 +257,7 @@ export function ServiceFeeStatementsPage() {
           invoiceAmountExcludingTax: nullableNumber(invoiceDraft.invoiceAmountExcludingTax),
           invoiceVatRate: parseRateInput(invoiceDraft.invoiceVatRate),
           invoiceAmountIncludingTax: nullableNumber(invoiceDraft.invoiceAmountIncludingTax),
+          receivableDate: invoiceDraft.receivableDate || null,
         }),
       });
       const data = await response.json().catch(() => ({}));
@@ -552,6 +555,7 @@ export function ServiceFeeStatementsPage() {
                                 excludingTax={row.invoiceAmountExcludingTax}
                                 vatRate={row.invoiceVatRate}
                                 includingTax={row.invoiceAmountIncludingTax}
+                                receivableDate={row.receivableDate}
                                 partyFlow={formatPartyFlow(
                                   firstNonBlankValue(row.invoicePayerCustomerCode, row.customerName),
                                   firstNonBlankValue(row.invoiceReceivingUnitCode, row.undertakingUnitName),
@@ -773,6 +777,9 @@ export function ServiceFeeStatementsPage() {
               <RepaymentField label="发票含税金额">
                 <Input className="w-full min-w-0" type="number" step="0.01" value={invoiceDraft.invoiceAmountIncludingTax} onChange={(event) => updateInvoiceTaxField("includingTax", event.target.value)} />
               </RepaymentField>
+              <RepaymentField label="应收日期">
+                <Input className="w-full min-w-0" type="date" value={invoiceDraft.receivableDate} onChange={(event) => setInvoiceDraft((current) => current ? { ...current, receivableDate: event.target.value } : current)} />
+              </RepaymentField>
             </div>
             <div className="flex justify-end gap-2 border-t border-[#ebeef5] px-5 py-4">
               <Button onClick={() => setInvoiceDraft(null)}>取消</Button>
@@ -864,6 +871,7 @@ function AmountSummary({
   excludingTax,
   vatRate,
   includingTax,
+  receivableDate,
   partyFlow,
   action,
 }: {
@@ -871,6 +879,7 @@ function AmountSummary({
   excludingTax: unknown;
   vatRate: unknown;
   includingTax: unknown;
+  receivableDate?: unknown;
   partyFlow?: string;
   action?: ReactNode;
 }) {
@@ -883,6 +892,7 @@ function AmountSummary({
   return (
     <div className="min-w-[135px] space-y-0.5 text-xs leading-4 text-[#606266]">
       {partyFlow ? <div className="max-w-[190px] truncate text-[11px] text-[#909399]" title={partyFlow}>{partyFlow}</div> : null}
+      {receivableDate ? <div className="text-[#909399]">应收日期 <span className="text-[#606266]">{String(receivableDate).slice(0, 10)}</span></div> : null}
       <div className="font-semibold text-[#2f75b5]">{String(currency ?? "").trim() || "-"}</div>
       <div><span className="text-[#909399]">未税 </span>{formatCompactMoney(resolvedNet)}</div>
       <div><span className="text-[#909399]">税率 </span>{formatCompactRate(rate)}</div>

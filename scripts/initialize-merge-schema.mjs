@@ -669,7 +669,11 @@ CREATE TABLE IF NOT EXISTS po_settlement_invoices (
   accountingDate DATE NULL,
   companyEntity VARCHAR(255) NULL,
   invoiceEntity VARCHAR(255) NULL,
+  companyEntityId VARCHAR(64) NULL,
+  invoiceEntityId VARCHAR(64) NULL,
+  invoiceEntityType VARCHAR(20) NULL,
   invoiceDate DATE NULL,
+  receivableDate DATE NULL,
   invoiceNo VARCHAR(100) NULL,
   invoiceTotal DECIMAL(18,4) NOT NULL DEFAULT 0,
   invoiceTaxExcludedTotal DECIMAL(18,4) NOT NULL DEFAULT 0,
@@ -760,6 +764,7 @@ CREATE TABLE IF NOT EXISTS cloud_rows (
   collectionTaxAmount DECIMAL(18,4) NULL,
   collectionTotalAmount DECIMAL(18,4) NULL,
   collectionDate DATE NULL,
+  receivableDate DATE NULL,
   collectionRegisteredAt DATETIME NULL,
   collectionProofFile VARCHAR(255) NULL,
   invoiceFile VARCHAR(255) NULL,
@@ -851,6 +856,7 @@ CREATE TABLE IF NOT EXISTS cloud_supplier_payments (
   paymentTaxAmount DECIMAL(18,4) NULL,
   paymentTotalAmount DECIMAL(18,4) NULL,
   paymentDate DATE NULL,
+  receivableDate DATE NULL,
   paymentRegisteredAt DATETIME NULL,
   invoiceNo VARCHAR(100) NULL,
   invoiceCurrency VARCHAR(10) NULL,
@@ -1067,6 +1073,7 @@ const cloudRowColumns = [
   ["invoiceTotalAmount", "DECIMAL(18,4) NULL"],
   ["invoiceExchangeRate", "DECIMAL(18,8) NULL"],
   ["invoiceDate", "DATE NULL"],
+  ["receivableDate", "DATE NULL"],
 ];
 
 async function ensureCloudRowColumns() {
@@ -1087,6 +1094,7 @@ async function ensureCloudSupplierPaymentColumns() {
     ["invoiceTaxAmount", "DECIMAL(18,4) NULL"],
     ["invoiceTotalAmount", "DECIMAL(18,4) NULL"],
     ["invoiceDate", "DATE NULL"],
+    ["receivableDate", "DATE NULL"],
   ]) await ensureColumn("cloud_supplier_payments", columnName, definition);
 }
 
@@ -1136,6 +1144,7 @@ try {
       "$1$2",
     );
   await connection.query(prefixSchemaTables(powerSchema));
+  await ensureColumn("servicefeesnapshots", "receivableDate", "DATE NULL");
   await ensureDemandPlanColumns();
   for (const tableName of ["power_requests", "power_purchaseorders"]) {
     for (const [columnName, definition] of [
@@ -1203,6 +1212,14 @@ try {
   await ensureColumn("po_quotations", "projectName", "VARCHAR(255) NULL AFTER `quotationNo`");
   await ensureColumn("po_settlement_projects", "projectName", "VARCHAR(255) NULL AFTER `quotationNo`");
   await ensureColumn("po_settlement_invoices", "isInvoiced", "TINYINT(1) NOT NULL DEFAULT 0 AFTER `isPaid`");
+  for (const [columnName, definition] of [
+    ["companyEntityId", "VARCHAR(64) NULL AFTER `companyEntity`"],
+    ["invoiceEntityId", "VARCHAR(64) NULL AFTER `invoiceEntity`"],
+    ["invoiceEntityType", "VARCHAR(20) NULL AFTER `invoiceEntityId`"],
+    ["receivableDate", "DATE NULL AFTER `invoiceDate`"],
+  ]) {
+    await ensureColumn("po_settlement_invoices", columnName, definition);
+  }
   await connection.query(prefixSchemaTables(cloudSchema));
   await ensureCloudRowColumns();
   await ensureCloudSupplierPaymentColumns();

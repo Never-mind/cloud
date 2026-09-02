@@ -890,6 +890,7 @@ export async function listServiceFeeStatements(searchParams: URLSearchParams) {
     customerReceivable: "serviceFeeTotal", customerReceived: "repaymentAmount", customerInvoice: "invoiceAmountIncludingTax",
     repaymentStatus: "repaymentStatus", repaymentCurrency: "repaymentCurrency", repaymentAmount: "repaymentAmount", repaymentAmountExcludingTax: "repaymentAmountExcludingTax", repaymentVatRate: "repaymentVatRate",
     invoiceNo: "invoiceNo", invoiceCurrency: "invoiceCurrency", invoiceAmountExcludingTax: "invoiceAmountExcludingTax", invoiceVatRate: "invoiceVatRate", invoiceAmountIncludingTax: "invoiceAmountIncludingTax",
+    receivableDate: "receivableDate",
     invoiceStatus: "invoiceStatus", invoiceOriginalName: "invoiceOriginalName",
   };
   for (const [field, expression] of Object.entries(filterExpressions)) appendTableInFilter(whereParts, params, expression, field, searchParams, "serviceStatement");
@@ -943,6 +944,7 @@ export async function listServiceFeeStatements(searchParams: URLSearchParams) {
              invoiceAmountExcludingTax,
              invoiceVatRate,
              invoiceAmountIncludingTax,
+             DATE_FORMAT(receivableDate, '%Y-%m-%d') AS receivableDate,
              invoiceStatus,
              invoiceOriginalName,
              invoiceMimeType,
@@ -1000,6 +1002,7 @@ export async function listServiceFeeStatementFilterOptions(searchParams: URLSear
     customerReceivable: "serviceFeeTotal", customerReceived: "repaymentAmount", customerInvoice: "invoiceAmountIncludingTax",
     repaymentStatus: "repaymentStatus", repaymentCurrency: "repaymentCurrency", repaymentAmount: "repaymentAmount", repaymentAmountExcludingTax: "repaymentAmountExcludingTax", repaymentVatRate: "repaymentVatRate",
     invoiceNo: "invoiceNo", invoiceCurrency: "invoiceCurrency", invoiceAmountExcludingTax: "invoiceAmountExcludingTax", invoiceVatRate: "invoiceVatRate", invoiceAmountIncludingTax: "invoiceAmountIncludingTax",
+    receivableDate: "receivableDate",
     invoiceStatus: "invoiceStatus", invoiceOriginalName: "invoiceOriginalName",
   };
   const field = searchParams.get("field")?.trim() ?? "";
@@ -1135,6 +1138,7 @@ export async function updateServiceFeeInvoiceInfo(snapshotNo: string, input: Row
   const invoiceCurrency = String(input.invoiceCurrency ?? "").trim();
   const invoiceReceivingUnitId = String(input.invoiceReceivingUnitId ?? "").trim();
   const invoicePayerCustomerId = String(input.invoicePayerCustomerId ?? "").trim();
+  const receivableDate = String(input.receivableDate ?? "").slice(0, 10);
   let invoiceAmountExcludingTax = nullableNumber(input.invoiceAmountExcludingTax);
   const invoiceVatRate = nullableRate(input.invoiceVatRate);
   let invoiceAmountIncludingTax = nullableNumber(input.invoiceAmountIncludingTax);
@@ -1152,7 +1156,7 @@ export async function updateServiceFeeInvoiceInfo(snapshotNo: string, input: Row
      SET invoiceNo = :invoiceNo, invoiceCurrency = :invoiceCurrency,
          invoiceReceivingUnitId = :invoiceReceivingUnitId, invoicePayerCustomerId = :invoicePayerCustomerId,
          invoiceAmountExcludingTax = :invoiceAmountExcludingTax, invoiceVatRate = :invoiceVatRate,
-         invoiceAmountIncludingTax = :invoiceAmountIncludingTax
+         invoiceAmountIncludingTax = :invoiceAmountIncludingTax, receivableDate = :receivableDate
      WHERE snapshotNo = :snapshotNo`,
     {
       snapshotNo,
@@ -1163,9 +1167,10 @@ export async function updateServiceFeeInvoiceInfo(snapshotNo: string, input: Row
       invoiceAmountExcludingTax,
       invoiceVatRate,
       invoiceAmountIncludingTax,
+      receivableDate: receivableDate || null,
     },
   );
-  return { snapshotNo, invoiceNo, invoiceCurrency, invoiceReceivingUnitId, invoicePayerCustomerId, invoiceAmountExcludingTax, invoiceVatRate, invoiceAmountIncludingTax };
+  return { snapshotNo, invoiceNo, invoiceCurrency, invoiceReceivingUnitId, invoicePayerCustomerId, invoiceAmountExcludingTax, invoiceVatRate, invoiceAmountIncludingTax, receivableDate };
 }
 
 export async function confirmServiceFeeStatement(snapshotNo: string) {

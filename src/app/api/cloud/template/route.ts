@@ -32,6 +32,7 @@ const columns = [
   { label: "客户实收税率", note: "可选：数字" },
   { label: "客户实收税金", note: "可选：数字" },
   { label: "客户实收含税金额", note: "可选：数字" },
+  { label: "应收日期", note: "可选：YYYY-MM-DD" },
   { label: "客户开票号", note: "可选" },
   { label: "客户开票币种", note: "可选" },
   { label: "客户开票-收款单位", note: "可选" },

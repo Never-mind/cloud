@@ -22,6 +22,7 @@ export async function GET(request: NextRequest) {
     "客户应收（含税）": row.customerReceivableTotalAmount, "万众理论毛利（USD）": row.theoreticalGrossProfit, "万众结算毛利（USD）": row.settlementGrossProfit ?? row.grossProfit,
     "客户折扣": row.customerDiscount, "客户实收-付款单位": row.collectionPayer, "客户实收-收款单位": row.collectionPayee, "客户实收币种": row.collectionCurrency, "客户实收汇率": row.collectionExchangeRate,
     "客户实收未税金额": row.collectionNetAmount, "客户实收税率": row.collectionTaxRate, "客户实收税金": row.collectionTaxAmount, "客户实收含税金额": row.collectionTotalAmount,
+    "应收日期": row.receivableDate,
     "客户开票号": row.invoiceNo, "客户开票币种": row.invoiceCurrency, "客户开票-付款单位": row.invoicePayer, "客户开票-收款单位": row.invoicePayee,
     "客户开票未税金额": row.invoiceNetAmount, "客户开票税率": row.invoiceTaxRate, "客户开票税金": row.invoiceTaxAmount, "客户开票含税金额": row.invoiceTotalAmount, "客户开票汇率": row.invoiceExchangeRate,
     "客户开票日期": row.invoiceDate, "客户开票状态": row.collectionInvoice === "issued" ? "已开票" : "未开票", "已收款": row.collected ? "是" : "否", "已确认": row.confirmed ? "是" : "否", "备注": row.remark,

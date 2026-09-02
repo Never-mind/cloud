@@ -715,6 +715,7 @@ CREATE TABLE IF NOT EXISTS `merge_power_servicefeesnapshots` (
   `invoiceAmountExcludingTax` DECIMAL(18, 4) NULL COMMENT 'invoice amount VAT excluded',
   `invoiceVatRate` DECIMAL(10, 6) NULL COMMENT 'invoice VAT rate',
   `invoiceAmountIncludingTax` DECIMAL(18, 4) NULL COMMENT 'invoice amount VAT included',
+  `receivableDate` DATE NULL COMMENT '应收日期',
   `invoiceStatus` VARCHAR(32) NOT NULL DEFAULT '未开票' COMMENT 'manual invoice status',
   `invoiceOriginalName` VARCHAR(500) NULL COMMENT 'invoice original file name',
   `invoiceStoredName` VARCHAR(500) NULL COMMENT 'invoice stored file name',
