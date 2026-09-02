@@ -20,7 +20,7 @@ export function Button({
     <button
       {...props}
       className={clsx(
-        "inline-flex h-9 items-center justify-center gap-1 rounded px-3 text-sm transition hover:opacity-85 disabled:cursor-not-allowed disabled:opacity-50",
+        "inline-flex h-9 min-w-0 shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded px-3 text-sm transition hover:opacity-85 disabled:cursor-not-allowed disabled:opacity-50",
         tones[tone],
         props.className,
       )}
@@ -36,7 +36,7 @@ export const Input = forwardRef<HTMLInputElement, React.InputHTMLAttributes<HTML
       ref={ref}
       {...props}
       className={clsx(
-        "h-9 min-w-[180px] rounded border border-[#dcdfe6] bg-white px-3 text-sm outline-none focus:border-[#1890ff]",
+        "h-9 min-w-0 max-w-full rounded border border-[#dcdfe6] bg-white px-3 text-sm outline-none focus:border-[#1890ff]",
         props.className,
       )}
     />
@@ -48,7 +48,7 @@ export function Textarea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement
     <textarea
       {...props}
       className={clsx(
-        "min-h-20 rounded border border-[#dcdfe6] bg-white px-3 py-2 text-sm outline-none focus:border-[#1890ff]",
+        "min-h-20 min-w-0 max-w-full rounded border border-[#dcdfe6] bg-white px-3 py-2 text-sm outline-none focus:border-[#1890ff]",
         props.className,
       )}
     />
@@ -57,7 +57,7 @@ export function Textarea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement
 
 export function Panel({ children, className }: { children: React.ReactNode; className?: string }) {
   return (
-    <div className={clsx("border border-[#ebeef5] bg-white shadow-sm", className)}>{children}</div>
+    <div className={clsx("min-w-0 max-w-full border border-[#ebeef5] bg-white shadow-sm", className)}>{children}</div>
   );
 }
 

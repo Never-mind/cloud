@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import * as XLSX from "xlsx";
 import { executeRaw, queryRows, queryRowsRaw, type Row } from "./db";
 import type { OperationActor } from "./operation-actor";
-import { appendTableInFilter, getTableSort, listSqlFilterOptions } from "./table-query";
+import { appendTableInFilter, formatTableDateExpression, getTableSort, listSqlFilterOptions } from "./table-query";
 
 const CLOUD_ROW_COLUMNS = [
   "period", "batchCode", "customer", "account", "owner", "cloudReconciler", "collectionEntity", "catalogAmount", "partnerAmount",
@@ -54,8 +54,8 @@ const CLOUD_ROW_FILTER_EXPRESSIONS: Record<string, string> = {
   collectionTaxRate: "collectionTaxRate",
   collectionTaxAmount: "collectionTaxAmount",
   collectionTotalAmount: "collectionTotalAmount",
-  collectionDate: "collectionDate",
-  receivableDate: "receivableDate",
+  collectionDate: formatTableDateExpression("collectionDate"),
+  receivableDate: formatTableDateExpression("receivableDate"),
   collectionInvoice: "collectionInvoice",
   collected: "CASE WHEN collected = 1 THEN '是' ELSE '否' END",
   confirmed: "CASE WHEN confirmed = 1 THEN '是' ELSE '否' END",
@@ -68,10 +68,10 @@ const CLOUD_ROW_FILTER_EXPRESSIONS: Record<string, string> = {
   invoiceTaxAmount: "invoiceTaxAmount",
   invoiceTotalAmount: "invoiceTotalAmount",
   invoiceExchangeRate: "invoiceExchangeRate",
-  invoiceDate: "invoiceDate",
+  invoiceDate: formatTableDateExpression("invoiceDate"),
   createdAt: "createdAt",
   updatedAt: "updatedAt",
-  confirmedAt: "confirmedAt",
+  confirmedAt: formatTableDateExpression("confirmedAt"),
 };
 
 const CLOUD_MAPPING_FROM = `(SELECT m.*, GROUP_CONCAT(a.account ORDER BY a.account SEPARATOR ', ') AS accounts
@@ -104,7 +104,7 @@ const CLOUD_PAYMENT_FILTER_EXPRESSIONS: Record<string, string> = {
   paymentTaxRate: "paymentTaxRate",
   paymentTaxAmount: "paymentTaxAmount",
   paymentTotalAmount: "paymentTotalAmount",
-  receivableDate: "receivableDate",
+  receivableDate: formatTableDateExpression("receivableDate"),
   invoiceNo: "invoiceNo",
   invoiceCurrency: "invoiceCurrency",
   invoiceExchangeRate: "invoiceExchangeRate",
@@ -114,8 +114,8 @@ const CLOUD_PAYMENT_FILTER_EXPRESSIONS: Record<string, string> = {
   invoiceTotalAmount: "invoiceTotalAmount",
   invoiceStatus: "invoiceStatus",
   paid: "CASE WHEN paid = 1 THEN '是' ELSE '否' END",
-  paymentDate: "paymentDate",
-  invoiceDate: "invoiceDate",
+  paymentDate: formatTableDateExpression("paymentDate"),
+  invoiceDate: formatTableDateExpression("invoiceDate"),
   createdAt: "createdAt",
   updatedAt: "updatedAt",
 };
@@ -276,9 +276,25 @@ function dateOnly(value: unknown) {
   }
   const raw = text(value);
   if (!raw) return null;
+  if (raw.includes("T") || /\d{4}[-\/]\d{1,2}[-\/]\d{1,2}\s+\d/.test(raw)) {
+    const parsed = new Date(raw);
+    if (!Number.isNaN(parsed.getTime())) {
+      return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, "0")}-${String(parsed.getDate()).padStart(2, "0")}`;
+    }
+  }
   const match = raw.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})/);
   if (!match) return raw.slice(0, 10);
   return `${match[1]}-${match[2].padStart(2, "0")}-${match[3].padStart(2, "0")}`;
+}
+
+const CLOUD_DATE_ONLY_FIELDS = new Set(["collectionDate", "receivableDate", "invoiceDate", "paymentDate", "confirmedAt"]);
+
+function normalizeCloudDateFields(row: Row) {
+  const normalized = { ...row };
+  for (const field of CLOUD_DATE_ONLY_FIELDS) {
+    if (Object.prototype.hasOwnProperty.call(normalized, field)) normalized[field] = dateOnly(normalized[field]);
+  }
+  return normalized;
 }
 
 function number(value: unknown) {
@@ -478,7 +494,7 @@ export async function listCloudRows(params: URLSearchParams) {
     values,
   );
   return {
-    items: await applyCloudAccountMappings(rows),
+    items: (await applyCloudAccountMappings(rows)).map(normalizeCloudDateFields),
     total: Number(count[0]?.total ?? 0),
     page,
     pageSize,
@@ -757,7 +773,7 @@ export async function listCloudSupplierPayments(params: URLSearchParams) {
        ORDER BY r.customer ASC, r.account ASC`,
       { detailPeriod: normalizeCloudPeriod(row.period), detailGroupKey: row.groupKey },
     );
-    return { ...row, children };
+    return normalizeCloudDateFields({ ...row, children: children.map(normalizeCloudDateFields) });
   }));
   return { items, total: Number(count[0]?.total ?? 0), page, pageSize };
 }

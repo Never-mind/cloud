@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import * as XLSX from "xlsx";
 import { execute, queryRows, type Row } from "./db";
+import { normalizeDateOnlyValue } from "./date-only";
 import type { OperationActor } from "./operation-actor";
 import { appendTableInFilter, getTableSort, listSqlFilterOptions } from "./table-query";
 
@@ -834,7 +835,7 @@ export async function deleteSettlementSale(projectId: string, saleId: string, ac
   return touchAndRecalculate(projectId, actor);
 }
 
-function invoiceValues(projectId: string, input: Record<string, unknown>) {
+async function invoiceValues(_projectId: string, input: Record<string, unknown>) {
   const type: SettlementInvoiceType = text(input.type) === "income" ? "income" : "cost";
   const currency: SettlementCurrency = validCurrency(input.currency) ? input.currency : "CNY";
   const invoiceTotal = numeric(input.invoiceTotal);
@@ -844,12 +845,57 @@ function invoiceValues(projectId: string, input: Record<string, unknown>) {
   const exchangeRate = numeric(input.exchangeRate, 1) || 1;
   const usdAmount = round((type === "cost" ? -1 : 1) * invoiceTaxExcludedTotal / exchangeRate);
   const invoiceEntityType = text(input.invoiceEntityType) === "supplier" || text(input.invoiceEntityType) === "customer" ? text(input.invoiceEntityType) as "supplier" | "customer" : null;
-  return { type, accountPeriod: text(input.accountPeriod) || null, accountingDate: text(input.accountingDate) || null, companyEntity: text(input.companyEntity) || null, invoiceEntity: text(input.invoiceEntity) || null, companyEntityId: text(input.companyEntityId) || null, invoiceEntityId: text(input.invoiceEntityId) || null, invoiceEntityType, invoiceDate: text(input.invoiceDate) || null, invoiceNo: text(input.invoiceNo) || null, invoiceTotal, invoiceTaxExcludedTotal, taxRate, invoiceTaxAmount, currency, exchangeRate, usdAmount, isPaid: input.isPaid ? 1 : 0, isInvoiced: input.isInvoiced ? 1 : 0, receivableDate: text(input.receivableDate) || null };
+  const accountPeriod = normalizeDateOnlyValue(input.accountPeriod);
+  const accountingDate = normalizeDateOnlyValue(input.accountingDate);
+  const invoiceDate = normalizeDateOnlyValue(input.invoiceDate);
+  const receivableDate = normalizeDateOnlyValue(input.receivableDate);
+  const companyEntityId = text(input.companyEntityId) || null;
+  const invoiceEntityId = text(input.invoiceEntityId) || null;
+  const [companyEntityName, invoiceEntityName] = await Promise.all([
+    companyEntityId ? resolveSettlementPartnerName("undertaking", companyEntityId) : null,
+    invoiceEntityId ? resolveSettlementPartnerName(invoiceEntityType === "customer" ? "customer" : invoiceEntityType === "supplier" ? "supplier" : "any", invoiceEntityId) : null,
+  ]);
+  return { type, accountPeriod, accountingDate, companyEntity: companyEntityName || text(input.companyEntity) || null, invoiceEntity: invoiceEntityName || text(input.invoiceEntity) || null, companyEntityId, invoiceEntityId, invoiceEntityType, invoiceDate, invoiceNo: text(input.invoiceNo) || null, invoiceTotal, invoiceTaxExcludedTotal, taxRate, invoiceTaxAmount, currency, exchangeRate, usdAmount, isPaid: input.isPaid ? 1 : 0, isInvoiced: input.isInvoiced ? 1 : 0, receivableDate };
+}
+
+async function resolveSettlementPartnerName(kind: "undertaking" | "supplier" | "customer" | "any", value: string) {
+  const queries: Array<Promise<Row[]>> = [];
+  if (kind === "undertaking") {
+    queries.push(queryRows<Row>(
+      `SELECT COALESCE(NULLIF(shortName, ''), NULLIF(entityName, ''), NULLIF(name, ''), NULLIF(undertakingUnitCode, '')) AS displayName
+         FROM merge_common_undertaking_units
+        WHERE undertakingUnitId = :value OR undertakingUnitCode = :value OR entityCode = :value
+        LIMIT 1`,
+      { value },
+    ));
+  } else if (kind === "supplier" || kind === "any") {
+    queries.push(queryRows<Row>(
+      `SELECT COALESCE(NULLIF(shortName, ''), NULLIF(nameCn, ''), NULLIF(nameEn, ''), NULLIF(supplierCode, '')) AS displayName
+         FROM merge_common_suppliers
+        WHERE supplierId = :value OR supplierCode = :value
+        LIMIT 1`,
+      { value },
+    ));
+  }
+  if (kind === "customer" || kind === "any") {
+    queries.push(queryRows<Row>(
+      `SELECT COALESCE(NULLIF(shortName, ''), NULLIF(nameCn, ''), NULLIF(name, ''), NULLIF(customerCode, '')) AS displayName
+         FROM merge_common_customers
+        WHERE customerId = :value OR customerCode = :value
+        LIMIT 1`,
+      { value },
+    ));
+  }
+  for (const query of queries) {
+    const row = (await query)[0];
+    if (row?.displayName) return text(row.displayName);
+  }
+  return "";
 }
 
 export async function addSettlementInvoice(projectId: string, input: Record<string, unknown>, actor: OperationActor | null) {
   const project = await getProject(projectId); assertEditable(project);
-  const values = invoiceValues(projectId, input);
+  const values = await invoiceValues(projectId, input);
   await execute(
     `INSERT INTO merge_po_settlement_invoices (id,projectId,type,accountPeriod,accountingDate,companyEntity,invoiceEntity,companyEntityId,invoiceEntityId,invoiceEntityType,invoiceDate,invoiceNo,invoiceTotal,invoiceTaxExcludedTotal,taxRate,invoiceTaxAmount,currency,exchangeRate,usdAmount,isPaid,isInvoiced,receivableDate)
      VALUES (:id,:projectId,:type,:accountPeriod,:accountingDate,:companyEntity,:invoiceEntity,:companyEntityId,:invoiceEntityId,:invoiceEntityType,:invoiceDate,:invoiceNo,:invoiceTotal,:invoiceTaxExcludedTotal,:taxRate,:invoiceTaxAmount,:currency,:exchangeRate,:usdAmount,:isPaid,:isInvoiced,:receivableDate)`,
@@ -862,7 +908,7 @@ export async function updateSettlementInvoice(projectId: string, invoiceId: stri
   const project = await getProject(projectId); assertEditable(project);
   const invoice = (await queryRows<SettlementInvoice>("SELECT * FROM merge_po_settlement_invoices WHERE id=:id AND projectId=:projectId LIMIT 1", { id: invoiceId, projectId }))[0];
   if (!invoice) throw new Error("发票不存在");
-  const values = invoiceValues(projectId, input);
+  const values = await invoiceValues(projectId, input);
   await execute(
     `UPDATE merge_po_settlement_invoices SET type=:type,accountPeriod=:accountPeriod,accountingDate=:accountingDate,companyEntity=:companyEntity,invoiceEntity=:invoiceEntity,companyEntityId=:companyEntityId,invoiceEntityId=:invoiceEntityId,invoiceEntityType=:invoiceEntityType,invoiceDate=:invoiceDate,invoiceNo=:invoiceNo,invoiceTotal=:invoiceTotal,invoiceTaxExcludedTotal=:invoiceTaxExcludedTotal,taxRate=:taxRate,invoiceTaxAmount=:invoiceTaxAmount,currency=:currency,exchangeRate=:exchangeRate,usdAmount=:usdAmount,isPaid=:isPaid,isInvoiced=:isInvoiced,receivableDate=:receivableDate WHERE id=:id AND projectId=:projectId`,
     { id: invoiceId, projectId, ...values },

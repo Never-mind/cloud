@@ -298,7 +298,7 @@ export function AppShell({
     if (currentModuleKey && !isModuleFeatureEnabled(currentModuleKey, moduleFeatureState)) {
       return <main className="min-h-screen bg-[var(--color-page-bg)] p-5" data-app-shell="inner"><div className="border border-[#ebeef5] bg-white p-6"><h1 className="text-lg font-medium text-[#303133]">功能模块暂未启用</h1><p className="mt-2 text-sm text-[#606266]">请联系管理员在“功能模块管理”中启用该功能。</p></div></main>;
     }
-    return <main className="min-h-screen bg-[var(--color-page-bg)] p-5" data-app-shell="inner">{children}</main>;
+    return <main className="app-embedded-page min-h-screen bg-[var(--color-page-bg)] p-4 sm:p-5" data-app-shell="inner">{children}</main>;
   }
 
   if (!workspaceReady) {
@@ -374,8 +374,8 @@ export function AppShell({
   };
 
   return (
-    <div className="min-h-screen" data-app-shell="outer">
-      <aside className="fixed inset-y-0 left-0 z-20 flex w-[210px] flex-col bg-[var(--color-sidebar)] text-[#bfcbd9]">
+    <div className="app-shell min-h-screen" data-app-shell="outer">
+      <aside className="app-sidebar fixed inset-y-0 left-0 z-20 flex flex-col bg-[var(--color-sidebar)] text-[#bfcbd9]">
         <div className="flex h-[54px] min-w-0 shrink-0 items-center gap-2 px-5 text-white">
           <Boxes className="shrink-0" size={19} />
           <span className="min-w-0 truncate font-medium" title="业务系统">
@@ -473,26 +473,29 @@ export function AppShell({
           })}
         </nav>
       </aside>
-      <main className="ml-[210px] min-h-screen">
-        <header className="sticky top-0 z-10 flex h-[50px] items-center border-b border-[#e5e7eb] bg-white px-4">
-          <Menu size={19} className="mr-5 text-[#303133]" />
-          <span className="text-[#909399]">{currentSectionTitle}</span>
-          <span className="mx-2 text-[#c0c4cc]">/</span>
-          <span className="text-[#606266]">管理后台</span>
-          <div className="ml-auto flex items-center gap-4 text-[#606266]">
-            <span>{currentUserName || "用户"}</span>
+      <main className="app-content min-h-screen">
+        <header className="app-header sticky top-0 z-10 flex h-[50px] min-w-0 items-center gap-2 border-b border-[#e5e7eb] bg-white px-3 sm:px-4">
+          <Menu size={19} className="shrink-0 text-[#303133]" />
+          <div className="app-breadcrumb flex min-w-0 items-center gap-2">
+            <span className="truncate text-[#909399]">{currentSectionTitle}</span>
+            <span className="shrink-0 text-[#c0c4cc]">/</span>
+            <span className="shrink-0 text-[#606266]">管理后台</span>
+          </div>
+          <div className="app-header-user ml-auto flex min-w-0 shrink-0 items-center gap-2 text-[#606266] sm:gap-4">
+            <span className="app-header-user-name max-w-[24vw] truncate">{currentUserName || "用户"}</span>
             <div className="h-8 w-8 rounded bg-[#eef1f5]" />
             <button
-              className="inline-flex h-8 items-center gap-1 rounded border border-[#dcdfe6] px-2 text-xs hover:border-[#1890ff] hover:text-[#1890ff]"
+              aria-label="退出登录"
+              className="app-logout inline-flex h-8 shrink-0 items-center gap-1 rounded border border-[#dcdfe6] px-2 text-xs hover:border-[#1890ff] hover:text-[#1890ff]"
               onClick={logout}
               type="button"
             >
               <LogOut size={14} />
-              退出
+              <span>退出</span>
             </button>
           </div>
         </header>
-        <div className="flex h-[38px] items-center gap-1 overflow-x-auto border-b border-[#dcdfe6] bg-white px-3">
+        <div className="app-tabs flex h-[38px] min-w-0 items-center gap-1 overflow-x-auto border-b border-[#dcdfe6] bg-white px-2 sm:px-3">
           {workspace.tabs.map((tab) => {
             const active = tab.route === workspace.activeRoute;
             return (
@@ -534,8 +537,8 @@ export function AppShell({
             );
           })}
         </div>
-        <section className="relative h-[calc(100vh-88px)] overflow-hidden">
-          <div className={workspace.activeRoute === "/" ? "h-full overflow-auto p-5" : "hidden"}>{children}</div>
+        <section className="app-workspace-content relative h-[calc(100vh-88px)] min-w-0 overflow-hidden">
+          <div className={workspace.activeRoute === "/" ? "h-full overflow-auto p-4 sm:p-5" : "hidden"}>{children}</div>
           {workspace.tabs
             .filter((tab) => tab.route !== "/" && loadedTabIds.has(getWorkspaceTabId(tab)))
             .map((tab) => {

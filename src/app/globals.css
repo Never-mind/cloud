@@ -30,6 +30,56 @@ body {
   font-size: 14px;
 }
 
+/* Keep the application usable at browser zoom levels without changing the
+   business tables' deliberate horizontal scrolling behavior. */
+.app-shell,
+.app-content,
+.app-workspace-content,
+.app-embedded-page {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.app-sidebar {
+  width: clamp(180px, 17vw, 230px);
+}
+
+.app-content {
+  margin-left: clamp(180px, 17vw, 230px);
+}
+
+.app-header-user-name {
+  max-width: min(24vw, 220px);
+}
+
+@media (max-width: 720px) {
+  .app-sidebar {
+    width: 176px;
+  }
+
+  .app-content {
+    margin-left: 176px;
+  }
+
+  .app-header-user-name,
+  .app-breadcrumb {
+    display: none;
+  }
+
+  .app-header-user {
+    margin-left: auto;
+  }
+
+  .app-logout span {
+    display: none;
+  }
+
+  .app-logout {
+    width: 2rem;
+    padding: 0;
+  }
+}
+
 html[data-embedded-page="1"] [data-app-shell="outer"] {
   visibility: hidden;
 }
@@ -58,13 +108,15 @@ textarea {
   scrollbar-width: thin;
 }
 
-/* Normal tables fill the content area; only explicitly wide tables keep a fixed content width. */
+/* Normal tables fill the content area. Their own min-width utilities still
+   take effect on narrow screens, so wide business tables scroll only when
+   there is genuinely insufficient room. */
 .table-scroll > table {
   width: 100%;
   table-layout: auto;
 }
 
-.table-scroll > table[class*="min-w-["] {
+.table-scroll > table.w-max {
   width: max-content;
 }
 
