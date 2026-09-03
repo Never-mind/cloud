@@ -115,5 +115,14 @@ export async function GET(request: NextRequest) {
     { ...queryParams, limit: pageSize, offset: (page - 1) * pageSize },
   );
 
-  return NextResponse.json({ rows, total, page, pageSize, totalPages });
+  const statusCountRows = await queryRows<{ status: string; count: number }>(
+    `SELECT status, COUNT(*) AS count
+       FROM merge_po_customer_pos
+      GROUP BY status`,
+  );
+  const statusCounts = Object.fromEntries(
+    statusCountRows.map((row) => [String(row.status ?? ""), Number(row.count ?? 0)]),
+  );
+
+  return NextResponse.json({ rows, total, page, pageSize, totalPages, statusCounts });
 }

@@ -476,12 +476,20 @@ export async function listEntityRows(config: EntityConfig, searchParams: URLSear
     : config.key === "service-fee-snapshots"
       ? await enrichServiceFeeSnapshotParties(normalizedRows)
     : await enrichFinancialPartyRows(config.key, normalizedRows);
+  const statusCounts = config.key === "quotations"
+    ? Object.fromEntries(
+      (await queryRows<{ status: string; count: number }>(
+        `SELECT status, COUNT(*) AS count FROM ${table} GROUP BY status`,
+      )).map((row) => [String(row.status ?? ""), Number(row.count ?? 0)]),
+    )
+    : undefined;
   return {
     rows: enrichedRows,
     total: normalizedTotal,
     page,
     pageSize,
     totalPages,
+    ...(statusCounts ? { statusCounts } : {}),
   };
 }
 

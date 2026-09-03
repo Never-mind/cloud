@@ -1,8 +1,7 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useState } from "react";
-import { Download, Eye, FileText, RefreshCw, Search, Trash2 } from "lucide-react";
+import { Eye, FileDown, RefreshCw, Search, Trash2 } from "lucide-react";
 import { Button, Input, Panel } from "./ui";
 import { PaginationBar } from "./pagination-bar";
 import { StickyTable } from "./sticky-table";
@@ -90,16 +89,23 @@ export function SettlementProjectPage() {
   }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
+      <div>
+        <h1 className="text-xl font-medium text-[#303133]">项目结算</h1>
+        <p className="mt-1 text-sm text-[#909399]">已确认报价单自动生成项目结算主单，采购、收入和发票明细独立维护。</p>
+      </div>
       <Panel>
-        <div className="flex flex-wrap items-center gap-3 border-b border-[#ebeef5] p-4">
-          <div className="mr-auto"><h1 className="text-xl font-medium text-[#303133]">项目结算</h1><p className="mt-1 text-sm text-[#909399]">已确认报价单自动生成项目结算主单，采购、收入和发票明细独立维护。</p></div>
-          <a className="inline-flex h-9 items-center gap-1 rounded border border-[#dcdfe6] bg-white px-3 text-sm text-[#606266] hover:opacity-85" href="/api/po/settlement-projects/export"><Download size={15} />导出</a>
-        </div>
-        <div className="flex flex-wrap items-end gap-3 border-b border-[#ebeef5] p-4">
-          <label><span className="mb-1 block text-xs font-semibold text-[#606266]">关键字</span><div className="flex gap-2"><Input value={keyword} placeholder="项目单号、报价单号、客户" onChange={(event) => setKeyword(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { setPage(1); setAppliedKeyword(keyword.trim()); } }} /><Button tone="primary" onClick={() => { setPage(1); setAppliedKeyword(keyword.trim()); }}><Search size={15} />查询</Button></div></label>
-          <label><span className="mb-1 block text-xs font-semibold text-[#606266]">状态</span><select className="h-9 min-w-[150px] rounded border border-[#dcdfe6] bg-white px-3 text-sm" value={status} onChange={(event) => { setPage(1); setStatus(event.target.value); }}><option value="">全部状态</option><option value="purchasing">采购中</option><option value="procurement_completed">采购完成</option><option value="accepting">验收中</option><option value="closed">已完结</option></select></label>
-          <Button onClick={() => void load()} disabled={loading}><RefreshCw size={15} />刷新</Button>
+        <div className="flex flex-wrap items-center gap-2 border-b border-[#ebeef5] p-3">
+          <div className="flex min-w-[260px] max-w-xl flex-1 gap-2">
+            <span className="sr-only">搜索项目结算</span>
+            <Input className="h-8 w-full" value={keyword} placeholder="项目单号、报价单号、客户" onChange={(event) => setKeyword(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { setPage(1); setAppliedKeyword(keyword.trim()); } }} />
+          </div>
+          <select className="h-8 min-w-[132px] rounded border border-[#dcdfe6] bg-white px-3 text-sm outline-none focus:border-[#1890ff]" value={status} onChange={(event) => { setPage(1); setStatus(event.target.value); }}>
+            <option value="">全部状态</option><option value="purchasing">采购中</option><option value="procurement_completed">采购完成</option><option value="accepting">验收中</option><option value="closed">已完结</option>
+          </select>
+          <Button tone="primary" className="h-8 px-3" onClick={() => { setPage(1); setAppliedKeyword(keyword.trim()); }}><Search size={14} />查询</Button>
+          <Button className="h-8 px-3" onClick={() => void load()} disabled={loading}><RefreshCw size={14} />刷新</Button>
+          <a className="inline-flex h-8 shrink-0 items-center gap-1 whitespace-nowrap rounded border border-[#ffba00] bg-[#ffba00] px-3 text-sm text-white transition hover:opacity-85" href="/api/po/settlement-projects/export"><FileDown size={14} />导出 Excel</a>
         </div>
         {error ? <div className="m-4 border border-[#ffb4ab] bg-[#ffdad6] px-3 py-2 text-sm text-[#93000a]">{error}<button className="ml-3 underline" onClick={() => setError("")}>关闭</button></div> : null}
         <StickyTable className="table-scroll max-h-[calc(100vh-300px)] overflow-auto" tableKey="settlement-projects">

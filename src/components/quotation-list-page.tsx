@@ -16,6 +16,7 @@ import { ProductMasterPicker } from "./customer-po-page";
 
 type Value = string | number | boolean | null | undefined;
 type Row = Record<string, Value>;
+type QuotationListResponse = { rows?: Row[]; total?: number; page?: number; statusCounts?: Record<string, number>; error?: string };
 type QuotationImportReport = { total: number; success: number; failed: Array<{ rowNumber: number; primaryKey: string; error: string }> };
 type QuotationItemDrafts = Record<string, Row>;
 
@@ -112,6 +113,7 @@ export function QuotationListPage({ config }: { config: EntityConfig }) {
   const [status, setStatus] = useState("");
   const [rows, setRows] = useState<Row[]>([]);
   const [total, setTotal] = useState(0);
+  const [statusCounts, setStatusCounts] = useState({ draft: 0, confirmed: 0 });
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [sortField, setSortField] = useState("");
@@ -138,10 +140,14 @@ export function QuotationListPage({ config }: { config: EntityConfig }) {
         for (const value of values) params.append(`filter.${field}`, value);
       }
       const response = await fetch(`/api/entities/quotations?${params.toString()}`, { cache: "no-store" });
-      const data = (await response.json().catch(() => ({}))) as { rows?: Row[]; total?: number; page?: number; error?: string };
+      const data = (await response.json().catch(() => ({}))) as QuotationListResponse;
       if (!response.ok) throw new Error(data.error ?? "报价列表加载失败");
       setRows(data.rows ?? []);
       setTotal(Number(data.total ?? 0));
+      setStatusCounts({
+        draft: Number(data.statusCounts?.draft ?? 0),
+        confirmed: Number(data.statusCounts?.confirmed ?? 0),
+      });
       if (Number(data.page ?? page) !== page) setPage(Number(data.page ?? page));
     } catch (loadError) {
       setRows([]);
@@ -200,27 +206,32 @@ export function QuotationListPage({ config }: { config: EntityConfig }) {
           <h1 className="text-xl font-medium text-[#303133]">报价列表</h1>
           <p className="mt-1 text-sm text-[#909399]">报价单主单与报价产品明细。</p>
         </div>
-        <Button onClick={() => void load()} disabled={loading} aria-label="刷新" title="刷新"><RefreshCw size={15} /></Button>
-        <Button onClick={() => download(`/api/entities/quotations/export?status=${encodeURIComponent(status)}`)} aria-label="导出" title="导出报价列表"><FileDown size={15} />导出</Button>
       </div>
       <Panel>
-        <div className="flex flex-wrap items-end gap-3 border-b border-[#ebeef5] p-4">
-          <label className="min-w-[280px] flex-1">
+        <div className="flex flex-wrap items-center gap-2 border-b border-[#ebeef5] bg-[#fafafa] p-3">
+          {[
+            ["draft", "草稿", statusCounts.draft],
+            ["confirmed", "已确认", statusCounts.confirmed],
+          ].map(([value, label, count]) => (
+            <Button
+              key={value}
+              tone={status === value ? "primary" : "default"}
+              className="h-8 px-3"
+              onClick={() => { setPage(1); setStatus((current) => current === value ? "" : String(value)); }}
+            >
+              {label}
+              <span className={`ml-1 rounded px-1.5 text-xs ${status === value ? "bg-white/30" : "bg-[#f4f4f5] text-[#909399]"}`}>{count}</span>
+            </Button>
+          ))}
+        </div>
+        <div className="flex flex-wrap items-center gap-2 border-b border-[#ebeef5] p-3">
+          <div className="flex min-w-[260px] max-w-xl flex-1 gap-2">
             <span className="sr-only">搜索报价单</span>
-            <div className="flex gap-2">
-              <Input className="h-10 w-full" value={keyword} placeholder="搜索报价单号、客户、承接单位或来源PO" onChange={(event) => setKeyword(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { setPage(1); setAppliedKeyword(keyword.trim()); } }} />
-              <Button tone="primary" className="h-10 w-10 px-0" aria-label="查询" title="查询" onClick={() => { setPage(1); setAppliedKeyword(keyword.trim()); }}><Search size={16} /></Button>
-            </div>
-          </label>
-          <label className="w-36 text-sm text-[#606266]">
-            <span className="mb-1 block text-xs text-[#909399]">状态</span>
-            <select className="h-10 w-full rounded border border-[#dcdfe6] bg-white px-3 outline-none focus:border-[#1890ff]" value={status} onChange={(event) => { setPage(1); setStatus(event.target.value); }}>
-              <option value="">全部状态</option>
-              <option value="draft">草稿</option>
-          <option value="confirmed">已完成</option>
-            </select>
-          </label>
-          <span className="text-sm text-[#909399]">共 {total} 条</span>
+            <Input className="h-8 w-full" value={keyword} placeholder="搜索报价单号、客户、承接单位或来源PO" onChange={(event) => setKeyword(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { setPage(1); setAppliedKeyword(keyword.trim()); } }} />
+          </div>
+          <Button tone="primary" className="h-8 px-3" aria-label="查询" title="查询" onClick={() => { setPage(1); setAppliedKeyword(keyword.trim()); }}><Search size={14} />查询</Button>
+          <Button className="h-8 px-3" onClick={() => void load()} disabled={loading}><RefreshCw size={14} />刷新</Button>
+          <Button tone="warning" className="h-8 px-3" onClick={() => download(`/api/entities/quotations/export?status=${encodeURIComponent(status)}`)}><FileDown size={14} />导出 Excel</Button>
         </div>
         {error ? <div className="border-b border-[#fde2e2] bg-[#fef0f0] px-4 py-3 text-sm text-[#f56c6c]">{error}</div> : null}
         <StickyTable className="table-scroll overflow-auto" tableKey="quotation-list">
