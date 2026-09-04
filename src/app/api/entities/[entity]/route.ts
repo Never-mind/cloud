@@ -3,6 +3,7 @@ import { createEntityRow, getEntityRow, listEntityRows } from "@/lib/crud";
 import { getEntityConfig } from "@/lib/modules";
 import { getOperationActor, operationFields } from "@/lib/operation-actor";
 import { recalculateQuotationSummary } from "@/lib/quotation-workflow";
+import { assertPurchaseItemPowerPricingStorage, persistPurchaseItemPowerPricing, persistPurchaseOrderUsdRate } from "@/lib/purchase-power-pricing-service";
 
 export async function GET(request: NextRequest, context: { params: Promise<{ entity: string }> }) {
   const { entity } = await context.params;
@@ -33,6 +34,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ en
 
   try {
     const body = await request.json();
+    if (entity === "purchase-order-items") await assertPurchaseItemPowerPricingStorage(body);
     if (entity === "customer-pos" && String(body.status ?? "draft") === "confirmed") {
       return NextResponse.json({ error: "客户PO请通过确认操作确认，不能直接修改状态" }, { status: 400 });
     }
@@ -51,6 +53,8 @@ export async function POST(request: NextRequest, context: { params: Promise<{ en
       }
     }
     const row = await createEntityRow(config, auditedBody);
+    if (entity === "purchase-orders") await persistPurchaseOrderUsdRate(String(row?.purchaseOrderId ?? auditedBody.purchaseOrderId ?? ""), auditedBody);
+    if (entity === "purchase-order-items") await persistPurchaseItemPowerPricing(String(row?.id ?? auditedBody.id ?? ""), auditedBody);
     if (entity === "quotation-items") {
       await recalculateQuotationSummary(String(row?.quotationId ?? auditedBody.quotationId ?? ""), actor);
     }

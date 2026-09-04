@@ -1815,6 +1815,31 @@ async function main() {
     "opexUnitPrice",
     "`opexUnitPrice` DECIMAL(18, 4) NULL COMMENT 'procurement OPEX unit price' AFTER `capexUnitPrice`",
   );
+  await addColumnIfMissing(
+    "purchaseorderitems",
+    "powerPricingJson",
+    "`powerPricingJson` LONGTEXT NULL COMMENT 'power service pricing calculation snapshot JSON' AFTER `opexUnitPrice`",
+  );
+  await addColumnIfMissing(
+    "purchaseorderitems",
+    "powerFirst24VatIncluded",
+    "`powerFirst24VatIncluded` DECIMAL(18, 4) NULL COMMENT 'power service price for first 24 months including VAT' AFTER `powerPricingJson`",
+  );
+  await addColumnIfMissing(
+    "purchaseorderitems",
+    "powerNext36VatIncluded",
+    "`powerNext36VatIncluded` DECIMAL(18, 4) NULL COMMENT 'power service price for next 36 months including VAT' AFTER `powerFirst24VatIncluded`",
+  );
+  await addColumnIfMissing(
+    "purchaseorderitems",
+    "powerFirst24Manual",
+    "`powerFirst24Manual` TINYINT(1) NOT NULL DEFAULT 0 COMMENT 'whether first 24 month price is manually overridden' AFTER `powerNext36VatIncluded`",
+  );
+  await addColumnIfMissing(
+    "purchaseorderitems",
+    "powerNext36Manual",
+    "`powerNext36Manual` TINYINT(1) NOT NULL DEFAULT 0 COMMENT 'whether next 36 month price is manually overridden' AFTER `powerFirst24Manual`",
+  );
   await createTableIfMissing(
     "balancesettlements",
     `

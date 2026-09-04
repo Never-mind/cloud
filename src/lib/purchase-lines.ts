@@ -19,6 +19,11 @@ type PurchaseItemRow = {
   unitPrice?: number | string | null;
   capexUnitPrice?: number | string | null;
   opexUnitPrice?: number | string | null;
+  powerPricingJson?: string | null;
+  powerFirst24VatIncluded?: number | string | null;
+  powerNext36VatIncluded?: number | string | null;
+  powerFirst24Manual?: boolean | number | null;
+  powerNext36Manual?: boolean | number | null;
 };
 
 type RequestItemRow = {
@@ -79,6 +84,11 @@ export type PurchaseProductLine = {
   unitPrice: number;
   capexUnitPrice: number;
   opexUnitPrice: number;
+  powerPricingJson?: string;
+  powerFirst24VatIncluded?: number;
+  powerNext36VatIncluded?: number;
+  powerFirst24Manual?: boolean;
+  powerNext36Manual?: boolean;
   totalAmount: number;
 };
 
@@ -141,6 +151,15 @@ export function buildPurchaseProductLines({
         unitPrice,
         capexUnitPrice,
         opexUnitPrice,
+        ...(item.powerPricingJson
+          ? {
+              powerPricingJson: String(item.powerPricingJson),
+              powerFirst24VatIncluded: Number(item.powerFirst24VatIncluded ?? 0),
+              powerNext36VatIncluded: Number(item.powerNext36VatIncluded ?? 0),
+              powerFirst24Manual: Boolean(item.powerFirst24Manual),
+              powerNext36Manual: Boolean(item.powerNext36Manual),
+            }
+          : {}),
         totalAmount: quantity * unitPrice,
       },
       sortTime: getTime(order?.updatedAt || order?.createdAt),

@@ -53,9 +53,10 @@ async function getPurchaseOrderDetail(purchaseOrderId: string): Promise<OrderDet
     ),
     queryRows<Row>(
       `
-        SELECT DISTINCT requestItem.*
+        SELECT DISTINCT requestItem.*, requestMaster.countryCode
         FROM requestitems AS requestItem
         INNER JOIN purchaseorderitems AS purchaseItem ON purchaseItem.requestItemId = requestItem.id
+        LEFT JOIN requests AS requestMaster ON requestMaster.requestNo = requestItem.requestNo
         WHERE purchaseItem.purchaseOrderId = :purchaseOrderId
         ORDER BY requestItem.id
       `,

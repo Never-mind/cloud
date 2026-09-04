@@ -10,6 +10,7 @@ import { deleteBillingStatementDraft } from "@/lib/billing-statement-service";
 import { deletePrepaymentDraft } from "@/lib/prepayment-service";
 import { deleteServiceFeeStatementDraft } from "@/lib/service-fee-service";
 import { getOperationActor, operationFields, type OperationActor } from "@/lib/operation-actor";
+import { assertPurchaseItemPowerPricingStorage, persistPurchaseItemPowerPricing, persistPurchaseOrderUsdRate } from "@/lib/purchase-power-pricing-service";
 
 export async function GET(_request: NextRequest, context: { params: Promise<{ entity: string; id: string }> }) {
   const { entity, id } = await context.params;
@@ -47,6 +48,13 @@ export async function PUT(request: NextRequest, context: { params: Promise<{ ent
   }
 
   const body = await request.json();
+  if (entity === "purchase-order-items") {
+    try {
+      await assertPurchaseItemPowerPricingStorage(body);
+    } catch (error) {
+      return NextResponse.json({ error: error instanceof Error ? error.message : "采购明细测算字段校验失败" }, { status: 400 });
+    }
+  }
   const actor = await getOperationActor(request);
   if (entity === "customer-pos") {
     try {
@@ -80,6 +88,8 @@ export async function PUT(request: NextRequest, context: { params: Promise<{ ent
       ? { ...body, ...operationFields(actor, "update") }
       : body;
     const row = await updateEntityRow(config, id, auditedBody);
+    if (entity === "purchase-orders") await persistPurchaseOrderUsdRate(id, auditedBody);
+    if (entity === "purchase-order-items") await persistPurchaseItemPowerPricing(id, auditedBody);
     if (entity === "purchase-orders" && before && body.poNo && String(before.poNo ?? "") !== String(body.poNo)) {
       await execute("UPDATE purchaseorderitems SET poNo = :poNo WHERE purchaseOrderId = :purchaseOrderId", {
         poNo: body.poNo,

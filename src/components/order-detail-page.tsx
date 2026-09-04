@@ -3,18 +3,20 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { ArrowLeft, CheckCircle2, Pencil, Save, X } from "lucide-react";
+import { ArrowLeft, Calculator, CheckCircle2, Pencil, Save, X } from "lucide-react";
 import { formatDateInputValue, formatDisplayValue } from "@/lib/display-format";
 import type { EntityConfig } from "@/lib/modules";
 import { formatNumericInputValue, parseNumericInputValue } from "@/lib/numeric-input";
 import { getPurchaseOrderForDetailLines } from "@/lib/order-detail-view";
 import type { OrderRouteMode } from "@/lib/order-routes";
 import { buildPurchaseProductLines, calculatePurchaseTotalAmount } from "@/lib/purchase-lines";
+import { refreshPowerPricingSnapshot, serializePowerPricingSnapshot, type PowerPriceContext, type PowerPricingSnapshot } from "@/lib/power-price-calculator";
 import { PurchaseOrderDemandPlanTabs } from "./purchase-order-demand-plan-tabs";
 import { getReturnTo } from "@/lib/client-list-navigation";
 import { readJsonResponse } from "@/lib/client-response";
 import { AuditInfoBar, Button, Input, Panel } from "./ui";
 import { StickyTable } from "./sticky-table";
+import { PowerPriceCalculationDrawer } from "./power-price-calculation-drawer";
 
 type Row = Record<string, string | number | boolean | null>;
 
@@ -43,6 +45,7 @@ export function OrderDetailPage({
   const [confirming, setConfirming] = useState(false);
   const [masterDraft, setMasterDraft] = useState<Row>({});
   const [detailDrafts, setDetailDrafts] = useState<Row[]>([]);
+  const [pricingDetailId, setPricingDetailId] = useState<string | null>(null);
 
   async function loadData() {
     const detailType = mode === "purchase" ? "purchase-orders" : "requests";
@@ -124,6 +127,9 @@ export function OrderDetailPage({
           { key: "totalAmount", label: "含税总价", type: "money" },
           { key: "capexUnitPrice", label: "采购CAPEX单价", type: "money" },
           { key: "opexUnitPrice", label: "采购OPEX单价", type: "money" },
+          { key: "powerFirst24VatIncluded", label: "算力服务价格（1-24个月，含VAT）", type: "money" },
+          { key: "powerNext36VatIncluded", label: "算力服务价格（后36个月，含VAT）", type: "money" },
+          { key: "powerPricing", label: "测算" },
           { key: "hardwareCoefficient", label: "硬件系数", type: "number" },
           { key: "softwareCoefficient", label: "软件系数", type: "number" },
           { key: "totalCoefficient", label: "总系数", type: "number" },
@@ -157,7 +163,13 @@ export function OrderDetailPage({
   }
 
   function updateMasterDraft(key: string, value: string | number | null) {
-    setMasterDraft((current) => ({ ...current, [key]: value }));
+    setMasterDraft((current) => {
+      const next = { ...current, [key]: value };
+      if (mode === "purchase" && (key === "currency" || key === "usdRate")) {
+        setDetailDrafts((currentDetails) => currentDetails.map((detail) => refreshDetailPricing(detail, next)));
+      }
+      return next;
+    });
   }
 
   function updateDetailDraft(rowId: string, key: string, value: number) {
@@ -171,10 +183,46 @@ export function OrderDetailPage({
         }
         if (key === "taxExcludedUnitPrice" || key === "taxSurcharge") {
           next.unitPrice = Number(next.taxExcludedUnitPrice ?? 0) + Number(next.taxSurcharge ?? 0);
+          return refreshDetailPricing(next, masterDraft);
         }
         return next;
       }),
     );
+  }
+
+  function getPricingContext(detail: Row, sourceMaster = masterDraft): PowerPriceContext | null {
+    const requestItem = requestItems.find((item) => String(item.id) === String(detail.requestItemId ?? ""));
+    const deviceCode = String(requestItem?.deviceCode ?? "");
+    const countryCode = String(requestItem?.countryCode ?? master?.countryCode ?? "");
+    if (!deviceCode || !countryCode.trim()) return null;
+    const instanceModel = instanceModels.find((item) => String(item.deviceCode) === deviceCode);
+    return {
+      countryCode,
+      deviceCode,
+      b6Type: String(instanceModel?.b6Type ?? ""),
+      purchaseCurrency: String(sourceMaster.currency ?? master?.currency ?? ""),
+      taxExcludedUnitPrice: Number(detail.taxExcludedUnitPrice ?? 0),
+      taxSurcharge: Number(detail.taxSurcharge ?? 0),
+      exchangeRate: Number(sourceMaster.usdRate ?? master?.usdRate ?? 0),
+    };
+  }
+
+  function refreshDetailPricing(detail: Row, sourceMaster = masterDraft): Row {
+    if (!detail.powerPricingJson) return detail;
+    const context = getPricingContext(detail, sourceMaster);
+    if (!context) return detail;
+    return applyPricingSnapshot(detail, refreshPowerPricingSnapshot(context, detail.powerPricingJson));
+  }
+
+  function applyPricingSnapshot(detail: Row, snapshot: PowerPricingSnapshot): Row {
+    return {
+      ...detail,
+      powerPricingJson: serializePowerPricingSnapshot(snapshot),
+      powerFirst24VatIncluded: snapshot.result.first24VatIncluded,
+      powerNext36VatIncluded: snapshot.result.next36VatIncluded,
+      powerFirst24Manual: snapshot.manualPrices.first24VatIncluded !== undefined,
+      powerNext36Manual: snapshot.manualPrices.next36VatIncluded !== undefined,
+    };
   }
 
   async function saveChanges() {
@@ -300,6 +348,10 @@ export function OrderDetailPage({
                 )}
               </label>
             ))}
+            <label>
+              <span className="mb-1 block text-xs text-[#909399]">整机价转合同汇率（CNY → USD）</span>
+              <Input className="w-full min-w-0" step="0.000001" type="number" value={formatNumericInputValue(Number(masterDraft.usdRate ?? 0))} onChange={(event) => updateMasterDraft("usdRate", parseNumericInputValue(event.target.value))} />
+            </label>
             <Info label="总数量" value={totalQuantity} />
             {mode === "purchase" ? <Info label="采购总金额" value={purchaseTotalAmount} type="money" /> : null}
             <Info label="明细数量" value={details.length} />
@@ -309,6 +361,7 @@ export function OrderDetailPage({
             {masterListFields.map((field) => (
               <Info key={field.key} label={field.label} value={master[field.key]} />
             ))}
+            <Info label="整机价转合同汇率（CNY → USD）" value={master.usdRate} type="number" />
             <Info label="总数量" value={totalQuantity} />
             {mode === "purchase" ? <Info label="采购总金额" value={purchaseTotalAmount} type="money" /> : null}
             <Info label="明细数量" value={details.length} />
@@ -319,7 +372,7 @@ export function OrderDetailPage({
       <Panel>
         <div className="border-b border-[#ebeef5] px-4 py-3 font-medium text-[#303133]">明细列表</div>
         <StickyTable className="table-scroll overflow-auto" tableKey={`order-detail-${mode}`}>
-          <table className={mode === "purchase" ? "min-w-[1800px] whitespace-nowrap border-collapse text-sm" : "min-w-[1050px] whitespace-nowrap border-collapse text-sm"}>
+          <table className={mode === "purchase" ? "min-w-[2200px] whitespace-nowrap border-collapse text-sm" : "min-w-[1050px] whitespace-nowrap border-collapse text-sm"}>
             <thead className="bg-[#f5f7fa] text-[#303133]">
               <tr>
                 {detailColumns.map((field) => (
@@ -334,7 +387,11 @@ export function OrderDetailPage({
                 <tr className="hover:bg-[#fafafa]" key={String(row.id ?? row[detailConfig.primaryKey])}>
                   {detailColumns.map((field) => (
                     <td className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3" key={field.key}>
-                      {editing && mode === "purchase" && ["taxExcludedUnitPrice", "taxSurcharge", "capexUnitPrice", "opexUnitPrice", "hardwareCoefficient", "softwareCoefficient"].includes(field.key) ? (
+                      {field.key === "powerPricing" && mode === "purchase" ? (
+                        editing ? <button className="inline-flex h-8 w-8 items-center justify-center border border-[#b3d8ff] text-[#1890ff] hover:bg-[#ecf5ff] disabled:cursor-not-allowed disabled:border-[#ebeef5] disabled:text-[#c0c4cc]" disabled={!getPricingContext(detailDrafts.find((item) => String(item.id) === String(row.id)) ?? row)} title="算力服务费测算" type="button" onClick={() => setPricingDetailId(String(row.id))}><Calculator size={15} /></button> : "-"
+                      ) : field.key === "powerFirst24VatIncluded" || field.key === "powerNext36VatIncluded" ? (
+                        row.powerPricingJson ? `USD ${formatPowerPrice(row[field.key])}` : "-"
+                      ) : editing && mode === "purchase" && ["taxExcludedUnitPrice", "taxSurcharge", "capexUnitPrice", "opexUnitPrice", "hardwareCoefficient", "softwareCoefficient"].includes(field.key) ? (
                         <NumberInput
                           value={Number(row[field.key] ?? 0)}
                           onChange={(value) => updateDetailDraft(String(row.id), field.key, value)}
@@ -357,6 +414,11 @@ export function OrderDetailPage({
           </table>
         </StickyTable>
       </Panel>
+      {pricingDetailId ? (() => {
+        const detail = detailDrafts.find((item) => String(item.id) === pricingDetailId);
+        const context = detail ? getPricingContext(detail) : null;
+        return detail && context ? <PowerPriceCalculationDrawer context={context} existingSnapshot={detail.powerPricingJson} onClose={() => setPricingDetailId(null)} onApply={(snapshot) => { setDetailDrafts((current) => current.map((item) => String(item.id) === pricingDetailId ? applyPricingSnapshot(item, snapshot) : item)); setPricingDetailId(null); }} /> : null;
+      })() : null}
       {mode === "purchase" ? (
         <PurchaseOrderDemandPlanTabs
           poNo={String(master.poNo ?? "")}
@@ -412,4 +474,9 @@ function getDetailDisplayValue(row: Row, key: string) {
   if (key === "undertakingUnitId" || key === "undertakingUnitCode" || key === "undertakingUnitName") return row.undertakingUnitDisplayName ?? row[key];
   if (key === "customerId" || key === "customerCode" || key === "customerName") return row.customerDisplayName ?? row[key];
   return row[key];
+}
+
+function formatPowerPrice(value: unknown) {
+  const number = Number(value ?? 0);
+  return Number.isFinite(number) ? number.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "0.00";
 }

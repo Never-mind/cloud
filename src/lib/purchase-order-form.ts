@@ -9,6 +9,11 @@ export type PurchaseDetailDraft = {
   opexUnitPrice?: number;
   hardwareCoefficient: number;
   softwareCoefficient: number;
+  powerPricingJson?: string;
+  powerFirst24VatIncluded?: number;
+  powerNext36VatIncluded?: number;
+  powerFirst24Manual?: boolean;
+  powerNext36Manual?: boolean;
 };
 
 export const PURCHASE_CURRENCY_OPTIONS = ["CNY", "MXN", "CLP", "USD", "BRL"];
@@ -33,6 +38,16 @@ export function buildPurchaseOrderItemRows({
       ? taxExcludedUnitPrice + taxSurcharge
       : Number(detail.unitPrice ?? 0);
 
+    const powerPricingFields = detail.powerPricingJson
+      ? {
+          powerPricingJson: detail.powerPricingJson,
+          powerFirst24VatIncluded: detail.powerFirst24VatIncluded ?? 0,
+          powerNext36VatIncluded: detail.powerNext36VatIncluded ?? 0,
+          powerFirst24Manual: detail.powerFirst24Manual ?? false,
+          powerNext36Manual: detail.powerNext36Manual ?? false,
+        }
+      : {};
+
     return {
       id: `POI-${purchaseOrderId}-${String(index + 1).padStart(3, "0")}`,
       purchaseOrderId,
@@ -48,6 +63,7 @@ export function buildPurchaseOrderItemRows({
       hardwareCoefficient: detail.hardwareCoefficient,
       softwareCoefficient: detail.softwareCoefficient,
       totalCoefficient,
+      ...powerPricingFields,
     };
   });
 }

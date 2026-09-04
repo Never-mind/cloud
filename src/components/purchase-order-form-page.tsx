@@ -2,14 +2,16 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, Plus, Save } from "lucide-react";
+import { ArrowLeft, Calculator, Plus, Save } from "lucide-react";
 import { formatDateInputValue, formatDisplayValue } from "@/lib/display-format";
 import { formatNumericInputValue, parseNumericInputValue } from "@/lib/numeric-input";
 import { PURCHASE_CURRENCY_OPTIONS, buildPurchaseOrderItemRows, type PurchaseDetailDraft } from "@/lib/purchase-order-form";
 import { calculatePurchaseTotalAmount } from "@/lib/purchase-lines";
 import { buildAutoPurchaseOrderId, buildAutoPurchaseOrderNo, normalizeRequestNos } from "@/lib/procurement-workflow";
 import { fetchAllEntityRows } from "@/lib/client-entity-fetch";
+import { refreshPowerPricingSnapshot, serializePowerPricingSnapshot, type PowerPriceContext, type PowerPricingSnapshot } from "@/lib/power-price-calculator";
 import { Button, Input, Panel } from "./ui";
+import { PowerPriceCalculationDrawer } from "./power-price-calculation-drawer";
 import { StickyTable } from "./sticky-table";
 
 type Row = Record<string, string | number | boolean | null>;
@@ -21,6 +23,7 @@ type MasterDraft = {
   sourceRequestNos: string;
   status: string;
   currency: string;
+  usdRate: string;
   releasedAt: string;
 };
 
@@ -31,6 +34,7 @@ const emptyMaster: MasterDraft = {
   sourceRequestNos: "",
   status: "草稿",
   currency: "USD",
+  usdRate: "0.1476642241",
   releasedAt: "",
 };
 
@@ -53,6 +57,8 @@ export function PurchaseOrderFormPage() {
   const [instanceModels, setInstanceModels] = useState<Row[]>([]);
   const [requests, setRequests] = useState<Row[]>([]);
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
+  const [pricingDetailIndex, setPricingDetailIndex] = useState<number | null>(null);
 
   async function fetchEntity(entity: string) {
     return fetchAllEntityRows<Row>(entity);
@@ -94,25 +100,38 @@ export function PurchaseOrderFormPage() {
   );
 
   function updateMaster(key: keyof MasterDraft, value: string) {
-    setMaster((current) => ({ ...current, [key]: value }));
+    setMaster((current) => {
+      const nextMaster = { ...current, [key]: value };
+      if (key === "currency" || key === "usdRate") {
+        setDetails((currentDetails) => currentDetails.map((detail) => refreshDetailPricing(detail, nextMaster)));
+      }
+      return nextMaster;
+    });
   }
 
   function updateDetail(index: number, patch: Partial<PurchaseDetailDraft>) {
     setDetails((current) =>
       current.map((detail, detailIndex) =>
-        detailIndex === index
-          ? {
-              ...detail,
-              ...patch,
-              unitPrice:
-                patch.taxExcludedUnitPrice !== undefined || patch.taxSurcharge !== undefined
-                  ? Number(patch.taxExcludedUnitPrice ?? detail.taxExcludedUnitPrice ?? detail.unitPrice ?? 0) +
-                    Number(patch.taxSurcharge ?? detail.taxSurcharge ?? 0)
-                  : patch.unitPrice ?? detail.unitPrice,
-            }
-          : detail,
+        detailIndex === index ? refreshUpdatedDetail(detail, patch) : detail,
       ),
     );
+  }
+
+  function refreshUpdatedDetail(detail: PurchaseDetailDraft, patch: Partial<PurchaseDetailDraft>) {
+    const next = {
+      ...detail,
+      ...patch,
+      unitPrice:
+        patch.taxExcludedUnitPrice !== undefined || patch.taxSurcharge !== undefined
+          ? Number(patch.taxExcludedUnitPrice ?? detail.taxExcludedUnitPrice ?? detail.unitPrice ?? 0) +
+            Number(patch.taxSurcharge ?? detail.taxSurcharge ?? 0)
+          : patch.unitPrice ?? detail.unitPrice,
+    };
+    if (patch.requestItemId !== undefined && patch.requestItemId !== detail.requestItemId) {
+      const { powerPricingJson: _snapshot, powerFirst24VatIncluded: _first24, powerNext36VatIncluded: _next36, powerFirst24Manual: _firstManual, powerNext36Manual: _nextManual, ...withoutPricing } = next;
+      return withoutPricing;
+    }
+    return refreshDetailPricing(next, master);
   }
 
   function getRequestItem(requestItemId: string) {
@@ -121,6 +140,42 @@ export function PurchaseOrderFormPage() {
 
   function getModel(deviceCode: string) {
     return instanceModels.find((model) => String(model.deviceCode) === deviceCode);
+  }
+
+  function getPricingContext(detail: PurchaseDetailDraft, sourceMaster = master): PowerPriceContext | null {
+    const requestItem = getRequestItem(detail.requestItemId);
+    const request = requests.find((item) => String(item.requestNo) === String(requestItem?.requestNo ?? detail.requestNo ?? ""));
+    const deviceCode = String(requestItem?.deviceCode ?? "");
+    if (!deviceCode || !String(request?.countryCode ?? "").trim()) return null;
+    const model = getModel(deviceCode);
+    return {
+      countryCode: String(request?.countryCode ?? ""),
+      deviceCode,
+      b6Type: String(model?.b6Type ?? ""),
+      purchaseCurrency: sourceMaster.currency,
+      taxExcludedUnitPrice: Number(detail.taxExcludedUnitPrice ?? 0),
+      taxSurcharge: Number(detail.taxSurcharge ?? 0),
+      exchangeRate: Number(sourceMaster.usdRate ?? 0),
+    };
+  }
+
+  function refreshDetailPricing(detail: PurchaseDetailDraft, sourceMaster = master) {
+    if (!detail.powerPricingJson) return detail;
+    const context = getPricingContext(detail, sourceMaster);
+    if (!context) return detail;
+    const snapshot = refreshPowerPricingSnapshot(context, detail.powerPricingJson);
+    return applyPricingSnapshot(detail, snapshot);
+  }
+
+  function applyPricingSnapshot(detail: PurchaseDetailDraft, snapshot: PowerPricingSnapshot): PurchaseDetailDraft {
+    return {
+      ...detail,
+      powerPricingJson: serializePowerPricingSnapshot(snapshot),
+      powerFirst24VatIncluded: snapshot.result.first24VatIncluded,
+      powerNext36VatIncluded: snapshot.result.next36VatIncluded,
+      powerFirst24Manual: snapshot.manualPrices.first24VatIncluded !== undefined,
+      powerNext36Manual: snapshot.manualPrices.next36VatIncluded !== undefined,
+    };
   }
 
   function generatePoNo() {
@@ -136,34 +191,42 @@ export function PurchaseOrderFormPage() {
       sourceRequestNos,
     };
     setSaving(true);
-    await fetch("/api/entities/purchase-orders", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(masterPayload),
-    });
+    setSaveError("");
+    try {
+      const masterResponse = await fetch("/api/entities/purchase-orders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(masterPayload),
+      });
+      if (!masterResponse.ok) throw new Error(await readResponseError(masterResponse, "采购订单保存失败"));
 
-    const itemRows = buildPurchaseOrderItemRows({
-      purchaseOrderId: master.purchaseOrderId,
-      poNo: master.poNo,
-      details: details
-        .filter((detail) => detail.requestItemId)
+      const itemRows = buildPurchaseOrderItemRows({
+        purchaseOrderId: master.purchaseOrderId,
+        poNo: master.poNo,
+        details: details
+          .filter((detail) => detail.requestItemId)
           .map((detail) => ({
             ...detail,
             requestNo: String(getRequestItem(detail.requestItemId)?.requestNo ?? detail.requestNo ?? ""),
             requestType: String(getRequestItem(detail.requestItemId)?.requestType ?? "整机"),
           })),
-    });
-
-    for (const item of itemRows) {
-      await fetch("/api/entities/purchase-order-items", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(item),
       });
-    }
 
-    setSaving(false);
-    router.push(`/purchase/orders/${encodeURIComponent(master.purchaseOrderId)}`);
+      for (const item of itemRows) {
+        const itemResponse = await fetch("/api/entities/purchase-order-items", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(item),
+        });
+        if (!itemResponse.ok) throw new Error(await readResponseError(itemResponse, "采购明细保存失败"));
+      }
+
+      router.push(`/purchase/orders/${encodeURIComponent(master.purchaseOrderId)}`);
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : "采购订单保存失败");
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -232,10 +295,12 @@ export function PurchaseOrderFormPage() {
               ))}
             </select>
           </label>
+          <Field label="整机价转合同汇率（CNY → USD）" type="number" value={master.usdRate} onChange={(value) => updateMaster("usdRate", value)} />
           <Field label="下发日期" type="date" value={master.releasedAt} onChange={(value) => updateMaster("releasedAt", value)} />
           <Info label="采购总金额" value={purchaseTotalAmount} type="money" />
         </div>
       </Panel>
+      {saveError ? <div className="border border-[#fbc4c4] bg-[#fef0f0] px-4 py-3 text-sm text-[#f56c6c]">{saveError}</div> : null}
 
       <Panel>
         <div className="flex items-center gap-2 border-b border-[#ebeef5] px-4 py-3">
@@ -246,7 +311,7 @@ export function PurchaseOrderFormPage() {
           </Button>
         </div>
         <StickyTable className="table-scroll overflow-auto" tableKey="purchase-order-form-details">
-          <table className="min-w-[1900px] whitespace-nowrap border-collapse text-sm">
+          <table className="min-w-[2250px] whitespace-nowrap border-collapse text-sm">
             <thead className="bg-[#f5f7fa] text-[#303133]">
               <tr>
                 <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">需求明细</th>
@@ -260,6 +325,9 @@ export function PurchaseOrderFormPage() {
                 <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">含税总价</th>
                 <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">采购CAPEX单价</th>
                 <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">采购OPEX单价</th>
+                <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">算力服务价格（1-24个月，含VAT）</th>
+                <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">算力服务价格（后36个月，含VAT）</th>
+                <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">测算</th>
                 <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">硬件系数</th>
                 <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">软件系数</th>
               </tr>
@@ -305,6 +373,9 @@ export function PurchaseOrderFormPage() {
                     <td className="border-b border-r border-[#ebeef5] px-3 py-3">
                       <NumberInput value={detail.opexUnitPrice ?? 0} onChange={(value) => updateDetail(index, { opexUnitPrice: value })} />
                     </td>
+                    <td className="border-b border-r border-[#ebeef5] px-3 py-3 font-medium text-[#1890ff]">{detail.powerPricingJson ? `USD ${formatNumber(detail.powerFirst24VatIncluded)}` : "-"}</td>
+                    <td className="border-b border-r border-[#ebeef5] px-3 py-3 font-medium text-[#13a65b]">{detail.powerPricingJson ? `USD ${formatNumber(detail.powerNext36VatIncluded)}` : "-"}</td>
+                    <td className="border-b border-r border-[#ebeef5] px-3 py-3"><button className="inline-flex h-8 w-8 items-center justify-center border border-[#b3d8ff] text-[#1890ff] hover:bg-[#ecf5ff] disabled:cursor-not-allowed disabled:border-[#ebeef5] disabled:text-[#c0c4cc]" disabled={!getPricingContext(detail)} title={getPricingContext(detail) ? "算力服务费测算" : "请先选择带国家信息的需求明细"} type="button" onClick={() => setPricingDetailIndex(index)}><Calculator size={15} /></button></td>
                     <td className="border-b border-r border-[#ebeef5] px-3 py-3">
                       <NumberInput value={detail.hardwareCoefficient} onChange={(value) => updateDetail(index, { hardwareCoefficient: value })} />
                     </td>
@@ -318,6 +389,11 @@ export function PurchaseOrderFormPage() {
           </table>
         </StickyTable>
       </Panel>
+      {pricingDetailIndex !== null && details[pricingDetailIndex] ? (() => {
+        const detail = details[pricingDetailIndex];
+        const context = getPricingContext(detail);
+        return context ? <PowerPriceCalculationDrawer context={context} existingSnapshot={detail.powerPricingJson} onClose={() => setPricingDetailIndex(null)} onApply={(snapshot) => { updateDetail(pricingDetailIndex, applyPricingSnapshot(detail, snapshot)); setPricingDetailIndex(null); }} /> : null;
+      })() : null}
     </div>
   );
 }
@@ -376,4 +452,18 @@ function NumberInput({ onChange, value }: { onChange: (value: number) => void; v
 
 function formatValue(value: unknown, type?: string) {
   return formatDisplayValue(value as string | number | boolean | null | undefined, type);
+}
+
+function formatNumber(value: unknown) {
+  const number = Number(value ?? 0);
+  return Number.isFinite(number) ? number.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "0.00";
+}
+
+async function readResponseError(response: Response, fallback: string) {
+  try {
+    const payload = await response.json() as { error?: string };
+    return payload.error || fallback;
+  } catch {
+    return fallback;
+  }
 }
