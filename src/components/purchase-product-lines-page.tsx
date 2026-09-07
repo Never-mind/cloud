@@ -8,6 +8,8 @@ import { exportRowsToXlsx } from "@/lib/client-xlsx-export";
 import { fetchAllEntityRows } from "@/lib/client-entity-fetch";
 import { DEFAULT_PAGE_SIZE } from "@/lib/pagination";
 import { PURCHASE_PRODUCT_LINE_COLUMNS } from "@/lib/purchase-lines";
+import { getPurchasePriceComparison } from "@/lib/purchase-price-comparison";
+import { buildPowerPricingSnapshot, refreshPowerPricingSnapshot } from "@/lib/power-price-calculator";
 import { PaginationBar } from "./pagination-bar";
 import { StickyTable } from "./sticky-table";
 import { TableColumnMenu, type TableFilterOption, type TableSortOrder } from "./table-column-menu";
@@ -18,7 +20,7 @@ import { buildListRoute, getCurrentRoute, useListScrollPosition } from "@/lib/cl
 type Row = Record<string, string | number | boolean | null>;
 type ListResponse = { rows: Row[]; total: number; page: number; pageSize: number; totalPages: number };
 
-const columns = PURCHASE_PRODUCT_LINE_COLUMNS.map((column) => ({ ...column, sortable: true, filterable: true }));
+const columns = PURCHASE_PRODUCT_LINE_COLUMNS.map((column) => ({ ...column, type: "type" in column ? column.type : undefined, sortable: true, filterable: true }));
 
 export function PurchaseProductLinesPage() {
   const pathname = usePathname();
@@ -177,7 +179,7 @@ export function PurchaseProductLinesPage() {
           <table className="min-w-full border-collapse text-sm">
             <thead className="bg-[#f5f7fa] text-[#303133]"><tr>{columns.map((column) => <th className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium" key={column.key}>{renderHeader(column)}</th>)}</tr></thead>
             <tbody>
-              {rows.map((row) => <tr className="hover:bg-[#fafafa]" key={String(row.id)}>{columns.map((column) => <td className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3" key={column.key}>{formatValue(row[column.key])}</td>)}</tr>)}
+              {rows.map((row) => <tr className="hover:bg-[#fafafa]" key={String(row.id)}>{columns.map((column) => <td className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3" key={column.key}>{renderValue(row, column.key, column.type)}</td>)}</tr>)}
               {!rows.length ? <tr><td className="py-12 text-center text-[#909399]" colSpan={columns.length}>{loading ? "加载中..." : "暂无数据"}</td></tr> : null}
             </tbody>
           </table>
@@ -209,4 +211,43 @@ export function PurchaseProductLinesPage() {
 
 function formatValue(value: unknown, type?: string) {
   return formatDisplayValue(value as string | number | boolean | null | undefined, type);
+}
+
+function renderValue(row: Row, key: string, type?: string) {
+  if (key !== "powerFirst24VatIncluded" && key !== "powerNext36VatIncluded") return formatValue(row[key], type);
+  const pricing = getDisplayPricing(row);
+  const calculatedValue = key === "powerFirst24VatIncluded" ? pricing?.first24VatIncluded : pricing?.next36VatIncluded;
+  const value = Number(row[key] ?? calculatedValue ?? NaN);
+  if (!Number.isFinite(value)) return "-";
+  const benchmarkKey = key === "powerFirst24VatIncluded"
+    ? "latestInstanceContractFirst24PriceUSD"
+    : "latestInstanceContractNext36PriceUSD";
+  const comparison = getPurchasePriceComparison(value, row[benchmarkKey]);
+  if (comparison.relation === "unavailable") return `USD ${formatPowerPrice(value)}`;
+  const tone = comparison.relation === "higher" ? "text-[#f56c6c]" : comparison.relation === "lower" ? "text-[#67c23a]" : "text-[#606266]";
+  const label = comparison.relation === "higher" ? "高于最近合同" : comparison.relation === "lower" ? "低于最近合同" : "与最近合同相同";
+  return <span className={`inline-flex flex-col ${tone}`} title={`${row.latestInstanceContractNo ?? "最近实例合同"}${row.latestInstanceContractDateSigned ? `，签署于${row.latestInstanceContractDateSigned}` : ""}`}><span>USD {formatPowerPrice(value)}</span><span className="text-xs">{label} {comparison.difference === 0 ? "" : `USD ${formatPowerPrice(Math.abs(comparison.difference ?? 0))}`}</span></span>;
+}
+
+function getDisplayPricing(row: Row) {
+  const countryCode = String(row.countryCode ?? "").trim();
+  const deviceCode = String(row.deviceCode ?? "").trim();
+  if (!countryCode || !deviceCode) return null;
+  const context = {
+    countryCode,
+    deviceCode,
+    b6Type: String(row.b6Type ?? ""),
+    purchaseCurrency: String(row.currency ?? "USD"),
+    taxExcludedUnitPrice: Number(row.taxExcludedUnitPrice ?? 0),
+    taxSurcharge: Number(row.taxSurcharge ?? 0),
+    exchangeRate: Number(row.usdRate ?? 0),
+  };
+  return row.powerPricingJson
+    ? refreshPowerPricingSnapshot(context, row.powerPricingJson).result
+    : buildPowerPricingSnapshot(context).result;
+}
+
+function formatPowerPrice(value: unknown) {
+  const number = Number(value ?? 0);
+  return Number.isFinite(number) ? number.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "0.00";
 }

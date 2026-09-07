@@ -79,7 +79,7 @@ export async function listAvailablePrepaymentLines(options: {
   const filterExpressions: Record<string, string> = {
     countryCode: "req.countryCode", batchName: "req.batchName", requestNo: "COALESCE(poi.requestNo, po.requestNo, ri.requestNo)",
     poNo: "poi.poNo", deviceCode: "ri.deviceCode", requestType: "COALESCE(NULLIF(poi.requestType, ''), NULLIF(ri.requestType, ''), NULLIF(req.requestType, ''), '整机')",
-    modelCode: "im.modelCode", nameEn: "im.nameEn", quantity: "ri.quantity", currency: "po.currency", actualUnitPrice: "poi.unitPrice",
+    modelCode: "im.modelCode", nameEn: "im.nameEn", quantity: "ri.quantity", currency: "COALESCE(NULLIF(poi.currency, ''), po.currency, 'USD')", actualUnitPrice: "poi.unitPrice",
     undertakingUnitCode: "COALESCE(NULLIF(unit.shortName, ''), NULLIF(unit.entityName, ''), NULLIF(unit.name, ''), unit.undertakingUnitCode)",
     supplierCode: "COALESCE(NULLIF(supplier.shortName, ''), NULLIF(supplier.nameCn, ''), supplier.supplierCode)",
     customerCode: "COALESCE(NULLIF(customer.shortName, ''), NULLIF(customer.nameCn, ''), NULLIF(customer.name, ''), customer.customerCode)",
@@ -128,7 +128,7 @@ export async function listAvailablePrepaymentLines(options: {
         ri.undertakingUnitId,
         ri.customerId,
         ri.quantity,
-        po.currency,
+        COALESCE(NULLIF(poi.currency, ''), po.currency, 'USD') AS currency,
         poi.unitPrice,
         po.status AS purchaseStatus,
         req.status AS requestStatus
@@ -151,7 +151,7 @@ export async function listAvailablePrepaymentLineFilterOptions(searchParams: URL
   const expressions: Record<string, string> = {
     countryCode: "req.countryCode", batchName: "req.batchName", requestNo: "COALESCE(poi.requestNo, po.requestNo, ri.requestNo)",
     poNo: "poi.poNo", deviceCode: "ri.deviceCode", requestType: "COALESCE(NULLIF(poi.requestType, ''), NULLIF(ri.requestType, ''), NULLIF(req.requestType, ''), '整机')",
-    modelCode: "im.modelCode", nameEn: "im.nameEn", quantity: "ri.quantity", currency: "po.currency", actualUnitPrice: "poi.unitPrice",
+    modelCode: "im.modelCode", nameEn: "im.nameEn", quantity: "ri.quantity", currency: "COALESCE(NULLIF(poi.currency, ''), po.currency, 'USD')", actualUnitPrice: "poi.unitPrice",
     undertakingUnitCode: "COALESCE(NULLIF(unit.shortName, ''), NULLIF(unit.entityName, ''), NULLIF(unit.name, ''), unit.undertakingUnitCode)",
     supplierCode: "COALESCE(NULLIF(supplier.shortName, ''), NULLIF(supplier.nameCn, ''), supplier.supplierCode)",
     customerCode: "COALESCE(NULLIF(customer.shortName, ''), NULLIF(customer.nameCn, ''), NULLIF(customer.name, ''), customer.customerCode)",

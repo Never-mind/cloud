@@ -48,7 +48,19 @@ async function getPurchaseOrderDetail(purchaseOrderId: string): Promise<OrderDet
 
   const [details, requestItems, instanceModels] = await Promise.all([
     queryRows<Row>(
-      "SELECT * FROM purchaseorderitems WHERE purchaseOrderId = :purchaseOrderId ORDER BY id",
+      `
+        SELECT
+          purchaseItem.*,
+          ${latestInstanceContractExpression("contractNo")} AS latestInstanceContractNo,
+          ${latestInstanceContractExpression("dateSigned", true)} AS latestInstanceContractDateSigned,
+          ${latestInstanceContractExpression("first24MonthPriceUSD")} AS latestInstanceContractFirst24PriceUSD,
+          ${latestInstanceContractExpression("next36MonthPriceUSD")} AS latestInstanceContractNext36PriceUSD
+        FROM purchaseorderitems AS purchaseItem
+        LEFT JOIN requestitems AS requestItem ON requestItem.id = purchaseItem.requestItemId
+        LEFT JOIN requests AS requestMaster ON requestMaster.requestNo = COALESCE(NULLIF(purchaseItem.requestNo, ''), requestItem.requestNo)
+        WHERE purchaseItem.purchaseOrderId = :purchaseOrderId
+        ORDER BY purchaseItem.id
+      `,
       { purchaseOrderId },
     ),
     queryRows<Row>(
@@ -76,4 +88,15 @@ async function getPurchaseOrderDetail(purchaseOrderId: string): Promise<OrderDet
   ]);
 
   return { master: masterRows[0], details, requestItems, instanceModels };
+}
+
+function latestInstanceContractExpression(column: string, date = false) {
+  const select = date ? `DATE_FORMAT(contract.${column}, '%Y-%m-%d')` : `contract.${column}`;
+  return `(SELECT ${select}
+      FROM instancecontracts AS contract
+     WHERE UPPER(TRIM(SUBSTRING_INDEX(contract.countryCode, '-', 1))) = UPPER(TRIM(SUBSTRING_INDEX(requestMaster.countryCode, '-', 1)))
+       AND contract.deviceCode = requestItem.deviceCode
+       AND (contract.first24MonthPriceUSD IS NOT NULL OR contract.next36MonthPriceUSD IS NOT NULL)
+     ORDER BY contract.dateSigned DESC, contract.createdAt DESC, contract.contractNo DESC
+     LIMIT 1)`;
 }

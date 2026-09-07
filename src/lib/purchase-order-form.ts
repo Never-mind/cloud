@@ -2,6 +2,7 @@ export type PurchaseDetailDraft = {
   requestNo?: string;
   requestType?: string;
   requestItemId: string;
+  currency?: string;
   taxExcludedUnitPrice?: number;
   taxSurcharge?: number;
   unitPrice: number;
@@ -17,16 +18,29 @@ export type PurchaseDetailDraft = {
 };
 
 export const PURCHASE_CURRENCY_OPTIONS = ["CNY", "MXN", "CLP", "USD", "BRL"];
+export const PURCHASE_ORDER_ITEM_CURRENCY_OPTIONS = ["CNY", "USD"] as const;
+
+export function normalizePurchaseOrderItemCurrency(value: unknown, fallback = "USD") {
+  const currency = String(value ?? "").trim().toUpperCase();
+  if (PURCHASE_ORDER_ITEM_CURRENCY_OPTIONS.includes(currency as typeof PURCHASE_ORDER_ITEM_CURRENCY_OPTIONS[number])) return currency;
+  const normalizedFallback = String(fallback ?? "").trim().toUpperCase();
+  return PURCHASE_ORDER_ITEM_CURRENCY_OPTIONS.includes(normalizedFallback as typeof PURCHASE_ORDER_ITEM_CURRENCY_OPTIONS[number])
+    ? normalizedFallback
+    : "USD";
+}
 
 export function buildPurchaseOrderItemRows({
   details,
   purchaseOrderId,
   poNo,
+  defaultCurrency = "USD",
 }: {
   details: PurchaseDetailDraft[];
   purchaseOrderId: string;
   poNo: string;
+  defaultCurrency?: string;
 }) {
+  const normalizedDefaultCurrency = normalizePurchaseOrderItemCurrency(defaultCurrency);
   return details.map((detail, index) => {
     const totalCoefficient = Number(detail.hardwareCoefficient || 0) + Number(detail.softwareCoefficient || 0);
     const taxSurcharge = Number(detail.taxSurcharge ?? 0);
@@ -55,6 +69,7 @@ export function buildPurchaseOrderItemRows({
       requestNo: detail.requestNo ?? "",
       requestItemId: detail.requestItemId,
       requestType: detail.requestType ?? "整机",
+      currency: normalizePurchaseOrderItemCurrency(detail.currency, normalizedDefaultCurrency),
       taxExcludedUnitPrice,
       taxSurcharge,
       unitPrice,

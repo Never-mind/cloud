@@ -14,6 +14,7 @@ type PurchaseItemRow = {
   poNo: string;
   requestNo?: string | null;
   requestItemId: string;
+  currency?: string | null;
   taxExcludedUnitPrice?: number | string | null;
   taxSurcharge?: number | string | null;
   unitPrice?: number | string | null;
@@ -24,6 +25,10 @@ type PurchaseItemRow = {
   powerNext36VatIncluded?: number | string | null;
   powerFirst24Manual?: boolean | number | null;
   powerNext36Manual?: boolean | number | null;
+  latestInstanceContractNo?: string | null;
+  latestInstanceContractDateSigned?: string | null;
+  latestInstanceContractFirst24PriceUSD?: number | string | null;
+  latestInstanceContractNext36PriceUSD?: number | string | null;
 };
 
 type RequestItemRow = {
@@ -60,10 +65,12 @@ export const PURCHASE_PRODUCT_LINE_COLUMNS = [
   { key: "quantity", label: "数量" },
   { key: "currency", label: "币种" },
   { key: "taxExcludedUnitPrice", label: "不含税单价" },
-  { key: "taxSurcharge", label: "税费加成" },
+  { key: "taxSurcharge", label: "税费加成金额" },
   { key: "unitPrice", label: "含税单价" },
   { key: "capexUnitPrice", label: "采购CAPEX单价" },
   { key: "opexUnitPrice", label: "采购OPEX单价" },
+  { key: "powerFirst24VatIncluded", label: "算力服务价格（1-24个月，含VAT）", type: "money" },
+  { key: "powerNext36VatIncluded", label: "算力服务价格（后36个月，含VAT）", type: "money" },
   { key: "totalAmount", label: "含税总价" },
 ] as const;
 
@@ -89,6 +96,10 @@ export type PurchaseProductLine = {
   powerNext36VatIncluded?: number;
   powerFirst24Manual?: boolean;
   powerNext36Manual?: boolean;
+  latestInstanceContractNo?: string;
+  latestInstanceContractDateSigned?: string | null;
+  latestInstanceContractFirst24PriceUSD?: number | null;
+  latestInstanceContractNext36PriceUSD?: number | null;
   totalAmount: number;
 };
 
@@ -140,7 +151,7 @@ export function buildPurchaseProductLines({
         requestNo,
         batchName: request?.batchName ?? "",
         status: order?.status ?? "",
-        currency: order?.currency ?? "",
+        currency: String(item.currency ?? order?.currency ?? "").trim(),
         requestItemId: item.requestItemId,
         deviceCode: requestItem?.deviceCode ?? "",
         nameZh: model?.nameZh ?? "",
@@ -160,6 +171,14 @@ export function buildPurchaseProductLines({
               powerNext36Manual: Boolean(item.powerNext36Manual),
             }
           : {}),
+        ...(item.latestInstanceContractNo
+          ? {
+              latestInstanceContractNo: String(item.latestInstanceContractNo),
+              latestInstanceContractDateSigned: item.latestInstanceContractDateSigned ? String(item.latestInstanceContractDateSigned) : null,
+              latestInstanceContractFirst24PriceUSD: optionalNumber(item.latestInstanceContractFirst24PriceUSD),
+              latestInstanceContractNext36PriceUSD: optionalNumber(item.latestInstanceContractNext36PriceUSD),
+            }
+          : {}),
         totalAmount: quantity * unitPrice,
       },
       sortTime: getTime(order?.updatedAt || order?.createdAt),
@@ -171,6 +190,12 @@ export function buildPurchaseProductLines({
       return right.line.poNo.localeCompare(left.line.poNo);
     })
     .map((item) => item.line);
+}
+
+function optionalNumber(value: unknown) {
+  if (value === null || value === undefined || String(value).trim() === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 export function calculatePurchaseTotalAmount(lines: PurchaseAmountLine[]) {

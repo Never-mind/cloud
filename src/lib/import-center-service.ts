@@ -242,7 +242,7 @@ export async function createImportPreviewJob({
             ri.supplierId,
             ri.undertakingUnitId,
             ri.quantity,
-            po.currency AS actualCurrency,
+            COALESCE(NULLIF(poi.currency, ''), po.currency, 'USD') AS actualCurrency,
             poi.unitPrice AS actualUnitPrice
           FROM purchaseorderitems poi
           LEFT JOIN purchaseorders po ON po.purchaseOrderId = poi.purchaseOrderId OR (poi.purchaseOrderId IS NULL AND po.poNo = poi.poNo)
@@ -274,7 +274,7 @@ export async function createImportPreviewJob({
             ri.supplierId,
             ri.undertakingUnitId,
             ri.quantity,
-            po.currency AS actualCurrency,
+            COALESCE(NULLIF(poi.currency, ''), po.currency, 'USD') AS actualCurrency,
             poi.unitPrice AS actualUnitPrice,
             ROUND(COALESCE(poi.unitPrice, 0) * COALESCE(ri.quantity, 0), 2) AS actualTotalAmount
           FROM purchaseorderitems poi

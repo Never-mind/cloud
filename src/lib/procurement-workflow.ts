@@ -1,3 +1,5 @@
+import { DEFAULT_POWER_CONTRACT_EXCHANGE_RATE } from "./power-price-calculator";
+
 type QuantityRow = {
   quantity: number | null;
 };
@@ -34,6 +36,7 @@ export type PurchaseDraft = {
     requestNo: string;
     requestItemId: string;
     requestType: string;
+    currency: string;
     unitPrice: number;
     hardwareCoefficient: number;
     softwareCoefficient: number;
@@ -83,7 +86,7 @@ export function buildPurchaseDraft({
       sourceRequestNos,
       status: "草稿",
       currency: "USD",
-      usdRate: 1,
+      usdRate: DEFAULT_POWER_CONTRACT_EXCHANGE_RATE,
     },
     items: details.map((detail, index) => ({
       id: `POI-${internalId}-${String(index + 1).padStart(3, "0")}`,
@@ -92,6 +95,7 @@ export function buildPurchaseDraft({
       requestNo: detail.requestNo ?? requestNo,
       requestItemId: detail.id,
       requestType: detail.requestType ?? "整机",
+      currency: "USD",
       unitPrice: 0,
       hardwareCoefficient: 1,
       softwareCoefficient: 0,

@@ -10,8 +10,14 @@ import {
   executeRaw,
   LOGICAL_TABLE_NAMES,
   physicalTableName,
+  queryRows,
   queryRowsRaw,
+  type Row,
 } from "../src/lib/db";
+import {
+  buildPowerPricingSnapshot,
+  serializePowerPricingSnapshot,
+} from "../src/lib/power-price-calculator";
 
 async function columnExists(tableName: string, columnName: string) {
   const rows = await queryRowsRaw<{ count: number }>(
@@ -127,6 +133,106 @@ async function tableExists(tableName: string) {
   );
 
   return Number(rows[0]?.count ?? 0) > 0;
+}
+
+async function repairPurchasePowerPricingData() {
+  const defaultExchangeRate = 0.147664224105783;
+
+  // Version one stored `1` as the placeholder rate for every historical USD
+  // purchase order. Correct only that known placeholder (and blanks) so a
+  // deliberately entered non-default rate remains intact.
+  await execute(
+    `
+      UPDATE purchaseorders purchase
+      SET usdRate = :defaultExchangeRate
+      WHERE (
+          UPPER(TRIM(COALESCE(purchase.currency, ''))) = 'USD'
+          OR EXISTS (
+            SELECT 1
+            FROM purchaseorderitems item
+            WHERE (
+                item.purchaseOrderId = purchase.purchaseOrderId
+                OR ((item.purchaseOrderId IS NULL OR item.purchaseOrderId = '') AND item.poNo = purchase.poNo)
+              )
+              AND UPPER(TRIM(COALESCE(item.currency, ''))) = 'USD'
+          )
+        )
+        AND (usdRate IS NULL OR usdRate = 1)
+    `,
+    { defaultExchangeRate },
+  );
+
+  const rows = await queryRows<Row>(
+    `
+      SELECT
+        item.id,
+        UPPER(TRIM(SUBSTRING_INDEX(requestMaster.countryCode, '-', 1))) AS countryCode,
+        requestItem.deviceCode,
+        instanceModel.b6Type,
+        COALESCE(NULLIF(item.currency, ''), purchase.currency, 'USD') AS purchaseCurrency,
+        COALESCE(item.taxExcludedUnitPrice, item.unitPrice, 0) AS taxExcludedUnitPrice,
+        COALESCE(item.taxSurcharge, 0) AS taxSurcharge,
+        purchase.usdRate AS exchangeRate
+      FROM purchaseorderitems item
+      LEFT JOIN purchaseorders purchase
+        ON purchase.purchaseOrderId = item.purchaseOrderId
+        OR ((item.purchaseOrderId IS NULL OR item.purchaseOrderId = '') AND purchase.poNo = item.poNo)
+      LEFT JOIN requestitems requestItem ON requestItem.id = item.requestItemId
+      LEFT JOIN requests requestMaster
+        ON requestMaster.requestNo = COALESCE(NULLIF(item.requestNo, ''), requestItem.requestNo, purchase.requestNo)
+      LEFT JOIN instancemodels instanceModel ON instanceModel.deviceCode = requestItem.deviceCode
+      WHERE (item.powerPricingJson IS NULL OR TRIM(item.powerPricingJson) = '')
+        AND item.powerFirst24VatIncluded IS NULL
+        AND item.powerNext36VatIncluded IS NULL
+        AND COALESCE(item.powerFirst24Manual, 0) = 0
+        AND COALESCE(item.powerNext36Manual, 0) = 0
+    `,
+  );
+
+  let updated = 0;
+  let skipped = 0;
+  for (const row of rows) {
+    const id = String(row.id ?? "").trim();
+    const countryCode = String(row.countryCode ?? "").trim();
+    const deviceCode = String(row.deviceCode ?? "").trim();
+    if (!id || !countryCode || !deviceCode) {
+      skipped += 1;
+      continue;
+    }
+
+    const snapshot = buildPowerPricingSnapshot({
+      countryCode,
+      deviceCode,
+      b6Type: String(row.b6Type ?? ""),
+      purchaseCurrency: String(row.purchaseCurrency ?? "USD"),
+      taxExcludedUnitPrice: Number(row.taxExcludedUnitPrice ?? 0),
+      taxSurcharge: Number(row.taxSurcharge ?? 0),
+      exchangeRate: Number(row.exchangeRate ?? 0),
+    });
+    const result = snapshot.result;
+    await execute(
+      `
+        UPDATE purchaseorderitems
+        SET powerPricingJson = :powerPricingJson,
+            powerFirst24VatIncluded = :powerFirst24VatIncluded,
+            powerNext36VatIncluded = :powerNext36VatIncluded
+        WHERE id = :id
+          AND (powerPricingJson IS NULL OR TRIM(powerPricingJson) = '')
+          AND powerFirst24VatIncluded IS NULL
+          AND powerNext36VatIncluded IS NULL
+          AND COALESCE(powerFirst24Manual, 0) = 0
+          AND COALESCE(powerNext36Manual, 0) = 0
+      `,
+      {
+        id,
+        powerPricingJson: serializePowerPricingSnapshot(snapshot),
+        powerFirst24VatIncluded: result.first24VatIncluded,
+        powerNext36VatIncluded: result.next36VatIncluded,
+      },
+    );
+    updated += 1;
+  }
+  console.log(`Purchase power-pricing repair: ${updated} snapshots created, ${skipped} skipped (missing country or device).`);
 }
 
 async function ensureAuditColumns() {
@@ -722,6 +828,21 @@ async function main() {
     "status",
     "`status` VARCHAR(64) NOT NULL DEFAULT '草稿' COMMENT 'purchase status' AFTER `requestNo`",
   );
+  await addColumnIfMissing(
+    "purchaseorders",
+    "currency",
+    "`currency` VARCHAR(16) NULL COMMENT 'purchase currency' AFTER `status`",
+  );
+  await addColumnIfMissing(
+    "purchaseorders",
+    "usdRate",
+    "`usdRate` DECIMAL(24, 15) NULL COMMENT 'CNY to USD contract exchange rate' AFTER `currency`",
+  );
+  await modifyColumnIfPresent(
+    "purchaseorders",
+    "usdRate",
+    "`usdRate` DECIMAL(24, 15) NULL COMMENT 'CNY to USD contract exchange rate'",
+  );
   await addIndexIfMissing(
     "purchaseorders",
     "idx_PurchaseOrders_requestNo",
@@ -762,6 +883,25 @@ async function main() {
     "purchaseorderitems",
     "idx_PurchaseOrderItems_purchaseOrderId",
     "KEY `idx_PurchaseOrderItems_purchaseOrderId` (`purchaseOrderId`)",
+  );
+  await addColumnIfMissing(
+    "purchaseorderitems",
+    "currency",
+    "`currency` VARCHAR(3) NULL COMMENT 'purchase currency: CNY or USD' AFTER `requestType`",
+  );
+  await execute(
+    `
+      UPDATE purchaseorderitems item
+      LEFT JOIN purchaseorders purchaseOrder ON purchaseOrder.purchaseOrderId = item.purchaseOrderId OR purchaseOrder.poNo = item.poNo
+      SET item.currency = CASE
+        WHEN UPPER(TRIM(COALESCE(NULLIF(item.currency, ''), purchaseOrder.currency, ''))) IN ('CNY', 'USD')
+          THEN UPPER(TRIM(COALESCE(NULLIF(item.currency, ''), purchaseOrder.currency, '')))
+        ELSE 'USD'
+      END
+      WHERE item.currency IS NULL
+        OR TRIM(item.currency) = ''
+        OR UPPER(TRIM(item.currency)) NOT IN ('CNY', 'USD')
+    `,
   );
 
   await addColumnIfMissing(
@@ -1847,6 +1987,7 @@ async function main() {
     "powerNext36Manual",
     "`powerNext36Manual` TINYINT(1) NOT NULL DEFAULT 0 COMMENT 'whether next 36 month price is manually overridden' AFTER `powerFirst24Manual`",
   );
+  await repairPurchasePowerPricingData();
   await createTableIfMissing(
     "balancesettlements",
     `

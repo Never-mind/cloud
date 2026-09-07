@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { PURCHASE_CURRENCY_OPTIONS, buildPurchaseOrderItemRows } from "./purchase-order-form";
+import { PURCHASE_CURRENCY_OPTIONS, buildPurchaseOrderItemRows, normalizePurchaseOrderItemCurrency } from "./purchase-order-form";
 
 describe("purchase order form", () => {
   it("offers only supported purchase currencies", () => {
@@ -36,6 +36,7 @@ describe("purchase order form", () => {
         requestNo: "REQ-001",
         requestItemId: "RI-001",
         requestType: "整机",
+        currency: "USD",
         taxExcludedUnitPrice: 1200,
         taxSurcharge: 0,
         unitPrice: 1200,
@@ -52,6 +53,7 @@ describe("purchase order form", () => {
         requestNo: "REQ-002",
         requestItemId: "RI-002",
         requestType: "整机",
+        currency: "USD",
         taxExcludedUnitPrice: 1800,
         taxSurcharge: 0,
         unitPrice: 1800,
@@ -62,5 +64,18 @@ describe("purchase order form", () => {
         totalCoefficient: 1.4000000000000001,
       },
     ]);
+  });
+
+  it("restricts purchase detail currency to CNY or USD and inherits the PO currency", () => {
+    expect(normalizePurchaseOrderItemCurrency("cny")).toBe("CNY");
+    expect(normalizePurchaseOrderItemCurrency("MXN", "CNY")).toBe("CNY");
+    expect(
+      buildPurchaseOrderItemRows({
+        purchaseOrderId: "PO-SYS-002",
+        poNo: "PO-NEW-002",
+        defaultCurrency: "CNY",
+        details: [{ requestItemId: "RI-001", unitPrice: 10, hardwareCoefficient: 1, softwareCoefficient: 0 }],
+      })[0].currency,
+    ).toBe("CNY");
   });
 });

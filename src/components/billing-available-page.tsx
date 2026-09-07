@@ -72,7 +72,7 @@ const columns: Array<{ key: keyof Row; label: string; type?: string }> = [
   { key: "actualCurrency", label: "币种" },
   { key: "actualUnitPrice", label: "实际单价", type: "money" },
   { key: "taxExcludedUnitPrice", label: "不含税单价", type: "money" },
-  { key: "taxSurcharge", label: "税费加成", type: "money" },
+  { key: "taxSurcharge", label: "税费加成金额", type: "money" },
   { key: "instanceContractNo", label: "实例合同号" },
   { key: "contractCurrency", label: "合同币种" },
   { key: "first24MonthPrice", label: "24个月实例合同价", type: "money" },

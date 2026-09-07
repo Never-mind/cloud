@@ -86,9 +86,9 @@ export async function createPurchaseOrderFromRequest(requestNo: string, poNo?: s
     await execute(
       `
         INSERT INTO purchaseorderitems
-          (id, purchaseOrderId, poNo, requestNo, requestItemId, requestType, unitPrice, hardwareCoefficient, softwareCoefficient, totalCoefficient)
+          (id, purchaseOrderId, poNo, requestNo, requestItemId, requestType, currency, unitPrice, hardwareCoefficient, softwareCoefficient, totalCoefficient)
         VALUES
-          (:id, :purchaseOrderId, :poNo, :requestNo, :requestItemId, :requestType, :unitPrice, :hardwareCoefficient, :softwareCoefficient, :totalCoefficient)
+          (:id, :purchaseOrderId, :poNo, :requestNo, :requestItemId, :requestType, :currency, :unitPrice, :hardwareCoefficient, :softwareCoefficient, :totalCoefficient)
       `,
       item,
     );

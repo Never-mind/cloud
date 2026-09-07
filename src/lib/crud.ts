@@ -9,6 +9,7 @@ import { requireRequestType } from "./request-type";
 import { formatTableDateExpression, formatTableDateTimeExpression, getNaturalBatchSort, getTableFilterOptionsOrderBy } from "./table-query";
 import { findProductByCode } from "./po-product-service";
 import { normalizeDateOnlyValue } from "./date-only";
+import { normalizePurchaseOrderItemCurrency } from "./purchase-order-form";
 
 function quoteIdentifier(identifier: string) {
   return `\`${identifier.replace(/`/g, "``")}\``;
@@ -116,12 +117,12 @@ async function normalizeEntityBody(config: EntityConfig, body: Row) {
   const normalizedProductBody = await normalizeProductMasterCategory(config, normalizedAliasBody);
   const normalizedQuotationBody = await normalizeQuotationItemProduct(config, normalizedProductBody);
   if (["requests", "request-items", "purchase-order-items"].includes(config.key)) {
-    return normalizePurchasePrices(config, {
+    return await normalizePurchasePrices(config, {
       ...normalizedQuotationBody,
       requestType: requireRequestType(nextBody.requestType ?? "整机"),
     });
   }
-  return normalizePurchasePrices(config, normalizedQuotationBody);
+  return await normalizePurchasePrices(config, normalizedQuotationBody);
 }
 
 async function normalizeCustomerProductAliasBody(config: EntityConfig, body: Row) {
@@ -232,16 +233,30 @@ function firstNonBlank(...values: unknown[]) {
   return values.find((value) => value !== null && value !== undefined && String(value).trim() !== "") ?? null;
 }
 
-function normalizePurchasePrices(config: EntityConfig, nextBody: Row) {
+async function normalizePurchasePrices(config: EntityConfig, nextBody: Row) {
   if (config.key !== "purchase-order-items") return nextBody;
 
   const taxExcludedUnitPrice = Number(nextBody.taxExcludedUnitPrice ?? nextBody.unitPrice ?? 0);
   const taxSurcharge = Number(nextBody.taxSurcharge ?? 0);
+  let fallbackCurrency = "USD";
+  const purchaseOrderId = String(nextBody.purchaseOrderId ?? "").trim();
+  const poNo = String(nextBody.poNo ?? "").trim();
+  if (purchaseOrderId || poNo) {
+    const order = (await queryRows<Row>(
+      `SELECT currency FROM purchaseorders
+        WHERE purchaseOrderId = :purchaseOrderId OR poNo = :poNo
+        ORDER BY CASE WHEN purchaseOrderId = :purchaseOrderId THEN 0 ELSE 1 END
+        LIMIT 1`,
+      { purchaseOrderId: purchaseOrderId || "__none__", poNo: poNo || "__none__" },
+    ))[0];
+    fallbackCurrency = String(order?.currency ?? "USD");
+  }
   return {
     ...nextBody,
     taxExcludedUnitPrice,
     taxSurcharge,
     unitPrice: taxExcludedUnitPrice + taxSurcharge,
+    currency: normalizePurchaseOrderItemCurrency(nextBody.currency, normalizePurchaseOrderItemCurrency(fallbackCurrency)),
   };
 }
 

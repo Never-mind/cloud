@@ -5,11 +5,11 @@ import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, Calculator, Plus, Save } from "lucide-react";
 import { formatDateInputValue, formatDisplayValue } from "@/lib/display-format";
 import { formatNumericInputValue, parseNumericInputValue } from "@/lib/numeric-input";
-import { PURCHASE_CURRENCY_OPTIONS, buildPurchaseOrderItemRows, type PurchaseDetailDraft } from "@/lib/purchase-order-form";
+import { PURCHASE_ORDER_ITEM_CURRENCY_OPTIONS, PURCHASE_CURRENCY_OPTIONS, buildPurchaseOrderItemRows, normalizePurchaseOrderItemCurrency, type PurchaseDetailDraft } from "@/lib/purchase-order-form";
 import { calculatePurchaseTotalAmount } from "@/lib/purchase-lines";
 import { buildAutoPurchaseOrderId, buildAutoPurchaseOrderNo, normalizeRequestNos } from "@/lib/procurement-workflow";
 import { fetchAllEntityRows } from "@/lib/client-entity-fetch";
-import { refreshPowerPricingSnapshot, serializePowerPricingSnapshot, type PowerPriceContext, type PowerPricingSnapshot } from "@/lib/power-price-calculator";
+import { DEFAULT_POWER_CONTRACT_EXCHANGE_RATE, buildPowerPricingSnapshot, refreshPowerPricingSnapshot, serializePowerPricingSnapshot, type PowerPriceContext, type PowerPricingSnapshot } from "@/lib/power-price-calculator";
 import { Button, Input, Panel } from "./ui";
 import { PowerPriceCalculationDrawer } from "./power-price-calculation-drawer";
 import { StickyTable } from "./sticky-table";
@@ -34,7 +34,7 @@ const emptyMaster: MasterDraft = {
   sourceRequestNos: "",
   status: "草稿",
   currency: "USD",
-  usdRate: "0.1476642241",
+  usdRate: String(DEFAULT_POWER_CONTRACT_EXCHANGE_RATE),
   releasedAt: "",
 };
 
@@ -47,6 +47,7 @@ const emptyDetail: PurchaseDetailDraft = {
   opexUnitPrice: 0,
   hardwareCoefficient: 1,
   softwareCoefficient: 0,
+  currency: "USD",
 };
 
 export function PurchaseOrderFormPage() {
@@ -102,7 +103,7 @@ export function PurchaseOrderFormPage() {
   function updateMaster(key: keyof MasterDraft, value: string) {
     setMaster((current) => {
       const nextMaster = { ...current, [key]: value };
-      if (key === "currency" || key === "usdRate") {
+      if (key === "usdRate") {
         setDetails((currentDetails) => currentDetails.map((detail) => refreshDetailPricing(detail, nextMaster)));
       }
       return nextMaster;
@@ -152,7 +153,7 @@ export function PurchaseOrderFormPage() {
       countryCode: String(request?.countryCode ?? ""),
       deviceCode,
       b6Type: String(model?.b6Type ?? ""),
-      purchaseCurrency: sourceMaster.currency,
+       purchaseCurrency: normalizePurchaseOrderItemCurrency(detail.currency, sourceMaster.currency),
       taxExcludedUnitPrice: Number(detail.taxExcludedUnitPrice ?? 0),
       taxSurcharge: Number(detail.taxSurcharge ?? 0),
       exchangeRate: Number(sourceMaster.usdRate ?? 0),
@@ -165,6 +166,14 @@ export function PurchaseOrderFormPage() {
     if (!context) return detail;
     const snapshot = refreshPowerPricingSnapshot(context, detail.powerPricingJson);
     return applyPricingSnapshot(detail, snapshot);
+  }
+
+  function getDetailPricing(detail: PurchaseDetailDraft) {
+    const context = getPricingContext(detail);
+    if (!context) return null;
+    return detail.powerPricingJson
+      ? refreshPowerPricingSnapshot(context, detail.powerPricingJson).result
+      : buildPowerPricingSnapshot(context).result;
   }
 
   function applyPricingSnapshot(detail: PurchaseDetailDraft, snapshot: PowerPricingSnapshot): PurchaseDetailDraft {
@@ -203,7 +212,8 @@ export function PurchaseOrderFormPage() {
       const itemRows = buildPurchaseOrderItemRows({
         purchaseOrderId: master.purchaseOrderId,
         poNo: master.poNo,
-        details: details
+          defaultCurrency: master.currency,
+          details: details
           .filter((detail) => detail.requestItemId)
           .map((detail) => ({
             ...detail,
@@ -295,7 +305,7 @@ export function PurchaseOrderFormPage() {
               ))}
             </select>
           </label>
-          <Field label="整机价转合同汇率（CNY → USD）" type="number" value={master.usdRate} onChange={(value) => updateMaster("usdRate", value)} />
+          <Field label="整机价转合同汇率（CNY → USD）" step="0.000000000000001" type="number" value={master.usdRate} onChange={(value) => updateMaster("usdRate", value)} />
           <Field label="下发日期" type="date" value={master.releasedAt} onChange={(value) => updateMaster("releasedAt", value)} />
           <Info label="采购总金额" value={purchaseTotalAmount} type="money" />
         </div>
@@ -305,7 +315,7 @@ export function PurchaseOrderFormPage() {
       <Panel>
         <div className="flex items-center gap-2 border-b border-[#ebeef5] px-4 py-3">
           <div className="font-medium text-[#303133]">采购订单明细</div>
-          <Button className="ml-auto" onClick={() => setDetails((current) => [...current, { ...emptyDetail }])}>
+          <Button className="ml-auto" onClick={() => setDetails((current) => [...current, { ...emptyDetail, currency: normalizePurchaseOrderItemCurrency(master.currency) }])}>
             <Plus size={15} />
             新增明细
           </Button>
@@ -319,8 +329,9 @@ export function PurchaseOrderFormPage() {
                 <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">机型</th>
                 <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">英文名称</th>
                 <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">数量</th>
+                <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">币种</th>
                 <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">不含税单价</th>
-                <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">税费加成</th>
+                <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">税费加成金额</th>
                 <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">含税单价</th>
                 <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">含税总价</th>
                 <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">采购CAPEX单价</th>
@@ -336,6 +347,7 @@ export function PurchaseOrderFormPage() {
               {details.map((detail, index) => {
                 const requestItem = getRequestItem(detail.requestItemId);
                 const model = getModel(String(requestItem?.deviceCode ?? ""));
+                const pricing = getDetailPricing(detail);
 
                 return (
                   <tr key={index}>
@@ -358,6 +370,15 @@ export function PurchaseOrderFormPage() {
                     <td className="border-b border-r border-[#ebeef5] px-3 py-3">{formatValue(model?.nameEn)}</td>
                     <td className="border-b border-r border-[#ebeef5] px-3 py-3">{formatValue(requestItem?.quantity)}</td>
                     <td className="border-b border-r border-[#ebeef5] px-3 py-3">
+                      <select
+                        className="h-9 min-w-[100px] rounded border border-[#dcdfe6] bg-white px-2"
+                        value={normalizePurchaseOrderItemCurrency(detail.currency, master.currency)}
+                        onChange={(event) => updateDetail(index, { currency: event.target.value })}
+                      >
+                        {PURCHASE_ORDER_ITEM_CURRENCY_OPTIONS.map((currency) => <option key={currency} value={currency}>{currency}</option>)}
+                      </select>
+                    </td>
+                    <td className="border-b border-r border-[#ebeef5] px-3 py-3">
                       <NumberInput value={detail.taxExcludedUnitPrice ?? 0} onChange={(value) => updateDetail(index, { taxExcludedUnitPrice: value })} />
                     </td>
                     <td className="border-b border-r border-[#ebeef5] px-3 py-3">
@@ -373,8 +394,12 @@ export function PurchaseOrderFormPage() {
                     <td className="border-b border-r border-[#ebeef5] px-3 py-3">
                       <NumberInput value={detail.opexUnitPrice ?? 0} onChange={(value) => updateDetail(index, { opexUnitPrice: value })} />
                     </td>
-                    <td className="border-b border-r border-[#ebeef5] px-3 py-3 font-medium text-[#1890ff]">{detail.powerPricingJson ? `USD ${formatNumber(detail.powerFirst24VatIncluded)}` : "-"}</td>
-                    <td className="border-b border-r border-[#ebeef5] px-3 py-3 font-medium text-[#13a65b]">{detail.powerPricingJson ? `USD ${formatNumber(detail.powerNext36VatIncluded)}` : "-"}</td>
+                    <td className="border-b border-r border-[#ebeef5] px-3 py-3 font-medium text-[#1890ff]">
+                      {pricing ? `USD ${formatNumber(pricing.first24VatIncluded)}` : "-"}
+                    </td>
+                    <td className="border-b border-r border-[#ebeef5] px-3 py-3 font-medium text-[#1890ff]">
+                      {pricing ? `USD ${formatNumber(pricing.next36VatIncluded)}` : "-"}
+                    </td>
                     <td className="border-b border-r border-[#ebeef5] px-3 py-3"><button className="inline-flex h-8 w-8 items-center justify-center border border-[#b3d8ff] text-[#1890ff] hover:bg-[#ecf5ff] disabled:cursor-not-allowed disabled:border-[#ebeef5] disabled:text-[#c0c4cc]" disabled={!getPricingContext(detail)} title={getPricingContext(detail) ? "算力服务费测算" : "请先选择带国家信息的需求明细"} type="button" onClick={() => setPricingDetailIndex(index)}><Calculator size={15} /></button></td>
                     <td className="border-b border-r border-[#ebeef5] px-3 py-3">
                       <NumberInput value={detail.hardwareCoefficient} onChange={(value) => updateDetail(index, { hardwareCoefficient: value })} />
@@ -402,12 +427,14 @@ function Field({
   label,
   onChange,
   required,
+  step,
   type = "text",
   value,
 }: {
   label: string;
   onChange: (value: string) => void;
   required?: boolean;
+  step?: string;
   type?: "date" | "number" | "text";
   value: string;
 }) {
@@ -420,7 +447,7 @@ function Field({
       <Input
         className="w-full"
         required={required}
-        step={type === "number" ? "0.0001" : undefined}
+        step={step ?? (type === "number" ? "0.0001" : undefined)}
         type={type}
         value={type === "date" ? formatDateInputValue(value) : value}
         onChange={(event) => onChange(event.target.value)}

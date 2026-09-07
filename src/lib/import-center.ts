@@ -2,7 +2,8 @@ import { randomUUID } from "crypto";
 import { buildMonthlyBillingRows, firstDayOfMonth as firstBillingMonth } from "./billing-workflow";
 import type { Row } from "./db";
 import { buildMonthlyWriteOffRows, firstDayOfMonth as firstPrepaymentMonth } from "./prepayment-workflow";
-import { buildPurchaseOrderItemRows, PURCHASE_CURRENCY_OPTIONS } from "./purchase-order-form";
+import { buildPurchaseOrderItemRows, PURCHASE_CURRENCY_OPTIONS, PURCHASE_ORDER_ITEM_CURRENCY_OPTIONS } from "./purchase-order-form";
+import { DEFAULT_POWER_CONTRACT_EXCHANGE_RATE } from "./power-price-calculator";
 import { buildAutoPurchaseOrderId, normalizeRequestNos } from "./procurement-workflow";
 import { buildRequestItemRows } from "./request-order-form";
 import { isRequestType } from "./request-type";
@@ -107,6 +108,7 @@ export const IMPORT_TARGETS: ImportTarget[] = [
       { key: "releasedAt", label: "下发日期", type: "date" },
       { key: "requestItemId", label: "需求明细ID", note: "与产品编码二选一" },
       { key: "requestType", label: "需求类型", note: "为空时按需求明细自动带出" },
+      { key: "itemCurrency", label: "采购明细币种", note: `${PURCHASE_ORDER_ITEM_CURRENCY_OPTIONS.join("/")}，为空使用PO币种` },
       { key: "taxExcludedUnitPrice", label: "不含税单价", type: "number" },
       { key: "taxSurcharge", label: "税费加成", type: "number" },
       { key: "unitPrice", label: "含税单价", required: true, type: "number" },
@@ -378,7 +380,7 @@ function buildPurchaseOperations(rows: Row[], operations: ImportPreview["operati
       sourceRequestNos,
       status: first.status || "草稿",
       currency: first.currency,
-      usdRate: 1,
+      usdRate: DEFAULT_POWER_CONTRACT_EXCHANGE_RATE,
       paymentDate: null,
       releasedAt: first.releasedAt || null,
     });
@@ -386,6 +388,7 @@ function buildPurchaseOperations(rows: Row[], operations: ImportPreview["operati
       ...buildPurchaseOrderItemRows({
         purchaseOrderId,
         poNo: String(first.poNo),
+        defaultCurrency: String(first.currency ?? "USD"),
         details: groupRows.map((row) => {
           const taxExcludedUnitPrice = Number(row.taxExcludedUnitPrice ?? row.unitPrice ?? 0);
           const importedUnitPrice = Number(row.unitPrice ?? 0);
@@ -395,6 +398,7 @@ function buildPurchaseOperations(rows: Row[], operations: ImportPreview["operati
             requestNo: String(row.requestNo),
             requestItemId: String(row.requestItemId),
             requestType: String(row.requestType ?? "整机"),
+            currency: String(row.itemCurrency ?? row.currency ?? first.currency ?? "USD"),
             taxExcludedUnitPrice,
             taxSurcharge,
             unitPrice: importedUnitPrice || taxExcludedUnitPrice + taxSurcharge,
@@ -556,6 +560,9 @@ function validateRow(target: ImportTarget, row: Row) {
     const currencyKeys = ["currency", "actualCurrency", "contractCurrency"].filter((key) => !isBlank(row[key]));
     const invalidCurrencyKey = currencyKeys.find((key) => !PURCHASE_CURRENCY_OPTIONS.includes(String(row[key])));
     if (invalidCurrencyKey) return `${invalidCurrencyKey}必须是：${PURCHASE_CURRENCY_OPTIONS.join("/")}`;
+  }
+  if (target.key === "purchase-orders" && !isBlank(row.itemCurrency) && !PURCHASE_ORDER_ITEM_CURRENCY_OPTIONS.includes(String(row.itemCurrency).trim().toUpperCase() as typeof PURCHASE_ORDER_ITEM_CURRENCY_OPTIONS[number])) {
+    return `itemCurrency必须是：${PURCHASE_ORDER_ITEM_CURRENCY_OPTIONS.join("/")}`;
   }
 
   return "";

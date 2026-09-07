@@ -7,10 +7,12 @@ import { ArrowLeft, Calculator, CheckCircle2, Pencil, Save, X } from "lucide-rea
 import { formatDateInputValue, formatDisplayValue } from "@/lib/display-format";
 import type { EntityConfig } from "@/lib/modules";
 import { formatNumericInputValue, parseNumericInputValue } from "@/lib/numeric-input";
+import { PURCHASE_ORDER_ITEM_CURRENCY_OPTIONS, normalizePurchaseOrderItemCurrency } from "@/lib/purchase-order-form";
+import { getPurchasePriceComparison } from "@/lib/purchase-price-comparison";
 import { getPurchaseOrderForDetailLines } from "@/lib/order-detail-view";
 import type { OrderRouteMode } from "@/lib/order-routes";
 import { buildPurchaseProductLines, calculatePurchaseTotalAmount } from "@/lib/purchase-lines";
-import { refreshPowerPricingSnapshot, serializePowerPricingSnapshot, type PowerPriceContext, type PowerPricingSnapshot } from "@/lib/power-price-calculator";
+import { buildPowerPricingSnapshot, refreshPowerPricingSnapshot, serializePowerPricingSnapshot, type PowerPriceContext, type PowerPricingSnapshot } from "@/lib/power-price-calculator";
 import { PurchaseOrderDemandPlanTabs } from "./purchase-order-demand-plan-tabs";
 import { getReturnTo } from "@/lib/client-list-navigation";
 import { readJsonResponse } from "@/lib/client-response";
@@ -122,7 +124,7 @@ export function OrderDetailPage({
           { key: "quantity", label: "数量", type: "number" },
           { key: "currency", label: "币种" },
           { key: "taxExcludedUnitPrice", label: "不含税单价", type: "money" },
-          { key: "taxSurcharge", label: "税费加成", type: "money" },
+          { key: "taxSurcharge", label: "税费加成金额", type: "money" },
           { key: "unitPrice", label: "含税单价", type: "money" },
           { key: "totalAmount", label: "含税总价", type: "money" },
           { key: "capexUnitPrice", label: "采购CAPEX单价", type: "money" },
@@ -172,7 +174,7 @@ export function OrderDetailPage({
     });
   }
 
-  function updateDetailDraft(rowId: string, key: string, value: number) {
+  function updateDetailDraft(rowId: string, key: string, value: number | string) {
     setDetailDrafts((current) =>
       current.map((row) => {
         if (String(row.id) !== rowId) return row;
@@ -185,6 +187,7 @@ export function OrderDetailPage({
           next.unitPrice = Number(next.taxExcludedUnitPrice ?? 0) + Number(next.taxSurcharge ?? 0);
           return refreshDetailPricing(next, masterDraft);
         }
+        if (key === "currency") return refreshDetailPricing(next, masterDraft);
         return next;
       }),
     );
@@ -200,7 +203,7 @@ export function OrderDetailPage({
       countryCode,
       deviceCode,
       b6Type: String(instanceModel?.b6Type ?? ""),
-      purchaseCurrency: String(sourceMaster.currency ?? master?.currency ?? ""),
+      purchaseCurrency: normalizePurchaseOrderItemCurrency(detail.currency, String(sourceMaster.currency ?? master?.currency ?? "USD")),
       taxExcludedUnitPrice: Number(detail.taxExcludedUnitPrice ?? 0),
       taxSurcharge: Number(detail.taxSurcharge ?? 0),
       exchangeRate: Number(sourceMaster.usdRate ?? master?.usdRate ?? 0),
@@ -212,6 +215,14 @@ export function OrderDetailPage({
     const context = getPricingContext(detail, sourceMaster);
     if (!context) return detail;
     return applyPricingSnapshot(detail, refreshPowerPricingSnapshot(context, detail.powerPricingJson));
+  }
+
+  function getDisplayPricing(detail: Row) {
+    const context = getPricingContext(detail);
+    if (!context) return null;
+    return detail.powerPricingJson
+      ? refreshPowerPricingSnapshot(context, detail.powerPricingJson).result
+      : buildPowerPricingSnapshot(context).result;
   }
 
   function applyPricingSnapshot(detail: Row, snapshot: PowerPricingSnapshot): Row {
@@ -350,7 +361,7 @@ export function OrderDetailPage({
             ))}
             <label>
               <span className="mb-1 block text-xs text-[#909399]">整机价转合同汇率（CNY → USD）</span>
-              <Input className="w-full min-w-0" step="0.000001" type="number" value={formatNumericInputValue(Number(masterDraft.usdRate ?? 0))} onChange={(event) => updateMasterDraft("usdRate", parseNumericInputValue(event.target.value))} />
+              <Input className="w-full min-w-0" step="0.000000000000001" type="number" value={formatNumericInputValue(Number(masterDraft.usdRate ?? 0))} onChange={(event) => updateMasterDraft("usdRate", parseNumericInputValue(event.target.value))} />
             </label>
             <Info label="总数量" value={totalQuantity} />
             {mode === "purchase" ? <Info label="采购总金额" value={purchaseTotalAmount} type="money" /> : null}
@@ -383,14 +394,24 @@ export function OrderDetailPage({
               </tr>
             </thead>
             <tbody>
-              {detailRows.map((row) => (
+              {detailRows.map((row) => {
+                const pricing = mode === "purchase" ? getDisplayPricing(row) : null;
+                return (
                 <tr className="hover:bg-[#fafafa]" key={String(row.id ?? row[detailConfig.primaryKey])}>
                   {detailColumns.map((field) => (
                     <td className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3" key={field.key}>
                       {field.key === "powerPricing" && mode === "purchase" ? (
                         editing ? <button className="inline-flex h-8 w-8 items-center justify-center border border-[#b3d8ff] text-[#1890ff] hover:bg-[#ecf5ff] disabled:cursor-not-allowed disabled:border-[#ebeef5] disabled:text-[#c0c4cc]" disabled={!getPricingContext(detailDrafts.find((item) => String(item.id) === String(row.id)) ?? row)} title="算力服务费测算" type="button" onClick={() => setPricingDetailId(String(row.id))}><Calculator size={15} /></button> : "-"
                       ) : field.key === "powerFirst24VatIncluded" || field.key === "powerNext36VatIncluded" ? (
-                        row.powerPricingJson ? `USD ${formatPowerPrice(row[field.key])}` : "-"
+                         renderPowerPrice(row, field.key, pricing)
+                      ) : editing && mode === "purchase" && field.key === "currency" ? (
+                        <select
+                          className="h-9 min-w-[100px] rounded border border-[#dcdfe6] bg-white px-2"
+                          value={normalizePurchaseOrderItemCurrency(row[field.key], String(masterDraft.currency ?? master?.currency ?? "USD"))}
+                          onChange={(event) => updateDetailDraft(String(row.id), field.key, event.target.value)}
+                        >
+                          {PURCHASE_ORDER_ITEM_CURRENCY_OPTIONS.map((currency) => <option key={currency} value={currency}>{currency}</option>)}
+                        </select>
                       ) : editing && mode === "purchase" && ["taxExcludedUnitPrice", "taxSurcharge", "capexUnitPrice", "opexUnitPrice", "hardwareCoefficient", "softwareCoefficient"].includes(field.key) ? (
                         <NumberInput
                           value={Number(row[field.key] ?? 0)}
@@ -402,7 +423,8 @@ export function OrderDetailPage({
                     </td>
                   ))}
                 </tr>
-              ))}
+                );
+              })}
               {!details.length ? (
                 <tr>
                   <td className="py-10 text-center text-[#909399]" colSpan={detailColumns.length}>
@@ -479,4 +501,23 @@ function getDetailDisplayValue(row: Row, key: string) {
 function formatPowerPrice(value: unknown) {
   const number = Number(value ?? 0);
   return Number.isFinite(number) ? number.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "0.00";
+}
+
+function renderPowerPrice(row: Row, field: string, pricing: PowerPricingSnapshot["result"] | null) {
+  const calculatedValue = field === "powerFirst24VatIncluded" ? pricing?.first24VatIncluded : pricing?.next36VatIncluded;
+  const value = Number(row[field] ?? calculatedValue ?? NaN);
+  if (!Number.isFinite(value)) return "-";
+  const benchmarkKey = field === "powerFirst24VatIncluded"
+    ? "latestInstanceContractFirst24PriceUSD"
+    : "latestInstanceContractNext36PriceUSD";
+  const comparison = getPurchasePriceComparison(value, row[benchmarkKey]);
+  if (comparison.relation === "unavailable") return `USD ${formatPowerPrice(value)}`;
+  const tone = comparison.relation === "higher" ? "text-[#f56c6c]" : comparison.relation === "lower" ? "text-[#67c23a]" : "text-[#606266]";
+  const label = comparison.relation === "higher" ? "高于最近合同" : comparison.relation === "lower" ? "低于最近合同" : "与最近合同相同";
+  return (
+    <span className={`inline-flex flex-col ${tone}`} title={`${row.latestInstanceContractNo ?? "最近实例合同"}${row.latestInstanceContractDateSigned ? `，签署于${row.latestInstanceContractDateSigned}` : ""}`}>
+      <span>USD {formatPowerPrice(value)}</span>
+      <span className="text-xs">{label} {comparison.difference === 0 ? "" : `USD ${formatPowerPrice(Math.abs(comparison.difference ?? 0))}`}</span>
+    </span>
+  );
 }

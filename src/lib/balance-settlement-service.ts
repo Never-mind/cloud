@@ -289,7 +289,7 @@ export async function listInstanceSettlementCandidates({
   }
   const filterExpressions: Record<string, string> = {
     countryCode: "req.countryCode", batchName: "req.batchName", requestNo: "COALESCE(poi.requestNo, ri.requestNo)", poNo: "poi.poNo",
-    deviceCode: "ri.deviceCode", modelCode: "im.modelCode", nameEn: "im.nameEn", undertakingUnitCode: "undertaking.undertakingUnitCode", supplierCode: "supplier.supplierCode", customerCode: customerDisplaySql("customer", "ri.customerId"), quantity: "ri.quantity", procurementCurrency: "po.currency",
+    deviceCode: "ri.deviceCode", modelCode: "im.modelCode", nameEn: "im.nameEn", undertakingUnitCode: "undertaking.undertakingUnitCode", supplierCode: "supplier.supplierCode", customerCode: customerDisplaySql("customer", "ri.customerId"), quantity: "ri.quantity", procurementCurrency: "COALESCE(NULLIF(poi.currency, ''), po.currency, 'USD')",
     capexUnitPrice: "poi.capexUnitPrice", opexUnitPrice: "poi.opexUnitPrice", anchorCapexUnitPrice: "anchor.capexAnchorUsd", anchorOpexUnitPrice: "anchor.opexAnchorUsd",
   };
   if (searchParams) for (const [field, expression] of Object.entries(filterExpressions)) appendTableInFilter(conditions, params, expression, field, searchParams, "balanceCandidate");
@@ -331,7 +331,7 @@ export async function listInstanceSettlementCandidates({
       SELECT
         poi.id, poi.purchaseOrderId, poi.poNo, COALESCE(poi.requestNo, ri.requestNo) AS requestNo, poi.requestItemId,
         poi.taxExcludedUnitPrice, poi.taxSurcharge, poi.unitPrice, poi.capexUnitPrice, poi.opexUnitPrice,
-        po.currency AS procurementCurrency, po.paymentDate, po.releasedAt,
+        COALESCE(NULLIF(poi.currency, ''), po.currency, 'USD') AS procurementCurrency, po.paymentDate, po.releasedAt,
         req.countryCode, req.batchName, req.requestType,
         ri.deviceCode, ri.quantity, ri.supplierId, ri.undertakingUnitId, ri.customerId,
         im.modelCode, im.nameEn,
@@ -363,7 +363,7 @@ export async function listInstanceSettlementCandidates({
 export async function listInstanceSettlementCandidateFilterOptions(searchParams: URLSearchParams) {
   const expressions: Record<string, string> = {
     countryCode: "req.countryCode", batchName: "req.batchName", requestNo: "COALESCE(poi.requestNo, ri.requestNo)", poNo: "poi.poNo",
-    deviceCode: "ri.deviceCode", modelCode: "im.modelCode", nameEn: "im.nameEn", undertakingUnitCode: "undertaking.undertakingUnitCode", supplierCode: "supplier.supplierCode", customerCode: customerDisplaySql("customer", "ri.customerId"), quantity: "ri.quantity", procurementCurrency: "po.currency",
+    deviceCode: "ri.deviceCode", modelCode: "im.modelCode", nameEn: "im.nameEn", undertakingUnitCode: "undertaking.undertakingUnitCode", supplierCode: "supplier.supplierCode", customerCode: customerDisplaySql("customer", "ri.customerId"), quantity: "ri.quantity", procurementCurrency: "COALESCE(NULLIF(poi.currency, ''), po.currency, 'USD')",
     capexUnitPrice: "poi.capexUnitPrice", opexUnitPrice: "poi.opexUnitPrice", anchorCapexUnitPrice: "anchor.capexAnchorUsd", anchorOpexUnitPrice: "anchor.opexAnchorUsd",
   };
   const pricingVersionId = text(searchParams.get("pricingVersionId"));

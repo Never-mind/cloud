@@ -147,14 +147,25 @@ export async function listPurchaseProductLines(searchParams: URLSearchParams): P
         model.nameZh,
         model.nameEn,
         requestItem.quantity,
-        purchase.currency,
+        model.b6Type,
+        purchase.usdRate,
+        COALESCE(NULLIF(item.currency, ''), purchase.currency, 'USD') AS currency,
         COALESCE(item.taxExcludedUnitPrice, item.unitPrice, 0) AS taxExcludedUnitPrice,
         COALESCE(item.taxSurcharge, 0) AS taxSurcharge,
         COALESCE(item.unitPrice, COALESCE(item.taxExcludedUnitPrice, 0) + COALESCE(item.taxSurcharge, 0)) AS unitPrice,
+        item.powerPricingJson,
+        item.powerFirst24VatIncluded,
+        item.powerNext36VatIncluded,
+        item.powerFirst24Manual,
+        item.powerNext36Manual,
         ROUND(
           COALESCE(requestItem.quantity, 0) * COALESCE(item.unitPrice, COALESCE(item.taxExcludedUnitPrice, 0) + COALESCE(item.taxSurcharge, 0)),
           4
-        ) AS totalAmount
+        ) AS totalAmount,
+        ${latestInstanceContractExpression("contractNo")} AS latestInstanceContractNo,
+        ${latestInstanceContractExpression("dateSigned", true)} AS latestInstanceContractDateSigned,
+        ${latestInstanceContractExpression("first24MonthPriceUSD")} AS latestInstanceContractFirst24PriceUSD,
+        ${latestInstanceContractExpression("next36MonthPriceUSD")} AS latestInstanceContractNext36PriceUSD
       FROM purchaseorderitems AS item
       INNER JOIN purchaseorders AS purchase
         ON purchase.poNo = item.poNo
@@ -187,7 +198,9 @@ export async function listProductLineFilterOptions(searchParams: URLSearchParams
         nameZh: "model.nameZh",
         nameEn: "model.nameEn",
         quantity: "requestItem.quantity",
-        currency: "purchase.currency",
+        currency: "COALESCE(NULLIF(item.currency, ''), purchase.currency, 'USD')",
+        powerFirst24VatIncluded: "item.powerFirst24VatIncluded",
+        powerNext36VatIncluded: "item.powerNext36VatIncluded",
       }
     : {
         countryCode: "UPPER(TRIM(SUBSTRING_INDEX(req.countryCode, '-', 1)))",
@@ -264,7 +277,9 @@ function buildColumnFilters(searchParams: URLSearchParams, params: Row, mode: "r
         nameZh: "model.nameZh",
         nameEn: "model.nameEn",
         quantity: "requestItem.quantity",
-        currency: "purchase.currency",
+        currency: "COALESCE(NULLIF(item.currency, ''), purchase.currency, 'USD')",
+        powerFirst24VatIncluded: "item.powerFirst24VatIncluded",
+        powerNext36VatIncluded: "item.powerNext36VatIncluded",
       }
     : {
         countryCode: "UPPER(TRIM(SUBSTRING_INDEX(req.countryCode, '-', 1)))",
@@ -293,6 +308,17 @@ function normalizeCountryCode(value: string) {
   return value.split(/\s*-\s*/, 1)[0].trim().toUpperCase();
 }
 
+function latestInstanceContractExpression(column: string, date = false) {
+  const select = date ? `DATE_FORMAT(contract.${column}, '%Y-%m-%d')` : `contract.${column}`;
+  return `(SELECT ${select}
+      FROM instancecontracts AS contract
+     WHERE UPPER(TRIM(SUBSTRING_INDEX(contract.countryCode, '-', 1))) = UPPER(TRIM(SUBSTRING_INDEX(requestMaster.countryCode, '-', 1)))
+       AND contract.deviceCode = requestItem.deviceCode
+       AND (contract.first24MonthPriceUSD IS NOT NULL OR contract.next36MonthPriceUSD IS NOT NULL)
+     ORDER BY contract.dateSigned DESC, contract.createdAt DESC, contract.contractNo DESC
+     LIMIT 1)`;
+}
+
 function getColumnOrder(searchParams: URLSearchParams, mode: "request" | "purchase") {
   const field = searchParams.get("sortField")?.trim() ?? "";
   const direction = searchParams.get("sortOrder") === "asc" ? "ASC" : searchParams.get("sortOrder") === "desc" ? "DESC" : "";
@@ -307,11 +333,13 @@ function getColumnOrder(searchParams: URLSearchParams, mode: "request" | "purcha
         nameZh: "model.nameZh",
         nameEn: "model.nameEn",
         quantity: "requestItem.quantity",
-        currency: "purchase.currency",
+        currency: "COALESCE(NULLIF(item.currency, ''), purchase.currency, 'USD')",
         taxExcludedUnitPrice: "item.taxExcludedUnitPrice",
         taxSurcharge: "item.taxSurcharge",
         unitPrice: "item.unitPrice",
         totalAmount: "totalAmount",
+        powerFirst24VatIncluded: "item.powerFirst24VatIncluded",
+        powerNext36VatIncluded: "item.powerNext36VatIncluded",
       }
     : {
         countryCode: "UPPER(TRIM(SUBSTRING_INDEX(req.countryCode, '-', 1)))",

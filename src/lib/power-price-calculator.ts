@@ -64,7 +64,15 @@ type CountryTemplate = Omit<PowerPriceInputs, "capexWithoutVatCny" | "onsiteRmaR
   countryName: string;
 };
 
-const DEFAULT_EXCHANGE_RATE = 0.1476642241;
+export const DEFAULT_POWER_CONTRACT_EXCHANGE_RATE = 0.147664224105783;
+
+// Empty, zero, or malformed rates fall back to the current CNY -> USD default.
+// Historical placeholder value 1 is corrected by the database migration so a
+// user-entered rate is never silently replaced at calculation time.
+export function normalizePowerContractExchangeRate(value: unknown) {
+  const parsed = positiveNumber(value);
+  return parsed || DEFAULT_POWER_CONTRACT_EXCHANGE_RATE;
+}
 
 const COUNTRY_TEMPLATES: Record<string, CountryTemplate> = {
   MX: {
@@ -131,12 +139,12 @@ export function normalizePowerCountryCode(value: unknown) {
 export function getPowerPriceDefaults(context: PowerPriceContext): PowerPriceDefaults {
   const countryCode = normalizePowerCountryCode(context.countryCode);
   const template = COUNTRY_TEMPLATES[countryCode] ?? COUNTRY_TEMPLATES.MX;
-  const exchangeRate = positiveNumber(context.exchangeRate) || DEFAULT_EXCHANGE_RATE;
+  const exchangeRate = normalizePowerContractExchangeRate(context.exchangeRate);
   const purchaseCurrency = String(context.purchaseCurrency ?? "").trim().toUpperCase();
-  const purchaseTotal = numberValue(context.taxExcludedUnitPrice) + numberValue(context.taxSurcharge);
+  const purchaseTotal = round(numberValue(context.taxExcludedUnitPrice) + numberValue(context.taxSurcharge), 2);
   const autoCapexSupported = purchaseCurrency === "CNY" || purchaseCurrency === "USD";
   const capexWithoutVatCny = purchaseCurrency === "USD"
-    ? purchaseTotal / exchangeRate
+    ? round(purchaseTotal / exchangeRate, 2)
     : purchaseCurrency === "CNY"
       ? purchaseTotal
       : 0;
@@ -144,9 +152,9 @@ export function getPowerPriceDefaults(context: PowerPriceContext): PowerPriceDef
   const onsiteRmaRate = b6Type === "B61" ? 0.0433 : 0;
   const fundingMonths = b6Type === "B62-A7" || b6Type === "B63" ? 0 : 2;
   const conversionHint = purchaseCurrency === "USD"
-    ? `USD ${formatNumber(purchaseTotal, 4)} ÷ ${formatNumber(exchangeRate, 6)} = CNY ${formatNumber(capexWithoutVatCny, 4)}`
+    ? `USD ${formatNumber(purchaseTotal, 2)} ÷ ${formatNumber(exchangeRate, 15)} = CNY ${formatNumber(capexWithoutVatCny, 2)}`
     : purchaseCurrency === "CNY"
-      ? `CNY ${formatNumber(purchaseTotal, 4)} 直接作为 CAPEX（不含 VAT）`
+      ? `CNY ${formatNumber(purchaseTotal, 2)} 直接作为 CAPEX（不含 VAT）`
       : `采购币种 ${purchaseCurrency || "未填写"} 暂不支持自动换算，请手工填写 CAPEX（不含 VAT，CNY）。`;
 
   return {
@@ -209,7 +217,11 @@ export function buildPowerPricingSnapshot(
   const inputs = { ...defaults.inputs };
   for (const key of manualInputKeys) {
     const manualValue = options.manualInputs?.[key];
-    if (manualValue !== undefined && Number.isFinite(Number(manualValue))) inputs[key] = Number(manualValue);
+    if (manualValue !== undefined && Number.isFinite(Number(manualValue))) {
+      inputs[key] = key === "exchangeRate"
+        ? normalizePowerContractExchangeRate(manualValue)
+        : Number(manualValue);
+    }
   }
   const calculated = calculatePowerServicePrice(inputs);
   const manualPrices = normalizeManualPrices(options.manualPrices);

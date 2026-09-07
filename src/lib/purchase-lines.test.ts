@@ -114,6 +114,37 @@ describe("purchase product lines", () => {
     expect(row).toMatchObject({ taxExcludedUnitPrice: 100, taxSurcharge: 16, unitPrice: 116, totalAmount: 232 });
   });
 
+  it("uses the detail currency and carries calculated power prices with the latest contract reference", () => {
+    const [row] = buildPurchaseProductLines({
+      purchaseOrders: [{ poNo: "PO-POWER", requestNo: "REQ-POWER", status: "已确认", currency: "USD" }],
+      purchaseItems: [{
+        id: "POI-POWER",
+        poNo: "PO-POWER",
+        requestItemId: "RI-POWER",
+        currency: "CNY",
+        powerPricingJson: "{}",
+        powerFirst24VatIncluded: 120,
+        powerNext36VatIncluded: 12,
+        latestInstanceContractNo: "IC-POWER",
+        latestInstanceContractDateSigned: "2026-08-01",
+        latestInstanceContractFirst24PriceUSD: 100,
+        latestInstanceContractNext36PriceUSD: 15,
+        unitPrice: 88,
+      }],
+      requestItems: [{ id: "RI-POWER", requestNo: "REQ-POWER", deviceCode: "DEV-POWER", quantity: 1 }],
+      instanceModels: [],
+    });
+
+    expect(row).toMatchObject({
+      currency: "CNY",
+      powerFirst24VatIncluded: 120,
+      powerNext36VatIncluded: 12,
+      latestInstanceContractNo: "IC-POWER",
+      latestInstanceContractFirst24PriceUSD: 100,
+      latestInstanceContractNext36PriceUSD: 15,
+    });
+  });
+
   it("exports purchase product lines with total amount", () => {
     expect(
       formatPurchaseProductLineForExport({
@@ -146,10 +177,12 @@ describe("purchase product lines", () => {
       数量: 3,
       币种: "USD",
       不含税单价: 88,
-      税费加成: 0,
+      税费加成金额: 0,
       含税单价: 88,
       采购CAPEX单价: 0,
       采购OPEX单价: 0,
+      "算力服务价格（1-24个月，含VAT）": "",
+      "算力服务价格（后36个月，含VAT）": "",
       含税总价: 264,
     });
   });
