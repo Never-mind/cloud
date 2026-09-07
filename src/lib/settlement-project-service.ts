@@ -4,6 +4,7 @@ import { execute, queryRows, type Row } from "./db";
 import { normalizeDateOnlyValue } from "./date-only";
 import type { OperationActor } from "./operation-actor";
 import { appendTableInFilter, getTableSort, listSqlFilterOptions } from "./table-query";
+import { customerDisplaySql } from "./customer-display";
 
 export const SETTLEMENT_CURRENCIES = ["CNY", "USD", "MXN"] as const;
 export type SettlementCurrency = (typeof SETTLEMENT_CURRENCIES)[number];
@@ -124,6 +125,7 @@ export type SettlementInvoice = {
   exchangeRate: number;
   usdAmount: number;
   receivableDate: string | null;
+  actualReceiptDate: string | null;
   isPaid: boolean;
   isInvoiced: boolean;
   attachments?: SettlementAttachment[];
@@ -274,11 +276,13 @@ export function settlementAmounts(input: SettlementInput, project: Pick<Settleme
 }
 
 async function getProject(projectId: string) {
+  const customerDisplay = customerDisplaySql("c", "p.customerName", "p.customerId");
   const rows = await queryRows<SettlementProject>(
-    `SELECT p.*, COALESCE(NULLIF(p.customerName, ''), c.name) AS customerName,
+    `SELECT p.*, ${customerDisplay} AS customerName,
             COALESCE(NULLIF(u.shortName, ''), NULLIF(u.entityName, ''), NULLIF(u.name, ''), NULLIF(p.contractingUnitName, ''), p.contractingUnitId, '') AS contractingUnitName
        FROM merge_po_settlement_projects p
-       LEFT JOIN merge_common_customers c ON c.customerId = p.customerId
+       LEFT JOIN merge_common_customers c
+         ON c.customerId = p.customerId OR c.customerCode = p.customerId
        LEFT JOIN merge_common_undertaking_units u
          ON u.undertakingUnitId = p.contractingUnitId
          OR u.undertakingUnitCode = p.contractingUnitId
@@ -519,12 +523,14 @@ export async function getSettlementProjectDetail(projectId: string): Promise<Set
 
 const quotedPurchaseCostExpression = "CASE WHEN EXISTS (SELECT 1 FROM merge_po_quotation_items quoteItemExists WHERE quoteItemExists.quotationId = p.quotationId) THEN COALESCE((SELECT SUM(quoteItem.ddpTotalUsd) FROM merge_po_quotation_items quoteItem WHERE quoteItem.quotationId = p.quotationId), 0) ELSE p.quotedPurchaseCostUsd END";
 const quotedSalesRevenueExpression = "CASE WHEN EXISTS (SELECT 1 FROM merge_po_quotation_items quoteItemExists WHERE quoteItemExists.quotationId = p.quotationId) THEN COALESCE((SELECT SUM(quoteItem.revenueUsd) FROM merge_po_quotation_items quoteItem WHERE quoteItem.quotationId = p.quotationId), 0) ELSE p.quotedSalesRevenueUsd END";
+const projectCustomerDisplay = customerDisplaySql("c", "p.customerName", "p.customerId");
+const quotationCustomerDisplay = customerDisplaySql("c", "q.customerId");
 
 const settlementListExpressions: Record<string, string> = {
   projectNo: "p.projectNo",
   quotationNo: "p.quotationNo",
   projectName: "p.projectName",
-  customerName: "COALESCE(NULLIF(p.customerName, ''), c.name)",
+  customerName: projectCustomerDisplay,
   contractingUnitName: "COALESCE(NULLIF(u.shortName, ''), NULLIF(u.entityName, ''), NULLIF(u.name, ''), NULLIF(p.contractingUnitName, ''), p.contractingUnitId, '')",
   status: "p.status",
   quotedPurchaseCostUsd: quotedPurchaseCostExpression,
@@ -538,7 +544,7 @@ const settlementListExpressions: Record<string, string> = {
 };
 
 const settlementListFrom = `merge_po_settlement_projects p
-  LEFT JOIN merge_common_customers c ON c.customerId = p.customerId
+  LEFT JOIN merge_common_customers c ON c.customerId = p.customerId OR c.customerCode = p.customerId
   LEFT JOIN merge_common_undertaking_units u
     ON u.undertakingUnitId = p.contractingUnitId
     OR u.undertakingUnitCode = p.contractingUnitId
@@ -549,7 +555,7 @@ function settlementListConditions(params: URLSearchParams, values: Row) {
   const keyword = text(params.get("queryKeyword") ?? params.get("keyword"));
   const status = text(params.get("status"));
   if (keyword) {
-    conditions.push("(p.projectNo LIKE :keyword OR p.quotationNo LIKE :keyword OR p.projectName LIKE :keyword OR COALESCE(NULLIF(p.customerName, ''), c.name) LIKE :keyword OR COALESCE(NULLIF(u.shortName, ''), NULLIF(u.entityName, ''), NULLIF(u.name, ''), NULLIF(p.contractingUnitName, ''), p.contractingUnitId, '') LIKE :keyword OR p.remark LIKE :keyword)");
+    conditions.push(`(p.projectNo LIKE :keyword OR p.quotationNo LIKE :keyword OR p.projectName LIKE :keyword OR ${projectCustomerDisplay} LIKE :keyword OR COALESCE(NULLIF(u.shortName, ''), NULLIF(u.entityName, ''), NULLIF(u.name, ''), NULLIF(p.contractingUnitName, ''), p.contractingUnitId, '') LIKE :keyword OR p.remark LIKE :keyword)`);
     values.keyword = `%${keyword}%`;
   }
   if (SETTLEMENT_STATUSES.includes(status as SettlementProjectStatus)) {
@@ -597,7 +603,7 @@ export async function listSettlementProjects(params: URLSearchParams) {
   const rows = await queryRows<SettlementProject>(
     `SELECT p.*, ${quotedPurchaseCostExpression} AS quotedPurchaseCostUsd,
             ${quotedSalesRevenueExpression} AS quotedSalesRevenueUsd,
-            COALESCE(NULLIF(p.customerName, ''), c.name) AS customerName,
+            ${projectCustomerDisplay} AS customerName,
             COALESCE(NULLIF(u.shortName, ''), NULLIF(u.entityName, ''), NULLIF(u.name, ''), NULLIF(p.contractingUnitName, ''), p.contractingUnitId, '') AS contractingUnitName
        FROM ${settlementListFrom}
       ${where} ${getTableSort(params, settlementListExpressions) || "ORDER BY p.createdAt DESC, p.id DESC"} LIMIT :limit OFFSET :offset`,
@@ -608,12 +614,12 @@ export async function listSettlementProjects(params: URLSearchParams) {
 
 export async function ensureSettlementProjectForQuotation(quotationId: string, actor: OperationActor | null = null) {
   const quotations = await queryRows<ProjectQuotation>(
-    `SELECT q.id, q.quotationNo, q.projectName, q.customerId, c.name AS customerName,
+    `SELECT q.id, q.quotationNo, q.projectName, q.customerId, ${quotationCustomerDisplay} AS customerName,
             q.contractingUnitId,
             COALESCE(NULLIF(u.shortName, ''), NULLIF(u.entityName, ''), NULLIF(u.name, ''), q.contractingUnitId, '') AS contractingUnitName,
             q.sourcePoId, q.remark, q.currency, q.exchangeRateUsd, q.exchangeRateMxn, q.status
        FROM merge_po_quotations q
-       LEFT JOIN merge_common_customers c ON c.customerId = q.customerId
+       LEFT JOIN merge_common_customers c ON c.customerId = q.customerId OR c.customerCode = q.customerId
        LEFT JOIN merge_common_undertaking_units u
          ON u.undertakingUnitId = q.contractingUnitId
          OR u.undertakingUnitCode = q.contractingUnitId
@@ -849,13 +855,14 @@ async function invoiceValues(_projectId: string, input: Record<string, unknown>)
   const accountingDate = normalizeDateOnlyValue(input.accountingDate);
   const invoiceDate = normalizeDateOnlyValue(input.invoiceDate);
   const receivableDate = normalizeDateOnlyValue(input.receivableDate);
+  const actualReceiptDate = normalizeDateOnlyValue(input.actualReceiptDate);
   const companyEntityId = text(input.companyEntityId) || null;
   const invoiceEntityId = text(input.invoiceEntityId) || null;
   const [companyEntityName, invoiceEntityName] = await Promise.all([
     companyEntityId ? resolveSettlementPartnerName("undertaking", companyEntityId) : null,
     invoiceEntityId ? resolveSettlementPartnerName(invoiceEntityType === "customer" ? "customer" : invoiceEntityType === "supplier" ? "supplier" : "any", invoiceEntityId) : null,
   ]);
-  return { type, accountPeriod, accountingDate, companyEntity: companyEntityName || text(input.companyEntity) || null, invoiceEntity: invoiceEntityName || text(input.invoiceEntity) || null, companyEntityId, invoiceEntityId, invoiceEntityType, invoiceDate, invoiceNo: text(input.invoiceNo) || null, invoiceTotal, invoiceTaxExcludedTotal, taxRate, invoiceTaxAmount, currency, exchangeRate, usdAmount, isPaid: input.isPaid ? 1 : 0, isInvoiced: input.isInvoiced ? 1 : 0, receivableDate };
+  return { type, accountPeriod, accountingDate, companyEntity: companyEntityName || text(input.companyEntity) || null, invoiceEntity: invoiceEntityName || text(input.invoiceEntity) || null, companyEntityId, invoiceEntityId, invoiceEntityType, invoiceDate, invoiceNo: text(input.invoiceNo) || null, invoiceTotal, invoiceTaxExcludedTotal, taxRate, invoiceTaxAmount, currency, exchangeRate, usdAmount, isPaid: input.isPaid ? 1 : 0, isInvoiced: input.isInvoiced ? 1 : 0, receivableDate, actualReceiptDate };
 }
 
 async function resolveSettlementPartnerName(kind: "undertaking" | "supplier" | "customer" | "any", value: string) {
@@ -897,8 +904,8 @@ export async function addSettlementInvoice(projectId: string, input: Record<stri
   const project = await getProject(projectId); assertEditable(project);
   const values = await invoiceValues(projectId, input);
   await execute(
-    `INSERT INTO merge_po_settlement_invoices (id,projectId,type,accountPeriod,accountingDate,companyEntity,invoiceEntity,companyEntityId,invoiceEntityId,invoiceEntityType,invoiceDate,invoiceNo,invoiceTotal,invoiceTaxExcludedTotal,taxRate,invoiceTaxAmount,currency,exchangeRate,usdAmount,isPaid,isInvoiced,receivableDate)
-     VALUES (:id,:projectId,:type,:accountPeriod,:accountingDate,:companyEntity,:invoiceEntity,:companyEntityId,:invoiceEntityId,:invoiceEntityType,:invoiceDate,:invoiceNo,:invoiceTotal,:invoiceTaxExcludedTotal,:taxRate,:invoiceTaxAmount,:currency,:exchangeRate,:usdAmount,:isPaid,:isInvoiced,:receivableDate)`,
+    `INSERT INTO merge_po_settlement_invoices (id,projectId,type,accountPeriod,accountingDate,companyEntity,invoiceEntity,companyEntityId,invoiceEntityId,invoiceEntityType,invoiceDate,invoiceNo,invoiceTotal,invoiceTaxExcludedTotal,taxRate,invoiceTaxAmount,currency,exchangeRate,usdAmount,isPaid,isInvoiced,receivableDate,actualReceiptDate)
+     VALUES (:id,:projectId,:type,:accountPeriod,:accountingDate,:companyEntity,:invoiceEntity,:companyEntityId,:invoiceEntityId,:invoiceEntityType,:invoiceDate,:invoiceNo,:invoiceTotal,:invoiceTaxExcludedTotal,:taxRate,:invoiceTaxAmount,:currency,:exchangeRate,:usdAmount,:isPaid,:isInvoiced,:receivableDate,:actualReceiptDate)`,
     { id: randomUUID(), projectId, ...values },
   );
   return touchAndRecalculate(projectId, actor);
@@ -910,7 +917,7 @@ export async function updateSettlementInvoice(projectId: string, invoiceId: stri
   if (!invoice) throw new Error("发票不存在");
   const values = await invoiceValues(projectId, input);
   await execute(
-    `UPDATE merge_po_settlement_invoices SET type=:type,accountPeriod=:accountPeriod,accountingDate=:accountingDate,companyEntity=:companyEntity,invoiceEntity=:invoiceEntity,companyEntityId=:companyEntityId,invoiceEntityId=:invoiceEntityId,invoiceEntityType=:invoiceEntityType,invoiceDate=:invoiceDate,invoiceNo=:invoiceNo,invoiceTotal=:invoiceTotal,invoiceTaxExcludedTotal=:invoiceTaxExcludedTotal,taxRate=:taxRate,invoiceTaxAmount=:invoiceTaxAmount,currency=:currency,exchangeRate=:exchangeRate,usdAmount=:usdAmount,isPaid=:isPaid,isInvoiced=:isInvoiced,receivableDate=:receivableDate WHERE id=:id AND projectId=:projectId`,
+    `UPDATE merge_po_settlement_invoices SET type=:type,accountPeriod=:accountPeriod,accountingDate=:accountingDate,companyEntity=:companyEntity,invoiceEntity=:invoiceEntity,companyEntityId=:companyEntityId,invoiceEntityId=:invoiceEntityId,invoiceEntityType=:invoiceEntityType,invoiceDate=:invoiceDate,invoiceNo=:invoiceNo,invoiceTotal=:invoiceTotal,invoiceTaxExcludedTotal=:invoiceTaxExcludedTotal,taxRate=:taxRate,invoiceTaxAmount=:invoiceTaxAmount,currency=:currency,exchangeRate=:exchangeRate,usdAmount=:usdAmount,isPaid=:isPaid,isInvoiced=:isInvoiced,receivableDate=:receivableDate,actualReceiptDate=:actualReceiptDate WHERE id=:id AND projectId=:projectId`,
     { id: invoiceId, projectId, ...values },
   );
   return touchAndRecalculate(projectId, actor);
@@ -1027,7 +1034,7 @@ export async function exportSettlementProject(projectId: string) {
     采购明细: detail.items.map((item) => ({ 产品编码: item.productCode, 产品名称: item.productName, 品牌: item.brand || "", 计划数量: item.plannedQty, 采购数量: item.purchaseQty, 采购单价: item.purchaseUnitPrice, 币种: item.currency, 价格方式: item.priceType === "tax_included" ? "含税价" : "未税价", 税率: item.taxRate, "已采购成本（未税 USD）": item.purchasedCostUsd, 发票号: item.invoiceNo || "" })),
     其他成本费用: detail.expenses.map((item) => ({ 类型: item.type, 说明: item.description || "", 金额: item.amount, 币种: item.currency, 价格方式: item.priceType === "tax_included" ? "含税价" : "未税价", 税率: item.taxRate, "成本（未税 USD）": item.costUsd, 发票号: item.invoiceNo || "" })),
     销售收入: detail.sales.map((item) => ({ 说明: item.description || "", 金额: item.amount, 币种: item.currency, 价格方式: item.priceType === "tax_included" ? "含税价" : "未税价", 税率: item.taxRate, "收入（含税 USD）": item.receivedRevenueTaxIncludedUsd, "收入（未税 USD）": item.receivedRevenueUsd, 收款日期: item.receivedAt || "", 发票号: item.invoiceNo || "" })),
-    发票管理: detail.invoices.map((item) => ({ 类型: item.type === "income" ? "收入" : "成本", 账期: item.accountPeriod || "", 发票号: item.invoiceNo || "", 发票总额: item.invoiceTotal, 发票未税金额: item.invoiceTaxExcludedTotal, 税率: item.taxRate, 发票税额: item.invoiceTaxAmount, 币种: item.currency, 汇率: item.exchangeRate, "USD金额": item.usdAmount, 是否支付: item.isPaid ? "是" : "否", 是否开票: item.isInvoiced ? "是" : "否" })),
+    发票管理: detail.invoices.map((item) => ({ 类型: item.type === "income" ? "收入" : "成本", 账期: item.accountPeriod || "", 应收日期: item.receivableDate || "", 实收日期: item.actualReceiptDate || "", 发票号: item.invoiceNo || "", 发票总额: item.invoiceTotal, 发票未税金额: item.invoiceTaxExcludedTotal, 税率: item.taxRate, 发票税额: item.invoiceTaxAmount, 币种: item.currency, 汇率: item.exchangeRate, "USD金额": item.usdAmount, 是否支付: item.isPaid ? "是" : "否", 是否开票: item.isInvoiced ? "是" : "否" })),
     附件管理: detail.attachments.map((item) => ({ 文件名: item.fileName, 类型: item.fileType || "", 大小: item.fileSize, 说明: item.description || "", 上传人: item.uploadedByName || "", 上传时间: item.uploadedAt })),
   });
 }

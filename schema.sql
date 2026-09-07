@@ -695,6 +695,7 @@ CREATE TABLE IF NOT EXISTS `merge_power_servicefeesnapshots` (
   `startMonth` DATE NULL COMMENT 'start month',
   `endMonth` DATE NULL COMMENT 'end month',
   `countryCode` VARCHAR(32) NULL COMMENT 'country code',
+  `serviceFeeCurrency` VARCHAR(16) NULL COMMENT 'service fee currency',
   `batchName` VARCHAR(255) NULL COMMENT 'batch name',
   `keyword` VARCHAR(255) NULL COMMENT 'keyword filter',
   `billingTotal` DECIMAL(18, 4) NULL COMMENT 'billing total',

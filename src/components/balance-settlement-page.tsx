@@ -48,7 +48,7 @@ const SETTLEMENT_EXPORT_COLUMNS = [
 const DETAIL_EXPORT_COLUMNS = [
   ["lineNo", "序号"], ["itemType", "结差类型"], ["countryCode", "国家"], ["batchName", "批次"], ["requestNo", "需求单号"], ["poNo", "PO单号"],
   ["deviceCode", "实例编码"], ["modelCode", "机型"], ["nameEn", "英文名称"], ["quantity", "数量"], ["procurementCurrency", "采购币种"],
-  ["supplierCode", "供应商"], ["undertakingUnitCode", "承接单位"], ["customerCode", "客户"],
+  ["supplierCode", "供应商"], ["undertakingUnitCode", "承接单位"], ["customerName", "客户"], ["customerCode", "客户编码"],
   ["purchaseCapexUnitPrice", "采购CAPEX单价"], ["purchaseOpexUnitPrice", "采购OPEX单价"], ["settlementCurrency", "结差币种"], ["settlementRate", "结差汇率"],
   ["settlementCapexUnitPrice", "结差CAPEX单价"], ["settlementOpexUnitPrice", "结差OPEX单价"], ["anchorVersionNo", "锚定版本"],
   ["anchorCapexUnitPrice", "CAPEX锚定单价"], ["anchorOpexUnitPrice", "OPEX锚定单价"], ["capexDifferenceUnitPrice", "CAPEX结差单价"],
@@ -64,7 +64,7 @@ const DETAIL_EXPORT_COLUMNS = [
 const DETAIL_TABLE_COLUMNS = [
   ["lineNo", "序号", "number"], ["itemType", "类型"], ["countryCode", "国家"], ["batchName", "批次"], ["requestNo", "需求单号"], ["poNo", "PO单号"],
   ["deviceCode", "实例编码"], ["modelCode", "机型"], ["nameEn", "英文名称"], ["quantity", "数量", "number"], ["procurementCurrency", "采购币种"],
-  ["supplierCode", "供应商"], ["undertakingUnitCode", "承接单位"], ["customerCode", "客户"],
+  ["supplierCode", "供应商"], ["undertakingUnitCode", "承接单位"], ["customerName", "客户"], ["customerCode", "客户编码"],
   ["purchaseCapexUnitPrice", "采购CAPEX单价", "money"], ["purchaseOpexUnitPrice", "采购OPEX单价", "money"], ["settlementCurrency", "结差币种"], ["settlementRate", "结差汇率", "money"],
   ["settlementCapexUnitPrice", "结差CAPEX单价", "money"], ["settlementOpexUnitPrice", "结差OPEX单价", "money"], ["anchorVersionNo", "锚定版本"],
   ["anchorCapexUnitPrice", "CAPEX锚定单价", "money"], ["anchorOpexUnitPrice", "OPEX锚定单价", "money"], ["capexDifferenceTotal", "CAPEX结差总额", "money"],

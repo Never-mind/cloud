@@ -309,6 +309,8 @@ const FIELD_COMMENTS = {
   invoiceEntityId: "供应商或客户ID",
   invoiceEntityType: "发票主体类型",
   receivableDate: "应收日期",
+  serviceFeeCurrency: "服务费币种",
+  actualReceiptDate: "实收日期",
   invoiceTotal: "发票含税总额",
   invoiceTaxExcludedTotal: "发票未税总额",
   invoiceNetAmount: "发票未税金额",

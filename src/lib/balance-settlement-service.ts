@@ -3,6 +3,7 @@ import { execute, queryRows, type Row } from "./db";
 import { attachPartyCodes } from "./party-display";
 import { calculateNonInstanceLine, validateNonInstanceLine } from "./non-instance-settlement-import";
 import { appendTableInFilter, formatTableDateExpression, getTableSort, listSqlFilterOptions } from "./table-query";
+import { customerDisplaySql } from "./customer-display";
 
 const DRAFT = "\u8349\u7a3f";
 const CONFIRMED = "\u5df2\u786e\u8ba4";
@@ -288,7 +289,7 @@ export async function listInstanceSettlementCandidates({
   }
   const filterExpressions: Record<string, string> = {
     countryCode: "req.countryCode", batchName: "req.batchName", requestNo: "COALESCE(poi.requestNo, ri.requestNo)", poNo: "poi.poNo",
-    deviceCode: "ri.deviceCode", modelCode: "im.modelCode", nameEn: "im.nameEn", undertakingUnitCode: "undertaking.undertakingUnitCode", supplierCode: "supplier.supplierCode", customerCode: "customer.customerCode", quantity: "ri.quantity", procurementCurrency: "po.currency",
+    deviceCode: "ri.deviceCode", modelCode: "im.modelCode", nameEn: "im.nameEn", undertakingUnitCode: "undertaking.undertakingUnitCode", supplierCode: "supplier.supplierCode", customerCode: customerDisplaySql("customer", "ri.customerId"), quantity: "ri.quantity", procurementCurrency: "po.currency",
     capexUnitPrice: "poi.capexUnitPrice", opexUnitPrice: "poi.opexUnitPrice", anchorCapexUnitPrice: "anchor.capexAnchorUsd", anchorOpexUnitPrice: "anchor.opexAnchorUsd",
   };
   if (searchParams) for (const [field, expression] of Object.entries(filterExpressions)) appendTableInFilter(conditions, params, expression, field, searchParams, "balanceCandidate");
@@ -302,7 +303,7 @@ export async function listInstanceSettlementCandidates({
     LEFT JOIN instancemodels im ON im.deviceCode = ri.deviceCode
     LEFT JOIN merge_common_suppliers supplier ON supplier.supplierId = ri.supplierId
     LEFT JOIN merge_common_undertaking_units undertaking ON undertaking.undertakingUnitId = ri.undertakingUnitId
-    LEFT JOIN merge_common_customers customer ON customer.customerId = ri.customerId
+    LEFT JOIN merge_common_customers customer ON customer.customerId = ri.customerId OR customer.customerCode = ri.customerId
     LEFT JOIN capexpricingitems anchor ON anchor.versionId = :pricingVersionId AND anchor.deviceCode = ri.deviceCode
     LEFT JOIN (
       SELECT purchaseOrderItemId, MAX(deliveredAt) AS receiptDate
@@ -344,9 +345,13 @@ export async function listInstanceSettlementCandidates({
 
   const anchors = await getAnchors(text(version?.versionId));
   const normalized = await attachPartyCodes(rows.map((row) => enrichCandidate(row, version, anchors.get(text(row.deviceCode)))));
+  const displayRows = normalized.map((row) => ({
+    ...row,
+    customerCode: row.customerName || row.customerCode,
+  }));
 
   return {
-    rows: normalized,
+    rows: displayRows,
     total,
     page: safePage,
     pageSize: safePageSize,
@@ -358,7 +363,7 @@ export async function listInstanceSettlementCandidates({
 export async function listInstanceSettlementCandidateFilterOptions(searchParams: URLSearchParams) {
   const expressions: Record<string, string> = {
     countryCode: "req.countryCode", batchName: "req.batchName", requestNo: "COALESCE(poi.requestNo, ri.requestNo)", poNo: "poi.poNo",
-    deviceCode: "ri.deviceCode", modelCode: "im.modelCode", nameEn: "im.nameEn", undertakingUnitCode: "undertaking.undertakingUnitCode", supplierCode: "supplier.supplierCode", customerCode: "customer.customerCode", quantity: "ri.quantity", procurementCurrency: "po.currency",
+    deviceCode: "ri.deviceCode", modelCode: "im.modelCode", nameEn: "im.nameEn", undertakingUnitCode: "undertaking.undertakingUnitCode", supplierCode: "supplier.supplierCode", customerCode: customerDisplaySql("customer", "ri.customerId"), quantity: "ri.quantity", procurementCurrency: "po.currency",
     capexUnitPrice: "poi.capexUnitPrice", opexUnitPrice: "poi.opexUnitPrice", anchorCapexUnitPrice: "anchor.capexAnchorUsd", anchorOpexUnitPrice: "anchor.opexAnchorUsd",
   };
   const pricingVersionId = text(searchParams.get("pricingVersionId"));
@@ -378,7 +383,7 @@ export async function listInstanceSettlementCandidateFilterOptions(searchParams:
       LEFT JOIN instancemodels im ON im.deviceCode = ri.deviceCode
       LEFT JOIN merge_common_suppliers supplier ON supplier.supplierId = ri.supplierId
       LEFT JOIN merge_common_undertaking_units undertaking ON undertaking.undertakingUnitId = ri.undertakingUnitId
-      LEFT JOIN merge_common_customers customer ON customer.customerId = ri.customerId
+      LEFT JOIN merge_common_customers customer ON customer.customerId = ri.customerId OR customer.customerCode = ri.customerId
       LEFT JOIN capexpricingitems anchor ON anchor.versionId = :pricingVersionId AND anchor.deviceCode = ri.deviceCode`,
     conditions,
     params: { purchaseStatus: CONFIRMED, spareType: SPARE_PART, instanceType: INSTANCE, voidedStatus: VOIDED, pricingVersionId, ...(selectedCountry ? { candidateCountry: selectedCountry } : {}) },
@@ -566,11 +571,13 @@ export async function getBalanceSettlement(settlementNo: string) {
   if (!master) return null;
   const items = await queryRows<Row>(
     `
-      SELECT item.*, supplier.supplierCode, undertaking.undertakingUnitCode, customer.customerCode
-      FROM balancesettlementitems item
-      LEFT JOIN merge_common_suppliers supplier ON supplier.supplierId = item.supplierId
-      LEFT JOIN merge_common_undertaking_units undertaking ON undertaking.undertakingUnitId = item.undertakingUnitId
-      LEFT JOIN merge_common_customers customer ON customer.customerId = item.customerId
+      SELECT item.*, supplier.supplierCode, undertaking.undertakingUnitCode,
+             customer.customerCode,
+             ${customerDisplaySql("customer", "item.customerId")} AS customerName
+       FROM balancesettlementitems item
+       LEFT JOIN merge_common_suppliers supplier ON supplier.supplierId = item.supplierId
+       LEFT JOIN merge_common_undertaking_units undertaking ON undertaking.undertakingUnitId = item.undertakingUnitId
+       LEFT JOIN merge_common_customers customer ON customer.customerId = item.customerId OR customer.customerCode = item.customerId
       WHERE item.settlementNo = :settlementNo
       ORDER BY item.lineNo ASC
     `,

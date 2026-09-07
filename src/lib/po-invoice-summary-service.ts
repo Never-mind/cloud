@@ -4,6 +4,7 @@ import {
   getTableSort,
   getTableFilterOptionsOrderBy,
 } from "./table-query";
+import { customerDisplaySql } from "./customer-display";
 
 export type PoInvoiceSummaryRow = {
   id: string;
@@ -23,6 +24,7 @@ export type PoInvoiceSummaryRow = {
   invoiceEntityId: string | null;
   invoiceEntityType: "supplier" | "customer" | null;
   receivableDate: string | null;
+  actualReceiptDate: string | null;
   invoiceDate: string | null;
   invoiceNo: string | null;
   invoiceTotal: number;
@@ -63,7 +65,7 @@ const invoiceFrom = `
 `;
 
 const contractingUnitDisplay = "COALESCE(NULLIF(undertaking.shortName, ''), NULLIF(undertaking.entityName, ''), NULLIF(undertaking.name, ''), NULLIF(p.contractingUnitName, ''), p.contractingUnitId, '')";
-const customerDisplay = "COALESCE(NULLIF(customer.shortName, ''), NULLIF(customer.nameCn, ''), NULLIF(customer.name, ''), NULLIF(p.customerName, ''), p.customerId, '')";
+const customerDisplay = customerDisplaySql("customer", "p.customerName", "p.customerId");
 const projectDisplay = "COALESCE(NULLIF(p.projectName, ''), NULLIF(p.remark, ''), '')";
 
 const filterExpressions: Record<string, string> = {
@@ -79,6 +81,7 @@ const filterExpressions: Record<string, string> = {
   companyEntity: "i.companyEntity",
   invoiceEntity: "i.invoiceEntity",
   receivableDate: "i.receivableDate",
+  actualReceiptDate: "i.actualReceiptDate",
   invoiceDate: "i.invoiceDate",
   invoiceNo: "i.invoiceNo",
   invoiceTotal: "i.invoiceTotal",
@@ -196,6 +199,7 @@ function normalizeRow(row: Row): PoInvoiceSummaryRow {
     invoiceEntityId: text(row.invoiceEntityId) || null,
     invoiceEntityType: text(row.invoiceEntityType) === "supplier" || text(row.invoiceEntityType) === "customer" ? text(row.invoiceEntityType) as "supplier" | "customer" : null,
     receivableDate: dateText(row.receivableDate),
+    actualReceiptDate: dateText(row.actualReceiptDate),
     invoiceDate: dateText(row.invoiceDate),
     invoiceNo: text(row.invoiceNo) || null,
     invoiceTotal: numeric(row.invoiceTotal),
@@ -317,6 +321,7 @@ function exportRow(row: PoInvoiceSummaryRow) {
     承接单位: row.companyEntity || "",
     供应商或客户: row.invoiceEntity || "",
     应收日期: row.receivableDate || "",
+    实收日期: row.actualReceiptDate || "",
     发票日期: row.invoiceDate || "",
     发票号: row.invoiceNo || "",
     发票总额: money(row.invoiceTotal),

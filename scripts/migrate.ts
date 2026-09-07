@@ -234,6 +234,7 @@ async function main() {
     ["invoiceEntityId", "`invoiceEntityId` VARCHAR(64) NULL COMMENT 'supplier or customer id' AFTER `invoiceEntity`"],
     ["invoiceEntityType", "`invoiceEntityType` VARCHAR(20) NULL COMMENT 'invoice entity type' AFTER `invoiceEntityId`"],
     ["receivableDate", "`receivableDate` DATE NULL COMMENT '应收日期' AFTER `invoiceDate`"],
+    ["actualReceiptDate", "`actualReceiptDate` DATE NULL COMMENT '实收日期' AFTER `receivableDate`"],
   ] as const) {
     await addColumnIfMissing("merge_po_settlement_invoices", columnName, ddl);
   }
@@ -1301,6 +1302,7 @@ async function main() {
         \`startMonth\` DATE NULL COMMENT 'start month',
         \`endMonth\` DATE NULL COMMENT 'end month',
         \`countryCode\` VARCHAR(32) NULL COMMENT 'country code',
+        \`serviceFeeCurrency\` VARCHAR(16) NULL COMMENT 'service fee currency',
         \`batchName\` VARCHAR(255) NULL COMMENT 'batch name',
         \`keyword\` VARCHAR(255) NULL COMMENT 'keyword filter',
         \`billingTotal\` DECIMAL(18, 4) NULL COMMENT 'billing total',
@@ -1363,6 +1365,11 @@ async function main() {
     "servicefeesnapshots",
     "writeOffMonth",
     "`writeOffMonth` DATE NULL COMMENT 'write-off month' AFTER `status`",
+  );
+  await addColumnIfMissing(
+    "servicefeesnapshots",
+    "serviceFeeCurrency",
+    "`serviceFeeCurrency` VARCHAR(16) NULL COMMENT 'service fee currency' AFTER `countryCode`",
   );
   await addColumnIfMissing(
     "servicefeesnapshots",

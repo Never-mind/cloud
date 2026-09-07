@@ -25,6 +25,7 @@ const columns: Column[] = [
   { key: "companyEntity", label: "承接单位" },
   { key: "invoiceEntity", label: "供应商/客户" },
   { key: "receivableDate", label: "应收日期", type: "date" },
+  { key: "actualReceiptDate", label: "实收日期", type: "date" },
   { key: "invoiceDate", label: "发票日期", type: "date" },
   { key: "invoiceNo", label: "发票号" },
   { key: "invoiceTotal", label: "发票总额", type: "money" },

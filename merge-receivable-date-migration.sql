@@ -9,7 +9,8 @@ ALTER TABLE `merge_po_settlement_invoices`
   ADD COLUMN IF NOT EXISTS `companyEntityId` VARCHAR(64) NULL COMMENT '承接单位ID' AFTER `companyEntity`,
   ADD COLUMN IF NOT EXISTS `invoiceEntityId` VARCHAR(64) NULL COMMENT '供应商或客户ID' AFTER `invoiceEntity`,
   ADD COLUMN IF NOT EXISTS `invoiceEntityType` VARCHAR(20) NULL COMMENT '发票主体类型' AFTER `invoiceEntityId`,
-  ADD COLUMN IF NOT EXISTS `receivableDate` DATE NULL COMMENT '应收日期' AFTER `invoiceDate`;
+  ADD COLUMN IF NOT EXISTS `receivableDate` DATE NULL COMMENT '应收日期' AFTER `invoiceDate`,
+  ADD COLUMN IF NOT EXISTS `actualReceiptDate` DATE NULL COMMENT '实收日期' AFTER `receivableDate`;
 
 ALTER TABLE `merge_cloud_rows`
   ADD COLUMN IF NOT EXISTS `receivableDate` DATE NULL COMMENT '应收日期' AFTER `collectionDate`;

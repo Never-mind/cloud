@@ -1923,6 +1923,7 @@ entityConfigs.push(
       { key: "companyEntity", label: "承接单位", sortable: true, filterable: true },
       { key: "invoiceEntity", label: "供应商/客户", sortable: true, filterable: true },
       { key: "receivableDate", label: "应收日期", type: "date", sortable: true, filterable: true },
+      { key: "actualReceiptDate", label: "实收日期", type: "date", sortable: true, filterable: true },
       { key: "invoiceDate", label: "发票日期", type: "date", sortable: true, filterable: true },
       { key: "invoiceNo", label: "发票号", sortable: true, filterable: true },
       { key: "invoiceTotal", label: "发票总额", type: "money", sortable: true, filterable: true },
@@ -1961,7 +1962,7 @@ entityConfigs.push(
     formFields: [
       { key: "id", label: "内部ID", hidden: true },
       { key: "customerId", label: "客户ID", required: true },
-      { key: "customerName", label: "客户名称", required: true },
+      { key: "customerName", label: "客户名称", hidden: true },
       { key: "customerSku", label: "客户SKU" },
       { key: "customerProductName", label: "客户产品名称", required: true },
       { key: "customerSpec", label: "客户规格" },

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import * as XLSX from "xlsx";
 import { executeRaw, queryRows, queryRowsRaw, type Row } from "./db";
+import { customerDisplayName } from "./customer-display";
 import type { OperationActor } from "./operation-actor";
 import { appendTableInFilter, formatTableDateExpression, getTableSort, listSqlFilterOptions } from "./table-query";
 
@@ -74,13 +75,17 @@ const CLOUD_ROW_FILTER_EXPRESSIONS: Record<string, string> = {
   confirmedAt: formatTableDateExpression("confirmedAt"),
 };
 
-const CLOUD_MAPPING_FROM = `(SELECT m.*, GROUP_CONCAT(a.account ORDER BY a.account SEPARATOR ', ') AS accounts
-  FROM merge_cloud_mappings m LEFT JOIN merge_cloud_mapping_accounts a ON a.mappingId = m.id GROUP BY m.id) AS cloudMappingRows`;
+const CLOUD_MAPPING_FROM = `(SELECT m.*, GROUP_CONCAT(a.account ORDER BY a.account SEPARATOR ', ') AS accounts,
+  MAX(COALESCE(NULLIF(c.shortName, ''), NULLIF(c.nameCn, ''), NULLIF(c.name, ''), NULLIF(c.customerCode, ''), NULLIF(m.customerName, ''), NULLIF(m.customerId, ''))) AS customerDisplayName
+  FROM merge_cloud_mappings m
+  LEFT JOIN merge_cloud_mapping_accounts a ON a.mappingId = m.id
+  LEFT JOIN merge_common_customers c ON c.customerId = m.customerId OR c.customerCode = m.customerId
+  GROUP BY m.id) AS cloudMappingRows`;
 
 const CLOUD_MAPPING_FILTER_EXPRESSIONS: Record<string, string> = {
   supplierName: "supplierName",
   undertakingUnitName: "undertakingUnitName",
-  customerName: "customerName",
+  customerName: "customerDisplayName",
   accounts: "accounts",
   reconciler: "reconciler",
   calculationLogic: "calculationLogic",
@@ -683,14 +688,15 @@ export async function listCloudMappings(params: URLSearchParams) {
   const keyword = text(params.get("keyword"));
   const conditions: string[] = [];
   const values: Row = {};
-  if (keyword) { conditions.push("(supplierName LIKE :keyword OR undertakingUnitName LIKE :keyword OR customerName LIKE :keyword OR reconciler LIKE :keyword OR accounts LIKE :keyword)"); values.keyword = `%${keyword}%`; }
+  if (keyword) { conditions.push("(supplierName LIKE :keyword OR undertakingUnitName LIKE :keyword OR customerDisplayName LIKE :keyword OR reconciler LIKE :keyword OR accounts LIKE :keyword)"); values.keyword = `%${keyword}%`; }
   for (const [field, expression] of Object.entries(CLOUD_MAPPING_FILTER_EXPRESSIONS)) appendTableInFilter(conditions, values, expression, field, params, "mappingFilter");
   const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
   const requestedSort = getTableSort(params, CLOUD_MAPPING_FILTER_EXPRESSIONS);
-  const [count, rows] = await Promise.all([
+  const [count, rawRows] = await Promise.all([
     queryRows<Row>(`SELECT COUNT(*) AS total FROM ${CLOUD_MAPPING_FROM} ${where}`, values),
     queryRows<Row>(`SELECT * FROM ${CLOUD_MAPPING_FROM} ${where} ${requestedSort || "ORDER BY updatedAt DESC"} LIMIT :limit OFFSET :offset`, { ...values, limit: pageSize, offset }),
   ]);
+  const rows = rawRows.map(({ customerDisplayName, ...row }) => ({ ...row, customerName: customerDisplayName ?? row.customerName }));
   return { items: rows, total: Number(count[0]?.total ?? 0), page, pageSize };
 }
 
@@ -700,10 +706,20 @@ export async function listCloudMappingFilterOptions(params: URLSearchParams) {
 
 export async function saveCloudMapping(body: Row, id: string | null, actor: OperationActor | null) {
   const mappingId = id || randomUUID();
+  const customerReference = text(body.customerId);
+  const customer = customerReference
+    ? (await queryRows<Row>(
+      `SELECT customerId, customerCode, shortName, nameCn, name
+         FROM merge_common_customers
+        WHERE customerId = :customerReference OR customerCode = :customerReference
+        LIMIT 1`,
+      { customerReference },
+    ))[0]
+    : undefined;
   const values = {
     id: mappingId,
     supplierId: text(body.supplierId), supplierName: text(body.supplierName), undertakingUnitId: text(body.undertakingUnitId),
-    undertakingUnitName: text(body.undertakingUnitName), customerId: text(body.customerId), customerName: text(body.customerName),
+    undertakingUnitName: text(body.undertakingUnitName), customerId: customer?.customerId ?? customerReference, customerName: customer ? customerDisplayName(customer, customerReference) : text(body.customerName),
     reconciler: text(body.reconciler), calculationLogic: text(body.calculationLogic) || "catalog",
     customCalculationLogic: text(body.customCalculationLogic) || null, userDiscount: body.userDiscount ?? null, remark: text(body.remark) || null,
     createdByUserId: actor?.userId ?? null, createdByName: actor?.displayName ?? null,

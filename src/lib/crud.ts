@@ -1,6 +1,8 @@
 import { randomUUID } from "crypto";
 import { execute, hasTableColumn, INTERNAL_ID_COLUMN, queryRows, type Row } from "./db";
+import { customerDisplayName, customerDisplaySql } from "./customer-display";
 import { attachPartyCodes } from "./party-display";
+import { getPartyShortName } from "./party-reference";
 import type { EntityConfig } from "./modules";
 import { DEFAULT_PAGE_SIZE, getKnownTotal, normalizePageSize } from "./pagination";
 import { requireRequestType } from "./request-type";
@@ -110,7 +112,8 @@ function withShipmentReceiptStatus(config: EntityConfig, body: Row) {
 async function normalizeEntityBody(config: EntityConfig, body: Row) {
   const nextBody = withQuotationPartyAliases(config, withShipmentReceiptStatus(config, body));
   const normalizedPoBody = normalizeCustomerPoBody(config, nextBody);
-  const normalizedProductBody = await normalizeProductMasterCategory(config, normalizedPoBody);
+  const normalizedAliasBody = await normalizeCustomerProductAliasBody(config, normalizedPoBody);
+  const normalizedProductBody = await normalizeProductMasterCategory(config, normalizedAliasBody);
   const normalizedQuotationBody = await normalizeQuotationItemProduct(config, normalizedProductBody);
   if (["requests", "request-items", "purchase-order-items"].includes(config.key)) {
     return normalizePurchasePrices(config, {
@@ -119,6 +122,29 @@ async function normalizeEntityBody(config: EntityConfig, body: Row) {
     });
   }
   return normalizePurchasePrices(config, normalizedQuotationBody);
+}
+
+async function normalizeCustomerProductAliasBody(config: EntityConfig, body: Row) {
+  if (config.key !== "customer-product-aliases") return body;
+  const customerReference = String(body.customerId ?? "").trim();
+  if (!customerReference) return body;
+
+  const customer = (await queryRows<Row>(
+    `SELECT customerId, customerCode, shortName, nameCn, name
+       FROM merge_common_customers
+      WHERE customerId = :customerReference OR customerCode = :customerReference
+      LIMIT 1`,
+    { customerReference },
+  ))[0];
+  if (!customer) {
+    return { ...body, customerName: String(body.customerName ?? "").trim() || customerReference };
+  }
+
+  return {
+    ...body,
+    customerId: customer.customerId,
+    customerName: customerDisplayName(customer, getPartyShortName(customer, ["customerCode", "customerId"])),
+  };
 }
 
 function normalizeCustomerPoBody(config: EntityConfig, body: Row) {
@@ -247,6 +273,8 @@ export async function listEntityRows(config: EntityConfig, searchParams: URLSear
       ? new Set(["contractingUnitName", "customerName"])
       : config.key === "history-quotations"
         ? new Set(["customerId"])
+        : config.key === "customer-product-aliases"
+          ? new Set(["customerName"])
     : config.key === "request-items"
     ? partyDisplayFields
     : config.key === "purchase-orders"
@@ -300,6 +328,11 @@ export async function listEntityRows(config: EntityConfig, searchParams: URLSear
         .filter((field) => field.key === "customerId")
         .map((field) => `${getEntityDisplayFieldExpression(config, field.key)} AS ${quoteIdentifier(field.key)}`)
       : [])
+    .concat(config.key === "customer-product-aliases"
+      ? config.listFields
+        .filter((field) => field.key === "customerName")
+        .map((field) => `${getEntityDisplayFieldExpression(config, field.key)} AS ${quoteIdentifier(field.key)}`)
+      : [])
     .concat(config.key === "product-models"
         ? [
             "(SELECT COUNT(*) FROM `merge_po_product_specifications` productSpecification WHERE productSpecification.`modelId` = `merge_po_product_models`.`id` AND productSpecification.`mode` = 'fixed') AS `specCount`",
@@ -335,6 +368,9 @@ export async function listEntityRows(config: EntityConfig, searchParams: URLSear
         `${getEntityDisplayFieldExpression(config, "customerName")} LIKE :keyword`,
         `${getEntityDisplayFieldExpression(config, "contractingUnitName")} LIKE :keyword`,
       );
+    }
+    if (config.key === "customer-product-aliases") {
+      keywordExpressions.push(`${getEntityDisplayFieldExpression(config, "customerName")} LIKE :keyword`);
     }
     whereParts.push(`(${keywordExpressions.join(" OR ")})`);
     params.keyword = `%${keyword}%`;
@@ -596,6 +632,8 @@ function getEntitySortReference(config: EntityConfig, field: string, shipmentAli
       ? new Set(["contractingUnitName", "customerName"])
       : config.key === "history-quotations"
         ? new Set(["customerId"])
+        : config.key === "customer-product-aliases"
+          ? new Set(["customerName"])
     : config.key === "shipments"
     ? shipmentDisplayFields
     : config.key === "service-fee-snapshots"
@@ -660,6 +698,8 @@ export async function listEntityFilterOptions(
       ? new Set(["contractingUnitName", "customerName"])
       : config.key === "history-quotations"
         ? new Set(["customerId"])
+        : config.key === "customer-product-aliases"
+          ? new Set(["customerName"])
     : config.key === "shipments"
     ? shipmentDisplayFields
     : config.key === "service-fee-snapshots"
@@ -757,6 +797,13 @@ function getEntityDisplayFieldExpression(config: EntityConfig, field: string, sh
     if (field === "customerName") {
       return `(SELECT COALESCE(NULLIF(customer.shortName, ''), NULLIF(customer.nameCn, ''), NULLIF(customer.name, ''), NULLIF(customer.customerCode, ''), ${source}customerId) FROM merge_common_customers customer WHERE customer.customerId = ${source}customerId OR customer.customerCode = ${source}customerId LIMIT 1)`;
     }
+  }
+  if (config.key === "customer-product-aliases" && field === "customerName") {
+    const display = customerDisplaySql("customer", `${source}customerId`, `${source}customerName`);
+    return `COALESCE((SELECT ${display}
+       FROM merge_common_customers customer
+      WHERE customer.customerId = ${source}customerId OR customer.customerCode = ${source}customerId
+      LIMIT 1), NULLIF(${source}customerName, ''), NULLIF(${source}customerId, ''), '')`;
   }
   if (config.key === "quotations") {
     if (field === "contractingUnitName") {
@@ -993,6 +1040,8 @@ export async function getEntityRow(config: EntityConfig, id: string) {
     ? ["contractingUnitName", "customerName"]
     : config.key === "history-quotations"
       ? ["customerId"]
+      : config.key === "customer-product-aliases"
+        ? ["customerName"]
       : [];
   const detailDisplayExpressions = detailDisplayFields
     .map((field) => getEntityDisplayFieldExpression(config, field))

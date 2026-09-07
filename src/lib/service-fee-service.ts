@@ -829,11 +829,11 @@ export async function createServiceFeeStatementDraft({
       connection,
       `
         INSERT INTO servicefeesnapshots
-          (snapshotNo, status, writeOffMonth, startMonth, endMonth, countryCode, batchName, keyword,
+          (snapshotNo, status, writeOffMonth, startMonth, endMonth, countryCode, serviceFeeCurrency, batchName, keyword,
            billingTotal, prepaymentTotal, serviceFeeTotal, serviceFeeTotalExcludingTax, vatRate,
            instanceServiceFeeTotal, feeServiceFeeTotal, confirmedAt)
         VALUES
-          (:snapshotNo, '未确认', :writeOffMonth, :writeOffMonth, :writeOffMonth, :countryCode, NULL, NULL,
+          (:snapshotNo, '未确认', :writeOffMonth, :writeOffMonth, :writeOffMonth, :countryCode, :serviceFeeCurrency, NULL, NULL,
            :billingTotal, :prepaymentTotal, :serviceFeeTotal, :serviceFeeTotalExcludingTax, :vatRate,
            :instanceServiceFeeTotal, :feeServiceFeeTotal, NULL)
         ON DUPLICATE KEY UPDATE
@@ -842,6 +842,7 @@ export async function createServiceFeeStatementDraft({
           startMonth = VALUES(startMonth),
           endMonth = VALUES(endMonth),
           countryCode = VALUES(countryCode),
+          serviceFeeCurrency = VALUES(serviceFeeCurrency),
           batchName = NULL,
           keyword = NULL,
            billingTotal = VALUES(billingTotal),
@@ -857,6 +858,7 @@ export async function createServiceFeeStatementDraft({
         snapshotNo: finalSnapshotNo,
         writeOffMonth: statementFilters.startMonth,
         countryCode: statementFilters.countryCode,
+        serviceFeeCurrency: statementFilters.currency,
         vatRate: Number(calculated.rows[0]?.vatRate ?? 0),
         ...calculated.summary,
       },
