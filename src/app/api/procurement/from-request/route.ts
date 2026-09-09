@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createPurchaseOrderFromRequest } from "@/lib/procurement-service";
 import { getOperationActor } from "@/lib/operation-actor";
+import { getOperationRequestId, recordOperationLog } from "@/lib/operation-log";
 
 export async function POST(request: NextRequest) {
   const body = await request.json();
@@ -12,7 +13,18 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const order = await createPurchaseOrderFromRequest(requestNo, poNo || undefined, await getOperationActor(request));
+    const actor = await getOperationActor(request);
+    const order = await createPurchaseOrderFromRequest(requestNo, poNo || undefined, actor);
+    await recordOperationLog({
+      actor,
+      domainKey: "power",
+      moduleKey: "purchase-orders",
+      action: "create",
+      entityType: "purchase-orders",
+      entityId: String(order?.poNo ?? order?.purchaseOrderId ?? "") || null,
+      requestId: getOperationRequestId(request),
+      detail: { result: "success", sourceRequestNo: requestNo },
+    });
     return NextResponse.json(order, { status: 201 });
   } catch (error) {
     return NextResponse.json(

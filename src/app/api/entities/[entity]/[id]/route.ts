@@ -9,8 +9,10 @@ import { deleteCustomerPoDraft, deleteQuotationDraft } from "@/lib/po-document-d
 import { deleteBillingStatementDraft } from "@/lib/billing-statement-service";
 import { deletePrepaymentDraft } from "@/lib/prepayment-service";
 import { deleteServiceFeeStatementDraft } from "@/lib/service-fee-service";
-import { getOperationActor, operationFields, type OperationActor } from "@/lib/operation-actor";
+import { getOperationActor, operationFields } from "@/lib/operation-actor";
 import { assertPurchaseItemPowerPricingStorage, persistPurchaseItemPowerPricing, persistPurchaseOrderUsdRate } from "@/lib/purchase-power-pricing-service";
+import { getOperationRequestId, recordOperationLog } from "@/lib/operation-log";
+import { getPermissionDomainKey } from "@/lib/permission-definitions";
 
 export async function GET(_request: NextRequest, context: { params: Promise<{ entity: string; id: string }> }) {
   const { entity, id } = await context.params;
@@ -48,6 +50,8 @@ export async function PUT(request: NextRequest, context: { params: Promise<{ ent
   }
 
   const body = await request.json();
+  const requestId = getOperationRequestId(request);
+  const actor = await getOperationActor(request);
   if (entity === "purchase-order-items") {
     try {
       await assertPurchaseItemPowerPricingStorage(body);
@@ -55,7 +59,6 @@ export async function PUT(request: NextRequest, context: { params: Promise<{ ent
       return NextResponse.json({ error: error instanceof Error ? error.message : "采购明细测算字段校验失败" }, { status: 400 });
     }
   }
-  const actor = await getOperationActor(request);
   if (entity === "customer-pos") {
     try {
       const current = await getEntityRow(config, id);
@@ -73,6 +76,7 @@ export async function PUT(request: NextRequest, context: { params: Promise<{ ent
   if (entity === "billing-ledgers") {
     try {
       const row = await updateBillingLedger(id, body);
+      await recordOperationLog({ actor, domainKey: getPermissionDomainKey(entity), moduleKey: entity, action: "update", entityType: config.key, entityId: id, requestId, detail: { result: "success" } });
       return NextResponse.json(row);
     } catch (error) {
       return NextResponse.json(
@@ -113,6 +117,7 @@ export async function PUT(request: NextRequest, context: { params: Promise<{ ent
     if (entity === "quotations") {
       await recalculateQuotationSummary(id, actor);
     }
+    await recordOperationLog({ actor, domainKey: getPermissionDomainKey(entity), moduleKey: entity, action: "update", entityType: config.key, entityId: id, requestId, detail: { result: "success" } });
     return NextResponse.json(row);
   } catch (error) {
     return NextResponse.json(
@@ -130,22 +135,27 @@ export async function DELETE(_request: NextRequest, context: { params: Promise<{
     return NextResponse.json({ error: "Unknown entity" }, { status: 404 });
   }
 
+  const requestId = getOperationRequestId(_request);
+  const actor = await getOperationActor(_request);
+  const logDelete = () => recordOperationLog({ actor, domainKey: getPermissionDomainKey(entity), moduleKey: entity, action: "delete", entityType: config.key, entityId: id, requestId, detail: { result: "success" } });
+
   if (entity === "billing-ledgers") {
     await deleteBillingLedger(id);
+    await logDelete();
     return NextResponse.json({ ok: true });
   }
 
-  let actor: OperationActor | null = null;
   let before: Row | null = null;
   try {
-    actor = await getOperationActor(_request);
     before = entity === "quotation-items" ? await getEntityRow(config, id) : null;
     if (entity === "billing-statements") {
       await deleteBillingStatementDraft(id);
+      await logDelete();
       return NextResponse.json({ ok: true });
     }
     if (entity === "service-fee-snapshots") {
       await deleteServiceFeeStatementDraft(id);
+      await logDelete();
       return NextResponse.json({ ok: true });
     }
     if (entity === "service-fee-snapshot-items") {
@@ -153,22 +163,27 @@ export async function DELETE(_request: NextRequest, context: { params: Promise<{
     }
     if (entity === "prepayment-contracts") {
       await deletePrepaymentDraft(id);
+      await logDelete();
       return NextResponse.json({ ok: true });
     }
     if (entity === "requests") {
       await deleteRequestOrder(id);
+      await logDelete();
       return NextResponse.json({ ok: true });
     }
     if (entity === "purchase-orders") {
       await deletePurchaseOrder(id);
+      await logDelete();
       return NextResponse.json({ ok: true });
     }
     if (entity === "customer-pos") {
       await deleteCustomerPoDraft(id);
+      await logDelete();
       return NextResponse.json({ ok: true });
     }
     if (entity === "quotations") {
       await deleteQuotationDraft(id);
+      await logDelete();
       return NextResponse.json({ ok: true });
     }
   } catch (error) {
@@ -185,5 +200,6 @@ export async function DELETE(_request: NextRequest, context: { params: Promise<{
       await recalculateQuotationSummary(quotationId, actor);
     }
   }
+  await logDelete();
   return NextResponse.json({ ok: true });
 }

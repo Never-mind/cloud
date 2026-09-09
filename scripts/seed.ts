@@ -49,9 +49,9 @@ async function main() {
   ]);
 
   await insert("instancemodels", [
-    { deviceCode: "06114026", modelCode: "HV777.0.0.6", xxllCode: "XXLL-COMPUTE-A", nameZh: "计算增强型 A", nameEn: "Compute Enhanced A" },
-    { deviceCode: "06113690", modelCode: "SV761.0.0.6", xxllCode: "XXLL-STORAGE-A", nameZh: "存储型 A", nameEn: "Storage A" },
-    { deviceCode: "06114833", modelCode: "kAV613.0.0.6", xxllCode: "XXLL-GPU-A", nameZh: "GPU加速型 A", nameEn: "GPU Accelerated A" },
+    { deviceCode: "06114026", modelCode: "HV777.0.0.6", instanceType: "Equipment", xxllCode: "XXLL-COMPUTE-A", nameZh: "计算增强型 A", nameEn: "Compute Enhanced A" },
+    { deviceCode: "06113690", modelCode: "SV761.0.0.6", instanceType: "Equipment", xxllCode: "XXLL-STORAGE-A", nameZh: "存储型 A", nameEn: "Storage A" },
+    { deviceCode: "06114833", modelCode: "kAV613.0.0.6", instanceType: "Equipment", xxllCode: "XXLL-GPU-A", nameZh: "GPU加速型 A", nameEn: "GPU Accelerated A" },
   ]);
 
   await insert("requests", [

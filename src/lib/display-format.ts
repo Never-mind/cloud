@@ -1,5 +1,7 @@
 type DisplayValue = string | number | boolean | Date | null | undefined;
 
+export type DisplayOption = { label: string; value: string };
+
 export function formatDateInputValue(value: DisplayValue) {
   if (value === null || value === undefined || value === "") return "";
   if (value instanceof Date) return formatLocalDate(value);
@@ -18,6 +20,11 @@ export function formatDisplayValue(value: DisplayValue, type?: string) {
   if (isDateLikeValue(value, type)) return formatDateLikeString(String(value));
   if (typeof value === "number") return value.toLocaleString("en-US", { maximumFractionDigits: 4 });
   return String(value);
+}
+
+export function formatConfiguredDisplayValue(value: DisplayValue, type?: string, options?: DisplayOption[]) {
+  const option = options?.find((item) => item.value === String(value ?? ""));
+  return option?.label ?? formatDisplayValue(value, type);
 }
 
 function formatLineType(value: DisplayValue) {

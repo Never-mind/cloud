@@ -8,6 +8,8 @@ describe("instance model constraints", () => {
     const instanceModels = schema.match(/CREATE TABLE IF NOT EXISTS `merge_power_instancemodels` \([\s\S]*?ENGINE=InnoDB/)?.[0] ?? "";
 
     expect(instanceModels).toContain("PRIMARY KEY (`deviceCode`)");
+    expect(instanceModels).toContain("`instanceType` VARCHAR(32) NOT NULL DEFAULT 'Equipment'");
+    expect(instanceModels).toContain("KEY `idx_InstanceModels_instanceType` (`instanceType`)");
     expect(instanceModels).not.toContain("UNIQUE KEY `uk_InstanceModels_modelCode`");
   });
 
@@ -15,5 +17,7 @@ describe("instance model constraints", () => {
     const migration = readFileSync(resolve(process.cwd(), "scripts/migrate.ts"), "utf8");
 
     expect(migration).toContain('dropIndexIfExists("instancemodels", "uk_InstanceModels_modelCode")');
+    expect(migration).toContain('addColumnIfMissing(\n    "instancemodels",\n    "instanceType"');
+    expect(migration).toContain("WHEN 'material' THEN 'Material'");
   });
 });

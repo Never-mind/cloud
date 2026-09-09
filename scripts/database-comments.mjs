@@ -671,6 +671,7 @@ const FIELD_COMMENTS = {
   first24MonthPriceUSD: "前24个月价格（USD）",
   next36MonthPriceUSD: "后36个月价格（USD）",
   instanceModelEn: "实例型号英文名称",
+  instanceType: "实例型号类型",
   contractRevenueExcludingTax: "合同收入未税金额",
   contractRevenueIncludingTax: "合同收入含税金额",
   manualAmount: "手工金额",

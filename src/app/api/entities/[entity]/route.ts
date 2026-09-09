@@ -4,6 +4,8 @@ import { getEntityConfig } from "@/lib/modules";
 import { getOperationActor, operationFields } from "@/lib/operation-actor";
 import { recalculateQuotationSummary } from "@/lib/quotation-workflow";
 import { assertPurchaseItemPowerPricingStorage, persistPurchaseItemPowerPricing, persistPurchaseOrderUsdRate } from "@/lib/purchase-power-pricing-service";
+import { getOperationRequestId, recordOperationLog } from "@/lib/operation-log";
+import { getPermissionDomainKey } from "@/lib/permission-definitions";
 
 export async function GET(request: NextRequest, context: { params: Promise<{ entity: string }> }) {
   const { entity } = await context.params;
@@ -58,6 +60,16 @@ export async function POST(request: NextRequest, context: { params: Promise<{ en
     if (entity === "quotation-items") {
       await recalculateQuotationSummary(String(row?.quotationId ?? auditedBody.quotationId ?? ""), actor);
     }
+    await recordOperationLog({
+      actor,
+      domainKey: getPermissionDomainKey(entity),
+      moduleKey: entity,
+      action: "create",
+      entityType: config.key,
+      entityId: String(row?.[config.primaryKey] ?? auditedBody[config.primaryKey] ?? "") || null,
+      requestId: getOperationRequestId(request),
+      detail: { result: "success" },
+    });
     return NextResponse.json(row, { status: 201 });
   } catch (error) {
     return NextResponse.json(

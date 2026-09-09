@@ -263,6 +263,7 @@ const API_ROUTE_RULES: Array<{ prefix: string; moduleKey: string }> = [
   { prefix: "/api/requests/product-lines", moduleKey: "request-items" },
   { prefix: "/api/purchase/product-lines", moduleKey: "purchase-order-items" },
   { prefix: "/api/procurement", moduleKey: "purchase-orders" },
+  { prefix: "/api/integrations/material-sync", moduleKey: "instance-models" },
   { prefix: "/api/requests", moduleKey: "requests" },
   { prefix: "/api/purchase", moduleKey: "purchase-orders" },
   { prefix: "/api/orders", moduleKey: "requests" },
@@ -398,6 +399,10 @@ export function getPermissionParentKeys(moduleKey: string) {
     ...(groupTitle ? [`group:${rootKey}:${groupTitle}`] : []),
     rootKey,
   ];
+}
+
+export function getPermissionDomainKey(moduleKey: string): PermissionDefinition["domainKey"] {
+  return MODULE_DOMAIN[moduleKey] ?? "power";
 }
 
 export function hasPermission(state: PermissionState | null | undefined, moduleKey: string, action: PermissionAction) {

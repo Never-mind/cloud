@@ -38,7 +38,8 @@ erDiagram
 
     POWER_INSTANCEMODELS {
         varchar deviceCode PK
-        varchar modelCode UK
+        varchar modelCode
+        varchar instanceType "Equipment/Material/Component"
         varchar xxllCode
         varchar nameZh
         varchar nameEn

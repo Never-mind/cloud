@@ -1,5 +1,6 @@
-import { execute, queryRows, type Row } from "./db";
+import { execute, executeInTransaction, queryRows, queryRowsInTransaction, type Row, withTransaction } from "./db";
 import { getOrderDeleteBlockReason, type OrderDeleteUsageCounts } from "./order-delete-policy";
+import { isConfirmedOrderStatus } from "./order-status";
 import { normalizeRequestNos } from "./procurement-workflow";
 
 type IdRow = { id: string };
@@ -9,6 +10,21 @@ type PoRow = {
   requestNo?: string | null;
   sourceRequestNos?: string | null;
 };
+type RequestRow = { requestNo: string; status?: string | null };
+type QueryRows = <T extends Row>(sql: string, params?: Row) => Promise<T[]>;
+type ExecuteQuery = (sql: string, params?: Row) => Promise<unknown>;
+
+export type BatchOrderDeleteBlockedItem = {
+  requestNo: string;
+  reason: string;
+};
+
+export class BatchOrderDeleteValidationError extends Error {
+  constructor(public readonly blocked: BatchOrderDeleteBlockedItem[]) {
+    super("批量删除校验失败");
+    this.name = "BatchOrderDeleteValidationError";
+  }
+}
 
 export async function deleteRequestOrder(requestNo: string) {
   const requestItems = await queryRows<IdRow>(
@@ -33,6 +49,80 @@ export async function deleteRequestOrder(requestNo: string) {
   await execute("DELETE FROM requests WHERE requestNo = :requestNo", { requestNo });
 
   return { ok: true };
+}
+
+export async function deleteRequestOrders(requestNos: string[]) {
+  const normalizedRequestNos = [...new Set(requestNos.map((value) => String(value ?? "").trim()).filter(Boolean))];
+  if (!normalizedRequestNos.length) throw new Error("请选择至少一条需求单");
+  if (normalizedRequestNos.length > 100) throw new Error("单次最多批量删除 100 条需求单");
+
+  return withTransaction(async (connection) => {
+    const requestClause = buildInClause("requestNo", normalizedRequestNos);
+    const requests = await queryRowsInTransaction<RequestRow>(
+      connection,
+      `SELECT requestNo, status FROM requests WHERE requestNo IN (${requestClause.where}) FOR UPDATE`,
+      requestClause.params,
+    );
+    const requestByNo = new Map(requests.map((row) => [String(row.requestNo), row]));
+    const blocked: BatchOrderDeleteBlockedItem[] = [];
+
+    for (const requestNo of normalizedRequestNos) {
+      const request = requestByNo.get(requestNo);
+      if (!request) {
+        blocked.push({ requestNo, reason: "需求单不存在或已被删除" });
+      } else if (isConfirmedOrderStatus("requests", request.status)) {
+        blocked.push({ requestNo, reason: "已确认需求单不能批量删除" });
+      }
+    }
+    if (blocked.length) throw new BatchOrderDeleteValidationError(blocked);
+
+    const plans: Array<{ requestNo: string; purchaseOrders: PoRow[] }> = [];
+    for (const requestNo of normalizedRequestNos) {
+      const requestItems = await queryRowsInTransaction<IdRow>(
+        connection,
+        "SELECT id FROM requestitems WHERE requestNo = :requestNo FOR UPDATE",
+        { requestNo },
+      );
+      const purchaseOrders = await queryRowsInTransaction<PoRow>(
+        connection,
+        "SELECT purchaseOrderId, poNo, requestNo, sourceRequestNos FROM purchaseorders WHERE requestNo = :requestNo OR sourceRequestNos LIKE :requestNoLike FOR UPDATE",
+        { requestNo, requestNoLike: `%${requestNo}%` },
+      );
+      const requestItemIds = requestItems.map((row) => String(row.id));
+      const poNos = purchaseOrders.map((row) => String(row.poNo));
+      const purchaseOrderItemIds = await listPurchaseOrderItemIdsByPoNos(poNos, (sql, params) =>
+        queryRowsInTransaction(connection, sql, params),
+      );
+      const counts = await getUsageCounts(
+        { requestNo, requestItemIds, poNos, purchaseOrderItemIds },
+        (sql, params) => queryRowsInTransaction(connection, sql, params),
+      );
+      const blockReason = getOrderDeleteBlockReason(counts);
+      if (blockReason) blocked.push({ requestNo, reason: blockReason });
+      plans.push({ requestNo, purchaseOrders });
+    }
+    if (blocked.length) throw new BatchOrderDeleteValidationError(blocked);
+
+    const deletedPurchaseOrders = new Set<string>();
+    for (const plan of plans) {
+      for (const order of plan.purchaseOrders) {
+        const poNo = String(order.poNo);
+        const purchaseOrderId = String(order.purchaseOrderId ?? "");
+        const key = `${purchaseOrderId}\u0000${poNo}`;
+        if (deletedPurchaseOrders.has(key)) continue;
+        deletedPurchaseOrders.add(key);
+        await deletePurchaseOrderRowsWith(poNo, purchaseOrderId, (sql, params) =>
+          executeInTransaction(connection, sql, params),
+        );
+      }
+    }
+    for (const requestNo of normalizedRequestNos) {
+      await executeInTransaction(connection, "DELETE FROM requestitems WHERE requestNo = :requestNo", { requestNo });
+      await executeInTransaction(connection, "DELETE FROM requests WHERE requestNo = :requestNo", { requestNo });
+    }
+
+    return { ok: true, deletedCount: normalizedRequestNos.length };
+  });
 }
 
 export async function deletePurchaseOrder(purchaseOrderIdOrPoNo: string) {
@@ -70,21 +160,25 @@ export async function deletePurchaseOrder(purchaseOrderIdOrPoNo: string) {
 }
 
 async function deletePurchaseOrderRows(poNo: string, purchaseOrderId?: string) {
-  await execute("DELETE FROM shipments WHERE poNo = :poNo", { poNo });
+  return deletePurchaseOrderRowsWith(poNo, purchaseOrderId, execute);
+}
+
+async function deletePurchaseOrderRowsWith(poNo: string, purchaseOrderId: string | undefined, runExecute: ExecuteQuery) {
+  await runExecute("DELETE FROM shipments WHERE poNo = :poNo", { poNo });
   if (purchaseOrderId) {
-    await execute("DELETE FROM purchaseorderitems WHERE purchaseOrderId = :purchaseOrderId", { purchaseOrderId });
-    await execute("DELETE FROM purchaseorders WHERE purchaseOrderId = :purchaseOrderId", { purchaseOrderId });
+    await runExecute("DELETE FROM purchaseorderitems WHERE purchaseOrderId = :purchaseOrderId", { purchaseOrderId });
+    await runExecute("DELETE FROM purchaseorders WHERE purchaseOrderId = :purchaseOrderId", { purchaseOrderId });
   } else {
-    await execute("DELETE FROM purchaseorderitems WHERE poNo = :poNo", { poNo });
-    await execute("DELETE FROM purchaseorders WHERE poNo = :poNo", { poNo });
+    await runExecute("DELETE FROM purchaseorderitems WHERE poNo = :poNo", { poNo });
+    await runExecute("DELETE FROM purchaseorders WHERE poNo = :poNo", { poNo });
   }
 }
 
-async function listPurchaseOrderItemIdsByPoNos(poNos: string[]) {
+async function listPurchaseOrderItemIdsByPoNos(poNos: string[], runQuery: QueryRows = queryRows) {
   if (!poNos.length) return [];
   const { where, params } = buildInClause("poNo", poNos);
-  const rows = await queryRows<IdRow>(
-    `SELECT id FROM purchaseorderitems WHERE poNo IN (${where})`,
+  const rows = await runQuery<IdRow>(
+    `SELECT id FROM purchaseorderitems WHERE poNo IN (${where}) FOR UPDATE`,
     params,
   );
   return rows.map((row) => String(row.id));
@@ -100,7 +194,7 @@ async function getUsageCounts({
   requestItemIds: string[];
   poNos: string[];
   purchaseOrderItemIds: string[];
-}): Promise<OrderDeleteUsageCounts> {
+}, runQuery: QueryRows = queryRows): Promise<OrderDeleteUsageCounts> {
   const purchaseOrderItemWhere = buildOptionalInClause("purchaseOrderItemId", purchaseOrderItemIds);
   const prepaymentPurchaseItemWhere = buildOptionalInClause("purchaseOrderItemId", purchaseOrderItemIds, "ppoi");
   const requestItemWhere = buildOptionalInClause("requestItemId", requestItemIds);
@@ -115,6 +209,7 @@ async function getUsageCounts({
           requestNo ? "requestNo = :requestNo" : "",
         ])}`,
         { ...purchaseOrderItemWhere.params, ...poWhere.params, requestNo },
+        runQuery,
       ),
       countRows(
         `SELECT COUNT(*) AS count FROM monthlybillingwriteoffs WHERE ${orParts([
@@ -122,6 +217,7 @@ async function getUsageCounts({
           requestNo ? "requestNo = :requestNo" : "",
         ])}`,
         { ...poWhere.params, requestNo },
+        runQuery,
       ),
       countRows(
         `SELECT COUNT(*) AS count FROM prepaymentcontractitems WHERE ${orParts([
@@ -136,6 +232,7 @@ async function getUsageCounts({
           ...poWhere.params,
           requestNo,
         },
+        runQuery,
       ),
       countRows(
         `SELECT COUNT(*) AS count FROM monthlyprepaymentwriteoffs WHERE ${orParts([
@@ -143,6 +240,7 @@ async function getUsageCounts({
           requestNo ? "requestNo = :requestNo" : "",
         ])}`,
         { ...poWhere.params, requestNo },
+        runQuery,
       ),
     ]);
 
@@ -154,8 +252,8 @@ async function getUsageCounts({
   };
 }
 
-async function countRows(sql: string, params: Row) {
-  const rows = await queryRows<{ count: number }>(sql, params);
+async function countRows(sql: string, params: Row, runQuery: QueryRows = queryRows) {
+  const rows = await runQuery<{ count: number }>(sql, params);
   return Number(rows[0]?.count ?? 0);
 }
 

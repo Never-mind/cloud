@@ -63,6 +63,8 @@ export function OrderListPage({
   const [loading, setLoading] = useState(false);
   const [confirmingId, setConfirmingId] = useState("");
   const [deletingId, setDeletingId] = useState("");
+  const [selectedRequestNos, setSelectedRequestNos] = useState<Set<string>>(() => new Set());
+  const [batchDeleting, setBatchDeleting] = useState(false);
   const [page, setPage] = useState(() => getPositiveNumber(searchParams.get("page"), 1));
   const [pageSize, setPageSize] = useState(() => getPositiveNumber(searchParams.get("pageSize"), DEFAULT_PAGE_SIZE));
   const [sortField, setSortField] = useState(() => searchParams.get("sortField") ?? "");
@@ -209,6 +211,10 @@ export function OrderListPage({
     void loadData(page, pageSize, statusTab, appliedKeyword, appliedCountryCode);
   }, [appliedCountryCode, appliedKeyword, columnFilters, mode, page, pageSize, sortField, sortOrder, statusTab]);
 
+  useEffect(() => {
+    setSelectedRequestNos(new Set());
+  }, [appliedCountryCode, appliedKeyword, columnFilters, mode, page, pageSize, sortField, sortOrder, statusTab]);
+
   async function confirmRequestOrder(requestNo: string) {
     setConfirmingId(requestNo);
     await fetch("/api/procurement/from-request", {
@@ -247,7 +253,46 @@ export function OrderListPage({
       alert(data.error ?? "删除失败");
       return;
     }
+    setSelectedRequestNos((current) => {
+      if (!current.has(id)) return current;
+      const next = new Set(current);
+      next.delete(id);
+      return next;
+    });
     await loadData(page, pageSizeRef.current);
+  }
+
+  async function deleteSelectedRequests() {
+    const requestNos = [...selectedRequestNos];
+    if (mode !== "requests" || statusTab !== "draft" || !requestNos.length) return;
+    if (!confirm(`确认批量删除选中的 ${requestNos.length} 条需求单吗？未生成月账单和预付款时，将同步删除需求单明细及关联采购草稿。`)) return;
+
+    setBatchDeleting(true);
+    try {
+      const response = await fetch("/api/orders", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: "requests", ids: requestNos }),
+      });
+      const data = await response.json().catch(() => ({})) as {
+        error?: string;
+        blocked?: Array<{ requestNo?: string; reason?: string }>;
+      };
+      if (!response.ok) {
+        const blocked = (data.blocked ?? [])
+          .map((item) => `${item.requestNo ?? ""}: ${item.reason ?? "删除被阻止"}`)
+          .filter(Boolean)
+          .join("\n");
+        alert([data.error ?? "批量删除失败", blocked].filter(Boolean).join("\n"));
+        return;
+      }
+      setSelectedRequestNos(new Set());
+      await loadData(page, pageSizeRef.current);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "批量删除失败");
+    } finally {
+      setBatchDeleting(false);
+    }
   }
 
   async function exportOrders() {
@@ -282,6 +327,14 @@ export function OrderListPage({
   }
 
   const hasActionColumn = mode === "purchase" || mode === "requests";
+  const canBatchDelete = mode === "requests" && statusTab === "draft";
+  const selectableRequestNos = canBatchDelete
+    ? rows
+      .filter((row) => !isConfirmedOrderStatus(mode, row.status))
+      .map((row) => String(row[masterConfig.primaryKey]))
+    : [];
+  const selectedPageCount = selectableRequestNos.filter((requestNo) => selectedRequestNos.has(requestNo)).length;
+  const allRowsSelected = selectableRequestNos.length > 0 && selectedPageCount === selectableRequestNos.length;
   const detailTitle = mode === "requests" ? "需求单明细" : "采购订单明细";
 
   function openOrderDetail(id: string, event: React.MouseEvent<HTMLAnchorElement>) {
@@ -375,6 +428,16 @@ export function OrderListPage({
               导出 Excel
             </Button>
           </div>
+          {canBatchDelete ? (
+            <Button
+              disabled={!selectedRequestNos.size || batchDeleting}
+              tone="danger"
+              onClick={() => void deleteSelectedRequests()}
+            >
+              <Trash2 size={15} />
+              {batchDeleting ? "删除中..." : `批量删除${selectedRequestNos.size ? ` (${selectedRequestNos.size})` : ""}`}
+            </Button>
+          ) : null}
           {shouldShowPurchaseSourceGenerator(mode) ? <div className="ml-auto" /> : null}
         </div>
 
@@ -382,6 +445,26 @@ export function OrderListPage({
           <table className="w-full min-w-[1180px] border-collapse text-sm">
             <thead className="bg-[#f5f7fa] text-[#303133]">
               <tr>
+                {canBatchDelete ? (
+                  <th className="w-12 border-b border-r border-[#ebeef5] px-3 py-3 text-center font-medium">
+                    <input
+                      aria-label="全选当前页需求单"
+                      type="checkbox"
+                      checked={allRowsSelected}
+                      disabled={!selectableRequestNos.length || batchDeleting}
+                      onChange={(event) => {
+                        setSelectedRequestNos((current) => {
+                          const next = new Set(current);
+                          for (const requestNo of selectableRequestNos) {
+                            if (event.target.checked) next.add(requestNo);
+                            else next.delete(requestNo);
+                          }
+                          return next;
+                        });
+                      }}
+                    />
+                  </th>
+                ) : null}
                 <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium">
                   {renderHeader(mode === "requests" ? "requestNo" : "poNo", mode === "requests" ? "需求单号" : "PO订单号")}
                 </th>
@@ -439,6 +522,24 @@ export function OrderListPage({
                 const confirmed = isConfirmedOrderStatus(mode, row.status);
                 return (
                   <tr className="hover:bg-[#fafafa]" key={id}>
+                    {canBatchDelete ? (
+                      <td className="w-12 border-b border-r border-[#ebeef5] px-3 py-3 text-center">
+                        <input
+                          aria-label={`选择需求单 ${id}`}
+                          type="checkbox"
+                          checked={selectedRequestNos.has(id)}
+                          disabled={confirmed || batchDeleting}
+                          onChange={(event) => {
+                            setSelectedRequestNos((current) => {
+                              const next = new Set(current);
+                              if (event.target.checked) next.add(id);
+                              else next.delete(id);
+                              return next;
+                            });
+                          }}
+                        />
+                      </td>
+                    ) : null}
                     <td className="border-b border-r border-[#ebeef5] px-3 py-3">
                       <Link
                         className="font-medium text-[#1890ff] hover:underline"
@@ -523,7 +624,7 @@ export function OrderListPage({
                               <CheckCircle2 size={15} />
                               {confirmed || confirmingId === id ? "已确认" : "确认需求单"}
                             </Button>
-                            <Button disabled={deletingId === id} tone="danger" onClick={() => void deleteOrder(id)}>
+                            <Button disabled={batchDeleting || deletingId === id} tone="danger" onClick={() => void deleteOrder(id)}>
                               <Trash2 size={15} />
                               删除
                             </Button>
@@ -551,7 +652,7 @@ export function OrderListPage({
               })}
               {!rows.length ? (
                 <tr>
-                  <td className="py-12 text-center text-[#909399]" colSpan={columnKeys.length}>
+                  <td className="py-12 text-center text-[#909399]" colSpan={columnKeys.length + (canBatchDelete ? 1 : 0)}>
                     {loading ? "加载中..." : "暂无数据"}
                   </td>
                 </tr>

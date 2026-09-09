@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import * as XLSX from "xlsx";
 import { getOperationActor } from "@/lib/operation-actor";
 import { importUnpurchasedSettlementItems } from "@/lib/settlement-project-service";
+import { getOperationRequestId, recordOperationLog } from "@/lib/operation-log";
 
 export async function POST(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   const file = (await request.formData()).get("file");
@@ -18,7 +19,10 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
       .filter((row) => !String(row["明细ID"] ?? "").trim().includes("系统明细ID"));
     if (!rows.length) return NextResponse.json({ error: "导入文件没有有效数据" }, { status: 400 });
     const projectId = decodeURIComponent((await context.params).id);
-    return NextResponse.json(await importUnpurchasedSettlementItems(projectId, rows, await getOperationActor(request)));
+    const actor = await getOperationActor(request);
+    const result = await importUnpurchasedSettlementItems(projectId, rows, actor);
+    await recordOperationLog({ actor, domainKey: "po", moduleKey: "settlement-projects", action: "import", entityType: "settlement-items", entityId: projectId, requestId: getOperationRequestId(request), detail: { result: "success", fileName: file.name, total: result.total, success: result.success, failed: result.failed.length } });
+    return NextResponse.json(result);
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "未采购商品导入失败" }, { status: 400 });
   }

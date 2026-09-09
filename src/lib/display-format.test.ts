@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatDateInputValue, formatDisplayValue } from "./display-format";
+import { formatConfiguredDisplayValue, formatDateInputValue, formatDisplayValue } from "./display-format";
 
 describe("display format", () => {
   it("formats dates and keeps datetime precision", () => {
@@ -22,6 +22,14 @@ describe("display format", () => {
   it("formats line type values in Chinese", () => {
     expect(formatDisplayValue("instance", "lineType")).toBe("实例");
     expect(formatDisplayValue("fee", "lineType")).toBe("非实例费用");
+  });
+
+  it("formats configured select values with their Chinese labels", () => {
+    expect(formatConfiguredDisplayValue("Equipment", "select", [
+      { value: "Equipment", label: "设备" },
+      { value: "Material", label: "配件" },
+      { value: "Component", label: "组件" },
+    ])).toBe("设备");
   });
 
   it("formats API date values for date inputs without UTC day drift", () => {

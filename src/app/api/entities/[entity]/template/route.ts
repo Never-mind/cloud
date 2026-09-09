@@ -16,8 +16,8 @@ export async function GET(_request: Request, context: { params: Promise<{ entity
     templateFields.map((field) => [
       field.label,
       field.required
-        ? `必填${field.type ? `：${getTypeLabel(field.type)}` : ""}`
-        : `可选${field.type ? `：${getTypeLabel(field.type)}` : ""}`,
+        ? `必填${field.type ? `：${getTypeLabel(field.type, field.options)}` : ""}`
+        : `可选${field.type ? `：${getTypeLabel(field.type, field.options)}` : ""}`,
     ]),
   );
   const worksheet = XLSX.utils.json_to_sheet([headers, notes], { skipHeader: false });
@@ -45,7 +45,7 @@ export async function GET(_request: Request, context: { params: Promise<{ entity
   });
 }
 
-function getTypeLabel(type: string) {
+function getTypeLabel(type: string, options?: Array<{ label: string; value: string }>) {
   if (type === "number") return "数字";
   if (type === "money") return "金额（两位小数）";
   if (type === "percentage") return "百分比";
@@ -53,5 +53,6 @@ function getTypeLabel(type: string) {
   if (type === "datetime") return "日期时间";
   if (type === "boolean") return "是/否";
   if (type === "textarea") return "文本";
+  if (type === "select" && options?.length) return `可选值：${options.map((option) => `${option.label}（${option.value}）`).join("、")}`;
   return "文本";
 }

@@ -2,12 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import * as XLSX from "xlsx";
 import { upsertEntityRow } from "@/lib/crud";
 import { queryRows, type Row } from "@/lib/db";
-import { importRowsWithReport, isEntityTemplateNoteRow, normalizeEntityImportRow } from "@/lib/entity-import";
+import { importRowsWithReport, isEntityTemplateNoteRow, mapEntityImportRow, normalizeEntityImportRow } from "@/lib/entity-import";
 import { getEntityConfig } from "@/lib/modules";
 import { normalizePartyReferenceRow, type PartyReferenceCollections } from "@/lib/party-reference";
 import { isBlankImportValue, mergeShipmentImportRow, normalizeText } from "@/lib/shipment-import";
 import { resolveDemandPlanImportRow } from "@/lib/purchase-order-demand-plan";
 import { autofillInstanceContractImportRow } from "@/lib/instance-contract-import";
+import { getOperationActorForLog, getOperationRequestId, recordOperationLog } from "@/lib/operation-log";
+import { getPermissionDomainKey } from "@/lib/permission-definitions";
 
 export async function POST(request: NextRequest, context: { params: Promise<{ entity: string }> }) {
   const { entity } = await context.params;
@@ -37,18 +39,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ en
   const rows = XLSX.utils
     .sheet_to_json<Record<string, unknown>>(worksheet, { defval: "", raw: false })
     .filter((row) => !isEntityTemplateNoteRow(config, row));
-  const fieldByLabel = new Map(config.formFields.map((field) => [field.label, field.key]));
-  // Historical datacenter templates called this field "物理地址ID", while actual imports
-  // contain the full physical address. Keep those files importable after the label change.
-  if (config.key === "datacenters") fieldByLabel.set("物理地址ID", "locationId");
-  const mappedRows = rows.map((row) => ({
-    ...Object.fromEntries(
-      Object.entries(row)
-        .map(([label, value]) => [fieldByLabel.get(label) ?? label, value])
-        .filter(([field]) => config.formFields.some((item) => item.key === field)),
-    ),
-    ...fixedValues,
-  }));
+  const mappedRows = rows.map((row) => ({ ...mapEntityImportRow(config, row), ...fixedValues }));
 
   const normalizedRows = mappedRows.map((row) => {
     const normalized = normalizeEntityImportRow(config, row);
@@ -88,6 +79,15 @@ export async function POST(request: NextRequest, context: { params: Promise<{ en
       throw new Error("未找到对应的PO订单号，请检查PO订单号是否存在");
     }
     await upsertEntityRow(config, row);
+  });
+  await recordOperationLog({
+    actor: await getOperationActorForLog(request),
+    domainKey: getPermissionDomainKey(entity),
+    moduleKey: entity,
+    action: "import",
+    entityType: config.key,
+    requestId: getOperationRequestId(request),
+    detail: { result: "success", fileName: file.name, total: report.total, success: report.success, failed: report.failed?.length ?? 0 },
   });
   return NextResponse.json(report);
 }
@@ -194,17 +194,28 @@ async function enrichShipmentImportRows(rows: Row[]) {
     ? await queryRows<Row>("SELECT * FROM shipments WHERE shipmentId IN (:shipmentIds)", { shipmentIds })
     : [];
   const locations = locationIds.length
-    ? await queryRows<{ locationId: string; fullAddress: string }>(
-        "SELECT locationId, fullAddress FROM deliverylocations WHERE locationId IN (:locationIds)",
+    ? await queryRows<{ locationId: string; nameZh: string | null; nameEn: string | null; fullAddress: string | null }>(
+        `
+          SELECT locationId, nameZh, nameEn, fullAddress
+          FROM deliverylocations
+          WHERE locationId IN (:locationIds)
+             OR nameZh IN (:locationIds)
+             OR nameEn IN (:locationIds)
+             OR fullAddress IN (:locationIds)
+        `,
         { locationIds },
       )
     : [];
   const contacts = locationIds.length || contactIds.length
-    ? await queryRows<{ contactId: string; locationId: string; name: string; phone: string }>(
+    ? await queryRows<{ contactId: string; locationId: string; name: string | null; phone: string | null; email: string | null }>(
         `
-          SELECT contactId, locationId, name, phone
+          SELECT contactId, locationId, name, phone, email
           FROM deliverycontacts
-          WHERE locationId IN (:locationIds) OR contactId IN (:contactIds)
+          WHERE locationId IN (:locationIds)
+             OR contactId IN (:contactIds)
+             OR name IN (:contactIds)
+             OR phone IN (:contactIds)
+             OR email IN (:contactIds)
         `,
         {
           locationIds: locationIds.length ? locationIds : ["__none__"],
@@ -213,8 +224,12 @@ async function enrichShipmentImportRows(rows: Row[]) {
       )
     : [];
   const datacenters = dcCodes.length
-    ? await queryRows<{ dcCode: string; nameZh: string }>(
-        "SELECT dcCode, nameZh FROM datacenters WHERE dcCode IN (:dcCodes)",
+    ? await queryRows<{ dcCode: string; nameZh: string | null; nameEn: string | null }>(
+        `
+          SELECT dcCode, nameZh, nameEn
+          FROM datacenters
+          WHERE dcCode IN (:dcCodes) OR nameZh IN (:dcCodes) OR nameEn IN (:dcCodes)
+        `,
         { dcCodes },
       )
     : [];
@@ -250,6 +265,9 @@ async function enrichShipmentImportRows(rows: Row[]) {
   const locationById = new Map(locations.map((location) => [String(location.locationId), location]));
   const contactById = new Map(contacts.map((contact) => [String(contact.contactId), contact]));
   const datacenterByCode = new Map(datacenters.map((datacenter) => [String(datacenter.dcCode), datacenter]));
+  const locationByReference = buildUniqueLookupMap(locations, ["locationId", "nameZh", "nameEn", "fullAddress"]);
+  const contactByReference = buildUniqueLookupMap(contacts, ["contactId", "name", "phone", "email"]);
+  const datacenterByReference = buildUniqueLookupMap(datacenters, ["dcCode", "nameZh", "nameEn"]);
   const purchaseLineById = new Map(purchaseLines.map((line) => [String(line.purchaseOrderItemId), line]));
   const purchaseLinesByPoNo = new Map<string, typeof purchaseLines>();
   for (const line of purchaseLines) {
@@ -263,9 +281,15 @@ async function enrichShipmentImportRows(rows: Row[]) {
   }
 
   for (const [index, row] of rows.entries()) {
+    const locationReference = normalizeText(row.destinationLocationId);
+    const resolvedLocation = resolveUniqueLookup(locationByReference, locationReference);
+    if (resolvedLocation) row.destinationLocationId = resolvedLocation.locationId;
     const locationId = normalizeText(row.destinationLocationId);
     const location = locationById.get(locationId);
 
+    const contactReference = normalizeText(row.recipientContactId);
+    const resolvedContact = resolveUniqueLookup(contactByReference, contactReference);
+    if (resolvedContact) row.recipientContactId = resolvedContact.contactId;
     let contact = row.recipientContactId ? contactById.get(normalizeText(row.recipientContactId)) : undefined;
     if (!contact) {
       const locationContacts = contactsByLocation.get(locationId) ?? [];
@@ -286,8 +310,31 @@ async function enrichShipmentImportRows(rows: Row[]) {
       existing: existingById.get(normalizeText(row.shipmentId)),
       location,
       contact,
-      datacenter: datacenterByCode.get(normalizeText(row.dcCode)),
+      datacenter: resolveUniqueLookup(datacenterByReference, normalizeText(row.dcCode)) ?? datacenterByCode.get(normalizeText(row.dcCode)),
       purchaseLine,
     });
   }
+}
+
+function buildUniqueLookupMap<T extends Row>(rows: T[], fields: string[]) {
+  const map = new Map<string, T[]>();
+  for (const row of rows) {
+    for (const field of fields) {
+      const key = normalizeLookupReference(row[field]);
+      if (!key) continue;
+      const matches = map.get(key) ?? [];
+      if (!matches.includes(row)) matches.push(row);
+      map.set(key, matches);
+    }
+  }
+  return map;
+}
+
+function resolveUniqueLookup<T>(map: Map<string, T[]>, value: unknown) {
+  const matches = map.get(normalizeLookupReference(value)) ?? [];
+  return matches.length === 1 ? matches[0] : undefined;
+}
+
+function normalizeLookupReference(value: unknown) {
+  return String(value ?? "").trim().toLowerCase();
 }

@@ -202,6 +202,20 @@ describe("module configuration", () => {
     expect(instanceModels?.formFields.find((field) => field.key === "b6Type")?.lookupSource).toBe("b6-type-configs");
   });
 
+  it("configures instance model types with English values and Chinese labels", () => {
+    const instanceModels = getEntityConfig("instance-models");
+    const typeField = instanceModels?.formFields.find((field) => field.key === "instanceType");
+
+    expect(typeField).toMatchObject({ key: "instanceType", label: "类型", type: "select", required: true });
+    expect(typeField?.options).toEqual([
+      { label: "设备", value: "Equipment" },
+      { label: "配件", value: "Material" },
+      { label: "组件", value: "Component" },
+    ]);
+    expect(instanceModels?.filters.find((field) => field.key === "instanceType")?.type).toBe("select");
+    expect(instanceModels?.listFields.find((field) => field.key === "instanceType")?.label).toBe("类型");
+  });
+
   it("removes purchase order exchange rate from list and form configuration", () => {
     const config = getEntityConfig("purchase-orders");
 

@@ -1909,6 +1909,16 @@ CREATE TABLE `merge_power_importjobs` (
 ) ENGINE=InnoDB AUTO_INCREMENT=10 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='数据导入任务';
 /*!40101 SET character_set_client = @saved_cs_client */;
 
+CREATE TABLE `merge_power_material_sync_runs` (
+  `syncRunId` varchar(128) NOT NULL, `triggerType` varchar(32) NOT NULL, `status` varchar(32) NOT NULL,
+  `fetchedCount` int NOT NULL DEFAULT '0', `matchedCount` int NOT NULL DEFAULT '0', `skippedExistingItemCount` int NOT NULL DEFAULT '0',
+  `skippedInvalidCount` int NOT NULL DEFAULT '0', `skippedDuplicateCount` int NOT NULL DEFAULT '0', `createdCount` int NOT NULL DEFAULT '0',
+  `missingNameZhCount` int NOT NULL DEFAULT '0', `missingMaterialCodeCount` int NOT NULL DEFAULT '0', `errorCount` int NOT NULL DEFAULT '0',
+  `errorJson` longtext, `startedAt` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP, `finishedAt` datetime DEFAULT NULL,
+  `updatedAt` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`syncRunId`), KEY `idx_MaterialSyncRuns_startedAt` (`startedAt`), KEY `idx_MaterialSyncRuns_status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 --
 -- Table structure for table `merge_power_instancecontracts`
 --
@@ -1950,13 +1960,15 @@ CREATE TABLE `merge_power_instancemodels` (
   `deviceCode` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '设备编码',
   `modelCode` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '型号编码',
   `xxllCode` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'XXLL编码',
+  `instanceType` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'Equipment' COMMENT 'Equipment/Material/Component',
   `nameZh` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '中文名称',
   `nameEn` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '英文名称',
   `b6Type` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'B6类型',
   `createdAt` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   `updatedAt` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
   PRIMARY KEY (`internalId`),
-  UNIQUE KEY `uk_internal_legacy_merge_power_instancemodels` (`deviceCode`)
+  UNIQUE KEY `uk_internal_legacy_merge_power_instancemodels` (`deviceCode`),
+  KEY `idx_InstanceModels_instanceType` (`instanceType`)
 ) ENGINE=InnoDB AUTO_INCREMENT=74 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='实例型号';
 /*!40101 SET character_set_client = @saved_cs_client */;
 

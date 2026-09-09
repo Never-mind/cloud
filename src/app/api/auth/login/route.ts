@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { AUTH_COOKIE_NAME, AUTH_SESSION_VALUE, AUTH_USER_COOKIE_NAME, createUserSessionValue, validateLogin } from "@/lib/auth";
+import { AUTH_COOKIE_NAME, AUTH_SESSION_VALUE, AUTH_USER_COOKIE_NAME, createUserSessionValue, getUserByEmail, validateLogin } from "@/lib/auth";
 import { encodeModuleFeatureState, MODULE_FEATURE_COOKIE_NAME } from "@/lib/module-feature-definitions";
 import { getModuleFeatureState } from "@/lib/module-feature-service";
 import { AUTH_PERMISSION_COOKIE_NAME, encodePermissionState } from "@/lib/permission-cookie";
 import { getPermissionStateForEmail } from "@/lib/permission-service";
+import { getOperationRequestId, recordOperationLog } from "@/lib/operation-log";
 
 export async function POST(request: NextRequest) {
   try {
@@ -11,9 +12,31 @@ export async function POST(request: NextRequest) {
     const email = String(body.email ?? "");
     const password = String(body.password ?? "");
 
-    if (!(await validateLogin(email, password))) {
+    const valid = await validateLogin(email, password);
+    if (!valid) {
+      await recordOperationLog({
+        domainKey: "common",
+        moduleKey: "auth",
+        action: "login",
+        entityType: "user",
+        entityId: email.trim().toLowerCase() || null,
+        requestId: getOperationRequestId(request),
+        detail: { result: "failed", reason: "invalid_credentials" },
+      });
       return NextResponse.json({ error: "账号或密码错误" }, { status: 401 });
     }
+
+    const user = await getUserByEmail(email);
+    await recordOperationLog({
+      actor: user,
+      domainKey: "common",
+      moduleKey: "auth",
+      action: "login",
+      entityType: "user",
+      entityId: user?.userId ?? null,
+      requestId: getOperationRequestId(request),
+      detail: { result: "success" },
+    });
 
     const response = NextResponse.json({ ok: true });
     response.cookies.set(AUTH_COOKIE_NAME, AUTH_SESSION_VALUE, {

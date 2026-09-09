@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Columns3, Eye, EyeOff, FileDown, FileSpreadsheet, Plus, RefreshCw, Search, Trash2, Upload } from "lucide-react";
-import { formatDateInputValue, formatDisplayValue } from "@/lib/display-format";
+import { formatConfiguredDisplayValue, formatDateInputValue, formatDisplayValue } from "@/lib/display-format";
 import { buildImportMessage, type ImportReport } from "@/lib/entity-import";
 import { getInstanceContractModelAutofill } from "@/lib/instance-contract-form";
 import { fetchAllEntityRows } from "@/lib/client-entity-fetch";
@@ -22,6 +22,7 @@ import { PaginationBar } from "./pagination-bar";
 import { StickyTable } from "./sticky-table";
 import { TableColumnMenu, type TableFilterOption, type TableSortOrder } from "./table-column-menu";
 import { useRequestGuard } from "@/lib/table-query-client";
+import type { MaterialSyncSummary } from "@/lib/material-sync-service";
 import { Button, Input, Panel, Textarea } from "./ui";
 
 type Row = Record<string, string | number | boolean | null>;
@@ -100,6 +101,8 @@ export function EntityPage({
   const [filterOptions, setFilterOptions] = useState<Record<string, Array<{ label: string; value: string }>>>({});
   const [productCategories, setProductCategories] = useState<Row[]>([]);
   const [productCategoryDraft, setProductCategoryDraft] = useState("");
+  const [materialSyncing, setMaterialSyncing] = useState(false);
+  const [latestMaterialSync, setLatestMaterialSync] = useState<MaterialSyncSummary | null>(null);
   const [instanceContractDeviceCode, setInstanceContractDeviceCode] = useState("");
   const [billingContractNo, setBillingContractNo] = useState("");
   const [visibility, setVisibility] = useState<ColumnVisibility>(() =>
@@ -261,6 +264,14 @@ export function EntityPage({
     if (config.key !== "instance-models") return;
 
     void fetchAllEntityRows<Row>("b6-type-configs").then(setB6TypeConfigs);
+  }, [config.key]);
+
+  useEffect(() => {
+    if (config.key !== "instance-models") return;
+    void fetch("/api/integrations/material-sync")
+      .then((response) => response.json())
+      .then((data) => setLatestMaterialSync(data.run ?? null))
+      .catch(() => undefined);
   }, [config.key]);
 
   useEffect(() => {
@@ -537,6 +548,30 @@ export function EntityPage({
     await loadRows();
   }
 
+  async function syncRemoteMaterials() {
+    if (!confirm("将读取远端 Material 数据并新增缺失的配件实例型号，不会修改已有档案，是否继续？")) return;
+    setMaterialSyncing(true);
+    try {
+      const response = await fetch("/api/integrations/material-sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ triggerType: "manual" }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        alert(data.error ?? "Material 同步失败");
+        return;
+      }
+      setLatestMaterialSync(data as MaterialSyncSummary);
+      alert(`Material 同步完成：读取 ${data.fetched ?? 0} 条，按 customer_part_no 跳过 ${data.matchedByCustomerPartNo ?? 0} 条，新增 ${data.created ?? 0} 条，数据无效 ${data.skippedInvalid ?? 0} 条。`);
+      await loadRows();
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Material 同步失败");
+    } finally {
+      setMaterialSyncing(false);
+    }
+  }
+
   async function deleteRow(row: Row) {
     const message =
       config.key === "billing-ledgers"
@@ -704,6 +739,12 @@ export function EntityPage({
               同步已确认采购订单
             </Button>
           ) : null}
+          {config.key === "instance-models" ? (
+            <Button disabled={materialSyncing} onClick={() => void syncRemoteMaterials()}>
+              <RefreshCw size={15} />
+              {materialSyncing ? "同步中..." : "同步远端 Material"}
+            </Button>
+          ) : null}
           {config.key === "shipments" || enableFieldSettings ? (
             <Button className="ml-auto" onClick={() => setShowFieldSettings(true)}>
               <Columns3 size={15} />
@@ -724,6 +765,12 @@ export function EntityPage({
             />
           ) : null}
         </div>
+
+        {config.key === "instance-models" && latestMaterialSync ? (
+          <div className="border-b border-[#ebeef5] bg-[#fafafa] px-4 py-2 text-xs text-[#909399]">
+            最近同步：{latestMaterialSync.status === "success" ? "成功" : "失败"}，读取 {latestMaterialSync.fetched} 条，新增 {latestMaterialSync.created} 条，时间 {latestMaterialSync.finishedAt ?? latestMaterialSync.startedAt}
+          </div>
+        ) : null}
 
         {hiddenColumns.length ? (
           <div className="border-b border-[#ebeef5] bg-[#fffdf5] px-4 py-2 text-xs text-[#909399]">
@@ -769,14 +816,14 @@ export function EntityPage({
                         <PartyListCell config={config} row={row} column={column} firstVisibleKey={visibleColumns[0]?.key ?? ""} nameField={partyNameField} />
                       ) : config.detailRoute && column.key === visibleColumns[0]?.key ? (
                         <Link className="text-[#1890ff] hover:underline" href={`${config.detailRoute}/${encodeURIComponent(String(row[config.primaryKey] ?? ""))}`}>
-                          {formatValue(row[column.key], column.type)}
+                          {getConfiguredValue(row[column.key], column)}
                         </Link>
                       ) : config.key === "shipments" && column.key === "poNo" && row.purchaseOrderId ? (
                         <Link className="text-[#1890ff] hover:underline" href={`/purchase/orders/${encodeURIComponent(String(row.purchaseOrderId))}`}>
-                          {formatValue(row[column.key], column.type)}
+                          {getConfiguredValue(row[column.key], column)}
                         </Link>
                       ) : (
-                        formatValue(row[column.key], column.type)
+                        getConfiguredValue(row[column.key], column)
                       )}
                     </td>
                   ))}
@@ -1300,8 +1347,7 @@ function PartyTags({ value }: { value: Row[string] }) {
 
 function getConfiguredValue(value: Row[string], field: EntityField) {
   const normalizedValue = getDisplayOptionValue(value, field);
-  const option = field.options?.find((item) => item.value === normalizedValue);
-  return option?.label ?? formatValue(value, field.type);
+  return formatConfiguredDisplayValue(normalizedValue, field.type, field.options);
 }
 
 function getDisplayOptionValue(value: Row[string], field: EntityField) {

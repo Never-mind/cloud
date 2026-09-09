@@ -10,6 +10,7 @@ import { formatTableDateExpression, formatTableDateTimeExpression, getNaturalBat
 import { findProductByCode } from "./po-product-service";
 import { normalizeDateOnlyValue } from "./date-only";
 import { normalizePurchaseOrderItemCurrency } from "./purchase-order-form";
+import { DEFAULT_INSTANCE_MODEL_TYPE, requireInstanceModelType } from "./instance-model-type";
 
 function quoteIdentifier(identifier: string) {
   return `\`${identifier.replace(/`/g, "``")}\``;
@@ -111,7 +112,7 @@ function withShipmentReceiptStatus(config: EntityConfig, body: Row) {
 }
 
 async function normalizeEntityBody(config: EntityConfig, body: Row) {
-  const nextBody = withQuotationPartyAliases(config, withShipmentReceiptStatus(config, body));
+  const nextBody = normalizeInstanceModelBody(config, withQuotationPartyAliases(config, withShipmentReceiptStatus(config, body)));
   const normalizedPoBody = normalizeCustomerPoBody(config, nextBody);
   const normalizedAliasBody = await normalizeCustomerProductAliasBody(config, normalizedPoBody);
   const normalizedProductBody = await normalizeProductMasterCategory(config, normalizedAliasBody);
@@ -123,6 +124,14 @@ async function normalizeEntityBody(config: EntityConfig, body: Row) {
     });
   }
   return await normalizePurchasePrices(config, normalizedQuotationBody);
+}
+
+function normalizeInstanceModelBody(config: EntityConfig, body: Row) {
+  if (config.key !== "instance-models") return body;
+  return {
+    ...body,
+    instanceType: requireInstanceModelType(body.instanceType, DEFAULT_INSTANCE_MODEL_TYPE),
+  };
 }
 
 async function normalizeCustomerProductAliasBody(config: EntityConfig, body: Row) {
@@ -1094,7 +1103,11 @@ export async function updateEntityRow(config: EntityConfig, id: string, body: Ro
   const locatorField = quoteIdentifier(locator.field);
   const assignments = fields.map((field) => `${quoteIdentifier(field)} = :${field}`).join(", ");
   const previousRow = config.key === "customer-po-items" ? await getEntityRow(config, id) : null;
-  const nextBody = await normalizeEntityBody(config, body);
+  const previousInstanceModel = config.key === "instance-models" ? await getEntityRow(config, id) : null;
+  const bodyWithInstanceType = config.key === "instance-models" && String(body.instanceType ?? "").trim() === ""
+    ? { ...body, instanceType: previousInstanceModel?.instanceType ?? DEFAULT_INSTANCE_MODEL_TYPE }
+    : body;
+  const nextBody = await normalizeEntityBody(config, bodyWithInstanceType);
   if (previousRow && config.key === "customer-po-items") {
     nextBody.lineNo = previousRow.lineNo;
   }

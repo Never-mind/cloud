@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   importRowsWithReport,
   isEntityTemplateNoteRow,
+  mapEntityImportRow,
   normalizeEntityImportRow,
+  normalizeImportHeader,
+  validateEntityImportRow,
 } from "./entity-import";
 import type { EntityConfig } from "./modules";
 
@@ -82,6 +85,40 @@ describe("entity import", () => {
     expect(normalizeEntityImportRow(shipmentConfig, { isReceived: "否" })).toEqual({ isReceived: false });
   });
 
+  it("accepts historical logistics address and recipient ID headers", () => {
+    const shipmentConfig = {
+      ...config,
+      key: "shipments",
+      formFields: [
+        { key: "shipmentId", label: "物流ID" },
+        { key: "dcCode", label: "机房ID" },
+        { key: "destinationLocationId", label: "目的地点ID" },
+        { key: "recipientContactId", label: "收件联系人ID" },
+        { key: "snapshotRecipientName", label: "收件人快照" },
+      ],
+    } satisfies EntityConfig;
+
+    expect(mapEntityImportRow(shipmentConfig, {
+      "物流id": "SHP-1",
+      "机房 id": "DC-1",
+      "收货地址": "LOC-1",
+      "收件人": "CT-1",
+      snapshotRecipientName: "Imported name",
+      ignored: "ignored",
+    })).toEqual({
+      shipmentId: "SHP-1",
+      dcCode: "DC-1",
+      destinationLocationId: "LOC-1",
+      recipientContactId: "CT-1",
+      snapshotRecipientName: "Imported name",
+    });
+    expect(normalizeImportHeader("收件人 ID")).toBe("收件人id");
+    expect(mapEntityImportRow(shipmentConfig, {
+      "收货地址ID": "LOC-2",
+      "收件联系人ID": "CT-2",
+    })).toEqual({ destinationLocationId: "LOC-2", recipientContactId: "CT-2" });
+  });
+
   it("preserves time-of-day for datetime import fields", () => {
     const demandPlanConfig = {
       ...config,
@@ -91,5 +128,28 @@ describe("entity import", () => {
     expect(normalizeEntityImportRow(demandPlanConfig, { timestamp: "2026/06/09 14:30:45" })).toEqual({
       timestamp: "2026-06-09 14:30:45",
     });
+  });
+
+  it("normalizes instance model type labels and keeps old templates compatible", () => {
+    const instanceModelConfig = {
+      ...config,
+      key: "instance-models",
+      primaryKey: "deviceCode",
+      formFields: [
+        { key: "deviceCode", label: "设备编码", required: true },
+        { key: "instanceType", label: "类型", type: "select", required: true, options: [
+          { label: "设备", value: "Equipment" },
+          { label: "配件", value: "Material" },
+          { label: "组件", value: "Component" },
+        ] },
+      ],
+    } satisfies EntityConfig;
+
+    expect(normalizeEntityImportRow(instanceModelConfig, { deviceCode: "DEV-1", instanceType: "配件" })).toMatchObject({
+      instanceType: "Material",
+    });
+    const oldTemplateRow = normalizeEntityImportRow(instanceModelConfig, { deviceCode: "DEV-2" });
+    expect(oldTemplateRow.instanceType).toBe("Equipment");
+    expect(validateEntityImportRow(instanceModelConfig, { deviceCode: "DEV-3", instanceType: "legacy" })).toContain("实例型号类型只能选择");
   });
 });

@@ -135,6 +135,70 @@ async function tableExists(tableName: string) {
   return Number(rows[0]?.count ?? 0) > 0;
 }
 
+async function ensureMaterialSyncTable() {
+  await createTableIfMissing(
+    "merge_power_material_sync_runs",
+    `
+      CREATE TABLE \`merge_power_material_sync_runs\` (
+        \`syncRunId\` VARCHAR(128) NOT NULL COMMENT 'Material sync run id',
+        \`triggerType\` VARCHAR(32) NOT NULL COMMENT 'manual/scheduled/script',
+        \`status\` VARCHAR(32) NOT NULL COMMENT 'running/success/failed',
+        \`fetchedCount\` INT NOT NULL DEFAULT 0 COMMENT 'remote rows fetched',
+        \`matchedCount\` INT NOT NULL DEFAULT 0 COMMENT 'matched by customer_part_no',
+        \`skippedExistingItemCount\` INT NOT NULL DEFAULT 0 COMMENT 'skipped by customer_item_code',
+        \`skippedInvalidCount\` INT NOT NULL DEFAULT 0 COMMENT 'skipped due to invalid source data',
+        \`skippedDuplicateCount\` INT NOT NULL DEFAULT 0 COMMENT 'duplicate remote customer_item_code rows',
+        \`createdCount\` INT NOT NULL DEFAULT 0 COMMENT 'new instance models created',
+        \`missingNameZhCount\` INT NOT NULL DEFAULT 0 COMMENT 'created rows without Chinese name',
+        \`missingMaterialCodeCount\` INT NOT NULL DEFAULT 0 COMMENT 'created rows without material code',
+        \`errorCount\` INT NOT NULL DEFAULT 0 COMMENT 'error count',
+        \`errorJson\` LONGTEXT NULL COMMENT 'limited error details JSON',
+        \`startedAt\` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'start time',
+        \`finishedAt\` DATETIME NULL COMMENT 'finish time',
+        \`updatedAt\` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'update time',
+        PRIMARY KEY (\`syncRunId\`),
+        KEY \`idx_MaterialSyncRuns_startedAt\` (\`startedAt\`),
+        KEY \`idx_MaterialSyncRuns_status\` (\`status\`)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Material instance model sync runs'
+    `,
+  );
+}
+
+async function ensureOperationLogTable() {
+  const legacyTableName = "common_operation_logs";
+  const physicalTableNameForLogs = "merge_common_operation_logs";
+  const [legacyExists, physicalExists] = await Promise.all([
+    tableExists(legacyTableName),
+    tableExists(physicalTableNameForLogs),
+  ]);
+  if (legacyExists && !physicalExists) {
+    await executeRaw(`RENAME TABLE \`${legacyTableName}\` TO \`${physicalTableNameForLogs}\``);
+  }
+
+  await createTableIfMissing(
+    physicalTableNameForLogs,
+    `
+      CREATE TABLE \`merge_common_operation_logs\` (
+        \`logId\` VARCHAR(80) NOT NULL COMMENT '日志ID',
+        \`userId\` VARCHAR(80) NULL COMMENT '用户ID',
+        \`userName\` VARCHAR(255) NULL COMMENT '用户名称',
+        \`domainKey\` VARCHAR(32) NULL COMMENT '业务域编码',
+        \`moduleKey\` VARCHAR(128) NULL COMMENT '功能模块编码',
+        \`action\` VARCHAR(32) NOT NULL COMMENT '操作类型',
+        \`entityType\` VARCHAR(128) NULL COMMENT '业务对象类型',
+        \`entityId\` VARCHAR(128) NULL COMMENT '业务对象ID',
+        \`requestId\` VARCHAR(128) NULL COMMENT '请求ID',
+        \`detailJson\` JSON NULL COMMENT '操作详情',
+        \`createdAt\` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+        PRIMARY KEY (\`logId\`),
+        KEY \`idx_common_operation_logs_entity\` (\`entityType\`, \`entityId\`),
+        KEY \`idx_common_operation_logs_user\` (\`userId\`, \`createdAt\`),
+        KEY \`idx_common_operation_logs_created\` (\`createdAt\`)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='系统操作日志'
+    `,
+  );
+}
+
 async function repairPurchasePowerPricingData() {
   const defaultExchangeRate = 0.147664224105783;
 
@@ -264,8 +328,32 @@ async function renameLegacyTables() {
 }
 
 async function main() {
+  await ensureMaterialSyncTable();
+  await ensureOperationLogTable();
   await renameLegacyTables();
   await dropIndexIfExists("instancemodels", "uk_InstanceModels_modelCode");
+  await addColumnIfMissing(
+    "instancemodels",
+    "instanceType",
+    "`instanceType` VARCHAR(32) NOT NULL DEFAULT 'Equipment' COMMENT 'Equipment/Material/Component' AFTER `xxllCode`",
+  );
+  await addIndexIfMissing(
+    "instancemodels",
+    "idx_InstanceModels_instanceType",
+    "KEY `idx_InstanceModels_instanceType` (`instanceType`)",
+  );
+  await execute(
+    `
+      UPDATE instancemodels
+         SET instanceType = CASE LOWER(TRIM(COALESCE(instanceType, '')))
+           WHEN 'material' THEN 'Material'
+           WHEN '配件' THEN 'Material'
+           WHEN 'component' THEN 'Component'
+           WHEN '组件' THEN 'Component'
+           ELSE 'Equipment'
+         END
+    `,
+  );
 
   // Customer PO was introduced after the original migration script. Keep the
   // existing table compatible with the current master/detail screens.

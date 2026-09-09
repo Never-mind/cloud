@@ -138,7 +138,7 @@ npm run dev:hot
 | `DeliveryLocations` | `locationId` | `countryCode`, `locationType`, `nameZh`, `nameEn`, `fullAddress` |
 | `DeliveryContacts` | `contactId` | `locationId`, `name`, `phone`, `email` |
 | `Datacenters` | `dcCode` | `locationId`, `nameZh`, `nameEn` |
-| `InstanceModels` | `deviceCode` | `modelCode`, `xxllCode`, `nameZh`, `nameEn` |
+| `InstanceModels` | `deviceCode` | `modelCode`, `instanceType`（Equipment/Material/Component）, `xxllCode`, `nameZh`, `nameEn` |
 | `Suppliers` | `supplierId` | `supplierCode`, `name` |
 
 ### 7.2 合同、需求、采购表

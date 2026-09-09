@@ -55,12 +55,14 @@ CREATE TABLE IF NOT EXISTS `merge_power_instancemodels` (
   `deviceCode` VARCHAR(64) NOT NULL COMMENT 'device code PK',
   `modelCode` VARCHAR(128) NOT NULL COMMENT 'model code UK',
   `xxllCode` VARCHAR(128) NULL COMMENT 'xxll code',
+  `instanceType` VARCHAR(32) NOT NULL DEFAULT 'Equipment' COMMENT 'Equipment/Material/Component',
   `nameZh` VARCHAR(255) NULL COMMENT 'instance model name zh',
   `nameEn` VARCHAR(255) NULL COMMENT 'instance model name en',
   `b6Type` VARCHAR(64) NULL COMMENT 'default B6 type',
   `createdAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'created time',
   `updatedAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'updated time',
-  PRIMARY KEY (`deviceCode`)
+  PRIMARY KEY (`deviceCode`),
+  KEY `idx_InstanceModels_instanceType` (`instanceType`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='InstanceModels';
 
 CREATE TABLE IF NOT EXISTS `merge_power_suppliers` (
@@ -881,6 +883,28 @@ CREATE TABLE IF NOT EXISTS `merge_power_importjobs` (
   KEY `idx_ImportJobs_targetKey` (`targetKey`),
   KEY `idx_ImportJobs_createdAt` (`createdAt`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='ImportJobs';
+
+CREATE TABLE IF NOT EXISTS `merge_power_material_sync_runs` (
+  `syncRunId` VARCHAR(128) NOT NULL COMMENT 'Material sync run id',
+  `triggerType` VARCHAR(32) NOT NULL COMMENT 'manual/scheduled/script',
+  `status` VARCHAR(32) NOT NULL COMMENT 'running/success/failed',
+  `fetchedCount` INT NOT NULL DEFAULT 0 COMMENT 'remote rows fetched',
+  `matchedCount` INT NOT NULL DEFAULT 0 COMMENT 'matched by customer_part_no',
+  `skippedExistingItemCount` INT NOT NULL DEFAULT 0 COMMENT 'skipped by customer_item_code',
+  `skippedInvalidCount` INT NOT NULL DEFAULT 0 COMMENT 'skipped due to invalid source data',
+  `skippedDuplicateCount` INT NOT NULL DEFAULT 0 COMMENT 'duplicate remote customer_item_code rows',
+  `createdCount` INT NOT NULL DEFAULT 0 COMMENT 'new instance models created',
+  `missingNameZhCount` INT NOT NULL DEFAULT 0 COMMENT 'created rows without Chinese name',
+  `missingMaterialCodeCount` INT NOT NULL DEFAULT 0 COMMENT 'created rows without material code',
+  `errorCount` INT NOT NULL DEFAULT 0 COMMENT 'error count',
+  `errorJson` LONGTEXT NULL COMMENT 'limited error details JSON',
+  `startedAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'start time',
+  `finishedAt` DATETIME NULL COMMENT 'finish time',
+  `updatedAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'update time',
+  PRIMARY KEY (`syncRunId`),
+  KEY `idx_MaterialSyncRuns_startedAt` (`startedAt`),
+  KEY `idx_MaterialSyncRuns_status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Material instance model sync runs';
 
 CREATE TABLE IF NOT EXISTS `merge_power_appusers` (
   `userId` VARCHAR(80) NOT NULL COMMENT 'user id',

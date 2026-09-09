@@ -1,6 +1,7 @@
 import type { TableColumn } from "./table-utils";
 import { PURCHASE_CURRENCY_OPTIONS } from "./purchase-order-form";
 import { REQUEST_TYPE_OPTIONS } from "./request-type";
+import { INSTANCE_MODEL_TYPE_OPTIONS } from "./instance-model-type";
 import { purchaseOrderPlanFieldSpecs, purchaseOrderSnFieldSpecs } from "./purchase-order-demand-plan-fields";
 
 export type FieldType = "text" | "number" | "money" | "percentage" | "date" | "datetime" | "boolean" | "switch" | "textarea" | "select" | "lineType";
@@ -207,13 +208,15 @@ export const entityConfigs: EntityConfig[] = [
     primaryKey: "deviceCode",
     navGroup: "基础信息",
     route: "/master-data/instance-models",
-    description: "维护设备编码、机型和实例型号名称。",
+    description: "维护设备编码、机型、实例型号名称和类型。",
     filters: [
       { key: "keyword", label: "实例型号", placeholder: "请输入设备编码、机型或名称" },
+      { key: "instanceType", label: "类型", type: "select", options: INSTANCE_MODEL_TYPE_OPTIONS },
     ],
     listFields: [
       { key: "deviceCode", label: "设备编码" },
       { key: "modelCode", label: "机型" },
+      { key: "instanceType", label: "类型", type: "select", options: INSTANCE_MODEL_TYPE_OPTIONS },
       { key: "xxllCode", label: "xxll编码" },
       { key: "nameZh", label: "中文名称" },
       { key: "nameEn", label: "英文名称" },
@@ -222,6 +225,7 @@ export const entityConfigs: EntityConfig[] = [
     formFields: [
       { key: "deviceCode", label: "设备编码", required: true },
       { key: "modelCode", label: "机型", required: true },
+      { key: "instanceType", label: "类型", type: "select", options: INSTANCE_MODEL_TYPE_OPTIONS, required: true },
       { key: "xxllCode", label: "xxll编码" },
       { key: "nameZh", label: "中文名称", required: true },
       { key: "nameEn", label: "英文名称" },

@@ -1,4 +1,5 @@
 import type { Row } from "./db";
+import { normalizeInstanceModelType, requireInstanceModelType } from "./instance-model-type";
 import type { EntityConfig } from "./modules";
 
 export type ImportFailure = {
@@ -41,7 +42,7 @@ export async function importRowsWithReport(
 }
 
 export function normalizeEntityImportRow(config: EntityConfig, row: Row): Row {
-  return Object.fromEntries(
+  const normalized = Object.fromEntries(
     config.formFields.map((field) => {
       const value = row[field.key];
       if (field.type === "boolean") return [field.key, normalizeBooleanValue(value)];
@@ -51,6 +52,65 @@ export function normalizeEntityImportRow(config: EntityConfig, row: Row): Row {
       return [field.key, value === "" || value === undefined ? null : value];
     }),
   );
+
+  if (config.key === "instance-models") {
+    normalized.instanceType = normalizeInstanceModelType(normalized.instanceType);
+  }
+  return normalized;
+}
+
+/**
+ * Maps spreadsheet headers to the internal field names used by an entity.
+ *
+ * Excel users commonly change the casing/spacing of `ID` and the logistics
+ * template historically used "收货地址ID" and "收件人ID". Keep those
+ * variants importable while retaining the configured labels as the source of
+ * truth for all other entities.
+ */
+export function mapEntityImportRow(config: EntityConfig, row: Record<string, unknown>): Row {
+  const fieldByHeader = new Map(
+    config.formFields.flatMap((field) => [
+      [normalizeImportHeader(field.label), field.key],
+      [normalizeImportHeader(field.key), field.key],
+    ]),
+  );
+
+  // Historical datacenter templates called this field "物理地址ID".
+  if (config.key === "datacenters") fieldByHeader.set(normalizeImportHeader("物理地址ID"), "locationId");
+
+  if (config.key === "shipments") {
+    const shipmentAliases: Record<string, string> = {
+      "机房": "dcCode",
+      "机房名称": "dcCode",
+      // The export uses display-field labels. Users commonly fill the IDs
+      // back into those same columns before importing the workbook.
+      "收货地址": "destinationLocationId",
+      "收货地址ID": "destinationLocationId",
+      "收货地址编号": "destinationLocationId",
+      "目的地址ID": "destinationLocationId",
+      "收件人": "recipientContactId",
+      "收件人ID": "recipientContactId",
+      "收件人编号": "recipientContactId",
+      "收件人信息ID": "recipientContactId",
+      "收件联系人编号": "recipientContactId",
+    };
+    for (const [header, field] of Object.entries(shipmentAliases)) {
+      fieldByHeader.set(normalizeImportHeader(header), field);
+    }
+  }
+
+  return Object.fromEntries(
+    Object.entries(row)
+      .map(([header, value]) => [fieldByHeader.get(normalizeImportHeader(header)) ?? header, value])
+      .filter(([field]) => config.formFields.some((item) => item.key === field)),
+  );
+}
+
+export function normalizeImportHeader(value: unknown) {
+  return String(value ?? "")
+    .trim()
+    .replace(/[\s\u3000]+/g, "")
+    .toLowerCase();
 }
 
 export function validateEntityImportRow(config: EntityConfig, row: Row) {
@@ -60,6 +120,13 @@ export function validateEntityImportRow(config: EntityConfig, row: Row) {
     }
     if (field.type === "number" && !isBlank(row[field.key]) && Number.isNaN(Number(row[field.key]))) {
       return `${field.label}必须是数字`;
+    }
+    if (config.key === "instance-models" && field.key === "instanceType") {
+      try {
+        requireInstanceModelType(row[field.key]);
+      } catch (error) {
+        return error instanceof Error ? error.message : String(error);
+      }
     }
   }
 
