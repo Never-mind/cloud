@@ -8,6 +8,7 @@ import {
 } from "./db";
 import { attachPartyCodes } from "./party-display";
 import { DEFAULT_PAGE_SIZE, getKnownNumber, getKnownTotal, normalizePageSize } from "./pagination";
+import { EQUIPMENT_ONLY_INSTANCE_CONDITION } from "./instance-model-type";
 import { appendTableFilterOptionConditions, appendTableInFilter, formatTableDateExpression, getTableSort, listSqlFilterOptions } from "./table-query";
 import {
   buildMonthlyWriteOffRows,
@@ -66,6 +67,8 @@ export async function listAvailablePrepaymentLines(options: {
       WHERE pci.purchaseOrderItemId = poi.id AND pc.status IN ('草稿', '已确认')
     )`,
     "COALESCE(NULLIF(poi.requestType, ''), NULLIF(ri.requestType, ''), NULLIF(req.requestType, ''), '整机') = COALESCE(NULLIF(:requestType, ''), COALESCE(NULLIF(poi.requestType, ''), NULLIF(ri.requestType, ''), NULLIF(req.requestType, ''), '整机'))",
+    // 只有设备类型的实例进入预付款流程。
+    EQUIPMENT_ONLY_INSTANCE_CONDITION,
   ];
   const params: Row = { purchaseStatus: "%确认%", requestDraftStatus: "草稿", requestType: options.requestType?.trim() || null };
   if (options.countryCode?.trim()) {
@@ -175,6 +178,7 @@ export async function listAvailablePrepaymentLineFilterOptions(searchParams: URL
         INNER JOIN prepaymentcontracts pc ON pc.contractNo = pci.contractNo
         WHERE pci.purchaseOrderItemId = poi.id AND pc.status IN ('草稿', '已确认')
       )`,
+      EQUIPMENT_ONLY_INSTANCE_CONDITION,
     ],
     params: { availablePurchaseStatus: "%确认%", availableRequestDraftStatus: "草稿" },
   });

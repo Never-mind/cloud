@@ -19,6 +19,16 @@ const INSTANCE_MODEL_TYPE_LABELS: Record<string, InstanceModelType> = {
 
 export const DEFAULT_INSTANCE_MODEL_TYPE: InstanceModelType = "Equipment";
 
+/**
+ * 财务流程（月账单、预付款、实例结差）只允许设备类型的实例进入，
+ * 组件（Component）与配件（Material）不参与。
+ *
+ * 用 COALESCE 兜底是为了保留原有行为：明细关联不到实例型号（主数据未维护）时
+ * 仍按设备处理，避免历史整机数据从财务流程里被静默排除。
+ * 依赖查询里的实例型号别名必须是 `im`。
+ */
+export const EQUIPMENT_ONLY_INSTANCE_CONDITION = "COALESCE(NULLIF(im.instanceType, ''), 'Equipment') = 'Equipment'";
+
 export function normalizeInstanceModelType(value: unknown, fallback: string = DEFAULT_INSTANCE_MODEL_TYPE) {
   const normalized = String(value ?? "").trim();
   if (!normalized) return fallback;

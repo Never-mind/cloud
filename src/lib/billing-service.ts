@@ -2,6 +2,7 @@ import { execute, executeInTransaction, queryRows, withTransaction, type Row } f
 import { attachPartyCodes } from "./party-display";
 import { regenerateInternalServiceLedger } from "./internal-service-fee-service";
 import { DEFAULT_PAGE_SIZE, getKnownNumber, getKnownTotal, normalizePageSize } from "./pagination";
+import { EQUIPMENT_ONLY_INSTANCE_CONDITION } from "./instance-model-type";
 import { appendTableFilterOptionConditions, appendTableInFilter, formatTableDateExpression, getTableFilterOptionsOrderBy, getTableSort, listSqlFilterOptions } from "./table-query";
 import {
   applyBillingAdjustments,
@@ -262,6 +263,8 @@ export async function listAvailableBillingLines(options: {
     "req.status <> :requestDraftStatus",
     "NOT EXISTS (SELECT 1 FROM billinginstanceledgers occupied WHERE occupied.purchaseOrderItemId = poi.id)",
     "COALESCE(NULLIF(poi.requestType, ''), NULLIF(ri.requestType, ''), NULLIF(req.requestType, ''), '整机') <> :sparePartType",
+    // 只有设备类型的实例进入月账单流程。
+    EQUIPMENT_ONLY_INSTANCE_CONDITION,
   ];
   const params: Row = { purchaseStatus: "%确认%", requestDraftStatus: "草稿", sparePartType: "备件" };
   if (options.requestType?.trim() && options.requestType.trim() !== "备件") {
@@ -405,6 +408,7 @@ export async function listAvailableBillingLineFilterOptions(searchParams: URLSea
       "req.status <> :availableRequestDraftStatus",
       "NOT EXISTS (SELECT 1 FROM billinginstanceledgers occupied WHERE occupied.purchaseOrderItemId = poi.id)",
       "COALESCE(NULLIF(poi.requestType, ''), NULLIF(ri.requestType, ''), NULLIF(req.requestType, ''), '整机') <> :availableSparePartType",
+      EQUIPMENT_ONLY_INSTANCE_CONDITION,
     ],
     params: { availablePurchaseStatus: "%确认%", availableRequestDraftStatus: "草稿", availableSparePartType: "备件" },
   });
