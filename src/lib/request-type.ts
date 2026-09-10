@@ -1,4 +1,4 @@
-export const REQUEST_TYPE_VALUES = ["整机", "备件"] as const;
+export const REQUEST_TYPE_VALUES = ["整机", "备件", "整机+备件"] as const;
 
 export type RequestType = (typeof REQUEST_TYPE_VALUES)[number];
 
@@ -11,6 +11,6 @@ export function isRequestType(value: unknown): value is RequestType {
 export function requireRequestType(value: unknown): RequestType {
   const normalized = String(value ?? "").trim();
   if (!normalized) throw new Error("类型不能为空");
-  if (!isRequestType(normalized)) throw new Error("类型只能选择整机或备件");
+  if (!isRequestType(normalized)) throw new Error("类型只能选择整机、备件或整机+备件");
   return normalized;
 }

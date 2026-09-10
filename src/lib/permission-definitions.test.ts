@@ -14,6 +14,8 @@ describe("permission definitions", () => {
     expect(getRoutePermission("/api/entities/customers/1", "PUT")).toEqual({ moduleKey: "customers", action: "update" });
     expect(getRoutePermission("/api/entities/customers/export", "GET")).toEqual({ moduleKey: "customers", action: "export" });
     expect(getRoutePermission("/api/cloud/mappings", "POST")).toEqual({ moduleKey: "huawei-cloud-mappings", action: "create" });
+    expect(getRoutePermission("/api/integrations/frappe-demand-sync/mappings", "GET")).toEqual({ moduleKey: "demand-sync-mappings", action: "view" });
+    expect(getRoutePermission("/api/integrations/frappe-demand-sync", "POST")).toEqual({ moduleKey: "demand-sync-mappings", action: "create" });
     expect(getRoutePermission("/api/cloud/supplier-payments/1", "PATCH")).toEqual({ moduleKey: "huawei-cloud-supplier-payments", action: "update" });
     expect(getRoutePermission("/api/po/quotations/1/confirm", "POST")).toEqual({ moduleKey: "quotations", action: "confirm" });
     expect(getRoutePermission("/product-catalog/models", "GET")).toEqual({ moduleKey: "product-models", action: "view" });
@@ -22,6 +24,7 @@ describe("permission definitions", () => {
     expect(getRoutePermission("/customers/customer-001", "GET")).toEqual({ moduleKey: "customers", action: "view" });
     expect(getRoutePermission("/undertaking-units/unit-001", "GET")).toEqual({ moduleKey: "undertaking-units", action: "view" });
     expect(getRoutePermission("/purchase/order-plan-items", "GET")).toEqual({ moduleKey: "purchase-order-plan-items", action: "view" });
+    expect(getRoutePermission("/requests/sync-mappings", "GET")).toEqual({ moduleKey: "demand-sync-mappings", action: "view" });
     expect(getRoutePermission("/quotation/items", "GET")).toEqual({ moduleKey: "quotation-items", action: "view" });
   });
 

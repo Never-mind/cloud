@@ -13,7 +13,7 @@ export type EntityField = TableColumn & {
   readonly?: boolean;
   hidden?: boolean;
   allowCustom?: boolean;
-  lookupSource?: "countries" | "datacenters" | "delivery-locations" | "delivery-contacts" | "b6-type-configs" | "product-categories";
+  lookupSource?: "countries" | "datacenters" | "delivery-locations" | "delivery-contacts" | "b6-type-configs" | "product-categories" | "undertaking-units" | "customers";
   options?: Array<{ label: string; value: string }>;
 };
 
@@ -67,6 +67,8 @@ export const entityConfigs: EntityConfig[] = [
       { key: "nameEn", label: "国家英文名" },
       { key: "nameLocal", label: "当地语言名称" },
       { key: "vatRate", label: "增值税税率（%）", type: "percentage" },
+      { key: "defaultUndertakingUnitId", label: "默认承接单位" },
+      { key: "defaultCustomerId", label: "默认客户" },
     ],
     formFields: [
       { key: "code", label: "国家代码", required: true },
@@ -74,6 +76,8 @@ export const entityConfigs: EntityConfig[] = [
       { key: "nameEn", label: "国家英文名" },
       { key: "nameLocal", label: "当地语言名称" },
       { key: "vatRate", label: "增值税税率（%）", type: "percentage" },
+      { key: "defaultUndertakingUnitId", label: "默认承接单位", lookupSource: "undertaking-units" },
+      { key: "defaultCustomerId", label: "默认客户", lookupSource: "customers" },
     ],
   },
   {
@@ -397,8 +401,8 @@ export const entityConfigs: EntityConfig[] = [
     ],
     defaultSort: "createdAt DESC",
   },
-  {
-    key: "request-items",
+    {
+      key: "request-items",
     title: "需求明细一览",
     table: "requestitems",
     primaryKey: "id",
@@ -430,9 +434,21 @@ export const entityConfigs: EntityConfig[] = [
       { key: "customerId", label: "客户ID" },
       { key: "requestedAt", label: "需求时间", type: "date" },
       { key: "quantity", label: "节点数量", type: "number", required: true },
-    ],
-  },
-  {
+      ],
+    },
+    {
+      key: "demand-sync-mappings",
+      title: "需求同步映射",
+      table: "merge_power_demand_sync_mappings",
+      primaryKey: "mappingId",
+      navGroup: "客户需求",
+      route: "/requests/sync-mappings",
+      description: "维护 Frappe 供应商、物料、机房及收货信息到本地档案的映射，并同步创建需求草稿。",
+      filters: [],
+      listFields: [],
+      formFields: [],
+    },
+    {
     key: "purchase-orders",
     title: "采购订单",
     table: "purchaseorders",
@@ -2321,7 +2337,7 @@ const documentManagementItems: EntityConfig[] = [{
 }];
 
 const powerChildren: NonNullable<NavGroup["children"]> = [
-  { title: "客户需求", items: getEntitiesByKeys(["requests", "request-items"]) },
+  { title: "客户需求", items: getEntitiesByKeys(["requests", "request-items", "demand-sync-mappings"]) },
   { title: "采购管理", items: getEntitiesByKeys(["purchase-orders", "purchase-order-items"]) },
   { title: "合同管理", items: entityConfigs.filter((entity) => entity.navGroup === "合同管理") },
   { title: "物流管理", items: entityConfigs.filter((entity) => entity.navGroup === "物流管理") },

@@ -106,6 +106,19 @@ describe("module configuration", () => {
     expect(config?.formFields.map((field) => field.key)).not.toContain("nameCn");
   });
 
+  it("configures country-level demand ownership defaults as local options", () => {
+    const config = getEntityConfig("countries");
+
+    expect(config?.formFields.find((field) => field.key === "defaultUndertakingUnitId")).toMatchObject({
+      label: "默认承接单位",
+      lookupSource: "undertaking-units",
+    });
+    expect(config?.formFields.find((field) => field.key === "defaultCustomerId")).toMatchObject({
+      label: "默认客户",
+      lookupSource: "customers",
+    });
+  });
+
   it("exposes the product master workflow and quotation pages in the PO menu", () => {
     const productGroup = navGroups.find((group) => group.title === "集采系统");
 

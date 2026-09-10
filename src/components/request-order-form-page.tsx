@@ -166,6 +166,12 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
   function updateMaster(key: keyof MasterDraft, value: string) {
     if (!canEdit) return;
     setMaster((current) => ({ ...current, [key]: value }));
+    if (key === "countryCode") {
+      const country = countries.find((row) => String(row.code ?? "") === value);
+      const undertakingUnitId = String(country?.defaultUndertakingUnitId ?? "");
+      const customerId = String(country?.defaultCustomerId ?? "");
+      setDetails((current) => current.map((detail) => ({ ...detail, undertakingUnitId, customerId })));
+    }
   }
 
   function updateDetail(index: number, patch: Partial<DetailDraft>) {
@@ -226,7 +232,7 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
       requestNo: master.requestNo,
       requestedAt: master.plannedDeliveryDate || formatDateInputValue(new Date()),
       requestType: master.requestType,
-      details: details.filter((detail) => detail.deviceCode && detail.supplierId && detail.undertakingUnitId),
+      details: details.filter((detail) => detail.deviceCode && detail.supplierId && detail.undertakingUnitId && detail.customerId),
     });
 
     for (const item of requestItems) {

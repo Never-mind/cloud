@@ -10,6 +10,8 @@ CREATE TABLE IF NOT EXISTS `merge_power_countries` (
   `nameEn` VARCHAR(255) NULL COMMENT 'country name en',
   `nameLocal` VARCHAR(255) NULL COMMENT 'country name local',
   `vatRate` DECIMAL(10, 6) NULL COMMENT 'VAT rate as decimal',
+  `defaultUndertakingUnitId` VARCHAR(64) NULL COMMENT 'default undertaking unit for demand requests',
+  `defaultCustomerId` VARCHAR(64) NULL COMMENT 'default customer for demand requests',
   `createdAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'created time',
   `updatedAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'updated time',
   PRIMARY KEY (`code`)
@@ -905,6 +907,73 @@ CREATE TABLE IF NOT EXISTS `merge_power_material_sync_runs` (
   KEY `idx_MaterialSyncRuns_startedAt` (`startedAt`),
   KEY `idx_MaterialSyncRuns_status` (`status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Material instance model sync runs';
+
+CREATE TABLE IF NOT EXISTS `merge_power_demand_sync_mappings` (
+  `mappingId` VARCHAR(64) NOT NULL COMMENT 'mapping id',
+  `sourceSystem` VARCHAR(32) NOT NULL DEFAULT 'frappe' COMMENT 'source system',
+  `sourceType` VARCHAR(64) NOT NULL COMMENT 'supplier/material/datacenter/delivery location/recipient',
+  `sourceId` VARCHAR(128) NOT NULL COMMENT 'remote primary id',
+  `sourceCode` VARCHAR(255) NULL COMMENT 'remote business code',
+  `sourceName` VARCHAR(512) NULL COMMENT 'remote display name',
+  `sourceModifiedAt` DATETIME NULL COMMENT 'remote update time',
+  `sourceDataJson` LONGTEXT NULL COMMENT 'remote source fields',
+  `status` VARCHAR(32) NOT NULL DEFAULT 'pending' COMMENT 'pending/confirmed/conflict/ignored',
+  `localEntityType` VARCHAR(64) NULL COMMENT 'local target type',
+  `localEntityId` VARCHAR(128) NULL COMMENT 'local target id',
+  `localDisplayName` VARCHAR(512) NULL COMMENT 'local target label',
+  `undertakingUnitId` VARCHAR(64) NULL COMMENT 'local undertaking unit for datacenter mapping',
+  `candidateJson` LONGTEXT NULL COMMENT 'automatic match candidates',
+  `matchMethod` VARCHAR(64) NULL COMMENT 'automatic/manual match method',
+  `createdByUserId` VARCHAR(80) NULL COMMENT 'creator user id',
+  `createdByName` VARCHAR(255) NULL COMMENT 'creator name',
+  `updatedByUserId` VARCHAR(80) NULL COMMENT 'updater user id',
+  `updatedByName` VARCHAR(255) NULL COMMENT 'updater name',
+  `createdAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'created time',
+  `updatedAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'update time',
+  PRIMARY KEY (`mappingId`),
+  UNIQUE KEY `uk_DemandSyncMappings_source` (`sourceSystem`, `sourceType`, `sourceId`),
+  KEY `idx_DemandSyncMappings_status` (`sourceSystem`, `status`, `sourceType`),
+  KEY `idx_DemandSyncMappings_local` (`localEntityType`, `localEntityId`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Frappe demand sync mappings';
+
+CREATE TABLE IF NOT EXISTS `merge_power_demand_sync_runs` (
+  `syncRunId` VARCHAR(128) NOT NULL COMMENT 'sync run id',
+  `triggerType` VARCHAR(32) NOT NULL COMMENT 'manual/scheduled/script',
+  `status` VARCHAR(32) NOT NULL COMMENT 'running/success/failed',
+  `dryRun` TINYINT(1) NOT NULL DEFAULT 0 COMMENT 'whether no local records were written',
+  `fetchedItemCount` INT NOT NULL DEFAULT 0 COMMENT 'remote demand items fetched',
+  `eligibleItemCount` INT NOT NULL DEFAULT 0 COMMENT 'eligible remote demand items',
+  `createdRequestCount` INT NOT NULL DEFAULT 0 COMMENT 'local requests created',
+  `createdItemCount` INT NOT NULL DEFAULT 0 COMMENT 'local request items created',
+  `skippedExistingCount` INT NOT NULL DEFAULT 0 COMMENT 'unchanged synchronized items',
+  `blockedItemCount` INT NOT NULL DEFAULT 0 COMMENT 'items blocked by mappings or validation',
+  `changedItemCount` INT NOT NULL DEFAULT 0 COMMENT 'remote changes requiring manual review',
+  `errorJson` LONGTEXT NULL COMMENT 'limited errors JSON',
+  `resultJson` LONGTEXT NULL COMMENT 'limited per-demand-order result JSON',
+  `startedAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'start time',
+  `finishedAt` DATETIME NULL COMMENT 'finish time',
+  `updatedAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'update time',
+  PRIMARY KEY (`syncRunId`),
+  KEY `idx_DemandSyncRuns_startedAt` (`startedAt`),
+  KEY `idx_DemandSyncRuns_status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Frappe demand synchronization runs';
+
+CREATE TABLE IF NOT EXISTS `merge_power_demand_sync_items` (
+  `sourceItemId` VARCHAR(128) NOT NULL COMMENT 'remote Demand Order Item id',
+  `sourceOrderId` VARCHAR(128) NOT NULL COMMENT 'remote Demand Order id',
+  `localRequestNo` VARCHAR(128) NULL COMMENT 'local request number',
+  `localRequestItemId` VARCHAR(64) NULL COMMENT 'local request item id',
+  `sourceModifiedAt` DATETIME NULL COMMENT 'remote update time',
+  `sourceHash` CHAR(64) NOT NULL COMMENT 'remote sync fingerprint',
+  `status` VARCHAR(32) NOT NULL COMMENT 'synced/skipped_existing/blocked/pending_change',
+  `errorMessage` VARCHAR(1000) NULL COMMENT 'blocking or change message',
+  `createdAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'created time',
+  `updatedAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'update time',
+  PRIMARY KEY (`sourceItemId`),
+  KEY `idx_DemandSyncItems_order` (`sourceOrderId`),
+  KEY `idx_DemandSyncItems_status` (`status`),
+  KEY `idx_DemandSyncItems_local` (`localRequestNo`, `localRequestItemId`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Frappe demand synchronization source items';
 
 CREATE TABLE IF NOT EXISTS `merge_power_appusers` (
   `userId` VARCHAR(80) NOT NULL COMMENT 'user id',

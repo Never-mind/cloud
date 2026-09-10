@@ -5,6 +5,7 @@ import { Check, ChevronDown, ChevronRight, Cloud, Download, FileUp, Pencil, Plus
 import { Button, Input, Panel } from "./ui";
 import { StickyTable } from "./sticky-table";
 import { TableColumnMenu, type TableFilterOption, type TableSortOrder } from "./table-column-menu";
+import { calculateCloudTaxGroup, CLOUD_TAX_GROUPS, type CloudTaxField, type CloudTaxGroup } from "@/lib/cloud-tax";
 import { fetchTableFilterOptions } from "@/lib/table-query-client";
 
 type Tab = "reconciliation" | "mapping" | "collections" | "supplier-payments";
@@ -230,7 +231,7 @@ export function CloudReconciliationPage() {
       {tab !== "mapping" ? <div className="flex items-center justify-between border-t border-[#ebeef5] px-4 py-3 text-sm text-[#909399]"><span>{busy ? "加载中..." : `共 ${total} 条`}</span><div className="flex gap-2"><Button disabled={page <= 1} onClick={() => setPage((value) => value - 1)}>上一页</Button><span className="px-2 py-2">第 {page} 页</span><Button disabled={rows.length < 20 && payments.length < 20} onClick={() => setPage((value) => value + 1)}>下一页</Button></div></div> : null}
     </Panel>
     {mappingForm ? <MappingForm value={mappingForm} masters={masters} onChange={setMappingForm} onCancel={() => setMappingForm(null)} onSave={() => void saveMapping()} /> : null}
-    {rowForm ? <CloudRowForm value={rowForm} onChange={setRowForm} onCancel={() => setRowForm(null)} onSave={() => void saveRow()} /> : null}
+    {rowForm ? <CloudRowForm value={rowForm} masters={masters} onChange={setRowForm} onCancel={() => setRowForm(null)} onSave={() => void saveRow()} /> : null}
     {collectionForm ? <CloudAmountForm mode="collection" value={collectionForm} masters={masters} onChange={setCollectionForm} onCancel={() => setCollectionForm(null)} onSave={() => void saveCollection()} /> : null}
     {invoiceForm ? <CloudAmountForm mode="invoice" value={invoiceForm} masters={masters} onChange={setInvoiceForm} onCancel={() => setInvoiceForm(null)} onSave={() => void saveInvoice()} /> : null}
     {supplierPaymentForm ? <SupplierPaymentForm value={supplierPaymentForm} masters={masters} onChange={setSupplierPaymentForm} onCancel={() => setSupplierPaymentForm(null)} onSave={() => void saveSupplierPayment()} /> : null}
@@ -385,9 +386,9 @@ function StatusSwitch({ checked, onClick, onLabel, offLabel, title }: { checked:
   return <button aria-checked={checked} className="inline-flex items-center gap-1 text-xs text-[#606266]" role="switch" title={title} type="button" onClick={onClick}><span className={`relative inline-flex h-4 w-7 rounded-full ${checked ? "bg-[#13ce66]" : "bg-[#c0c4cc]"}`}><span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white shadow transition-transform ${checked ? "translate-x-[15px]" : "translate-x-0.5"}`} /></span><span>{checked ? onLabel : offLabel}</span></button>;
 }
 
-function CloudRowForm({ value, onChange, onCancel, onSave }: { value: Row; onChange: (value: Row) => void; onCancel: () => void; onSave: () => void }) {
+function CloudRowForm({ value, masters, onChange, onCancel, onSave }: { value: Row; masters: MasterSet; onChange: (value: Row) => void; onCancel: () => void; onSave: () => void }) {
   const fields: Array<[string, string, string?]> = [
-    ["period", "账期", "month"], ["batchCode", "批次号"], ["customer", "客户名称"], ["account", "华为ID"], ["cloudReconciler", "华为对账人"],
+    ["period", "账期", "month"], ["batchCode", "批次号"], ["account", "华为ID"], ["cloudReconciler", "华为对账人"],
     ["catalogAmount", "目录价（USD）", "number"], ["partnerAmount", "伙伴结算金额（USD）", "number"], ["voucherCustomerAmount", "代金券-客户（USD）", "number"],
     ["voucherSupplierAmount", "代金券-供应商（USD）", "number"], ["supplierPayablePayer", "供应商应付-承接单位"], ["supplierPayablePayee", "供应商应付-供应商"],
     ["supplierPayableNetAmount", "供应商应付（不含税）", "number"], ["supplierTaxRate", "供应商税率", "number"], ["supplierTaxAmount", "供应商税金", "number"],
@@ -396,21 +397,16 @@ function CloudRowForm({ value, onChange, onCancel, onSave }: { value: Row; onCha
     ["customerReceivableTotalAmount", "客户应收（含税）", "number"], ["theoreticalGrossProfit", "万众理论毛利（USD）", "number"], ["settlementGrossProfit", "万众结算毛利（USD）", "number"],
     ["customerDiscount", "客户折扣", "number"], ["calculationLogic", "计算逻辑"],
   ];
-  return <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"><div className="max-h-[90vh] w-full max-w-4xl overflow-auto bg-white p-5 shadow-xl"><div className="mb-4 flex items-center justify-between"><h2 className="text-lg text-[#303133]">{value.id ? "修改" : "手动新增"}华为云对账单</h2><button type="button" title="关闭" onClick={onCancel}><X size={17} /></button></div><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{fields.map(([key, label, type]) => <label className="space-y-1 text-sm text-[#606266]" key={key}><span>{label}{key === "period" || key === "customer" || key === "account" ? <b className="ml-1 text-[#f56c6c]">*</b> : null}</span><Input autoFocus={key === "customer" && !value.id} className="w-full" type={type ?? "text"} value={String(value[key] ?? "")} onChange={(event) => onChange({ ...value, [key]: event.target.value })} /></label>)}<label className="space-y-1 text-sm text-[#606266] sm:col-span-2 lg:col-span-3"><span>备注</span><textarea className="min-h-20 w-full rounded border border-[#dcdfe6] px-3 py-2 text-sm outline-none focus:border-[#1890ff]" value={String(value.remark ?? "")} onChange={(event) => onChange({ ...value, remark: event.target.value })} /></label></div><div className="mt-5 flex justify-end gap-2"><Button onClick={onCancel}>取消</Button><Button tone="primary" onClick={onSave}>保存</Button></div></div></div>;
-}
-
-function numericValue(value: unknown) {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
-function numericRate(value: unknown) {
-  const raw = String(value ?? "").trim();
-  if (!raw) return null;
-  const parsed = Number(raw.endsWith("%") ? raw.slice(0, -1) : raw);
-  if (!Number.isFinite(parsed)) return null;
-  if (raw.endsWith("%")) return parsed / 100;
-  return parsed > 1 ? parsed / 100 : parsed;
+  const changeField = (key: string, type: string | undefined, input: string) => {
+    if (type === "number") {
+      for (const group of ["supplierPayable", "customerReceivable"] as const) {
+        const field = cloudTaxInputField(group, key);
+        if (field) return updateCloudTaxValue(value, group, field, input);
+      }
+    }
+    return { ...value, [key]: input };
+  };
+  return <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"><div className="max-h-[90vh] w-full max-w-4xl overflow-auto bg-white p-5 shadow-xl"><div className="mb-4 flex items-center justify-between"><h2 className="text-lg text-[#303133]">{value.id ? "修改" : "手动新增"}华为云对账单</h2><button type="button" title="关闭" onClick={onCancel}><X size={17} /></button></div><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3"><PartnerSelect required kind="customers" label="客户名称" idValue={value.customerId} nameValue={value.customer} masters={masters} onChange={(selected) => onChange({ ...value, customerId: selected.id, customer: selected.name })} />{fields.map(([key, label, type]) => <label className="space-y-1 text-sm text-[#606266]" key={key}><span>{label}{key === "period" || key === "account" ? <b className="ml-1 text-[#f56c6c]">*</b> : null}</span><Input autoFocus={key === "account" && !value.id} className="w-full" type={type ?? "text"} value={String(value[key] ?? "")} onChange={(event) => onChange(changeField(key, type, event.target.value))} /></label>)}<label className="space-y-1 text-sm text-[#606266] sm:col-span-2 lg:col-span-3"><span>备注</span><textarea className="min-h-20 w-full rounded border border-[#dcdfe6] px-3 py-2 text-sm outline-none focus:border-[#1890ff]" value={String(value.remark ?? "")} onChange={(event) => onChange({ ...value, remark: event.target.value })} /></label></div><div className="mt-5 flex justify-end gap-2"><Button onClick={onCancel}>取消</Button><Button tone="primary" onClick={onSave}>保存</Button></div></div></div>;
 }
 
 function SupplierPaymentForm({ value, masters, onChange, onCancel, onSave }: { value: Row; masters: MasterSet; onChange: (value: Row) => void; onCancel: () => void; onSave: () => void }) {
@@ -432,27 +428,32 @@ function SupplierPaymentForm({ value, masters, onChange, onCancel, onSave }: { v
   return <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"><div className="max-h-[90vh] w-full max-w-4xl overflow-auto bg-white p-5 shadow-xl"><div className="mb-4 flex items-center justify-between"><div><h2 className="text-lg text-[#303133]">编辑供应商实付和开票</h2><p className="mt-1 text-xs text-[#909399]">供应商付款按账期和供应商汇总，明细账号只展示供应商应付金额</p></div><button type="button" title="关闭" onClick={onCancel}><X size={17} /></button></div><div className="grid gap-3 border-b border-[#ebeef5] pb-4 sm:grid-cols-2"><PartnerSelect kind="undertakingUnits" label="付款单位" idValue={value.payerUnitId} nameValue={value.payerUnitName} masters={masters} onChange={(selected) => onChange({ ...value, payerUnitId: selected.id, payerUnitName: selected.name })} /></div><section className="mt-4"><h3 className="mb-3 text-sm font-medium text-[#303133]">供应商实付</h3><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{paymentFields.map(([key, label, type]) => <label className="space-y-1 text-sm text-[#606266]" key={key}><span>{label}</span><Input className="w-full" type={type ?? "text"} value={type === "date" ? dateInputValue(value[key]) : String(value[key] ?? "")} onChange={(event) => onChange(changeField(key, type, event.target.value))} /></label>)}</div><div className="mt-3"><StatusSwitch checked={Boolean(value.paid)} onClick={() => onChange({ ...value, paid: value.paid ? 0 : 1 })} onLabel="已付款" offLabel="未付款" title="点击切换付款状态" /></div></section><section className="mt-5 border-t border-[#ebeef5] pt-4"><h3 className="mb-3 text-sm font-medium text-[#303133]">供应商开票</h3><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{invoiceFields.map(([key, label, type]) => <label className="space-y-1 text-sm text-[#606266]" key={key}><span>{label}</span><Input className="w-full" type={type ?? "text"} value={type === "date" ? dateInputValue(value[key]) : String(value[key] ?? "")} onChange={(event) => onChange(changeField(key, type, event.target.value))} /></label>)}</div><div className="mt-3"><StatusSwitch checked={value.invoiceStatus === "issued"} onClick={() => onChange({ ...value, invoiceStatus: value.invoiceStatus === "issued" ? "not_issued" : "issued" })} onLabel="已开票" offLabel="未开票" title="点击切换开票状态" /></div></section><div className="mt-5 flex justify-end gap-2"><Button onClick={onCancel}>取消</Button><Button tone="primary" onClick={onSave}>保存</Button></div></div></div>;
 }
 
-function updateCloudTaxValue(value: Row, prefix: "collection" | "invoice" | "payment", field: "net" | "tax" | "total" | "rate", input: string) {
+function cloudTaxInputField(group: CloudTaxGroup, key: string): CloudTaxField | null {
+  const { netKey, rateKey, taxKey, totalKey } = CLOUD_TAX_GROUPS[group];
+  if (key === netKey) return "net";
+  if (key === rateKey) return "rate";
+  if (key === taxKey) return "tax";
+  return key === totalKey ? "total" : null;
+}
+
+function updateCloudTaxValue(value: Row, group: CloudTaxGroup, field: CloudTaxField, input: string) {
   const next = { ...value };
-  const netKey = `${prefix}NetAmount`;
-  const taxKey = `${prefix}TaxAmount`;
-  const totalKey = `${prefix}TotalAmount`;
-  const rateKey = `${prefix}TaxRate`;
+  const { netKey, rateKey, taxKey, totalKey } = CLOUD_TAX_GROUPS[group];
   next[field === "net" ? netKey : field === "tax" ? taxKey : field === "total" ? totalKey : rateKey] = input;
-  const taxRate = numericRate(next[rateKey]);
-  if (taxRate !== null) {
-    if (field === "net" || field === "rate") {
-      const net = numericValue(next[netKey]);
-      if (net !== null) { next[taxKey] = String(net * taxRate); next[totalKey] = String(net * (1 + taxRate)); }
-    } else if (field === "total") {
-      const total = numericValue(next[totalKey]);
-      if (total !== null) { next[netKey] = String(total / (1 + taxRate)); next[taxKey] = String(total - total / (1 + taxRate)); }
-    }
+  const calculation = calculateCloudTaxGroup(next, group, [field === "net" ? netKey : field === "tax" ? taxKey : field === "total" ? totalKey : rateKey]);
+  if (calculation.source === "net-rate") {
+    next[taxKey] = String(calculation.tax);
+    next[totalKey] = String(calculation.total);
+  } else if (calculation.source === "total") {
+    next[netKey] = String(calculation.net);
+    next[taxKey] = String(calculation.tax);
+  } else if (calculation.source === "tax") {
+    next[totalKey] = String(calculation.total);
   }
   return next;
 }
 
-function PartnerSelect({ kind, label, idValue, nameValue, masters, onChange }: { kind: keyof MasterSet; label: string; idValue: unknown; nameValue: unknown; masters: MasterSet; onChange: (value: { id: string; name: string }) => void }) {
+function PartnerSelect({ kind, label, idValue, nameValue, masters, onChange, required = false }: { kind: keyof MasterSet; label: string; idValue: unknown; nameValue: unknown; masters: MasterSet; onChange: (value: { id: string; name: string }) => void; required?: boolean }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [keyword, setKeyword] = useState("");
   const [options, setOptions] = useState<Master[]>(masters[kind]);
@@ -493,7 +494,7 @@ function PartnerSelect({ kind, label, idValue, nameValue, masters, onChange }: {
   }
 
   const visibleOptions = options.filter((item, index, list) => list.findIndex((candidate) => candidate.id === item.id) === index);
-  return <label className="relative space-y-1 text-sm text-[#606266]"><span>{label}</span><Input ref={inputRef} className="w-full" placeholder="输入编码或简称搜索" value={keyword} onFocus={(event) => { setKeyword(selectedLabel); setOpen(true); event.currentTarget.select(); }} onChange={(event) => { const next = event.target.value; setKeyword(next); setOpen(true); if (next !== selectedLabel) onChange({ id: "", name: "" }); }} onBlur={() => window.setTimeout(() => { setOpen(false); setKeyword(selectedLabel); }, 120)} onKeyDown={(event) => { if (event.key === "Escape") { setOpen(false); setKeyword(selectedLabel); } }} />{open ? <div className="fixed z-[120] max-h-64 overflow-y-auto rounded border border-[#dcdfe6] bg-white py-1 shadow-lg" style={menuPosition}>{visibleOptions.length ? visibleOptions.map((item) => <button className="block w-full px-3 py-2 text-left text-sm text-[#606266] hover:bg-[#f5f7fa]" key={item.id} type="button" onMouseDown={(event) => { event.preventDefault(); selectOption(item); }}>{item.code ? `${item.code} - ` : ""}{item.shortName || item.name}</button>) : <div className="px-3 py-2 text-sm text-[#909399]">暂无匹配选项</div>}</div> : null}</label>;
+  return <label className="relative space-y-1 text-sm text-[#606266]"><span>{label}{required ? <b className="ml-1 text-[#f56c6c]">*</b> : null}</span><Input ref={inputRef} className="w-full" placeholder="输入编码或简称搜索" value={keyword} onFocus={(event) => { setKeyword(selectedLabel); setOpen(true); event.currentTarget.select(); }} onChange={(event) => { const next = event.target.value; setKeyword(next); setOpen(true); if (next !== selectedLabel) onChange({ id: "", name: "" }); }} onBlur={() => window.setTimeout(() => { setOpen(false); setKeyword(selectedLabel); }, 120)} onKeyDown={(event) => { if (event.key === "Escape") { setOpen(false); setKeyword(selectedLabel); } }} />{open ? <div className="fixed z-[120] max-h-64 overflow-y-auto rounded border border-[#dcdfe6] bg-white py-1 shadow-lg" style={menuPosition}>{visibleOptions.length ? visibleOptions.map((item) => <button className="block w-full px-3 py-2 text-left text-sm text-[#606266] hover:bg-[#f5f7fa]" key={item.id} type="button" onMouseDown={(event) => { event.preventDefault(); selectOption(item); }}>{item.code ? `${item.code} - ` : ""}{item.shortName || item.name}</button>) : <div className="px-3 py-2 text-sm text-[#909399]">暂无匹配选项</div>}</div> : null}</label>;
 }
 
 function CloudAmountForm({ mode, value, masters, onChange, onCancel, onSave }: { mode: "collection" | "invoice"; value: Row; masters: MasterSet; onChange: (value: Row) => void; onCancel: () => void; onSave: () => void }) {

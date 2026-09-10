@@ -64,6 +64,7 @@ const MODULE_DOMAIN: Record<string, PermissionDefinition["domainKey"]> = {
   "huawei-cloud": "cloud",
   "huawei-cloud-mappings": "cloud",
   "huawei-cloud-supplier-payments": "cloud",
+  "demand-sync-mappings": "power",
 };
 
 const MODULE_GROUP: Record<string, string> = {
@@ -131,6 +132,7 @@ const MODULE_GROUP: Record<string, string> = {
   "huawei-cloud": "华为云对账",
   "huawei-cloud-mappings": "华为云对账",
   "huawei-cloud-supplier-payments": "华为云对账",
+  "demand-sync-mappings": "客户需求",
 };
 
 const DOMAIN_TITLES: Record<string, string> = {
@@ -216,7 +218,7 @@ const PERMISSION_GROUP_ORDER: Record<string, string[]> = {
 };
 
 const PERMISSION_MODULE_ORDER: Record<string, string[]> = {
-  "domain:power:客户需求": ["requests", "request-items"],
+  "domain:power:客户需求": ["requests", "request-items", "demand-sync-mappings"],
   "domain:power:采购管理": ["purchase-orders", "purchase-order-items", "purchase-order-sn-items", "purchase-order-plan-items"],
   "domain:power:合同管理": ["instance-contracts", "billing-adjustments"],
   "domain:power:物流管理": ["shipments"],
@@ -264,6 +266,7 @@ const API_ROUTE_RULES: Array<{ prefix: string; moduleKey: string }> = [
   { prefix: "/api/purchase/product-lines", moduleKey: "purchase-order-items" },
   { prefix: "/api/procurement", moduleKey: "purchase-orders" },
   { prefix: "/api/integrations/material-sync", moduleKey: "instance-models" },
+  { prefix: "/api/integrations/frappe-demand-sync", moduleKey: "demand-sync-mappings" },
   { prefix: "/api/requests", moduleKey: "requests" },
   { prefix: "/api/purchase", moduleKey: "purchase-orders" },
   { prefix: "/api/orders", moduleKey: "requests" },
@@ -309,6 +312,7 @@ const PAGE_ROUTE_RULES: Array<{ prefix: string; moduleKey: string }> = [
   { prefix: "/tariff-rates", moduleKey: "product-categories" },
   { prefix: "/cloud", moduleKey: "huawei-cloud" },
   { prefix: "/requests/items", moduleKey: "request-items" },
+  { prefix: "/requests/sync-mappings", moduleKey: "demand-sync-mappings" },
   { prefix: "/requests/orders", moduleKey: "requests" },
   { prefix: "/requests", moduleKey: "requests" },
   { prefix: "/purchase/items", moduleKey: "purchase-order-items" },

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import * as XLSX from "xlsx";
 import { executeRaw, queryRows, queryRowsRaw, type Row } from "./db";
+import { calculateCloudTaxGroup, CLOUD_TAX_GROUPS, type CloudTaxGroup } from "./cloud-tax";
 import { customerDisplayName } from "./customer-display";
 import type { OperationActor } from "./operation-actor";
 import { appendTableInFilter, formatTableDateExpression, getTableSort, listSqlFilterOptions } from "./table-query";
@@ -334,27 +335,14 @@ function totalAmount(net: number | null, tax: number | null, value: unknown) {
   return entered ?? (net !== null && tax !== null ? net + tax : null);
 }
 
-function calculateTaxGroup(values: Row, prefix: "collection" | "invoice" | "payment", changedFields: string[]) {
-  const netKey = `${prefix}NetAmount`;
-  const taxKey = `${prefix}TaxAmount`;
-  const rateKey = `${prefix}TaxRate`;
-  const totalKey = `${prefix}TotalAmount`;
-  const net = nullableNumber(values[netKey]);
-  const taxRate = rate(values[rateKey]);
-  const total = nullableNumber(values[totalKey]);
-  const netOrRateChanged = changedFields.includes(netKey) || changedFields.includes(rateKey);
-  const totalChanged = changedFields.includes(totalKey);
-
-  if (taxRate !== null && net !== null && (netOrRateChanged || (!totalChanged && total === null))) {
-    const tax = net * taxRate;
-    return { tax, total: net + tax };
-  }
-  if (taxRate !== null && total !== null && totalChanged) {
-    const calculatedNet = total / (1 + taxRate);
-    return { tax: total - calculatedNet, total };
-  }
-  const tax = taxAmount(net, taxRate, values[taxKey]);
-  return { tax, total: totalAmount(net, tax, values[totalKey]) };
+function changedCloudTaxFields(existing: Row, merged: Row, fields: readonly string[], group: CloudTaxGroup) {
+  const keys = CLOUD_TAX_GROUPS[group];
+  return [keys.netKey, keys.rateKey, keys.taxKey, keys.totalKey].filter((key) => {
+    if (!fields.includes(key)) return false;
+    return key === keys.rateKey
+      ? rate(existing[key]) !== rate(merged[key])
+      : nullableNumber(existing[key]) !== nullableNumber(merged[key]);
+  });
 }
 
 const CLOUD_NUMERIC_COLUMNS = new Set([
@@ -523,7 +511,8 @@ export async function createCloudRow(body: Row, actor: OperationActor | null) {
   const period = normalizeCloudPeriod(text(body.period) || currentCloudPeriod());
   const account = text(body.account);
   const accountMapping = getCloudAccountMapping(await findCloudAccountMappings([account]), account);
-  const customer = accountMapping?.customerName || text(body.customer);
+  const selectedCustomer = await resolveCloudPartner("customers", text(body.customerId) || body.customer);
+  const customer = accountMapping?.customerName || selectedCustomer.name;
   if (!customer || !account) throw new Error("客户和华为云账号不能为空，且华为ID必须已配置或手动填写客户");
   const source = applyCloudAccountMapping({ ...body, customer }, accountMapping);
 
@@ -550,7 +539,7 @@ export async function createCloudRow(body: Row, actor: OperationActor | null) {
     supplierId: text(source.supplierId) || null,
     supplierName: text(source.supplierName) || null,
     undertakingUnitId: text(source.undertakingUnitId) || null,
-    customerId: text(source.customerId) || null,
+    customerId: text(source.customerId) || selectedCustomer.id || null,
     customer,
     account,
     owner: text(body.owner) || null,
@@ -636,7 +625,13 @@ export async function updateCloudRow(id: string, body: Row, actor: OperationActo
   const accountMapping = Object.prototype.hasOwnProperty.call(body, "account")
     ? getCloudAccountMapping(await findCloudAccountMappings([text(body.account)]), body.account)
     : undefined;
-  const mappedBody = accountMapping ? applyCloudAccountMapping(body, accountMapping) : body;
+  const mappedBody = accountMapping ? applyCloudAccountMapping(body, accountMapping) : { ...body };
+  if (Object.prototype.hasOwnProperty.call(mappedBody, "supplierPayable") && !Object.prototype.hasOwnProperty.call(mappedBody, "supplierPayableNetAmount")) {
+    mappedBody.supplierPayableNetAmount = mappedBody.supplierPayable;
+  }
+  if (Object.prototype.hasOwnProperty.call(mappedBody, "customerReceivable") && !Object.prototype.hasOwnProperty.call(mappedBody, "customerReceivableNetAmount")) {
+    mappedBody.customerReceivableNetAmount = mappedBody.customerReceivable;
+  }
   const fields: string[] = CLOUD_ROW_COLUMNS.filter((key) => Object.prototype.hasOwnProperty.call(mappedBody, key));
   if (accountMapping) {
     for (const key of ["mappingId", "supplierId", "supplierName", "undertakingUnitId", "customerId", "customer", "cloudReconciler", "supplierPayablePayer", "supplierPayablePayee", "customerReceivablePayer", "customerReceivablePayee"] as const) {
@@ -645,23 +640,32 @@ export async function updateCloudRow(id: string, body: Row, actor: OperationActo
   }
   if (!fields.length) throw new Error("没有可保存的字段");
   const merged = { ...existing, ...mappedBody };
+  const assignmentFields = new Set(fields);
   const assignments = fields.map((key) => `${key} = :${key}`);
   const values: Row = { id };
   for (const key of fields) {
     values[key] = key.endsWith("TaxRate") ? rate(merged[key]) : ["collectionDate", "receivableDate", "invoiceDate"].includes(key) ? dateOnly(merged[key]) : CLOUD_NUMERIC_COLUMNS.has(key) ? nullableNumber(merged[key]) : merged[key];
   }
-  for (const prefix of ["collection", "invoice"] as const) {
-    const netKey = `${prefix}NetAmount`;
-    const taxKey = `${prefix}TaxAmount`;
-    const rateKey = `${prefix}TaxRate`;
-    const totalKey = `${prefix}TotalAmount`;
-     if (fields.some((field) => field === netKey || field === taxKey || field === rateKey || field === totalKey)) {
-      const { tax, total } = calculateTaxGroup(merged, prefix, fields);
-      for (const [key, value] of [[taxKey, tax], [totalKey, total]] as const) {
-        if (!fields.includes(key)) { fields.push(key); assignments.push(`${key} = :${key}`); }
-        values[key] = value;
-      }
+  const setDerivedValue = (key: string, value: number | null) => {
+    if (!assignmentFields.has(key)) { assignmentFields.add(key); assignments.push(`${key} = :${key}`); }
+    values[key] = value;
+  };
+  for (const group of Object.keys(CLOUD_TAX_GROUPS) as CloudTaxGroup[]) {
+    const changedFields = changedCloudTaxFields(existing, merged, fields, group);
+    if (!changedFields.length) continue;
+    const calculation = calculateCloudTaxGroup(merged, group, changedFields);
+    const keys = CLOUD_TAX_GROUPS[group];
+    if (calculation.source === "net-rate") {
+      setDerivedValue(keys.taxKey, calculation.tax);
+      setDerivedValue(keys.totalKey, calculation.total);
+    } else if (calculation.source === "total") {
+      setDerivedValue(keys.netKey, calculation.net);
+      setDerivedValue(keys.taxKey, calculation.tax);
+    } else if (calculation.source === "tax") {
+      setDerivedValue(keys.totalKey, calculation.total);
     }
+    const legacyKey = group === "supplierPayable" ? "supplierPayable" : group === "customerReceivable" ? "customerReceivable" : null;
+    if (legacyKey && calculation.source) setDerivedValue(legacyKey, calculation.net);
   }
   if (actor) {
     assignments.push("updatedByUserId = :updatedByUserId", "updatedByName = :updatedByName");
@@ -816,23 +820,31 @@ export async function updateCloudSupplierPayment(id: string, body: Row, actor: O
     ))[0] : undefined);
   const values: Row = { id: target?.id ?? randomUUID() };
   const merged = { ...(target ?? {}), ...body };
-  const paymentTaxValues = calculateTaxGroup(merged, "payment", fields);
-  const invoiceTaxValues = calculateTaxGroup(merged, "invoice", fields);
+  const assignmentFields = new Set(fields);
   const assignments = fields.map((key) => `${key} = :${key}`);
   for (const key of fields) values[key] = key === "period" ? normalizeCloudPeriod(merged[key]) : key.endsWith("TaxRate") ? rate(merged[key]) : ["paymentDate", "receivableDate", "invoiceDate"].includes(key) ? dateOnly(merged[key]) : ["paymentExchangeRate", "invoiceExchangeRate", "paymentNetAmount", "paymentTaxAmount", "paymentTotalAmount", "invoiceNetAmount", "invoiceTaxAmount", "invoiceTotalAmount"].includes(key) ? nullableNumber(merged[key]) : ["payerUnitId", "payerUnitName", "currency", "invoiceNo", "invoiceCurrency", "invoiceStatus"].includes(key) ? text(merged[key]) || null : key === "paid" ? (merged[key] ? 1 : 0) : merged[key];
-  for (const prefix of ["payment", "invoice"] as const) {
-    const netKey = `${prefix}NetAmount`;
-    const taxKey = `${prefix}TaxAmount`;
-    const rateKey = `${prefix}TaxRate`;
-    const totalKey = `${prefix}TotalAmount`;
-    if (fields.some((field) => field === netKey || field === taxKey || field === rateKey || field === totalKey)) {
-      const { tax, total } = calculateTaxGroup(merged, prefix, fields);
-      for (const [key, value] of [[taxKey, tax], [totalKey, total]] as const) {
-        if (!fields.includes(key)) { fields.push(key); assignments.push(`${key} = :${key}`); }
-        values[key] = value;
-      }
+  const setDerivedValue = (key: string, value: number | null) => {
+    if (!assignmentFields.has(key)) { assignmentFields.add(key); assignments.push(`${key} = :${key}`); }
+    values[key] = value;
+  };
+  const taxCalculations = new Map<CloudTaxGroup, ReturnType<typeof calculateCloudTaxGroup>>();
+  for (const group of ["payment", "invoice"] as const) {
+    const changedFields = changedCloudTaxFields(target ?? {}, merged, fields, group);
+    const calculation = calculateCloudTaxGroup(merged, group, changedFields);
+    taxCalculations.set(group, calculation);
+    const keys = CLOUD_TAX_GROUPS[group];
+    if (calculation.source === "net-rate") {
+      setDerivedValue(keys.taxKey, calculation.tax);
+      setDerivedValue(keys.totalKey, calculation.total);
+    } else if (calculation.source === "total") {
+      setDerivedValue(keys.netKey, calculation.net);
+      setDerivedValue(keys.taxKey, calculation.tax);
+    } else if (calculation.source === "tax") {
+      setDerivedValue(keys.totalKey, calculation.total);
     }
   }
+  const paymentTaxValues = taxCalculations.get("payment") ?? calculateCloudTaxGroup(merged, "payment", []);
+  const invoiceTaxValues = taxCalculations.get("invoice") ?? calculateCloudTaxGroup(merged, "invoice", []);
   if (actor) { assignments.push("updatedByUserId = :userId", "updatedByName = :userName"); values.userId = actor.userId; values.userName = actor.displayName; }
   if (target) {
     await executeRaw(`UPDATE merge_cloud_supplier_payments SET ${assignments.join(", ")} WHERE id = :id`, values);
@@ -863,7 +875,7 @@ async function resolveCloudPartner(kind: "customers" | "undertakingUnits", value
   const config = kind === "customers"
     ? { table: "merge_common_customers", id: "customerId", code: "customerCode", names: ["name", "nameCn", "shortName"] }
     : { table: "merge_common_undertaking_units", id: "undertakingUnitId", code: "undertakingUnitCode", names: ["name", "nameCn", "entityName", "shortName"] };
-  const conditions = candidates.flatMap((_, index) => [`${config.code} = :value${index}`, ...config.names.map((field) => `${field} = :value${index}`)]);
+  const conditions = candidates.flatMap((_, index) => [`${config.id} = :value${index}`, `${config.code} = :value${index}`, ...config.names.map((field) => `${field} = :value${index}`)]);
   const values = Object.fromEntries(candidates.map((candidate, index) => [`value${index}`, candidate]));
   const rows = await queryRowsRaw<Row>(
     `SELECT ${config.id} AS id, ${config.code} AS code, ${config.names.map((field) => `${field} AS ${field}`).join(", ")}

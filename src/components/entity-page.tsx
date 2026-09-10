@@ -92,6 +92,7 @@ export function EntityPage({
   const [b6TypeConfigs, setB6TypeConfigs] = useState<Row[]>([]);
   const [instanceContracts, setInstanceContracts] = useState<Row[]>([]);
   const [shipmentLookups, setShipmentLookups] = useState<Record<string, Row[]>>({});
+  const [countryDefaultLookups, setCountryDefaultLookups] = useState<Record<"undertaking-units" | "customers", Row[]>>({ "undertaking-units": [], customers: [] });
   const [customerPoProducts, setCustomerPoProducts] = useState<Row[]>([]);
   const [customerPoProduct, setCustomerPoProduct] = useState<Row | null>(null);
   const [quotationItemQuotationId, setQuotationItemQuotationId] = useState("");
@@ -297,6 +298,27 @@ export function EntityPage({
   }, [config.key]);
 
   useEffect(() => {
+    if (config.key !== "countries") {
+      setCountryDefaultLookups({ "undertaking-units": [], customers: [] });
+      return;
+    }
+
+    let active = true;
+    void Promise.all([
+      fetchAllEntityRows<Row>("undertaking-units"),
+      fetchAllEntityRows<Row>("customers"),
+    ]).then(([undertakingUnits, customers]) => {
+      if (active) setCountryDefaultLookups({ "undertaking-units": undertakingUnits, customers });
+    }).catch(() => {
+      if (active) setCountryDefaultLookups({ "undertaking-units": [], customers: [] });
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [config.key]);
+
+  useEffect(() => {
     if (config.key !== "customer-po-items" && config.key !== "quotation-items") {
       setCustomerPoProducts([]);
       setCustomerPoProduct(null);
@@ -467,6 +489,23 @@ export function EntityPage({
     () => productCategories.find((row) => String(row.deviceType ?? "") === productCategoryDraft.trim()) ?? null,
     [productCategories, productCategoryDraft],
   );
+
+  function getListCellValue(row: Row, column: EntityField) {
+    if (config.key !== "countries" || !["defaultUndertakingUnitId", "defaultCustomerId"].includes(column.key)) {
+      return getConfiguredValue(row[column.key], column);
+    }
+
+    const isUndertakingUnit = column.key === "defaultUndertakingUnitId";
+    const id = String(row[column.key] ?? "").trim();
+    if (!id) return "-";
+    const reference = countryDefaultLookups[isUndertakingUnit ? "undertaking-units" : "customers"].find((candidate) =>
+      String(candidate[isUndertakingUnit ? "undertakingUnitId" : "customerId"] ?? "") === id,
+    );
+    if (!reference) return id;
+
+    const name = String(reference.shortName ?? reference[isUndertakingUnit ? "entityName" : "nameCn"] ?? reference.name ?? "").trim();
+    return name || id;
+  }
 
   async function saveRow(formData: FormData) {
     if (config.key === "billing-ledgers" && !confirm("确认调整该月账单台账吗？调整后会重新生成对应的每月核销明细。")) {
@@ -816,14 +855,14 @@ export function EntityPage({
                         <PartyListCell config={config} row={row} column={column} firstVisibleKey={visibleColumns[0]?.key ?? ""} nameField={partyNameField} />
                       ) : config.detailRoute && column.key === visibleColumns[0]?.key ? (
                         <Link className="text-[#1890ff] hover:underline" href={`${config.detailRoute}/${encodeURIComponent(String(row[config.primaryKey] ?? ""))}`}>
-                          {getConfiguredValue(row[column.key], column)}
+                          {getListCellValue(row, column)}
                         </Link>
                       ) : config.key === "shipments" && column.key === "poNo" && row.purchaseOrderId ? (
                         <Link className="text-[#1890ff] hover:underline" href={`/purchase/orders/${encodeURIComponent(String(row.purchaseOrderId))}`}>
-                          {getConfiguredValue(row[column.key], column)}
+                          {getListCellValue(row, column)}
                         </Link>
                       ) : (
-                        getConfiguredValue(row[column.key], column)
+                        getListCellValue(row, column)
                       )}
                     </td>
                   ))}
@@ -920,6 +959,21 @@ export function EntityPage({
                       name={field.key}
                       defaultValue={String(editing?.[field.key] ?? fixedValues[field.key] ?? "")}
                     />
+                  ) : field.lookupSource === "undertaking-units" || field.lookupSource === "customers" ? (
+                    <select
+                      className="h-9 w-full rounded border border-[#dcdfe6] bg-white px-3 text-sm outline-none focus:border-[#1890ff]"
+                      defaultValue={String(editing?.[field.key] ?? fixedValues[field.key] ?? "")}
+                      name={field.key}
+                      required={field.required}
+                    >
+                      <option value="">请选择</option>
+                      {countryDefaultLookups[field.lookupSource].map((row) => {
+                        const isUndertakingUnit = field.lookupSource === "undertaking-units";
+                        const id = String(row[isUndertakingUnit ? "undertakingUnitId" : "customerId"] ?? "");
+                        const name = String(row[isUndertakingUnit ? "shortName" : "shortName"] ?? row[isUndertakingUnit ? "entityName" : "nameCn"] ?? row.name ?? "");
+                        return <option key={id} value={id}>{name || id}</option>;
+                      })}
+                    </select>
                   ) : field.type === "select" ? (
                     <select
                       className="h-9 w-full rounded border border-[#dcdfe6] bg-white px-3 text-sm outline-none focus:border-[#1890ff]"
