@@ -540,6 +540,16 @@ async function main() {
     "receivableDate",
     "`receivableDate` DATE NULL COMMENT '应收日期' AFTER `paymentDate`",
   );
+  // 供应商付款的应付金额快照：前端按账期+供应商汇总展示，这里落库供外部系统直接读取。
+  for (const [columnName, ddl] of [
+    ["supplierPayableCurrency", "`supplierPayableCurrency` VARCHAR(10) NULL COMMENT '应付币种' AFTER `supplierName`"],
+    ["supplierPayableNetAmount", "`supplierPayableNetAmount` DECIMAL(18,4) NULL COMMENT '应付未税金额' AFTER `supplierPayableCurrency`"],
+    ["supplierTaxRate", "`supplierTaxRate` DECIMAL(10,6) NULL COMMENT '应付税率' AFTER `supplierPayableNetAmount`"],
+    ["supplierTaxAmount", "`supplierTaxAmount` DECIMAL(18,4) NULL COMMENT '应付税金' AFTER `supplierTaxRate`"],
+    ["supplierPayableTotalAmount", "`supplierPayableTotalAmount` DECIMAL(18,4) NULL COMMENT '应付含税金额' AFTER `supplierTaxAmount`"],
+  ] as const) {
+    await addColumnIfMissing("merge_cloud_supplier_payments", columnName, ddl);
+  }
 
   for (const [columnName, ddl] of [
     ["brand", "`brand` VARCHAR(255) NULL"],

@@ -25,6 +25,7 @@
     "schema:sync-remote": "tsx scripts/sync-remote-schema.ts",
     "migrate": "tsx scripts/migrate.ts",
     "cleanup:operation-logs": "tsx scripts/cleanup-operation-logs.ts",
+    "sync:cloud-supplier-payments": "tsx scripts/sync-cloud-supplier-payments.ts",
     "sync:materials": "tsx scripts/sync-materials.ts",
     "sync:frappe-demands": "tsx scripts/sync-frappe-demands.ts",
     "internal-service-fees:sync": "tsx scripts/resync-internal-service-fees.ts",

@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import * as XLSX from "xlsx";
 import { executeRaw, queryRows, queryRowsRaw, type Row } from "./db";
 import { calculateCloudTaxGroup, CLOUD_TAX_GROUPS, type CloudTaxGroup } from "./cloud-tax";
@@ -99,7 +99,6 @@ const CLOUD_PAYMENT_FILTER_EXPRESSIONS: Record<string, string> = {
   accountCount: "accountCount",
   supplierPayableCurrency: "supplierPayableCurrency",
   supplierPayableNetAmount: "supplierPayableNetAmount",
-  supplierPayableExchangeRate: "supplierPayableExchangeRate",
   supplierTaxRate: "supplierTaxRate",
   supplierTaxAmount: "supplierTaxAmount",
   supplierPayableTotalAmount: "supplierPayableTotalAmount",
@@ -159,7 +158,6 @@ const CLOUD_SUPPLIER_PAYMENT_FROM = `(SELECT
     COUNT(*) AS accountCount,
     COALESCE(SUM(COALESCE(r.supplierPayableNetAmount, r.supplierPayable, 0)), 0) AS supplierPayableNetAmount,
     'USD' AS supplierPayableCurrency,
-    NULL AS supplierPayableExchangeRate,
     MAX(COALESCE(r.supplierTaxRate, 0.16)) AS supplierTaxRate,
     COALESCE(SUM(COALESCE(r.supplierTaxAmount, COALESCE(r.supplierPayableNetAmount, r.supplierPayable, 0) * COALESCE(r.supplierTaxRate, 0.16))), 0) AS supplierTaxAmount,
     COALESCE(SUM(COALESCE(r.supplierPayableTotalAmount, COALESCE(r.supplierPayableNetAmount, r.supplierPayable, 0) + COALESCE(r.supplierTaxAmount, COALESCE(r.supplierPayableNetAmount, r.supplierPayable, 0) * COALESCE(r.supplierTaxRate, 0.16)))), 0) AS supplierPayableTotalAmount,
@@ -208,7 +206,6 @@ const CLOUD_SUPPLIER_PAYMENT_GROUPS = `(SELECT
     COUNT(DISTINCT r.account) AS accountCount,
     'USD' AS supplierPayableCurrency,
     COALESCE(SUM(COALESCE(r.supplierPayableNetAmount, r.supplierPayable, 0)), 0) AS supplierPayableNetAmount,
-    NULL AS supplierPayableExchangeRate,
     MAX(COALESCE(r.supplierTaxRate, 0.16)) AS supplierTaxRate,
     COALESCE(SUM(COALESCE(r.supplierTaxAmount, COALESCE(r.supplierPayableNetAmount, r.supplierPayable, 0) * COALESCE(r.supplierTaxRate, 0.16))), 0) AS supplierTaxAmount,
     COALESCE(SUM(COALESCE(r.supplierPayableTotalAmount, COALESCE(r.supplierPayableNetAmount, r.supplierPayable, 0) + COALESCE(r.supplierTaxAmount, COALESCE(r.supplierPayableNetAmount, r.supplierPayable, 0) * COALESCE(r.supplierTaxRate, 0.16)))), 0) AS supplierPayableTotalAmount,
@@ -615,6 +612,7 @@ export async function createCloudRow(body: Row, actor: OperationActor | null) {
      :calculationLogic,:customerDiscount,:remark,:collectionInvoice,:collected,:collectionPayer,:collectionPayee,:collectionPayerCustomerId,:collectionPayeeUndertakingUnitId,:collectionCurrency,:collectionExchangeRate,
      :collectionNetAmount,:collectionTaxRate,:collectionTaxAmount,:collectionTotalAmount,:collectionDate,:receivableDate,:invoiceNo,:invoiceCurrency,:invoicePayer,:invoicePayee,
      :invoiceNetAmount,:invoiceTaxRate,:invoiceTaxAmount,:invoiceTotalAmount,:invoiceExchangeRate,:invoiceDate,:createdByUserId,:createdByName,:updatedByUserId,:updatedByName)`, row);
+  await syncCloudSupplierPaymentPeriods([period]);
   return (await queryRowsRaw<Row>("SELECT * FROM merge_cloud_rows WHERE id = :id", { id: row.id }))[0] ?? null;
 }
 
@@ -673,6 +671,7 @@ export async function updateCloudRow(id: string, body: Row, actor: OperationActo
     values.updatedByName = actor.displayName;
   }
   await executeRaw(`UPDATE merge_cloud_rows SET ${assignments.join(", ")} WHERE id = :id`, values);
+  await syncCloudSupplierPaymentPeriods([text(existing.period), text(merged.period)]);
   return (await queryRowsRaw<Row>("SELECT * FROM merge_cloud_rows WHERE id = :id", { id }))[0] ?? null;
 }
 
@@ -684,6 +683,15 @@ export async function confirmCloudRow(id: string, confirmed: boolean, actor: Ope
     { id, confirmed: confirmed ? 1 : 0, userId: actor?.userId ?? null, userName: actor?.displayName ?? null },
   );
   return (await queryRowsRaw<Row>("SELECT * FROM merge_cloud_rows WHERE id = :id", { id }))[0] ?? null;
+}
+
+export async function deleteCloudRow(id: string) {
+  const existing = (await queryRowsRaw<Row>("SELECT id, period FROM merge_cloud_rows WHERE id = :id", { id }))[0];
+  if (!existing) throw new Error("对账单不存在");
+  await executeRaw("DELETE FROM merge_cloud_attachments WHERE ownerType IN ('reconciliation', 'collection', 'invoice') AND ownerId = :id", { id });
+  await executeRaw("DELETE FROM merge_cloud_rows WHERE id = :id", { id });
+  await syncCloudSupplierPaymentPeriods([text(existing.period)]);
+  return { ok: true };
 }
 
 export async function listCloudMappings(params: URLSearchParams) {
@@ -742,12 +750,15 @@ export async function saveCloudMapping(body: Row, id: string | null, actor: Oper
   await executeRaw("DELETE FROM merge_cloud_mapping_accounts WHERE mappingId = :mappingId", { mappingId });
   const accounts = Array.isArray(body.accounts) ? body.accounts.flatMap(splitCloudAccounts) : splitCloudAccounts(body.accounts);
   for (const account of accounts) await executeRaw("INSERT IGNORE INTO merge_cloud_mapping_accounts (id,mappingId,account) VALUES (:id,:mappingId,:account)", { id: randomUUID(), mappingId, account });
+  // 服务映射决定每个账号归属的供应商，改动后所有账期的供应商汇总都需要重算。
+  await syncAllCloudSupplierPayments();
   return (await queryRowsRaw<Row>("SELECT * FROM merge_cloud_mappings WHERE id = :id", { id: mappingId }))[0] ?? null;
 }
 
 export async function deleteCloudMapping(id: string) {
   await executeRaw("DELETE FROM merge_cloud_mapping_accounts WHERE mappingId = :id", { id });
   await executeRaw("DELETE FROM merge_cloud_mappings WHERE id = :id", { id });
+  await syncAllCloudSupplierPayments();
 }
 
 export async function cloudMasterData(keyword = "") {
@@ -780,7 +791,6 @@ export async function listCloudSupplierPayments(params: URLSearchParams) {
     const children = await queryRowsRaw<Row>(
       `SELECT r.id, ${CLOUD_PERIOD_SQL("r.period")} AS period, r.customer, r.account, 'USD' AS supplierPayableCurrency,
          COALESCE(r.supplierPayableNetAmount, r.supplierPayable, 0) AS supplierPayableNetAmount,
-         NULL AS supplierPayableExchangeRate,
          COALESCE(r.supplierTaxRate, 0.16) AS supplierTaxRate,
          COALESCE(r.supplierTaxAmount, COALESCE(r.supplierPayableNetAmount, r.supplierPayable, 0) * COALESCE(r.supplierTaxRate, 0.16)) AS supplierTaxAmount,
          COALESCE(r.supplierPayableTotalAmount, COALESCE(r.supplierPayableNetAmount, r.supplierPayable, 0) + COALESCE(r.supplierTaxAmount, COALESCE(r.supplierPayableNetAmount, r.supplierPayable, 0) * COALESCE(r.supplierTaxRate, 0.16))) AS supplierPayableTotalAmount,
@@ -865,7 +875,158 @@ export async function updateCloudSupplierPayment(id: string, body: Row, actor: O
       createdByUserId: actor?.userId ?? null, createdByName: actor?.displayName ?? null, updatedByUserId: actor?.userId ?? null, updatedByName: actor?.displayName ?? null,
     });
   }
+  // 顺带刷新该账期的应付快照：即使账期数据在本次功能上线前就已存在，保存付款信息后也会补齐。
+  await syncCloudSupplierPaymentPeriods([text(target?.period) || text(body.period)]);
   return (await queryRowsRaw<Row>("SELECT * FROM merge_cloud_supplier_payments WHERE id = :id", { id: values.id }))[0] ?? null;
+}
+
+export const CLOUD_SUPPLIER_PAYABLE_COLUMNS = [
+  "supplierPayableCurrency",
+  "supplierPayableNetAmount",
+  "supplierTaxRate",
+  "supplierTaxAmount",
+  "supplierPayableTotalAmount",
+] as const;
+
+const CLOUD_SUPPLIER_PAYMENT_USER_COLUMNS = [
+  "payerUnitId", "payerUnitName", "currency", "paymentExchangeRate", "paymentNetAmount", "paymentTaxRate",
+  "paymentTaxAmount", "paymentTotalAmount", "paymentDate", "receivableDate", "invoiceNo", "invoiceCurrency",
+  "invoiceExchangeRate", "invoiceNetAmount", "invoiceTaxRate", "invoiceTaxAmount", "invoiceTotalAmount", "invoiceDate",
+] as const;
+
+/**
+ * 汇总分组与付款行使用同一套供应商身份：有供应商 ID 用 ID，否则退回名称。
+ * 必须与 CLOUD_SUPPLIER_PAYMENT_FROM_V2 的关联条件保持一致。
+ */
+export function cloudSupplierPaymentMatchKey(row: Row) {
+  const supplierId = text(row.supplierId);
+  return supplierId ? `id:${supplierId}` : `name:${text(row.supplierName)}`;
+}
+
+/** 付款行上是否已有业务手工录入的实付/开票数据，重算汇总时不能静默删除。 */
+export function cloudSupplierPaymentHasUserData(row: Row) {
+  if (CLOUD_SUPPLIER_PAYMENT_USER_COLUMNS.some((key) => text(row[key]) !== "")) return true;
+  if (Number(row.paid ?? 0) !== 0) return true;
+  const invoiceStatus = text(row.invoiceStatus);
+  return Boolean(invoiceStatus) && invoiceStatus !== "not_issued";
+}
+
+function cloudSupplierPaymentRowId(period: string, key: string) {
+  const raw = `supplier-payment:${period}:${key}`;
+  // id 列长度 80；超长名称用摘要收尾，避免截断后互相撞车。
+  return raw.length <= 80 ? raw : `${raw.slice(0, 64)}:${createHash("sha1").update(raw).digest("hex").slice(0, 12)}`;
+}
+
+export type CloudSupplierPaymentSyncResult = {
+  periods: string[];
+  created: number;
+  updated: number;
+  removed: number;
+  cleared: number;
+};
+
+/**
+ * 把指定账期的供应商应付汇总写回 merge_cloud_supplier_payments。
+ *
+ * - 账期数据（merge_cloud_rows）变化后调用，保证数据库里的应付字段与页面口径一致；
+ * - 只写应付字段，不覆盖业务录入的实付、开票和付款状态；
+ * - 账期中已不存在的供应商：没有任何实付/开票信息的汇总行直接删除，
+ *   已录入过数据的行保留并清零应付金额。
+ */
+export async function syncCloudSupplierPaymentPeriods(periods: readonly string[]): Promise<CloudSupplierPaymentSyncResult> {
+  const normalizedPeriods = Array.from(new Set(periods.map((period) => normalizeCloudPeriod(period)).filter(Boolean)));
+  if (!normalizedPeriods.length) return { periods: [], created: 0, updated: 0, removed: 0, cleared: 0 };
+
+  const [groupRows, paymentRows] = await Promise.all([
+    queryRowsRaw<Row>(
+      `SELECT period, supplierId, supplierName, ${CLOUD_SUPPLIER_PAYABLE_COLUMNS.join(", ")}
+         FROM ${CLOUD_SUPPLIER_PAYMENT_GROUPS} g
+        WHERE g.period IN (:periods)`,
+      { periods: normalizedPeriods },
+    ),
+    queryRowsRaw<Row>(
+      `SELECT id, period, supplierId, supplierName, paid, invoiceStatus, ${CLOUD_SUPPLIER_PAYMENT_USER_COLUMNS.join(", ")}
+         FROM merge_cloud_supplier_payments
+        WHERE ${CLOUD_PERIOD_SQL("period")} IN (:periods)`,
+      { periods: normalizedPeriods },
+    ),
+  ]);
+
+  const remaining = new Map<string, Row[]>();
+  for (const row of paymentRows) {
+    const key = cloudSupplierPaymentMatchKey(row);
+    remaining.set(key, [...(remaining.get(key) ?? []), row]);
+  }
+
+  let created = 0;
+  let updated = 0;
+  for (const group of groupRows) {
+    const key = cloudSupplierPaymentMatchKey(group);
+    const period = normalizeCloudPeriod(group.period);
+    const payable: Row = {
+      period,
+      supplierId: text(group.supplierId) || null,
+      supplierName: text(group.supplierName) || "未匹配供应商",
+      supplierPayableCurrency: text(group.supplierPayableCurrency) || "USD",
+      supplierPayableNetAmount: nullableNumber(group.supplierPayableNetAmount),
+      supplierTaxRate: rate(group.supplierTaxRate),
+      supplierTaxAmount: nullableNumber(group.supplierTaxAmount),
+      supplierPayableTotalAmount: nullableNumber(group.supplierPayableTotalAmount),
+    };
+    const queue = remaining.get(key);
+    const existing = queue?.shift();
+    if (queue && !queue.length) remaining.delete(key);
+    if (existing) {
+      await executeRaw(
+        `UPDATE merge_cloud_supplier_payments
+            SET period = :period, supplierId = :supplierId, supplierName = :supplierName,
+                supplierPayableCurrency = :supplierPayableCurrency,
+                supplierPayableNetAmount = :supplierPayableNetAmount,
+                supplierTaxRate = :supplierTaxRate,
+                supplierTaxAmount = :supplierTaxAmount,
+                supplierPayableTotalAmount = :supplierPayableTotalAmount
+          WHERE id = :id`,
+        { ...payable, id: existing.id },
+      );
+      updated += 1;
+      continue;
+    }
+    await executeRaw(
+      `INSERT INTO merge_cloud_supplier_payments
+         (id, period, supplierId, supplierName, supplierPayableCurrency, supplierPayableNetAmount,
+          supplierTaxRate, supplierTaxAmount, supplierPayableTotalAmount)
+       VALUES
+         (:id, :period, :supplierId, :supplierName, :supplierPayableCurrency, :supplierPayableNetAmount,
+          :supplierTaxRate, :supplierTaxAmount, :supplierPayableTotalAmount)`,
+      { ...payable, id: cloudSupplierPaymentRowId(period, key) },
+    );
+    created += 1;
+  }
+
+  let removed = 0;
+  let cleared = 0;
+  for (const row of [...remaining.values()].flat()) {
+    if (cloudSupplierPaymentHasUserData(row)) {
+      await executeRaw(
+        `UPDATE merge_cloud_supplier_payments
+            SET period = :period, supplierPayableNetAmount = 0, supplierTaxAmount = 0, supplierPayableTotalAmount = 0
+          WHERE id = :id`,
+        { id: row.id, period: normalizeCloudPeriod(row.period) },
+      );
+      cleared += 1;
+    } else {
+      await executeRaw("DELETE FROM merge_cloud_supplier_payments WHERE id = :id", { id: row.id });
+      removed += 1;
+    }
+  }
+
+  return { periods: normalizedPeriods, created, updated, removed, cleared };
+}
+
+/** 重算全部账期：服务映射会改变供应商归集，历史回填也走这里。 */
+export async function syncAllCloudSupplierPayments() {
+  const rows = await queryRowsRaw<{ period: string }>(`SELECT DISTINCT ${CLOUD_PERIOD_SQL("period")} AS period FROM merge_cloud_rows`);
+  return syncCloudSupplierPaymentPeriods(rows.map((row) => text(row.period)).filter(Boolean));
 }
 
 async function resolveCloudPartner(kind: "customers" | "undertakingUnits", value: unknown) {
@@ -906,6 +1067,7 @@ export async function importCloudWorkbook(buffer: Buffer, fileName: string, peri
   const batchId = randomUUID();
   const batchCode = `HC-${resolvedPeriod.replace(/[^0-9]/g, "")}-${Date.now().toString().slice(-6)}`;
   await executeRaw(`INSERT INTO merge_cloud_import_batches (id,batchCode,period,fileName,rowCount,importedByUserId,importedByName) VALUES (:id,:batchCode,:period,:fileName,:rowCount,:userId,:userName)`, { id: batchId, batchCode, period: resolvedPeriod, fileName, rowCount: normalized.length, userId: actor?.userId ?? null, userName: actor?.displayName ?? null });
+  const affectedPeriods = new Set<string>();
   for (const source of normalized) {
     const account = text(source.account);
     const accountMapping = getCloudAccountMapping(accountMappings, account);
@@ -964,7 +1126,10 @@ export async function importCloudWorkbook(buffer: Buffer, fileName: string, peri
         :theoreticalGrossProfit,:settlementGrossProfit,:grossProfit,:calculationLogic,:customerDiscount,:remark,:collectionInvoice,:collected,:collectionPayer,:collectionPayee,:collectionPayerCustomerId,:collectionPayeeUndertakingUnitId,:collectionCurrency,:collectionExchangeRate,
         :collectionNetAmount,:collectionTaxRate,:collectionTaxAmount,:collectionTotalAmount,:collectionDate,:receivableDate,:invoiceNo,:invoiceCurrency,:invoicePayer,:invoicePayee,:invoicePayerCustomerId,:invoicePayeeUndertakingUnitId,:invoiceNetAmount,:invoiceTaxRate,
        :invoiceTaxAmount,:invoiceTotalAmount,:invoiceExchangeRate,:invoiceDate,:createdByUserId,:createdByName,:updatedByUserId,:updatedByName)`, row);
+    affectedPeriods.add(text(row.period));
   }
+  // 账期一旦导入完成，立即生成该账期的供应商应付汇总，不再等到点击开票/付款。
+  await syncCloudSupplierPaymentPeriods([...affectedPeriods]);
   return { batchId, batchCode, period: resolvedPeriod, rowCount: normalized.length };
 }
 

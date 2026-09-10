@@ -25,7 +25,7 @@ const columns: Array<[string, string]> = [
 const mappingColumns: Array<[string, string]> = [["supplierName", "供应商"], ["undertakingUnitName", "承接单位"], ["customerName", "客户"], ["accounts", "账号"], ["reconciler", "对账人"], ["calculationLogic", "计算逻辑"], ["userDiscount", "客户折扣"]];
 const paymentColumns: Array<[string, string]> = [
   ["period", "账期"], ["supplierName", "供应商"], ["accountCount", "账号数"],
-  ["supplierPayableNetAmount", "应付未税金额"], ["supplierPayableExchangeRate", "应付汇率"],
+  ["supplierPayableNetAmount", "应付未税金额"],
   ["supplierTaxRate", "应付税率"], ["supplierTaxAmount", "应付税金"], ["supplierPayableTotalAmount", "应付含税金额"],
   ["paymentNetAmount", "实付未税金额"], ["paymentExchangeRate", "实付汇率"], ["paymentTaxRate", "实付税率"], ["paymentTaxAmount", "实付税金"], ["paymentTotalAmount", "实付含税金额"], ["invoiceCurrency", "开票币种"], ["invoiceNetAmount", "开票未税金额"],
   ["invoiceExchangeRate", "开票汇率"], ["invoiceTaxRate", "开票税率"], ["invoiceTaxAmount", "开票税金"], ["invoiceTotalAmount", "开票含税金额"],
@@ -363,7 +363,6 @@ function PaymentTable({ rows, onUpdate, onTogglePaid, onToggleInvoice, query, on
     }
     if (key === "supplierPayableCurrency") return display(row[key] || "USD");
     if (["supplierPayableNetAmount", "supplierTaxAmount", "supplierPayableTotalAmount"].includes(key)) return money(row[key], String(row.supplierPayableCurrency || "USD"));
-    if (key === "supplierPayableExchangeRate") return exchangeRateText(row[key]);
     if (key === "supplierTaxRate" || key === "invoiceTaxRate") return rateText(row[key]);
     if (["paymentNetAmount", "paymentTaxAmount", "paymentTotalAmount"].includes(key)) return money(row[key], String(row.currency || "USD"));
     if (key === "currency") return display(row[key] || "USD");
