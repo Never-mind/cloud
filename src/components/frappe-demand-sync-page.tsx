@@ -5,7 +5,7 @@ import { DatabaseZap, FileSearch, Pencil, Play, RefreshCw, Save, X } from "lucid
 import { Button, Input, Panel } from "./ui";
 import { StickyTable } from "./sticky-table";
 
-type Tab = "supplier" | "material" | "datacenter" | "delivery_location" | "delivery_recipient_list";
+type Tab = "supplier" | "material";
 type Row = Record<string, unknown>;
 type Mapping = Row & {
   mappingId: string;
@@ -55,9 +55,6 @@ const emptyMasters: MasterSet = { suppliers: [], instanceModels: [], datacenters
 const tabs: Array<[Tab, string]> = [
   ["supplier", "供应商映射"],
   ["material", "实例/物料映射"],
-  ["datacenter", "机房映射"],
-  ["delivery_location", "收货地址映射"],
-  ["delivery_recipient_list", "收件人映射"],
 ];
 
 function text(value: unknown) {

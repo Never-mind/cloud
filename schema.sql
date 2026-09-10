@@ -808,13 +808,21 @@ CREATE TABLE IF NOT EXISTS `merge_power_shipments` (
     `nameEn` VARCHAR(255) NULL COMMENT 'instance english name',
   `supplierId` VARCHAR(64) NULL COMMENT 'supplier id',
   `undertakingUnitId` VARCHAR(64) NULL COMMENT 'undertaking unit id',
-  `dcCode` VARCHAR(64) NULL COMMENT 'datacenter code',
-  `dcNameZh` VARCHAR(255) NULL COMMENT 'datacenter Chinese name',
-  `destinationLocationId` VARCHAR(64) NOT NULL COMMENT 'destination location id',
-  `recipientContactId` VARCHAR(64) NOT NULL COMMENT 'recipient contact id',
+  `dcCode` VARCHAR(128) NULL COMMENT 'legacy/local datacenter code',
+  `dcNameZh` VARCHAR(512) NULL COMMENT 'datacenter display name snapshot',
+  `destinationLocationId` VARCHAR(128) NOT NULL COMMENT 'legacy/local destination location id',
+  `recipientContactId` VARCHAR(128) NOT NULL COMMENT 'legacy/local recipient contact id',
   `snapshotDestinationAddress` TEXT NOT NULL COMMENT 'immutable delivery address snapshot',
   `snapshotRecipientName` VARCHAR(255) NOT NULL COMMENT 'immutable recipient name snapshot',
   `snapshotRecipientPhone` VARCHAR(64) NOT NULL COMMENT 'immutable recipient phone snapshot',
+  `remoteDemandOrderId` VARCHAR(128) NULL COMMENT 'remote demand order id',
+  `remoteDatacenterId` VARCHAR(128) NULL COMMENT 'remote datacenter id',
+  `remoteDeliveryLocationId` VARCHAR(128) NULL COMMENT 'remote delivery location id',
+  `remoteRecipientListId` VARCHAR(128) NULL COMMENT 'remote recipient list id',
+  `remoteLogisticsSourceStatus` VARCHAR(32) NOT NULL DEFAULT 'legacy' COMMENT 'remote/legacy',
+  `remoteLogisticsModifiedAt` DATETIME NULL COMMENT 'latest remote logistics update time',
+  `logisticsSnapshotJson` LONGTEXT NULL COMMENT 'remote logistics payload captured at purchase confirmation',
+  `logisticsSnapshotAt` DATETIME NULL COMMENT 'remote logistics snapshot time',
   `transportMode` VARCHAR(64) NULL COMMENT 'air/sea',
   `isReceived` BOOLEAN NOT NULL DEFAULT FALSE COMMENT 'received flag',
   `crd` DATE NULL COMMENT 'CRD',
@@ -832,7 +840,9 @@ CREATE TABLE IF NOT EXISTS `merge_power_shipments` (
   KEY `idx_Shipments_purchaseOrderItemId` (`purchaseOrderItemId`),
   KEY `idx_Shipments_dcCode` (`dcCode`),
   KEY `idx_Shipments_destinationLocationId` (`destinationLocationId`),
-  KEY `idx_Shipments_recipientContactId` (`recipientContactId`)
+  KEY `idx_Shipments_recipientContactId` (`recipientContactId`),
+  KEY `idx_Shipments_remoteDemandOrderId` (`remoteDemandOrderId`),
+  KEY `idx_Shipments_remoteDatacenterId` (`remoteDatacenterId`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Shipments';
 
 CREATE TABLE IF NOT EXISTS `merge_power_documentfolders` (

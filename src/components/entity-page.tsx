@@ -91,7 +91,7 @@ export function EntityPage({
   const [instanceModels, setInstanceModels] = useState<Row[]>([]);
   const [b6TypeConfigs, setB6TypeConfigs] = useState<Row[]>([]);
   const [instanceContracts, setInstanceContracts] = useState<Row[]>([]);
-  const [shipmentLookups, setShipmentLookups] = useState<Record<string, Row[]>>({});
+  const [refreshingShipmentId, setRefreshingShipmentId] = useState<string | null>(null);
   const [countryDefaultLookups, setCountryDefaultLookups] = useState<Record<"undertaking-units" | "customers", Row[]>>({ "undertaking-units": [], customers: [] });
   const [customerPoProducts, setCustomerPoProducts] = useState<Row[]>([]);
   const [customerPoProduct, setCustomerPoProduct] = useState<Row | null>(null);
@@ -279,22 +279,6 @@ export function EntityPage({
     if (config.key !== "billing-ledgers") return;
 
     void fetchAllEntityRows<Row>("instance-contracts").then(setInstanceContracts);
-  }, [config.key]);
-
-  useEffect(() => {
-    if (config.key !== "shipments") return;
-
-    void Promise.all([
-      fetchAllEntityRows("datacenters"),
-      fetchAllEntityRows("delivery-locations"),
-      fetchAllEntityRows("delivery-contacts"),
-    ]).then(([datacenters, locations, contacts]) => {
-      setShipmentLookups({
-        datacenters,
-        "delivery-locations": locations,
-        "delivery-contacts": contacts,
-      });
-    });
   }, [config.key]);
 
   useEffect(() => {
@@ -574,7 +558,7 @@ export function EntityPage({
   }
 
   async function syncConfirmedPurchaseOrderShipments() {
-    if (!confirm("将为所有已确认采购订单补生成或更新物流实例行。已填写的物流时间、地址、收件人和签收信息不会被覆盖，是否继续？")) {
+    if (!confirm("将为所有已确认采购订单补生成物流记录，并仅为历史物流补抓远端快照。已存在的远端物流快照不会被覆盖，是否继续？")) {
       return;
     }
     const response = await fetch("/api/procurement/shipments/sync", { method: "POST" });
@@ -583,8 +567,25 @@ export function EntityPage({
       alert(data.error ?? "同步物流数据失败");
       return;
     }
-    alert(`已同步 ${data.orderCount ?? 0} 张已确认采购订单：新增 ${data.created ?? 0} 条物流数据，更新 ${data.updated ?? 0} 条物流数据。`);
+    const errors = Array.isArray(data.errors) ? data.errors : [];
+    alert(`已同步 ${data.orderCount ?? 0} 张已确认采购订单：新增 ${data.created ?? 0} 条物流数据，更新 ${data.updated ?? 0} 条物流数据，写入 ${data.remoteSnapshots ?? 0} 条远端快照。${errors.length ? `\n${errors.length} 张采购订单未处理：${errors.map((item: { error?: string }) => item.error ?? "未知原因").join("；")}` : ""}`);
     await loadRows();
+  }
+
+  async function refreshShipmentRemoteLogistics(row: Row) {
+    const shipmentId = String(row.shipmentId ?? "").trim();
+    if (!shipmentId || !confirm(`重新从远端拉取物流 ${shipmentId} 的机房、地址和收件人信息吗？这会覆盖该物流记录当前的远端快照。`)) return;
+    setRefreshingShipmentId(shipmentId);
+    try {
+      const response = await fetch(`/api/shipments/${encodeURIComponent(shipmentId)}/remote-logistics`, { method: "POST" });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error ?? "远端物流信息重新拉取失败");
+      await loadRows();
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "远端物流信息重新拉取失败");
+    } finally {
+      setRefreshingShipmentId(null);
+    }
   }
 
   async function syncRemoteMaterials() {
@@ -879,7 +880,17 @@ export function EntityPage({
                         </>
                       ) : (
                         <>
+                          {config.key === "shipments" ? (
+                            <Button
+                              disabled={refreshingShipmentId === String(row.shipmentId ?? "")}
+                              onClick={() => void refreshShipmentRemoteLogistics(row)}
+                            >
+                              <RefreshCw size={14} />
+                              {refreshingShipmentId === String(row.shipmentId ?? "") ? "拉取中" : "重新拉取"}
+                            </Button>
+                          ) : null}
                           <Button
+                            className={config.key === "shipments" ? "ml-2" : undefined}
                             onClick={() => {
                               setEditing(row);
                               setInstanceContractDeviceCode(String(row.deviceCode ?? ""));
@@ -1044,8 +1055,6 @@ export function EntityPage({
                             ? "product-code-options"
                           : config.key === "product-masters" && field.key === "category"
                             ? "product-category-options"
-                          : config.key === "shipments"
-                            ? getShipmentLookupListId(field.lookupSource)
                             : undefined
                       }
                       placeholder={field.placeholder}
@@ -1205,13 +1214,6 @@ export function EntityPage({
                   <div className="mt-2 text-xs text-[#f56c6c]">未找到匹配的产品或历史报价。</div>
                 )}
               </div>
-            ) : null}
-            {config.key === "shipments" ? (
-              <>
-                <ShipmentLookupDatalist id="shipment-datacenters" rows={shipmentLookups.datacenters ?? []} source="datacenters" />
-                <ShipmentLookupDatalist id="shipment-delivery-locations" rows={shipmentLookups["delivery-locations"] ?? []} source="delivery-locations" />
-                <ShipmentLookupDatalist id="shipment-delivery-contacts" rows={shipmentLookups["delivery-contacts"] ?? []} source="delivery-contacts" />
-              </>
             ) : null}
             {config.key === "billing-ledgers" ? (
               <datalist id="billing-ledger-contract-nos">
@@ -1431,50 +1433,6 @@ function formatDateTimeInputValue(value: unknown) {
   const text = String(value).trim().replace(" ", "T");
   const match = text.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/);
   return match ? `${match[1]}T${match[2]}` : "";
-}
-
-function getShipmentLookupListId(source: EntityConfig["formFields"][number]["lookupSource"]) {
-  if (!source) return undefined;
-  return `shipment-${source}`;
-}
-
-function ShipmentLookupDatalist({
-  id,
-  rows,
-  source,
-}: {
-  id: string;
-  rows: Row[];
-  source: NonNullable<EntityConfig["formFields"][number]["lookupSource"]>;
-}) {
-  return (
-    <datalist id={id}>
-      {rows.map((row) => {
-        const option = getShipmentLookupOption(source, row);
-        return (
-          <option key={option.value} label={option.label} value={option.value}>
-            {option.label}
-          </option>
-        );
-      })}
-    </datalist>
-  );
-}
-
-function getShipmentLookupOption(
-  source: NonNullable<EntityConfig["formFields"][number]["lookupSource"]>,
-  row: Row,
-) {
-  if (source === "datacenters") {
-    const value = String(row.dcCode ?? "");
-    return { value, label: `${value} - ${String(row.nameZh ?? "")}` };
-  }
-  if (source === "delivery-locations") {
-    const value = String(row.locationId ?? "");
-    return { value, label: `${value} - ${String(row.nameZh ?? "")} ${String(row.fullAddress ?? "")}`.trim() };
-  }
-  const value = String(row.contactId ?? "");
-  return { value, label: `${value} - ${String(row.name ?? "")} ${String(row.phone ?? "")}`.trim() };
 }
 
 function findBillingContract(contracts: Row[], ledger: Row | null, contractNo: string) {

@@ -13,6 +13,7 @@ const DEFAULT_PAGE_SIZE = 200;
 
 const sourceTypes = ["supplier", "material", "datacenter", "delivery_location", "delivery_recipient_list"] as const;
 type SourceType = (typeof sourceTypes)[number];
+const activeMappingSourceTypes = ["supplier", "material"] as const;
 type MappingStatus = "pending" | "confirmed" | "conflict" | "ignored";
 
 type RemoteDemandItem = {
@@ -48,6 +49,54 @@ type RemoteSnapshot = {
   items: RemoteDemandItem[];
   orders: Map<string, RemoteDemandOrder>;
   sources: RemoteSource[];
+};
+
+type RemoteLogisticsDatacenter = {
+  id: string;
+  code: string;
+  nameZh: string;
+  nameEn: string;
+  country: string;
+  deliveryLocationId: string;
+  modified: string;
+};
+
+type RemoteLogisticsLocation = {
+  id: string;
+  locationType: string;
+  country: string;
+  state: string;
+  city: string;
+  address: string;
+  modified: string;
+};
+
+type RemoteLogisticsRecipient = {
+  id: string;
+  rawContact: string;
+  rawPhone: string;
+  recipientsSummary: string;
+  status: string;
+  modified: string;
+};
+
+export type FrappeDemandLogisticsSnapshot = {
+  remoteDemandOrderId: string;
+  remoteDatacenterId: string;
+  remoteDeliveryLocationId: string;
+  remoteRecipientListId: string;
+  datacenterName: string;
+  destinationAddress: string;
+  recipientName: string;
+  recipientPhone: string;
+  remoteModifiedAt: string | null;
+  snapshotJson: string;
+  snapshotAt: string;
+};
+
+export type FrappeDemandLogisticsLookup = {
+  snapshotsByRequestNo: Map<string, FrappeDemandLogisticsSnapshot>;
+  errorsByRequestNo: Map<string, string>;
 };
 
 type LocalCandidate = { id: string; label: string; entityType: string; method: string };
@@ -230,6 +279,167 @@ async function loadRemoteSnapshot(): Promise<RemoteSnapshot> {
   return { items, orders, sources };
 }
 
+function uniqueText(values: unknown[]) {
+  const seen = new Set<string>();
+  return values.flatMap((value) => {
+    const item = text(value);
+    const key = normalized(item);
+    if (!item || seen.has(key)) return [];
+    seen.add(key);
+    return [item];
+  });
+}
+
+function latestRemoteModifiedAt(...values: unknown[]) {
+  const dates = values.map(text).filter(Boolean).sort();
+  return dates.at(-1) ?? null;
+}
+
+function buildRemoteLogisticsSnapshot(
+  order: RemoteDemandOrder,
+  datacenter: RemoteLogisticsDatacenter,
+  location: RemoteLogisticsLocation,
+  recipient: RemoteLogisticsRecipient,
+) : FrappeDemandLogisticsSnapshot {
+  const sourceFetchedAt = new Date().toISOString();
+  const snapshotAt = sourceFetchedAt.replace("T", " ").replace(/\.\d{3}Z$/, "");
+  const datacenterName = text(firstValue(datacenter.nameZh, datacenter.nameEn, datacenter.code, datacenter.id));
+  const destinationAddress = uniqueText([location.address, location.city, location.state, location.country || datacenter.country]).join(", ");
+  const recipientName = text(firstValue(recipient.rawContact, recipient.recipientsSummary));
+  const recipientPhone = text(recipient.rawPhone);
+  const remoteModifiedAt = latestRemoteModifiedAt(order.modified, datacenter.modified, location.modified, recipient.modified);
+  return {
+    remoteDemandOrderId: order.id,
+    remoteDatacenterId: datacenter.id,
+    remoteDeliveryLocationId: location.id,
+    remoteRecipientListId: recipient.id,
+    datacenterName,
+    destinationAddress,
+    recipientName,
+    recipientPhone,
+    remoteModifiedAt,
+    snapshotAt,
+    snapshotJson: JSON.stringify({
+      datacenter: {
+        id: datacenter.id,
+        code: datacenter.code,
+        name: datacenterName,
+        country: datacenter.country,
+        modifiedAt: datacenter.modified || null,
+      },
+      deliveryLocation: {
+        id: location.id,
+        locationType: location.locationType,
+        country: location.country,
+        state: location.state,
+        city: location.city,
+        address: location.address,
+        displayAddress: destinationAddress,
+        modifiedAt: location.modified || null,
+      },
+      recipients: {
+        id: recipient.id,
+        names: recipientName,
+        phones: recipientPhone,
+        summary: recipient.recipientsSummary,
+        status: recipient.status,
+        modifiedAt: recipient.modified || null,
+      },
+      demandOrder: {
+        id: order.id,
+        customerPoNo: order.customerPoNo,
+        modifiedAt: order.modified || null,
+      },
+      sourceFetchedAt,
+    }),
+  };
+}
+
+/**
+ * Fetches only the logistics records required to create shipment snapshots.
+ * Remote data remains authoritative; this deliberately does not use local
+ * datacenter, delivery-location, or delivery-contact master data.
+ */
+export async function getFrappeDemandLogistics(requestNos: string[]): Promise<FrappeDemandLogisticsLookup> {
+  const normalizedRequestNos = Array.from(new Set(requestNos.map(text).filter(Boolean)));
+  const snapshotsByRequestNo = new Map<string, FrappeDemandLogisticsSnapshot>();
+  const errorsByRequestNo = new Map<string, string>();
+  if (!normalizedRequestNos.length) return { snapshotsByRequestNo, errorsByRequestNo };
+
+  const [rawOrders, rawDatacenters, rawLocations, rawRecipients] = await Promise.all([
+    fetchFrappeList("Demand Order", ["name", "customer_po_no", "datacenter", "delivery_recipient_list", "modified"]),
+    fetchFrappeList("Datacenter", ["name", "datacenter_code", "name_zh", "name_en", "country", "delivery_location", "modified"]),
+    fetchFrappeList("Delivery Location", ["name", "location_type", "country", "state", "city", "address", "modified"]),
+    fetchFrappeList("Delivery Recipient List", ["name", "raw_contact", "raw_phone", "recipients_summary", "status", "modified"]),
+  ]);
+
+  const ordersByCustomerPo = new Map<string, RemoteDemandOrder[]>();
+  for (const row of rawOrders) {
+    const order: RemoteDemandOrder = {
+      id: text(row.name),
+      customerPoNo: text(row.customer_po_no),
+      datacenterId: text(row.datacenter),
+      deliveryRecipientListId: text(row.delivery_recipient_list),
+      modified: text(row.modified),
+    };
+    if (!order.id || !order.customerPoNo) continue;
+    const key = normalized(order.customerPoNo);
+    ordersByCustomerPo.set(key, [...(ordersByCustomerPo.get(key) ?? []), order]);
+  }
+  const datacentersById = new Map(rawDatacenters.map((row) => {
+    const item: RemoteLogisticsDatacenter = {
+      id: text(row.name), code: text(row.datacenter_code), nameZh: text(row.name_zh), nameEn: text(row.name_en),
+      country: text(row.country), deliveryLocationId: text(row.delivery_location), modified: text(row.modified),
+    };
+    return [item.id, item] as const;
+  }).filter(([id]) => id));
+  const locationsById = new Map(rawLocations.map((row) => {
+    const item: RemoteLogisticsLocation = {
+      id: text(row.name), locationType: text(row.location_type), country: text(row.country), state: text(row.state),
+      city: text(row.city), address: text(row.address), modified: text(row.modified),
+    };
+    return [item.id, item] as const;
+  }).filter(([id]) => id));
+  const recipientsById = new Map(rawRecipients.map((row) => {
+    const item: RemoteLogisticsRecipient = {
+      id: text(row.name), rawContact: text(row.raw_contact), rawPhone: text(row.raw_phone),
+      recipientsSummary: text(row.recipients_summary), status: text(row.status), modified: text(row.modified),
+    };
+    return [item.id, item] as const;
+  }).filter(([id]) => id));
+
+  for (const requestNo of normalizedRequestNos) {
+    const matches = ordersByCustomerPo.get(normalized(requestNo)) ?? [];
+    if (!matches.length) {
+      errorsByRequestNo.set(requestNo, `远端未找到需求单号 ${requestNo}`);
+      continue;
+    }
+    if (matches.length > 1) {
+      errorsByRequestNo.set(requestNo, `远端需求单号 ${requestNo} 存在 ${matches.length} 条记录，无法确定物流信息`);
+      continue;
+    }
+    const order = matches[0];
+    const datacenter = datacentersById.get(order.datacenterId);
+    if (!datacenter) {
+      errorsByRequestNo.set(requestNo, `远端需求单 ${order.id} 未关联有效机房`);
+      continue;
+    }
+    const location = locationsById.get(datacenter.deliveryLocationId);
+    if (!location) {
+      errorsByRequestNo.set(requestNo, `远端机房 ${datacenter.code || datacenter.id} 未关联有效交付地址`);
+      continue;
+    }
+    const recipient = recipientsById.get(order.deliveryRecipientListId);
+    if (!recipient) {
+      errorsByRequestNo.set(requestNo, `远端需求单 ${order.id} 未关联有效收件人信息`);
+      continue;
+    }
+    snapshotsByRequestNo.set(requestNo, buildRemoteLogisticsSnapshot(order, datacenter, location, recipient));
+  }
+
+  return { snapshotsByRequestNo, errorsByRequestNo };
+}
+
 function sourceTargetType(sourceType: SourceType) {
   return ({ supplier: "supplier", material: "instance_model", datacenter: "datacenter", delivery_location: "delivery_location", delivery_recipient_list: "delivery_contact" } as const)[sourceType];
 }
@@ -337,11 +547,11 @@ async function saveSourceMapping(source: RemoteSource, actor: OperationActor | n
 
 export async function refreshFrappeDemandMappings(actor: OperationActor | null) {
   const snapshot = await loadRemoteSnapshot();
-  await Promise.all(snapshot.sources.map((source) => saveSourceMapping(source, actor)));
+  await Promise.all(snapshot.sources.filter((source) => activeMappingSourceTypes.includes(source.type as (typeof activeMappingSourceTypes)[number])).map((source) => saveSourceMapping(source, actor)));
   return {
     demandItems: snapshot.items.length,
     demandOrders: snapshot.orders.size,
-    sources: Object.fromEntries(sourceTypes.map((sourceType) => [sourceType, snapshot.sources.filter((source) => source.type === sourceType).length])),
+    sources: Object.fromEntries(activeMappingSourceTypes.map((sourceType) => [sourceType, snapshot.sources.filter((source) => source.type === sourceType).length])),
   };
 }
 
@@ -600,7 +810,7 @@ export async function runFrappeDemandSync({ triggerType = "manual", dryRun = fal
     if (!locked) throw new Error("已有需求同步任务正在执行，请稍后再试");
     await connection.execute(`INSERT INTO ${RUN_TABLE} (syncRunId,triggerType,status,dryRun,startedAt) VALUES (?,?,'running',?,CURRENT_TIMESTAMP)`, [runId, triggerType, dryRun ? 1 : 0]);
     const snapshot = await loadRemoteSnapshot();
-    await Promise.all(snapshot.sources.map((source) => saveSourceMapping(source, actor)));
+    await Promise.all(snapshot.sources.filter((source) => activeMappingSourceTypes.includes(source.type as (typeof activeMappingSourceTypes)[number])).map((source) => saveSourceMapping(source, actor)));
     summary.fetchedItems = snapshot.items.length;
     const mappings = await loadFrappeMappings();
     const existingRows = await queryRowsRaw<Row>(`SELECT sourceItemId, sourceHash, status FROM ${ITEM_TABLE}`);
@@ -782,5 +992,5 @@ export async function listFrappeDemandSyncRuns() {
   };
 }
 
-export const frappeDemandMappingTypes = sourceTypes;
+export const frappeDemandMappingTypes = activeMappingSourceTypes;
 export { requestItemType, sourceHash };

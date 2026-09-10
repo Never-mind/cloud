@@ -873,9 +873,9 @@ function getEntityDisplayFieldExpression(config: EntityConfig, field: string, sh
         LIMIT 1)`;
       return `UPPER(TRIM(SUBSTRING_INDEX(${linkedCountry}, '-', 1)))`;
     }
-    if (field === "dcNameZh") return `(SELECT dc.nameZh FROM datacenters dc WHERE dc.dcCode = shipment.dcCode LIMIT 1)`;
-    if (field === "destinationAddress") return `(SELECT location.fullAddress FROM deliverylocations location WHERE location.locationId = shipment.destinationLocationId LIMIT 1)`;
-    if (field === "recipientName") return `(SELECT contact.name FROM deliverycontacts contact WHERE contact.contactId = shipment.recipientContactId LIMIT 1)`;
+    if (field === "dcNameZh") return `COALESCE(NULLIF(shipment.dcNameZh, ''), NULLIF(shipment.dcCode, ''))`;
+    if (field === "destinationAddress") return `COALESCE(NULLIF(shipment.snapshotDestinationAddress, ''), NULLIF(shipment.destinationLocationId, ''))`;
+    if (field === "recipientName") return `COALESCE(NULLIF(shipment.snapshotRecipientName, ''), NULLIF(shipment.recipientContactId, ''))`;
     if (["supplierName", "undertakingUnitName", "customerName"].includes(field)) {
       const isSupplier = field === "supplierName";
       const isUndertakingUnit = field === "undertakingUnitName";
@@ -1273,17 +1273,9 @@ function getRowIdentity(config: EntityConfig, row: Row) {
 }
 
 async function enrichShipmentRows(rows: Row[]): Promise<Row[]> {
-  const dcCodes = uniqueValues(rows, "dcCode");
-  const locationIds = uniqueValues(rows, "destinationLocationId");
-  const contactIds = uniqueValues(rows, "recipientContactId");
   const poNos = uniqueValues(rows, "poNo");
   const deviceCodes = uniqueValues(rows, "deviceCode");
-  const [datacenters, locations, contacts, purchaseOrders, purchaseLines, instanceModels] = await Promise.all([
-    dcCodes.length ? queryRows("SELECT dcCode, nameZh FROM datacenters WHERE dcCode IN (:dcCodes)", { dcCodes }) : [],
-    locationIds.length
-      ? queryRows("SELECT locationId, fullAddress FROM deliverylocations WHERE locationId IN (:locationIds)", { locationIds })
-      : [],
-    contactIds.length ? queryRows("SELECT contactId, name FROM deliverycontacts WHERE contactId IN (:contactIds)", { contactIds }) : [],
+  const [purchaseOrders, purchaseLines, instanceModels] = await Promise.all([
     poNos.length ? queryRows("SELECT purchaseOrderId, poNo FROM purchaseorders WHERE poNo IN (:poNos)", { poNos }) : [],
     poNos.length
       ? queryRows("SELECT poi.id AS purchaseOrderItemId, poi.poNo, COALESCE(NULLIF(poi.requestType, ''), NULLIF(ri.requestType, ''), NULLIF(req.requestType, ''), '整机') AS requestType, ri.deviceCode, ri.supplierId, ri.undertakingUnitId, ri.customerId, req.countryCode, req.batchName FROM purchaseorderitems poi LEFT JOIN requestitems ri ON ri.id = poi.requestItemId LEFT JOIN requests req ON req.requestNo = ri.requestNo WHERE poi.poNo IN (:poNos)", { poNos })
@@ -1292,9 +1284,6 @@ async function enrichShipmentRows(rows: Row[]): Promise<Row[]> {
       ? queryRows("SELECT deviceCode, nameEn FROM instancemodels WHERE deviceCode IN (:deviceCodes)", { deviceCodes })
       : [],
   ]);
-  const datacenterByCode = new Map(datacenters.map((row) => [String(row.dcCode), row]));
-  const locationById = new Map(locations.map((row) => [String(row.locationId), row]));
-  const contactById = new Map(contacts.map((row) => [String(row.contactId), row]));
   const purchaseOrderByPoNo = new Map(purchaseOrders.map((row) => [String(row.poNo), row]));
   const instanceModelByDeviceCode = new Map(instanceModels.map((row) => [String(row.deviceCode), row]));
   const purchaseLineById = new Map(purchaseLines.map((row) => [String(row.purchaseOrderItemId), row]));
@@ -1306,9 +1295,6 @@ async function enrichShipmentRows(rows: Row[]): Promise<Row[]> {
   }
 
   const enriched = rows.map((row): Row => {
-    const datacenter = datacenterByCode.get(String(row.dcCode ?? ""));
-    const location = locationById.get(String(row.destinationLocationId ?? ""));
-    const contact = contactById.get(String(row.recipientContactId ?? ""));
     const poNo = String(row.poNo ?? "");
     const matchingPoLines = purchaseLinesByPoNo.get(poNo) ?? [];
     const purchaseLine = purchaseLineById.get(String(row.purchaseOrderItemId ?? ""))
@@ -1322,9 +1308,9 @@ async function enrichShipmentRows(rows: Row[]): Promise<Row[]> {
       countryCode: purchaseLine?.countryCode ?? row.countryCode ?? "",
       batchName: purchaseLine?.batchName ?? row.batchName ?? "",
       requestType: purchaseLine?.requestType ?? row.requestType ?? "整机",
-      dcNameZh: datacenter?.nameZh ?? row.dcNameZh ?? row.dcCode,
-      destinationAddress: location?.fullAddress ?? row.snapshotDestinationAddress ?? row.destinationLocationId,
-      recipientName: contact?.name ?? row.snapshotRecipientName ?? row.recipientContactId,
+      dcNameZh: row.dcNameZh ?? row.dcCode,
+      destinationAddress: row.snapshotDestinationAddress ?? row.destinationLocationId,
+      recipientName: row.snapshotRecipientName ?? row.recipientContactId,
       purchaseOrderId: purchaseOrderByPoNo.get(String(row.poNo ?? ""))?.purchaseOrderId ?? null,
       supplierId: purchaseLine?.supplierId ?? row.supplierId ?? "",
       undertakingUnitId: purchaseLine?.undertakingUnitId ?? row.undertakingUnitId ?? "",

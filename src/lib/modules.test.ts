@@ -298,16 +298,13 @@ describe("module configuration", () => {
     expect(config?.listFields.map((field) => field.key)).toContain("countryCode");
   });
 
-  it("keeps shipment reference fields available for searchable selection in the edit form", () => {
+  it("uses immutable remote logistics snapshots instead of local logistics master lookups", () => {
     const config = getEntityConfig("shipments");
 
-    expect(config?.formFields.filter((field) => field.lookupSource)).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ key: "dcCode", lookupSource: "datacenters" }),
-        expect.objectContaining({ key: "destinationLocationId", lookupSource: "delivery-locations" }),
-        expect.objectContaining({ key: "recipientContactId", lookupSource: "delivery-contacts" }),
-      ]),
-    );
+    expect(config?.formFields.filter((field) => field.lookupSource)).toEqual([]);
+    expect(config?.formFields.find((field) => field.key === "dcNameZh")).toMatchObject({ readonly: true });
+    expect(config?.formFields.find((field) => field.key === "snapshotDestinationAddress")).toMatchObject({ readonly: true });
+    expect(config?.formFields.find((field) => field.key === "remoteDatacenterId")).toMatchObject({ hidden: true });
   });
 
   it("registers full purchase order demand plan child entities", () => {

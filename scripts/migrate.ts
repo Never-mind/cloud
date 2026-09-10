@@ -1884,6 +1884,66 @@ async function main() {
     "dcNameZh",
     "`dcNameZh` VARCHAR(255) NULL COMMENT 'datacenter Chinese name' AFTER `dcCode`",
   );
+  await modifyColumnIfPresent(
+    "shipments",
+    "dcCode",
+    "`dcCode` VARCHAR(128) NULL COMMENT 'legacy/local datacenter code'",
+  );
+  await modifyColumnIfPresent(
+    "shipments",
+    "dcNameZh",
+    "`dcNameZh` VARCHAR(512) NULL COMMENT 'datacenter display name snapshot'",
+  );
+  await modifyColumnIfPresent(
+    "shipments",
+    "destinationLocationId",
+    "`destinationLocationId` VARCHAR(128) NOT NULL COMMENT 'legacy/local destination location id'",
+  );
+  await modifyColumnIfPresent(
+    "shipments",
+    "recipientContactId",
+    "`recipientContactId` VARCHAR(128) NOT NULL COMMENT 'legacy/local recipient contact id'",
+  );
+  await addColumnIfMissing(
+    "shipments",
+    "remoteDemandOrderId",
+    "`remoteDemandOrderId` VARCHAR(128) NULL COMMENT 'remote demand order id' AFTER `snapshotRecipientPhone`",
+  );
+  await addColumnIfMissing(
+    "shipments",
+    "remoteDatacenterId",
+    "`remoteDatacenterId` VARCHAR(128) NULL COMMENT 'remote datacenter id' AFTER `remoteDemandOrderId`",
+  );
+  await addColumnIfMissing(
+    "shipments",
+    "remoteDeliveryLocationId",
+    "`remoteDeliveryLocationId` VARCHAR(128) NULL COMMENT 'remote delivery location id' AFTER `remoteDatacenterId`",
+  );
+  await addColumnIfMissing(
+    "shipments",
+    "remoteRecipientListId",
+    "`remoteRecipientListId` VARCHAR(128) NULL COMMENT 'remote recipient list id' AFTER `remoteDeliveryLocationId`",
+  );
+  await addColumnIfMissing(
+    "shipments",
+    "remoteLogisticsSourceStatus",
+    "`remoteLogisticsSourceStatus` VARCHAR(32) NOT NULL DEFAULT 'legacy' COMMENT 'remote/legacy' AFTER `remoteRecipientListId`",
+  );
+  await addColumnIfMissing(
+    "shipments",
+    "remoteLogisticsModifiedAt",
+    "`remoteLogisticsModifiedAt` DATETIME NULL COMMENT 'latest remote logistics update time' AFTER `remoteLogisticsSourceStatus`",
+  );
+  await addColumnIfMissing(
+    "shipments",
+    "logisticsSnapshotJson",
+    "`logisticsSnapshotJson` LONGTEXT NULL COMMENT 'remote logistics payload captured at purchase confirmation' AFTER `remoteLogisticsModifiedAt`",
+  );
+  await addColumnIfMissing(
+    "shipments",
+    "logisticsSnapshotAt",
+    "`logisticsSnapshotAt` DATETIME NULL COMMENT 'remote logistics snapshot time' AFTER `logisticsSnapshotJson`",
+  );
   await addIndexIfMissing(
     "shipments",
     "idx_Shipments_batchName",
@@ -1898,6 +1958,16 @@ async function main() {
     "shipments",
     "idx_Shipments_dcCode",
     "KEY `idx_Shipments_dcCode` (`dcCode`)",
+  );
+  await addIndexIfMissing(
+    "shipments",
+    "idx_Shipments_remoteDemandOrderId",
+    "KEY `idx_Shipments_remoteDemandOrderId` (`remoteDemandOrderId`)",
+  );
+  await addIndexIfMissing(
+    "shipments",
+    "idx_Shipments_remoteDatacenterId",
+    "KEY `idx_Shipments_remoteDatacenterId` (`remoteDatacenterId`)",
   );
   await execute(
     `
