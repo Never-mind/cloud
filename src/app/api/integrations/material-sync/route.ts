@@ -17,10 +17,11 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json().catch(() => ({}));
     const triggerType = String(body.triggerType ?? "manual") as MaterialSyncTrigger;
+    const dryRun = body.dryRun === true || body.dryRun === "true";
     if (!["manual", "scheduled", "script"].includes(triggerType)) {
       return NextResponse.json({ error: "无效的同步触发类型" }, { status: 400 });
     }
-    const result = await runMaterialSync({ triggerType });
+    const result = await runMaterialSync({ triggerType, dryRun });
     await recordOperationLog({
       actor: await getOperationActorForLog(request),
       domainKey: "power",
@@ -28,7 +29,7 @@ export async function POST(request: NextRequest) {
       action: "sync",
       entityType: "instance-models",
       requestId: getOperationRequestId(request),
-      detail: { result: "success", triggerType, createdCount: result.created },
+      detail: { result: "success", triggerType, dryRun, createdCount: result.created, blockedByPartNo: result.blockedByPartNo },
     });
     return NextResponse.json(result);
   } catch (error) {

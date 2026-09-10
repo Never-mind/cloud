@@ -1141,6 +1141,14 @@ async function assignCustomerPoItemLineNo(config: EntityConfig, body: Row) {
 function validateRequiredFields(config: EntityConfig, body: Row) {
   const missing = config.formFields.find((field) => field.required && String(body[field.key] ?? "").trim() === "");
   if (missing) throw new Error(`请填写${missing.label}`);
+  // 实例型号：Equipment 仍必须有中文名称；Component / Material 由远端同步建档，
+  // 远端本身不维护中文名，因此这两类允许为空。
+  if (config.key === "instance-models") {
+    const instanceType = String(body.instanceType ?? "").trim() || DEFAULT_INSTANCE_MODEL_TYPE;
+    if (instanceType === "Equipment" && String(body.nameZh ?? "").trim() === "") {
+      throw new Error("请填写中文名称");
+    }
+  }
 }
 
 function getPersistenceValue(config: EntityConfig, field: string, value: unknown) {

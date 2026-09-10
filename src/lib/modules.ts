@@ -231,7 +231,7 @@ export const entityConfigs: EntityConfig[] = [
       { key: "modelCode", label: "机型", required: true },
       { key: "instanceType", label: "类型", type: "select", options: INSTANCE_MODEL_TYPE_OPTIONS, required: true },
       { key: "xxllCode", label: "xxll编码" },
-      { key: "nameZh", label: "中文名称", required: true },
+      { key: "nameZh", label: "中文名称" },
       { key: "nameEn", label: "英文名称" },
       { key: "b6Type", label: "默认B6类型", placeholder: "选择或搜索B6类型", lookupSource: "b6-type-configs" },
     ],

@@ -7,6 +7,7 @@ import { Columns3, Eye, EyeOff, FileDown, FileSpreadsheet, Plus, RefreshCw, Sear
 import { formatConfiguredDisplayValue, formatDateInputValue, formatDisplayValue } from "@/lib/display-format";
 import { buildImportMessage, type ImportReport } from "@/lib/entity-import";
 import { getInstanceContractModelAutofill } from "@/lib/instance-contract-form";
+import { formatInstanceModelType } from "@/lib/instance-model-type";
 import { fetchAllEntityRows } from "@/lib/client-entity-fetch";
 import { buildListRoute, getCurrentRoute, getPositiveNumber, useListScrollPosition } from "@/lib/client-list-navigation";
 import type { EntityConfig, EntityField } from "@/lib/modules";
@@ -588,14 +589,45 @@ export function EntityPage({
     }
   }
 
-  async function syncRemoteMaterials() {
-    if (!confirm("将读取远端 Material 数据并新增缺失的配件实例型号，不会修改已有档案，是否继续？")) return;
+  function materialSyncCreatedBreakdown(summary: MaterialSyncSummary) {
+    return [
+      `${formatInstanceModelType("Equipment")} ${summary.createdEquipment ?? 0}`,
+      `${formatInstanceModelType("Component")} ${summary.createdComponent ?? 0}`,
+      `${formatInstanceModelType("Material")} ${summary.createdMaterial ?? 0}`,
+    ].join("、");
+  }
+
+  function materialSyncReport(data: MaterialSyncSummary) {
+    const lines = [
+      `${data.dryRun ? "【试运行，未写入】" : ""}Material 同步完成：读取 ${data.fetched ?? 0} 条`,
+      `已存在 ${(data.matchedByCustomerPartNo ?? 0) + (data.skippedByCustomerItemCode ?? 0)} 条`,
+      `新增 ${data.created ?? 0} 条（${materialSyncCreatedBreakdown(data)}）`,
+    ];
+    if (data.blockedByPartNo) {
+      lines.push(`被阻断 ${data.blockedByPartNo} 条：Equipment 的 Customer Part No. 不是 06/99 开头`);
+    }
+    if (data.skippedInvalid) lines.push(`数据不完整 ${data.skippedInvalid} 条（缺机型或编码）`);
+    if (data.skippedUnsupportedType) lines.push(`类型无法识别 ${data.skippedUnsupportedType} 条`);
+    if (data.skippedDuplicateRemote) lines.push(`远端重复 ${data.skippedDuplicateRemote} 条`);
+    const blocked = (data.errorDetails ?? []).filter((item) => item.error.includes("Customer Part No."));
+    if (blocked.length) {
+      lines.push("", "以下物料需在远端维护为 06 或 99 开头的 Customer Part No. 后才能同步到本地：");
+      for (const item of blocked.slice(0, 20)) {
+        lines.push(`· ${item.sourceName}${item.customerItemCode ? `（${item.customerItemCode}）` : ""}：${item.error}`);
+      }
+      if (blocked.length > 20) lines.push(`…… 其余 ${blocked.length - 20} 条见同步台账`);
+    }
+    return lines.join("\n");
+  }
+
+  async function syncRemoteMaterials(dryRun = false) {
+    if (!dryRun && !confirm("将读取远端 Material 数据并新增缺失的实例型号，不会修改已有档案，是否继续？")) return;
     setMaterialSyncing(true);
     try {
       const response = await fetch("/api/integrations/material-sync", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ triggerType: "manual" }),
+        body: JSON.stringify({ triggerType: "manual", dryRun }),
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
@@ -603,8 +635,8 @@ export function EntityPage({
         return;
       }
       setLatestMaterialSync(data as MaterialSyncSummary);
-      alert(`Material 同步完成：读取 ${data.fetched ?? 0} 条，按 customer_part_no 跳过 ${data.matchedByCustomerPartNo ?? 0} 条，新增 ${data.created ?? 0} 条，数据无效 ${data.skippedInvalid ?? 0} 条。`);
-      await loadRows();
+      alert(materialSyncReport(data as MaterialSyncSummary));
+      if (!dryRun) await loadRows();
     } catch (error) {
       alert(error instanceof Error ? error.message : "Material 同步失败");
     } finally {
@@ -780,10 +812,16 @@ export function EntityPage({
             </Button>
           ) : null}
           {config.key === "instance-models" ? (
-            <Button disabled={materialSyncing} onClick={() => void syncRemoteMaterials()}>
-              <RefreshCw size={15} />
-              {materialSyncing ? "同步中..." : "同步远端 Material"}
-            </Button>
+            <>
+              <Button disabled={materialSyncing} onClick={() => void syncRemoteMaterials(false)}>
+                <RefreshCw size={15} />
+                {materialSyncing ? "同步中..." : "同步远端 Material"}
+              </Button>
+              <Button disabled={materialSyncing} onClick={() => void syncRemoteMaterials(true)}>
+                <Search size={15} />
+                试运行
+              </Button>
+            </>
           ) : null}
           {config.key === "shipments" || enableFieldSettings ? (
             <Button className="ml-auto" onClick={() => setShowFieldSettings(true)}>
@@ -808,7 +846,11 @@ export function EntityPage({
 
         {config.key === "instance-models" && latestMaterialSync ? (
           <div className="border-b border-[#ebeef5] bg-[#fafafa] px-4 py-2 text-xs text-[#909399]">
-            最近同步：{latestMaterialSync.status === "success" ? "成功" : "失败"}，读取 {latestMaterialSync.fetched} 条，新增 {latestMaterialSync.created} 条，时间 {latestMaterialSync.finishedAt ?? latestMaterialSync.startedAt}
+            最近同步：{latestMaterialSync.status === "success" ? "成功" : "失败"}
+            {latestMaterialSync.dryRun ? "（试运行）" : ""}，读取 {latestMaterialSync.fetched} 条，新增 {latestMaterialSync.created} 条
+            （{materialSyncCreatedBreakdown(latestMaterialSync)}）
+            {latestMaterialSync.blockedByPartNo ? `，被阻断 ${latestMaterialSync.blockedByPartNo} 条` : ""}
+            ，时间 {latestMaterialSync.finishedAt ?? latestMaterialSync.startedAt}
           </div>
         ) : null}
 

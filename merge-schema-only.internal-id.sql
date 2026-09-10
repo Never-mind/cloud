@@ -1918,6 +1918,8 @@ CREATE TABLE `merge_power_material_sync_runs` (
   `syncRunId` varchar(128) NOT NULL, `triggerType` varchar(32) NOT NULL, `status` varchar(32) NOT NULL,
   `fetchedCount` int NOT NULL DEFAULT '0', `matchedCount` int NOT NULL DEFAULT '0', `skippedExistingItemCount` int NOT NULL DEFAULT '0',
   `skippedInvalidCount` int NOT NULL DEFAULT '0', `skippedDuplicateCount` int NOT NULL DEFAULT '0', `createdCount` int NOT NULL DEFAULT '0',
+  `createdEquipmentCount` int NOT NULL DEFAULT '0', `createdComponentCount` int NOT NULL DEFAULT '0', `createdMaterialCount` int NOT NULL DEFAULT '0',
+  `blockedByPartNoCount` int NOT NULL DEFAULT '0', `skippedTypeCount` int NOT NULL DEFAULT '0', `dryRun` tinyint(1) NOT NULL DEFAULT '0',
   `missingNameZhCount` int NOT NULL DEFAULT '0', `missingMaterialCodeCount` int NOT NULL DEFAULT '0', `errorCount` int NOT NULL DEFAULT '0',
   `errorJson` longtext, `startedAt` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP, `finishedAt` datetime DEFAULT NULL,
   `updatedAt` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,

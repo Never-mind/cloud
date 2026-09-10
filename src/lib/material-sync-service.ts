@@ -9,6 +9,7 @@ const DEFAULT_PAGE_SIZE = 100;
 const MAX_ERROR_DETAILS = 100;
 const MATERIAL_FIELDS = [
   "name",
+  "material_type",
   "customer_part_no",
   "customer_item_code",
   "model",
@@ -17,14 +18,26 @@ const MATERIAL_FIELDS = [
   "modified",
 ];
 
-type RemoteMaterial = {
+const INSTANCE_MODEL_TYPES = ["Equipment", "Component", "Material"] as const;
+type InstanceModelType = (typeof INSTANCE_MODEL_TYPES)[number];
+/** Equipment 的本地建档键必须是 06/99 开头的 Customer Part No. */
+const EQUIPMENT_PART_NO_PREFIXES = ["06", "99"] as const;
+
+export type RemoteMaterial = {
   name: string;
+  materialType: string;
   customerPartNo: string;
   customerItemCode: string;
   model: string;
   materialCode: string;
   nameZh: string;
 };
+
+export type MaterialSyncBlockReason = "unsupported-type" | "missing-part-no" | "invalid-part-no" | "missing-item-code";
+
+export type MaterialSyncTarget =
+  | { ok: true; instanceType: InstanceModelType; deviceCode: string; alternateCode: string }
+  | { ok: false; reason: MaterialSyncBlockReason; instanceType: InstanceModelType | null };
 
 export type MaterialSyncTrigger = "manual" | "scheduled" | "script";
 
@@ -38,6 +51,12 @@ export type MaterialSyncSummary = {
   skippedInvalid: number;
   skippedDuplicateRemote: number;
   created: number;
+  createdEquipment: number;
+  createdComponent: number;
+  createdMaterial: number;
+  blockedByPartNo: number;
+  skippedUnsupportedType: number;
+  dryRun: boolean;
   missingNameZh: number;
   missingMaterialCode: number;
   errors: number;
@@ -56,6 +75,12 @@ type SyncRunRow = Row & {
   skippedInvalidCount: number;
   skippedDuplicateCount: number;
   createdCount: number;
+  createdEquipmentCount: number;
+  createdComponentCount: number;
+  createdMaterialCount: number;
+  blockedByPartNoCount: number;
+  skippedTypeCount: number;
+  dryRun: number;
   missingNameZhCount: number;
   missingMaterialCodeCount: number;
   errorCount: number;
@@ -70,6 +95,61 @@ function clean(value: unknown) {
 
 function normalizeCode(value: unknown) {
   return clean(value).toLocaleLowerCase();
+}
+
+function normalizeInstanceModelType(value: unknown): InstanceModelType | null {
+  const normalized = clean(value).toLocaleLowerCase();
+  return INSTANCE_MODEL_TYPES.find((type) => type.toLocaleLowerCase() === normalized) ?? null;
+}
+
+/** Equipment 的 Customer Part No. 必须以 06 或 99 开头。 */
+export function isEquipmentPartNo(value: unknown) {
+  const partNo = clean(value);
+  return EQUIPMENT_PART_NO_PREFIXES.some((prefix) => partNo.startsWith(prefix));
+}
+
+/**
+ * 按远端 material_type 决定本地建档键：
+ * - Equipment：deviceCode 取 Customer Part No.（06/99 开头，否则整条阻断）
+ * - Component / Material：deviceCode 取 Customer Item Code（SL 编码）
+ * alternateCode 是另一个编码，用于兼容老逻辑按另一个键建的存量档案，避免重复建档。
+ */
+export function resolveMaterialSyncTarget(
+  material: Pick<RemoteMaterial, "materialType" | "customerPartNo" | "customerItemCode">,
+): MaterialSyncTarget {
+  const instanceType = normalizeInstanceModelType(material.materialType);
+  if (!instanceType) return { ok: false, reason: "unsupported-type", instanceType: null };
+  const partNo = clean(material.customerPartNo);
+  const itemCode = clean(material.customerItemCode);
+  if (instanceType === "Equipment") {
+    if (!partNo) return { ok: false, reason: "missing-part-no", instanceType };
+    if (!isEquipmentPartNo(partNo)) return { ok: false, reason: "invalid-part-no", instanceType };
+    return { ok: true, instanceType, deviceCode: partNo, alternateCode: itemCode };
+  }
+  if (!itemCode) return { ok: false, reason: "missing-item-code", instanceType };
+  return { ok: true, instanceType, deviceCode: itemCode, alternateCode: partNo };
+}
+
+/** 阻断原因对应的用户提示，需明确说明「远端维护后才能在本地建档」。 */
+export function materialSyncBlockMessage(material: RemoteMaterial, reason: MaterialSyncBlockReason) {
+  if (reason === "missing-part-no") {
+    return "类型为 Equipment 但 Customer Part No. 为空，需在远端维护为 06 或 99 开头的编码后才能同步到本地";
+  }
+  if (reason === "invalid-part-no") {
+    return `类型为 Equipment 但 Customer Part No.「${clean(material.customerPartNo)}」不是 06 或 99 开头，需在远端维护为该类型编码后才能同步到本地`;
+  }
+  if (reason === "missing-item-code") {
+    return "Customer Item Code 为空，无法按 SL 编码建档，需在远端维护后才能同步到本地";
+  }
+  return `远端 material_type「${clean(material.materialType)}」不是 Equipment/Component/Material，无法确定本地建档编码`;
+}
+
+function createdCounterKey(instanceType: InstanceModelType) {
+  return instanceType === "Equipment"
+    ? ("createdEquipmentCount" as const)
+    : instanceType === "Component"
+      ? ("createdComponentCount" as const)
+      : ("createdMaterialCount" as const);
 }
 
 function getConfig() {
@@ -129,6 +209,7 @@ async function fetchMaterials(): Promise<RemoteMaterial[]> {
     rows.push(
       ...page.map((row) => ({
         name: clean(row.name),
+        materialType: clean(row.material_type),
         customerPartNo: clean(row.customer_part_no),
         customerItemCode: clean(row.customer_item_code),
         model: clean(row.model),
@@ -163,6 +244,12 @@ function toSummary(row: SyncRunRow): MaterialSyncSummary {
     skippedInvalid: Number(row.skippedInvalidCount ?? 0),
     skippedDuplicateRemote: Number(row.skippedDuplicateCount ?? 0),
     created: Number(row.createdCount ?? 0),
+    createdEquipment: Number(row.createdEquipmentCount ?? 0),
+    createdComponent: Number(row.createdComponentCount ?? 0),
+    createdMaterial: Number(row.createdMaterialCount ?? 0),
+    blockedByPartNo: Number(row.blockedByPartNoCount ?? 0),
+    skippedUnsupportedType: Number(row.skippedTypeCount ?? 0),
+    dryRun: Number(row.dryRun ?? 0) === 1,
     missingNameZh: Number(row.missingNameZhCount ?? 0),
     missingMaterialCode: Number(row.missingMaterialCodeCount ?? 0),
     errors: Number(row.errorCount ?? 0),
@@ -187,7 +274,7 @@ export async function getLatestMaterialSyncRun() {
   return rows[0] ? toSummary(rows[0]) : null;
 }
 
-export async function runMaterialSync({ triggerType = "manual" }: { triggerType?: MaterialSyncTrigger } = {}) {
+export async function runMaterialSync({ triggerType = "manual", dryRun = false }: { triggerType?: MaterialSyncTrigger; dryRun?: boolean } = {}) {
   const runId = `MATERIAL-SYNC-${new Date().toISOString().replace(/[-:.TZ]/g, "")}-${randomUUID().slice(0, 8)}`;
   const startedAt = new Date().toISOString();
   const connection = await getDb().getConnection();
@@ -200,6 +287,12 @@ export async function runMaterialSync({ triggerType = "manual" }: { triggerType?
     skippedInvalidCount: 0,
     skippedDuplicateCount: 0,
     createdCount: 0,
+    createdEquipmentCount: 0,
+    createdComponentCount: 0,
+    createdMaterialCount: 0,
+    blockedByPartNoCount: 0,
+    skippedTypeCount: 0,
+    dryRun: dryRun ? 1 : 0,
     missingNameZhCount: 0,
     missingMaterialCodeCount: 0,
     errorCount: 0,
@@ -211,8 +304,8 @@ export async function runMaterialSync({ triggerType = "manual" }: { triggerType?
     if (!lockAcquired) throw new Error("已有 Material 同步任务正在执行，请稍后再试");
 
     await connection.execute(
-      `INSERT INTO ${SYNC_RUN_TABLE} (syncRunId, triggerType, status, startedAt) VALUES (?, ?, 'running', CURRENT_TIMESTAMP)`,
-      [runId, triggerType],
+      `INSERT INTO ${SYNC_RUN_TABLE} (syncRunId, triggerType, status, dryRun, startedAt) VALUES (?, ?, 'running', ?, CURRENT_TIMESTAMP)`,
+      [runId, triggerType, dryRun ? 1 : 0],
     );
 
     const materials = await fetchMaterials();
@@ -224,6 +317,8 @@ export async function runMaterialSync({ triggerType = "manual" }: { triggerType?
     for (const material of materials) {
       const partCode = normalizeCode(material.customerPartNo);
       const itemCode = normalizeCode(material.customerItemCode);
+      // 双键匹配：存量档案可能是老逻辑按 customer_item_code 建的，新规则 Equipment 按
+      // customer_part_no 建档，任一命中都视为已存在，避免同一物料重复建档。
       if (partCode && localCodes.has(partCode)) {
         counts.matchedCount += 1;
         continue;
@@ -232,39 +327,55 @@ export async function runMaterialSync({ triggerType = "manual" }: { triggerType?
         counts.skippedExistingItemCount += 1;
         continue;
       }
-      if (!itemCode || !material.model) {
-        counts.skippedInvalidCount += 1;
+
+      const target = resolveMaterialSyncTarget(material);
+      if (!target.ok) {
+        if (target.reason === "unsupported-type") counts.skippedTypeCount += 1;
+        else if (target.instanceType === "Equipment") counts.blockedByPartNoCount += 1;
+        else counts.skippedInvalidCount += 1;
         counts.errorCount += 1;
         if (errors.length < MAX_ERROR_DETAILS) {
           errors.push({
             sourceName: material.name,
             customerItemCode: material.customerItemCode,
-            error: !itemCode ? "customer_item_code 为空" : "model 为空",
+            error: materialSyncBlockMessage(material, target.reason),
           });
         }
         continue;
       }
-      if (remoteCandidateCodes.has(itemCode)) {
+      if (!material.model) {
+        counts.skippedInvalidCount += 1;
+        counts.errorCount += 1;
+        if (errors.length < MAX_ERROR_DETAILS) {
+          errors.push({ sourceName: material.name, customerItemCode: material.customerItemCode, error: "model 为空" });
+        }
+        continue;
+      }
+      const candidateCode = normalizeCode(target.deviceCode);
+      if (remoteCandidateCodes.has(candidateCode)) {
         counts.skippedDuplicateCount += 1;
         continue;
       }
-      remoteCandidateCodes.add(itemCode);
+      remoteCandidateCodes.add(candidateCode);
       if (!material.nameZh) counts.missingNameZhCount += 1;
       if (!material.materialCode) counts.missingMaterialCodeCount += 1;
 
       try {
-        const [result] = await connection.execute<ResultSetHeader>(
-          `INSERT IGNORE INTO merge_power_instancemodels
-            (deviceCode, modelCode, instanceType, xxllCode, nameZh, nameEn)
-           VALUES (?, ?, 'Material', ?, ?, ?)`,
-          [material.customerItemCode, material.model, material.materialCode || null, material.nameZh || null, material.model],
-        );
-        if (result.affectedRows > 0) {
-          counts.createdCount += 1;
-          localCodes.add(itemCode);
-        } else {
-          counts.skippedExistingItemCount += 1;
+        if (!dryRun) {
+          const [result] = await connection.execute<ResultSetHeader>(
+            `INSERT IGNORE INTO merge_power_instancemodels
+              (deviceCode, modelCode, instanceType, xxllCode, nameZh, nameEn)
+             VALUES (?, ?, ?, ?, ?, ?)`,
+            [target.deviceCode, material.model, target.instanceType, material.materialCode || null, material.nameZh || null, material.model],
+          );
+          if (result.affectedRows === 0) {
+            counts.skippedExistingItemCount += 1;
+            continue;
+          }
         }
+        counts.createdCount += 1;
+        counts[createdCounterKey(target.instanceType)] += 1;
+        localCodes.add(candidateCode);
       } catch (error) {
         counts.errorCount += 1;
         if (errors.length < MAX_ERROR_DETAILS) {
@@ -288,6 +399,12 @@ export async function runMaterialSync({ triggerType = "manual" }: { triggerType?
       skippedInvalid: counts.skippedInvalidCount,
       skippedDuplicateRemote: counts.skippedDuplicateCount,
       created: counts.createdCount,
+      createdEquipment: counts.createdEquipmentCount,
+      createdComponent: counts.createdComponentCount,
+      createdMaterial: counts.createdMaterialCount,
+      blockedByPartNo: counts.blockedByPartNoCount,
+      skippedUnsupportedType: counts.skippedTypeCount,
+      dryRun,
       missingNameZh: counts.missingNameZhCount,
       missingMaterialCode: counts.missingMaterialCodeCount,
       errors: counts.errorCount,

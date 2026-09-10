@@ -149,6 +149,12 @@ async function ensureMaterialSyncTable() {
         \`skippedInvalidCount\` INT NOT NULL DEFAULT 0 COMMENT 'skipped due to invalid source data',
         \`skippedDuplicateCount\` INT NOT NULL DEFAULT 0 COMMENT 'duplicate remote customer_item_code rows',
         \`createdCount\` INT NOT NULL DEFAULT 0 COMMENT 'new instance models created',
+        \`createdEquipmentCount\` INT NOT NULL DEFAULT 0 COMMENT 'created Equipment instance models',
+        \`createdComponentCount\` INT NOT NULL DEFAULT 0 COMMENT 'created Component instance models',
+        \`createdMaterialCount\` INT NOT NULL DEFAULT 0 COMMENT 'created Material instance models',
+        \`blockedByPartNoCount\` INT NOT NULL DEFAULT 0 COMMENT 'Equipment rows blocked by customer part no rule',
+        \`skippedTypeCount\` INT NOT NULL DEFAULT 0 COMMENT 'rows skipped because material_type is unsupported',
+        \`dryRun\` TINYINT(1) NOT NULL DEFAULT 0 COMMENT 'dry run flag',
         \`missingNameZhCount\` INT NOT NULL DEFAULT 0 COMMENT 'created rows without Chinese name',
         \`missingMaterialCodeCount\` INT NOT NULL DEFAULT 0 COMMENT 'created rows without material code',
         \`errorCount\` INT NOT NULL DEFAULT 0 COMMENT 'error count',
@@ -162,6 +168,17 @@ async function ensureMaterialSyncTable() {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Material instance model sync runs'
     `,
   );
+
+  for (const [columnName, ddl] of [
+    ["createdEquipmentCount", "`createdEquipmentCount` INT NOT NULL DEFAULT 0 COMMENT 'created Equipment instance models'"],
+    ["createdComponentCount", "`createdComponentCount` INT NOT NULL DEFAULT 0 COMMENT 'created Component instance models'"],
+    ["createdMaterialCount", "`createdMaterialCount` INT NOT NULL DEFAULT 0 COMMENT 'created Material instance models'"],
+    ["blockedByPartNoCount", "`blockedByPartNoCount` INT NOT NULL DEFAULT 0 COMMENT 'Equipment rows blocked by customer part no rule'"],
+    ["skippedTypeCount", "`skippedTypeCount` INT NOT NULL DEFAULT 0 COMMENT 'rows skipped because material_type is unsupported'"],
+    ["dryRun", "`dryRun` TINYINT(1) NOT NULL DEFAULT 0 COMMENT 'dry run flag'"],
+  ] as const) {
+    await addColumnIfMissing("merge_power_material_sync_runs", columnName, ddl);
+  }
 }
 
 async function ensureFrappeDemandSyncTables() {
