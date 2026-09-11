@@ -247,8 +247,8 @@ export function PurchaseOrderFormPage() {
           返回采购订单
         </Button>
         <div>
-          <h1 className="text-xl font-medium text-[#303133]">新建采购订单</h1>
-          <p className="mt-1 text-sm text-[#909399]">
+          <h1 className="text-xl font-medium text-ink">新建采购订单</h1>
+          <p className="mt-1 text-sm text-ink-3">
             填写采购订单主单信息，选择需求明细后生成采购明细；保存后可在详情页继续修改或确认采购订单。
           </p>
         </div>
@@ -259,11 +259,11 @@ export function PurchaseOrderFormPage() {
       </div>
 
       <Panel>
-        <div className="border-b border-[#ebeef5] px-4 py-3 font-medium text-[#303133]">主单信息</div>
+        <div className="border-b border-line-soft px-4 py-3 font-medium text-ink">主单信息</div>
         <div className="grid grid-cols-3 gap-4 p-4">
           <label>
-            <span className="mb-1 block text-sm font-medium text-[#606266]">
-              <span className="text-[#f56c6c]">*</span>
+            <span className="mb-1 block text-sm font-medium text-ink-2">
+              <span className="text-danger">*</span>
               PO订单号
             </span>
             <div className="flex min-w-0 flex-wrap gap-2">
@@ -272,9 +272,9 @@ export function PurchaseOrderFormPage() {
             </div>
           </label>
           <label>
-            <span className="mb-1 block text-sm font-medium text-[#606266]">来源需求单</span>
+            <span className="mb-1 block text-sm font-medium text-ink-2">来源需求单</span>
             <select
-              className="h-9 w-full rounded border border-[#dcdfe6] bg-white px-3 text-sm outline-none focus:border-[#1890ff]"
+              className="h-9 w-full rounded border border-line bg-white px-3 text-sm outline-none focus:border-primary"
               value={master.requestNo}
               onChange={(event) => updateMaster("requestNo", event.target.value)}
             >
@@ -288,12 +288,12 @@ export function PurchaseOrderFormPage() {
           </label>
           <Field label="采购状态" value={master.status} onChange={(value) => updateMaster("status", value)} />
           <label>
-            <span className="mb-1 block text-sm font-medium text-[#606266]">
-              <span className="text-[#f56c6c]">*</span>
+            <span className="mb-1 block text-sm font-medium text-ink-2">
+              <span className="text-danger">*</span>
               币种
             </span>
             <select
-              className="h-9 w-full rounded border border-[#dcdfe6] bg-white px-3 text-sm outline-none focus:border-[#1890ff]"
+              className="h-9 w-full rounded border border-line bg-white px-3 text-sm outline-none focus:border-primary"
               required
               value={master.currency}
               onChange={(event) => updateMaster("currency", event.target.value)}
@@ -310,11 +310,11 @@ export function PurchaseOrderFormPage() {
           <Info label="采购总金额" value={purchaseTotalAmount} type="money" />
         </div>
       </Panel>
-      {saveError ? <div className="border border-[#fbc4c4] bg-[#fef0f0] px-4 py-3 text-sm text-[#f56c6c]">{saveError}</div> : null}
+      {saveError ? <div className="border border-[#fbc4c4] bg-danger-soft px-4 py-3 text-sm text-danger">{saveError}</div> : null}
 
       <Panel>
-        <div className="flex items-center gap-2 border-b border-[#ebeef5] px-4 py-3">
-          <div className="font-medium text-[#303133]">采购订单明细</div>
+        <div className="flex items-center gap-2 border-b border-line-soft px-4 py-3">
+          <div className="font-medium text-ink">采购订单明细</div>
           <Button className="ml-auto" onClick={() => setDetails((current) => [...current, { ...emptyDetail, currency: normalizePurchaseOrderItemCurrency(master.currency) }])}>
             <Plus size={15} />
             新增明细
@@ -322,25 +322,25 @@ export function PurchaseOrderFormPage() {
         </div>
         <StickyTable className="table-scroll overflow-auto" tableKey="purchase-order-form-details">
           <table className="min-w-[2250px] whitespace-nowrap border-collapse text-sm">
-            <thead className="bg-[#f5f7fa] text-[#303133]">
+            <thead className="bg-canvas text-ink">
               <tr>
-                <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">需求明细</th>
-                <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">设备编码</th>
-                <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">机型</th>
-                <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">英文名称</th>
-                <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">数量</th>
-                <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">币种</th>
-                <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">不含税单价</th>
-                <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">税费加成金额</th>
-                <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">含税单价</th>
-                <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">含税总价</th>
-                <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">采购CAPEX单价</th>
-                <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">采购OPEX单价</th>
-                <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">算力服务价格（1-24个月，含VAT）</th>
-                <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">算力服务价格（后36个月，含VAT）</th>
-                <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">测算</th>
-                <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">硬件系数</th>
-                <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">软件系数</th>
+                <th className="border-b border-r border-line-soft px-3 py-3 text-left">需求明细</th>
+                <th className="border-b border-r border-line-soft px-3 py-3 text-left">设备编码</th>
+                <th className="border-b border-r border-line-soft px-3 py-3 text-left">机型</th>
+                <th className="border-b border-r border-line-soft px-3 py-3 text-left">英文名称</th>
+                <th className="border-b border-r border-line-soft px-3 py-3 text-left">数量</th>
+                <th className="border-b border-r border-line-soft px-3 py-3 text-left">币种</th>
+                <th className="border-b border-r border-line-soft px-3 py-3 text-left">不含税单价</th>
+                <th className="border-b border-r border-line-soft px-3 py-3 text-left">税费加成金额</th>
+                <th className="border-b border-r border-line-soft px-3 py-3 text-left">含税单价</th>
+                <th className="border-b border-r border-line-soft px-3 py-3 text-left">含税总价</th>
+                <th className="border-b border-r border-line-soft px-3 py-3 text-left">采购CAPEX单价</th>
+                <th className="border-b border-r border-line-soft px-3 py-3 text-left">采购OPEX单价</th>
+                <th className="border-b border-r border-line-soft px-3 py-3 text-left">算力服务价格（1-24个月，含VAT）</th>
+                <th className="border-b border-r border-line-soft px-3 py-3 text-left">算力服务价格（后36个月，含VAT）</th>
+                <th className="border-b border-r border-line-soft px-3 py-3 text-left">测算</th>
+                <th className="border-b border-r border-line-soft px-3 py-3 text-left">硬件系数</th>
+                <th className="border-b border-r border-line-soft px-3 py-3 text-left">软件系数</th>
               </tr>
             </thead>
             <tbody>
@@ -351,9 +351,9 @@ export function PurchaseOrderFormPage() {
 
                 return (
                   <tr key={index}>
-                    <td className="border-b border-r border-[#ebeef5] px-3 py-3">
+                    <td className="border-b border-r border-line-soft px-3 py-3">
                       <select
-                        className="h-9 min-w-[220px] rounded border border-[#dcdfe6] bg-white px-2"
+                        className="h-9 min-w-[220px] rounded border border-line bg-white px-2"
                         value={detail.requestItemId}
                         onChange={(event) => updateDetail(index, { requestItemId: event.target.value })}
                       >
@@ -365,46 +365,46 @@ export function PurchaseOrderFormPage() {
                         ))}
                       </select>
                     </td>
-                    <td className="border-b border-r border-[#ebeef5] px-3 py-3">{formatValue(requestItem?.deviceCode)}</td>
-                    <td className="border-b border-r border-[#ebeef5] px-3 py-3">{formatValue(model?.modelCode)}</td>
-                    <td className="border-b border-r border-[#ebeef5] px-3 py-3">{formatValue(model?.nameEn)}</td>
-                    <td className="border-b border-r border-[#ebeef5] px-3 py-3">{formatValue(requestItem?.quantity)}</td>
-                    <td className="border-b border-r border-[#ebeef5] px-3 py-3">
+                    <td className="border-b border-r border-line-soft px-3 py-3">{formatValue(requestItem?.deviceCode)}</td>
+                    <td className="border-b border-r border-line-soft px-3 py-3">{formatValue(model?.modelCode)}</td>
+                    <td className="border-b border-r border-line-soft px-3 py-3">{formatValue(model?.nameEn)}</td>
+                    <td className="border-b border-r border-line-soft px-3 py-3">{formatValue(requestItem?.quantity)}</td>
+                    <td className="border-b border-r border-line-soft px-3 py-3">
                       <select
-                        className="h-9 min-w-[100px] rounded border border-[#dcdfe6] bg-white px-2"
+                        className="h-9 min-w-[100px] rounded border border-line bg-white px-2"
                         value={normalizePurchaseOrderItemCurrency(detail.currency, master.currency)}
                         onChange={(event) => updateDetail(index, { currency: event.target.value })}
                       >
                         {PURCHASE_ORDER_ITEM_CURRENCY_OPTIONS.map((currency) => <option key={currency} value={currency}>{currency}</option>)}
                       </select>
                     </td>
-                    <td className="border-b border-r border-[#ebeef5] px-3 py-3">
+                    <td className="border-b border-r border-line-soft px-3 py-3">
                       <NumberInput value={detail.taxExcludedUnitPrice ?? 0} onChange={(value) => updateDetail(index, { taxExcludedUnitPrice: value })} />
                     </td>
-                    <td className="border-b border-r border-[#ebeef5] px-3 py-3">
+                    <td className="border-b border-r border-line-soft px-3 py-3">
                       <NumberInput value={detail.taxSurcharge ?? 0} onChange={(value) => updateDetail(index, { taxSurcharge: value })} />
                     </td>
-                    <td className="border-b border-r border-[#ebeef5] px-3 py-3">{formatValue(detail.unitPrice, "money")}</td>
-                    <td className="border-b border-r border-[#ebeef5] px-3 py-3">
+                    <td className="border-b border-r border-line-soft px-3 py-3">{formatValue(detail.unitPrice, "money")}</td>
+                    <td className="border-b border-r border-line-soft px-3 py-3">
                       {formatValue(Number(requestItem?.quantity ?? 0) * Number(detail.unitPrice ?? 0), "money")}
                     </td>
-                    <td className="border-b border-r border-[#ebeef5] px-3 py-3">
+                    <td className="border-b border-r border-line-soft px-3 py-3">
                       <NumberInput value={detail.capexUnitPrice ?? 0} onChange={(value) => updateDetail(index, { capexUnitPrice: value })} />
                     </td>
-                    <td className="border-b border-r border-[#ebeef5] px-3 py-3">
+                    <td className="border-b border-r border-line-soft px-3 py-3">
                       <NumberInput value={detail.opexUnitPrice ?? 0} onChange={(value) => updateDetail(index, { opexUnitPrice: value })} />
                     </td>
-                    <td className="border-b border-r border-[#ebeef5] px-3 py-3 font-medium text-[#1890ff]">
+                    <td className="border-b border-r border-line-soft px-3 py-3 font-medium text-primary">
                       {pricing ? `USD ${formatNumber(pricing.first24VatIncluded)}` : "-"}
                     </td>
-                    <td className="border-b border-r border-[#ebeef5] px-3 py-3 font-medium text-[#1890ff]">
+                    <td className="border-b border-r border-line-soft px-3 py-3 font-medium text-primary">
                       {pricing ? `USD ${formatNumber(pricing.next36VatIncluded)}` : "-"}
                     </td>
-                    <td className="border-b border-r border-[#ebeef5] px-3 py-3"><button className="inline-flex h-8 w-8 items-center justify-center border border-[#b3d8ff] text-[#1890ff] hover:bg-[#ecf5ff] disabled:cursor-not-allowed disabled:border-[#ebeef5] disabled:text-[#c0c4cc]" disabled={!getPricingContext(detail)} title={getPricingContext(detail) ? "算力服务费测算" : "请先选择带国家信息的需求明细"} type="button" onClick={() => setPricingDetailIndex(index)}><Calculator size={15} /></button></td>
-                    <td className="border-b border-r border-[#ebeef5] px-3 py-3">
+                    <td className="border-b border-r border-line-soft px-3 py-3"><button className="inline-flex h-8 w-8 items-center justify-center border border-info-border text-primary hover:bg-info-soft disabled:cursor-not-allowed disabled:border-line-soft disabled:text-ink-4" disabled={!getPricingContext(detail)} title={getPricingContext(detail) ? "算力服务费测算" : "请先选择带国家信息的需求明细"} type="button" onClick={() => setPricingDetailIndex(index)}><Calculator size={15} /></button></td>
+                    <td className="border-b border-r border-line-soft px-3 py-3">
                       <NumberInput value={detail.hardwareCoefficient} onChange={(value) => updateDetail(index, { hardwareCoefficient: value })} />
                     </td>
-                    <td className="border-b border-r border-[#ebeef5] px-3 py-3">
+                    <td className="border-b border-r border-line-soft px-3 py-3">
                       <NumberInput value={detail.softwareCoefficient} onChange={(value) => updateDetail(index, { softwareCoefficient: value })} />
                     </td>
                   </tr>
@@ -440,8 +440,8 @@ function Field({
 }) {
   return (
     <label>
-      <span className="mb-1 block text-sm font-medium text-[#606266]">
-        {required ? <span className="text-[#f56c6c]">*</span> : null}
+      <span className="mb-1 block text-sm font-medium text-ink-2">
+        {required ? <span className="text-danger">*</span> : null}
         {label}
       </span>
       <Input
@@ -458,9 +458,9 @@ function Field({
 
 function Info({ label, value, type }: { label: string; value: unknown; type?: string }) {
   return (
-    <div className="border border-[#ebeef5] bg-[#fafafa] p-3">
-      <div className="text-xs text-[#909399]">{label}</div>
-      <div className="mt-1 truncate text-sm text-[#303133]">{formatValue(value, type)}</div>
+    <div className="border border-line-soft bg-surface-2 p-3">
+      <div className="text-xs text-ink-3">{label}</div>
+      <div className="mt-1 truncate text-sm text-ink">{formatValue(value, type)}</div>
     </div>
   );
 }

@@ -426,38 +426,38 @@ export function ServiceFeeStatementsPage() {
   return (
     <div className="space-y-5">
       <div>
-        <h1 className="text-xl font-medium text-[#303133]">服务费对账单</h1>
-        <p className="mt-1 text-sm text-[#909399]">按国家和核销月份保存服务费对账结果；确认后金额及明细冻结，发票和开票状态仍可维护。</p>
+        <h1 className="text-xl font-medium text-ink">服务费对账单</h1>
+        <p className="mt-1 text-sm text-ink-3">按国家和核销月份保存服务费对账结果；确认后金额及明细冻结，发票和开票状态仍可维护。</p>
       </div>
 
       <Panel>
-        <div className="flex flex-wrap items-center gap-2 border-b border-[#ebeef5] p-4">
+        <div className="flex flex-wrap items-center gap-2 border-b border-line-soft p-4">
           <Input placeholder="对账单号/国家/附件名" value={keyword} onChange={(event) => setKeyword(event.target.value)} />
           <Input aria-label="核销月份" type="month" value={writeOffMonth} onChange={(event) => setWriteOffMonth(event.target.value)} />
-          <select className="h-9 min-w-28 rounded border border-[#dcdfe6] bg-white px-3 text-sm" value={countryCode} onChange={(event) => setCountryCode(event.target.value)}>
+          <select className="h-9 min-w-28 rounded border border-line bg-white px-3 text-sm" value={countryCode} onChange={(event) => setCountryCode(event.target.value)}>
             <option value="">全部国家</option>
             <option value="BR">BR</option>
             <option value="CL">CL</option>
             <option value="MX">MX</option>
           </select>
-          <select className="h-9 min-w-28 rounded border border-[#dcdfe6] bg-white px-3 text-sm" value={status} onChange={(event) => setStatus(event.target.value)}>
+          <select className="h-9 min-w-28 rounded border border-line bg-white px-3 text-sm" value={status} onChange={(event) => setStatus(event.target.value)}>
             <option value="">全部状态</option>
             <option value="未确认">未确认</option>
             <option value="已确认">已确认</option>
           </select>
-          <select className="h-9 min-w-28 rounded border border-[#dcdfe6] bg-white px-3 text-sm" value={invoiceStatus} onChange={(event) => setInvoiceStatus(event.target.value)}>
+          <select className="h-9 min-w-28 rounded border border-line bg-white px-3 text-sm" value={invoiceStatus} onChange={(event) => setInvoiceStatus(event.target.value)}>
             <option value="">全部开票状态</option>
             <option value="未开票">未开票</option>
             <option value="已开票">已开票</option>
           </select>
-          <div className="flex h-9 items-center gap-1 rounded border border-[#dcdfe6] bg-white p-1" aria-label="是否回款筛选">
+          <div className="flex h-9 items-center gap-1 rounded border border-line bg-white p-1" aria-label="是否回款筛选">
             {[
               ["", "全部"],
               ["未回款", "未回款"],
               ["已回款", "已回款"],
             ].map(([value, label]) => (
               <button
-                className={`h-7 rounded px-2 text-xs transition ${repaymentStatus === value ? "bg-[#ecf5ff] text-[#1890ff]" : "text-[#606266] hover:bg-[#f5f7fa]"}`}
+                className={`h-7 rounded px-2 text-xs transition ${repaymentStatus === value ? "bg-info-soft text-primary" : "text-ink-2 hover:bg-canvas"}`}
                 key={value || "all"}
                 type="button"
                 onClick={() => setRepaymentStatus(value)}
@@ -486,10 +486,10 @@ export function ServiceFeeStatementsPage() {
 
         <StickyTable className="table-scroll overflow-auto" tableKey="service-fee-statements">
           <table className="min-w-full border-collapse text-sm">
-            <thead className="bg-[#f5f7fa] text-[#303133]">
+            <thead className="bg-canvas text-ink">
               <tr>
-                {tableColumns.map((column) => <th className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium" key={column.key}>{renderHeader(column)}</th>)}
-                <th className="sticky right-0 min-w-[150px] border-b border-[#ebeef5] bg-[#f5f7fa] px-3 py-3 text-left font-medium">操作</th>
+                {tableColumns.map((column) => <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium" key={column.key}>{renderHeader(column)}</th>)}
+                <th className="sticky right-0 min-w-[150px] border-b border-line-soft bg-canvas px-3 py-3 text-left font-medium">操作</th>
               </tr>
             </thead>
             <tbody>
@@ -499,14 +499,14 @@ export function ServiceFeeStatementsPage() {
                 const hasInvoice = Boolean(row.invoiceOriginalName);
                 const issued = row.invoiceStatus === "已开票";
                 return (
-                  <tr className="hover:bg-[#fafafa]" key={snapshotNo}>
+                  <tr className="hover:bg-surface-2" key={snapshotNo}>
                     {columns.map((column) => {
                       const value = row[column.key];
                       return (
-                        <td className="max-w-[280px] whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3" key={column.key} title={String(value ?? "")}>
+                        <td className="max-w-[280px] whitespace-nowrap border-b border-r border-line-soft px-3 py-3" key={column.key} title={String(value ?? "")}>
                           {column.key === "snapshotNo" ? (
                             <Link
-                              className="font-medium text-[#1890ff] hover:underline"
+                              className="font-medium text-primary hover:underline"
                               href={`/finance/service-fee-snapshot-items?snapshotNo=${encodeURIComponent(snapshotNo)}`}
                               onClick={(event) => {
                                 event.preventDefault();
@@ -520,11 +520,11 @@ export function ServiceFeeStatementsPage() {
                               {snapshotNo}
                             </Link>
                           ) : column.key === "status" ? (
-                            <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${confirmed ? "bg-[#f0f9eb] text-[#67c23a]" : "bg-[#fff7e6] text-[#e6a23c]"}`}>
+                            <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${confirmed ? "bg-success-soft text-success-strong" : "bg-[#fff7e6] text-warning-deep"}`}>
                               {confirmed ? "已确认" : "未确认"}
                             </span>
                           ) : column.key === "billingTotal" || column.key === "prepaymentTotal" ? (
-                            <span className="font-medium text-[#303133]">
+                            <span className="font-medium text-ink">
                               {formatAmountWithCurrency(
                                 value,
                                 column.key === "billingTotal" ? row.defaultBillingCurrency : row.defaultRepaymentCurrency,
@@ -563,25 +563,25 @@ export function ServiceFeeStatementsPage() {
                                   firstNonBlankValue(row.invoiceReceivingUnitCode, row.undertakingUnitName),
                                 )}
                               />
-                              <div className="mt-1 flex items-center gap-1 border-t border-[#f0f2f5] pt-1">
+                              <div className="mt-1 flex items-center gap-1 border-t border-canvas-deep pt-1">
                                 <button
                                   aria-checked={issued}
                                   aria-label={`开票状态：${issued ? "已开票" : "未开票"}`}
-                                  className="inline-flex h-6 items-center gap-1 rounded-full text-xs text-[#606266] disabled:cursor-not-allowed disabled:opacity-50"
+                                  className="inline-flex h-6 items-center gap-1 rounded-full text-xs text-ink-2 disabled:cursor-not-allowed disabled:opacity-50"
                                   disabled={busyNo === snapshotNo}
                                   role="switch"
                                   title={`点击切换为${issued ? "未开票" : "已开票"}`}
                                   type="button"
                                   onClick={() => void setInvoiceState(snapshotNo, issued ? "未开票" : "已开票")}
                                 >
-                                  <span className={`relative inline-flex h-4 w-7 rounded-full transition-colors ${issued ? "bg-[#13ce66]" : "bg-[#c0c4cc]"}`}>
+                                  <span className={`relative inline-flex h-4 w-7 rounded-full transition-colors ${issued ? "bg-success" : "bg-ink-4"}`}>
                                     <span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white shadow transition-transform ${issued ? "translate-x-[15px]" : "translate-x-0.5"}`} />
                                   </span>
                                   <span>{issued ? "已开票" : "未开票"}</span>
                                 </button>
                                 <button
                                   aria-label="编辑发票信息"
-                                  className="inline-flex h-6 w-6 items-center justify-center rounded text-[#909399] hover:bg-[#f5f7fa] hover:text-[#1890ff] disabled:cursor-not-allowed disabled:opacity-50"
+                                  className="inline-flex h-6 w-6 items-center justify-center rounded text-ink-3 hover:bg-canvas hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
                                   disabled={busyNo === snapshotNo}
                                   title="编辑发票信息"
                                   type="button"
@@ -591,7 +591,7 @@ export function ServiceFeeStatementsPage() {
                                 </button>
                                 <button
                                   aria-label={hasInvoice ? "替换发票附件" : "上传发票附件"}
-                                  className="inline-flex h-6 w-6 items-center justify-center rounded text-[#909399] hover:bg-[#f5f7fa] hover:text-[#1890ff] disabled:cursor-not-allowed disabled:opacity-50"
+                                  className="inline-flex h-6 w-6 items-center justify-center rounded text-ink-3 hover:bg-canvas hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
                                   disabled={busyNo === snapshotNo}
                                   title={hasInvoice ? "替换发票附件" : "上传发票附件"}
                                   type="button"
@@ -603,7 +603,7 @@ export function ServiceFeeStatementsPage() {
                                   <>
                                     <a
                                       aria-label="下载发票附件"
-                                      className="max-w-[80px] truncate text-xs text-[#1890ff] hover:underline"
+                                      className="max-w-[80px] truncate text-xs text-primary hover:underline"
                                       href={`/api/service-fees/snapshots/${encodeURIComponent(snapshotNo)}/invoice`}
                                       title={`下载 ${String(row.invoiceOriginalName)}`}
                                     >
@@ -611,7 +611,7 @@ export function ServiceFeeStatementsPage() {
                                     </a>
                                     <button
                                       aria-label="删除发票附件"
-                                      className="inline-flex h-6 w-6 items-center justify-center rounded text-[#f56c6c] hover:bg-[#fff0f0] disabled:cursor-not-allowed disabled:opacity-50"
+                                      className="inline-flex h-6 w-6 items-center justify-center rounded text-danger hover:bg-danger-soft disabled:cursor-not-allowed disabled:opacity-50"
                                       disabled={busyNo === snapshotNo}
                                       title="删除发票附件"
                                       type="button"
@@ -629,12 +629,12 @@ export function ServiceFeeStatementsPage() {
                         </td>
                       );
                     })}
-                    <td className="sticky right-0 whitespace-nowrap border-b border-[#ebeef5] bg-white px-3 py-3">
+                    <td className="sticky right-0 whitespace-nowrap border-b border-line-soft bg-white px-3 py-3">
                       <div className="flex items-center gap-1">
                         {!confirmed ? (
                           <button
                             aria-label="确认对账单"
-                            className="inline-flex h-8 w-8 items-center justify-center rounded border border-[#13ce66] bg-white text-[#13ce66] transition hover:bg-[#f0fff4] disabled:cursor-not-allowed disabled:opacity-50"
+                            className="inline-flex h-8 w-8 items-center justify-center rounded border border-success bg-white text-success transition hover:bg-[#f0fff4] disabled:cursor-not-allowed disabled:opacity-50"
                             disabled={busyNo === snapshotNo}
                             title="确认对账单"
                             type="button"
@@ -646,7 +646,7 @@ export function ServiceFeeStatementsPage() {
                         {!confirmed ? (
                           <button
                             aria-label="删除对账单"
-                            className="inline-flex h-8 w-8 items-center justify-center rounded border border-[#f56c6c] bg-white text-[#f56c6c] transition hover:bg-[#fff0f0] disabled:cursor-not-allowed disabled:opacity-50"
+                            className="inline-flex h-8 w-8 items-center justify-center rounded border border-danger bg-white text-danger transition hover:bg-danger-soft disabled:cursor-not-allowed disabled:opacity-50"
                             disabled={busyNo === snapshotNo}
                             title="删除未确认对账单"
                             type="button"
@@ -655,13 +655,13 @@ export function ServiceFeeStatementsPage() {
                             <Trash2 size={15} />
                           </button>
                         ) : null}
-                        {confirmed ? <span className="px-2 text-[#c0c4cc]">-</span> : null}
+                        {confirmed ? <span className="px-2 text-ink-4">-</span> : null}
                       </div>
                     </td>
                   </tr>
                 );
               })}
-              {!rows.length ? <tr><td className="py-12 text-center text-[#909399]" colSpan={columns.length + 1}><TableStateContent empty="暂无服务费对账单" loading={loading} /></td></tr> : null}
+              {!rows.length ? <tr><td className="py-12 text-center text-ink-3" colSpan={columns.length + 1}><TableStateContent empty="暂无服务费对账单" loading={loading} /></td></tr> : null}
             </tbody>
           </table>
         </StickyTable>
@@ -675,20 +675,20 @@ export function ServiceFeeStatementsPage() {
       </Panel>
       {repaymentDraft ? (
         <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/35 p-4" role="dialog" aria-modal="true" aria-label="登记回款信息">
-          <div className="w-full max-w-[680px] border border-[#ebeef5] bg-white shadow-xl">
-            <div className="flex items-center border-b border-[#ebeef5] px-5 py-4">
+          <div className="w-full max-w-[680px] border border-line-soft bg-white shadow-xl">
+            <div className="flex items-center border-b border-line-soft px-5 py-4">
               <div>
-                <h2 className="font-medium text-[#303133]">登记回款信息</h2>
-                <p className="mt-1 text-xs text-[#909399]">{repaymentDraft.snapshotNo}</p>
+                <h2 className="font-medium text-ink">登记回款信息</h2>
+                <p className="mt-1 text-xs text-ink-3">{repaymentDraft.snapshotNo}</p>
               </div>
-              <button className="ml-auto text-[#909399] hover:text-[#303133]" type="button" title="关闭" onClick={() => setRepaymentDraft(null)}><X size={18} /></button>
+              <button className="ml-auto text-ink-3 hover:text-ink" type="button" title="关闭" onClick={() => setRepaymentDraft(null)}><X size={18} /></button>
             </div>
             <div className="grid grid-cols-2 gap-4 p-5">
               <RepaymentField label="是否回款">
                 <button
                   aria-checked={repaymentDraft.repaymentStatus === "已回款"}
                   aria-label={`是否回款：${repaymentDraft.repaymentStatus}`}
-                  className="inline-flex h-9 items-center gap-2 text-sm text-[#606266]"
+                  className="inline-flex h-9 items-center gap-2 text-sm text-ink-2"
                   role="switch"
                   title="点击切换回款状态"
                   type="button"
@@ -697,7 +697,7 @@ export function ServiceFeeStatementsPage() {
                     repaymentStatus: current.repaymentStatus === "已回款" ? "未回款" : "已回款",
                   } : current)}
                 >
-                  <span className={`relative inline-flex h-5 w-10 rounded-full transition-colors ${repaymentDraft.repaymentStatus === "已回款" ? "bg-[#13ce66]" : "bg-[#c0c4cc]"}`}>
+                  <span className={`relative inline-flex h-5 w-10 rounded-full transition-colors ${repaymentDraft.repaymentStatus === "已回款" ? "bg-success" : "bg-ink-4"}`}>
                     <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${repaymentDraft.repaymentStatus === "已回款" ? "translate-x-[22px]" : "translate-x-0.5"}`} />
                   </span>
                   <span>{repaymentDraft.repaymentStatus}</span>
@@ -705,19 +705,19 @@ export function ServiceFeeStatementsPage() {
               </RepaymentField>
               <div />
               <RepaymentField label="收款单位">
-                <select className="h-9 w-full rounded border border-[#dcdfe6] bg-white px-3 text-sm" value={repaymentDraft.receivingUnitId} onChange={(event) => setRepaymentDraft((current) => current ? { ...current, receivingUnitId: event.target.value } : current)}>
+                <select className="h-9 w-full rounded border border-line bg-white px-3 text-sm" value={repaymentDraft.receivingUnitId} onChange={(event) => setRepaymentDraft((current) => current ? { ...current, receivingUnitId: event.target.value } : current)}>
                   <option value="">请选择承接单位</option>
                   {undertakingUnits.map((row) => <option key={String(row.undertakingUnitId)} value={String(row.undertakingUnitId)}>{partyOptionLabel(row, ["undertakingUnitCode", "entityCode"], ["shortName", "entityName", "name"])}</option>)}
                 </select>
               </RepaymentField>
               <RepaymentField label="付款单位">
-                <select className="h-9 w-full rounded border border-[#dcdfe6] bg-white px-3 text-sm" value={repaymentDraft.payerCustomerId} onChange={(event) => setRepaymentDraft((current) => current ? { ...current, payerCustomerId: event.target.value } : current)}>
+                <select className="h-9 w-full rounded border border-line bg-white px-3 text-sm" value={repaymentDraft.payerCustomerId} onChange={(event) => setRepaymentDraft((current) => current ? { ...current, payerCustomerId: event.target.value } : current)}>
                   <option value="">请选择客户</option>
                   {customers.map((row) => <option key={String(row.customerId)} value={String(row.customerId)}>{partyOptionLabel(row, ["customerCode"], ["shortName", "nameCn", "name"])}</option>)}
                 </select>
               </RepaymentField>
               <RepaymentField label="回款币种">
-                <select className="h-9 w-full rounded border border-[#dcdfe6] bg-white px-3 text-sm" value={repaymentDraft.repaymentCurrency} onChange={(event) => setRepaymentDraft((current) => current ? { ...current, repaymentCurrency: event.target.value } : current)}>
+                <select className="h-9 w-full rounded border border-line bg-white px-3 text-sm" value={repaymentDraft.repaymentCurrency} onChange={(event) => setRepaymentDraft((current) => current ? { ...current, repaymentCurrency: event.target.value } : current)}>
                   <option value="">请选择币种</option>{["CNY", "MXN", "CLP", "USD", "BRL"].map((currency) => <option key={currency} value={currency}>{currency}</option>)}
                 </select>
               </RepaymentField>
@@ -734,7 +734,7 @@ export function ServiceFeeStatementsPage() {
                 <Input className="w-full min-w-0" type="date" value={repaymentDraft.repaymentDate} onChange={(event) => setRepaymentDraft((current) => current ? { ...current, repaymentDate: event.target.value } : current)} />
               </RepaymentField>
             </div>
-            <div className="flex justify-end gap-2 border-t border-[#ebeef5] px-5 py-4">
+            <div className="flex justify-end gap-2 border-t border-line-soft px-5 py-4">
               <Button onClick={() => setRepaymentDraft(null)}>取消</Button>
               <Button tone="primary" disabled={busyNo === repaymentDraft.snapshotNo} onClick={() => void saveRepayment()}>保存回款信息</Button>
             </div>
@@ -743,23 +743,23 @@ export function ServiceFeeStatementsPage() {
       ) : null}
       {invoiceDraft ? (
         <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/35 p-4" role="dialog" aria-modal="true" aria-label="编辑发票信息">
-          <div className="w-full max-w-[680px] border border-[#ebeef5] bg-white shadow-xl">
-            <div className="flex items-center border-b border-[#ebeef5] px-5 py-4">
+          <div className="w-full max-w-[680px] border border-line-soft bg-white shadow-xl">
+            <div className="flex items-center border-b border-line-soft px-5 py-4">
               <div>
-                <h2 className="font-medium text-[#303133]">编辑发票信息</h2>
-                <p className="mt-1 text-xs text-[#909399]">{invoiceDraft.snapshotNo}</p>
+                <h2 className="font-medium text-ink">编辑发票信息</h2>
+                <p className="mt-1 text-xs text-ink-3">{invoiceDraft.snapshotNo}</p>
               </div>
-              <button className="ml-auto text-[#909399] hover:text-[#303133]" type="button" title="关闭" onClick={() => setInvoiceDraft(null)}><X size={18} /></button>
+              <button className="ml-auto text-ink-3 hover:text-ink" type="button" title="关闭" onClick={() => setInvoiceDraft(null)}><X size={18} /></button>
             </div>
             <div className="grid grid-cols-2 gap-4 p-5">
               <RepaymentField label="承接单位">
-                <select className="h-9 w-full rounded border border-[#dcdfe6] bg-white px-3 text-sm" value={invoiceDraft.invoiceReceivingUnitId} onChange={(event) => setInvoiceDraft((current) => current ? { ...current, invoiceReceivingUnitId: event.target.value } : current)}>
+                <select className="h-9 w-full rounded border border-line bg-white px-3 text-sm" value={invoiceDraft.invoiceReceivingUnitId} onChange={(event) => setInvoiceDraft((current) => current ? { ...current, invoiceReceivingUnitId: event.target.value } : current)}>
                   <option value="">请选择承接单位</option>
                   {undertakingUnits.map((row) => <option key={String(row.undertakingUnitId)} value={String(row.undertakingUnitId)}>{partyShortName(row, ["shortName", "entityName", "name"], ["undertakingUnitCode", "entityCode"])}</option>)}
                 </select>
               </RepaymentField>
               <RepaymentField label="客户">
-                <select className="h-9 w-full rounded border border-[#dcdfe6] bg-white px-3 text-sm" value={invoiceDraft.invoicePayerCustomerId} onChange={(event) => setInvoiceDraft((current) => current ? { ...current, invoicePayerCustomerId: event.target.value } : current)}>
+                <select className="h-9 w-full rounded border border-line bg-white px-3 text-sm" value={invoiceDraft.invoicePayerCustomerId} onChange={(event) => setInvoiceDraft((current) => current ? { ...current, invoicePayerCustomerId: event.target.value } : current)}>
                   <option value="">请选择客户</option>
                   {customers.map((row) => <option key={String(row.customerId)} value={String(row.customerId)}>{partyShortName(row, ["shortName", "nameCn", "name"], ["customerCode"])}</option>)}
                 </select>
@@ -783,7 +783,7 @@ export function ServiceFeeStatementsPage() {
                 <Input className="w-full min-w-0" type="date" value={invoiceDraft.receivableDate} onChange={(event) => setInvoiceDraft((current) => current ? { ...current, receivableDate: event.target.value } : current)} />
               </RepaymentField>
             </div>
-            <div className="flex justify-end gap-2 border-t border-[#ebeef5] px-5 py-4">
+            <div className="flex justify-end gap-2 border-t border-line-soft px-5 py-4">
               <Button onClick={() => setInvoiceDraft(null)}>取消</Button>
               <Button tone="primary" disabled={busyNo === invoiceDraft.snapshotNo} onClick={() => void saveInvoiceInfo()}>保存发票信息</Button>
             </div>
@@ -795,7 +795,7 @@ export function ServiceFeeStatementsPage() {
 }
 
 function RepaymentField({ children, label }: { children: React.ReactNode; label: string }) {
-  return <label><span className="mb-1 block text-sm font-medium text-[#606266]">{label}</span>{children}</label>;
+  return <label><span className="mb-1 block text-sm font-medium text-ink-2">{label}</span>{children}</label>;
 }
 
 function formatValue(value: unknown, type?: string) {
@@ -892,15 +892,15 @@ function AmountSummary({
   const resolvedGross = gross ?? (net !== null && rate !== null ? net * (1 + rate) : null);
   const tax = resolvedGross !== null && resolvedNet !== null ? resolvedGross - resolvedNet : null;
   return (
-    <div className="min-w-[135px] space-y-0.5 text-xs leading-4 text-[#606266]">
-      {partyFlow ? <div className="max-w-[190px] truncate text-[11px] text-[#909399]" title={partyFlow}>{partyFlow}</div> : null}
-      {receivableDate ? <div className="text-[#909399]">应收日期 <span className="text-[#606266]">{String(receivableDate).slice(0, 10)}</span></div> : null}
+    <div className="min-w-[135px] space-y-0.5 text-xs leading-4 text-ink-2">
+      {partyFlow ? <div className="max-w-[190px] truncate text-[11px] text-ink-3" title={partyFlow}>{partyFlow}</div> : null}
+      {receivableDate ? <div className="text-ink-3">应收日期 <span className="text-ink-2">{String(receivableDate).slice(0, 10)}</span></div> : null}
       <div className="font-semibold text-[#2f75b5]">{String(currency ?? "").trim() || "-"}</div>
-      <div><span className="text-[#909399]">未税 </span>{formatCompactMoney(resolvedNet)}</div>
-      <div><span className="text-[#909399]">税率 </span>{formatCompactRate(rate)}</div>
-      <div><span className="text-[#909399]">税金 </span>{formatCompactMoney(tax)}</div>
-      <div className="font-semibold text-[#303133]"><span className="font-normal text-[#909399]">含税 </span>{formatCompactMoney(resolvedGross)}</div>
-      {action ? <div className="mt-1 flex items-center gap-1 border-t border-[#f0f2f5] pt-1">{action}</div> : null}
+      <div><span className="text-ink-3">未税 </span>{formatCompactMoney(resolvedNet)}</div>
+      <div><span className="text-ink-3">税率 </span>{formatCompactRate(rate)}</div>
+      <div><span className="text-ink-3">税金 </span>{formatCompactMoney(tax)}</div>
+      <div className="font-semibold text-ink"><span className="font-normal text-ink-3">含税 </span>{formatCompactMoney(resolvedGross)}</div>
+      {action ? <div className="mt-1 flex items-center gap-1 border-t border-canvas-deep pt-1">{action}</div> : null}
     </div>
   );
 }
@@ -911,19 +911,19 @@ function RepaymentStatusAction({ row, busy, onToggle, onEdit }: { row: Row; busy
     <button
       aria-checked={paid}
       aria-label={`回款状态：${paid ? "已回款" : "未回款"}`}
-      className="inline-flex h-6 items-center gap-1 rounded-full text-xs text-[#606266] disabled:cursor-not-allowed disabled:opacity-50"
+      className="inline-flex h-6 items-center gap-1 rounded-full text-xs text-ink-2 disabled:cursor-not-allowed disabled:opacity-50"
       disabled={busy}
       role="switch"
       title={`点击切换为${paid ? "未回款" : "已回款"}`}
       type="button"
       onClick={onToggle}
     >
-      <span className={`relative inline-flex h-4 w-7 rounded-full transition-colors ${paid ? "bg-[#13ce66]" : "bg-[#c0c4cc]"}`}>
+      <span className={`relative inline-flex h-4 w-7 rounded-full transition-colors ${paid ? "bg-success" : "bg-ink-4"}`}>
         <span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white shadow transition-transform ${paid ? "translate-x-[15px]" : "translate-x-0.5"}`} />
       </span>
       <span>{paid ? "已回款" : "未回款"}</span>
     </button>
-    <button aria-label="编辑回款信息" className="ml-auto inline-flex h-6 w-6 items-center justify-center rounded text-[#909399] hover:bg-[#f5f7fa] hover:text-[#1890ff] disabled:cursor-not-allowed disabled:opacity-50" disabled={busy} title="编辑回款信息" type="button" onClick={onEdit}>
+    <button aria-label="编辑回款信息" className="ml-auto inline-flex h-6 w-6 items-center justify-center rounded text-ink-3 hover:bg-canvas hover:text-primary disabled:cursor-not-allowed disabled:opacity-50" disabled={busy} title="编辑回款信息" type="button" onClick={onEdit}>
       <Pencil size={13} />
     </button>
   </>;

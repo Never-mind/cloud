@@ -260,20 +260,20 @@ export function ServiceFeesPage() {
   return (
     <div className="space-y-5">
       <div>
-        <h1 className="text-xl font-medium text-[#303133]">服务费核算</h1>
-        <p className="mt-1 text-sm text-[#909399]">按月度月账单核销总额减预付款核销金额生成服务费核算结果，非实例预付款费用的月账单金额按0显示。</p>
+        <h1 className="text-xl font-medium text-ink">服务费核算</h1>
+        <p className="mt-1 text-sm text-ink-3">按月度月账单核销总额减预付款核销金额生成服务费核算结果，非实例预付款费用的月账单金额按0显示。</p>
       </div>
 
       <Panel>
-        <div className="flex flex-wrap items-center gap-2 border-b border-[#ebeef5] p-4">
+        <div className="flex flex-wrap items-center gap-2 border-b border-line-soft p-4">
           <Input placeholder="国家/批次/需求单/PO/实例编码" value={keyword} onChange={(event) => setKeyword(event.target.value)} />
-          <label className="text-xs text-[#606266]">起始月份<Input className="ml-2" type="month" value={startMonth} onChange={(event) => setStartMonth(event.target.value)} /></label>
-          <label className="text-xs text-[#606266]">结束月份<Input className="ml-2" type="month" value={endMonth} onChange={(event) => setEndMonth(event.target.value)} /></label>
+          <label className="text-xs text-ink-2">起始月份<Input className="ml-2" type="month" value={startMonth} onChange={(event) => setStartMonth(event.target.value)} /></label>
+          <label className="text-xs text-ink-2">结束月份<Input className="ml-2" type="month" value={endMonth} onChange={(event) => setEndMonth(event.target.value)} /></label>
           <Input placeholder="国家" value={countryCode} onChange={(event) => setCountryCode(event.target.value)} />
           <Input placeholder="批次" value={batchName} onChange={(event) => setBatchName(event.target.value)} />
           <Input placeholder="币种，如 USD / CNY" value={currency} onChange={(event) => setCurrency(event.target.value)} />
           <select
-            className="h-9 rounded border border-[#dcdfe6] bg-white px-3 text-sm outline-none focus:border-[#1890ff]"
+            className="h-9 rounded border border-line bg-white px-3 text-sm outline-none focus:border-primary"
             value={lineType}
             onChange={(event) => setLineType(event.target.value)}
           >
@@ -282,7 +282,7 @@ export function ServiceFeesPage() {
             <option value="fee">非实例费用</option>
           </select>
           <select
-            className="h-9 rounded border border-[#dcdfe6] bg-white px-3 text-sm outline-none focus:border-[#1890ff]"
+            className="h-9 rounded border border-line bg-white px-3 text-sm outline-none focus:border-primary"
             value={requestType}
             onChange={(event) => setRequestType(event.target.value)}
           >
@@ -304,7 +304,7 @@ export function ServiceFeesPage() {
           </Button>
         </div>
 
-        <div className="grid grid-cols-2 gap-2 border-b border-[#ebeef5] bg-[#fafafa] p-3 md:grid-cols-3 xl:grid-cols-6">
+        <div className="grid grid-cols-2 gap-2 border-b border-line-soft bg-surface-2 p-3 md:grid-cols-3 xl:grid-cols-6">
           <SummaryItem label="月账单合计" summaries={currencySummaries} fallback={summary} valueKey="billingTotal" />
           <SummaryItem label="预付款合计" summaries={currencySummaries} fallback={summary} valueKey="prepaymentTotal" />
           <SummaryItem label="服务费合计" summaries={currencySummaries} fallback={summary} valueKey="serviceFeeTotal" />
@@ -313,21 +313,21 @@ export function ServiceFeesPage() {
           <SummaryItem label="非实例费用" summaries={currencySummaries} fallback={summary} valueKey="feeServiceFeeTotal" />
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 border-b border-[#ebeef5] p-4">
+        <div className="flex flex-wrap items-center gap-2 border-b border-line-soft p-4">
           <Input placeholder="对账单号，不填自动生成" value={snapshotNo} onChange={(event) => setSnapshotNo(event.target.value)} />
           <Button tone="success" disabled={confirming || loading} onClick={() => void createStatementDraft()}>
             <CheckCircle2 size={15} />
             {confirming ? "生成中" : "生成对账单草稿"}
           </Button>
-          <span className="text-sm text-[#909399]">请填写币种，并将起始月份与结束月份选为同一个月；对账单将汇总所选国家、币种当月的全部批次。</span>
+          <span className="text-sm text-ink-3">请填写币种，并将起始月份与结束月份选为同一个月；对账单将汇总所选国家、币种当月的全部批次。</span>
         </div>
 
         <StickyTable className="table-scroll overflow-auto" tableKey="service-fees">
           <table className="min-w-full border-collapse text-sm">
-            <thead className="bg-[#f5f7fa] text-[#303133]">
+            <thead className="bg-canvas text-ink">
               <tr>
                 {tableColumns.map((column) => (
-                  <th className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium" key={column.key}>
+                  <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium" key={column.key}>
                     {renderHeader(column)}
                   </th>
                 ))}
@@ -335,9 +335,9 @@ export function ServiceFeesPage() {
             </thead>
             <tbody>
               {rows.map((row) => (
-                <tr className="hover:bg-[#fafafa]" key={String(row.id)}>
+                <tr className="hover:bg-surface-2" key={String(row.id)}>
                   {columns.map((column) => (
-                    <td className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3" key={column.key}>
+                    <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3" key={column.key}>
                       {formatValue(row[column.key], column.type)}
                     </td>
                   ))}
@@ -345,7 +345,7 @@ export function ServiceFeesPage() {
               ))}
               {!rows.length ? (
                 <tr>
-                  <td className="py-12 text-center text-[#909399]" colSpan={tableColumns.length}>
+                  <td className="py-12 text-center text-ink-3" colSpan={tableColumns.length}>
                     <TableStateContent empty="暂无服务费核算明细" loading={loading} />
                   </td>
                 </tr>
@@ -381,9 +381,9 @@ export function ServiceFeesPage() {
 function SummaryItem({ label, summaries, fallback, valueKey }: { label: string; summaries: CurrencySummary[]; fallback: Summary; valueKey: keyof Summary }) {
   const values = summaries.length ? summaries : [{ currency: "", ...fallback }];
   return (
-    <div className="min-w-0 border border-[#ebeef5] bg-white px-3 py-2">
-      <div className="text-xs text-[#909399]">{label}</div>
-      <div className="mt-1 space-y-0.5 text-sm font-medium text-[#303133]">
+    <div className="min-w-0 border border-line-soft bg-white px-3 py-2">
+      <div className="text-xs text-ink-3">{label}</div>
+      <div className="mt-1 space-y-0.5 text-sm font-medium text-ink">
         {values.map((item) => (
           <div className="truncate" key={`${label}-${item.currency || "total"}`}>
             {item.currency ? `${item.currency}：` : "合计："}{formatValue(item[valueKey], "money")}

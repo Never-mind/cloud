@@ -343,8 +343,8 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
           返回列表
         </Button>
         <div>
-          <h1 className="text-xl font-medium text-[#303133]">预付款合同明细</h1>
-          <p className="mt-1 text-sm text-[#909399]">维护实例预付款金额、额外费用和每项明细起始核销月份。</p>
+          <h1 className="text-xl font-medium text-ink">预付款合同明细</h1>
+          <p className="mt-1 text-sm text-ink-3">维护实例预付款金额、额外费用和每项明细起始核销月份。</p>
         </div>
         <div className="ml-auto flex gap-2">
           <Button disabled={editState.editButtonDisabled} tone="primary" onClick={handleEditButton}>
@@ -365,7 +365,7 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
       </div>
 
       <Panel>
-        <div className="border-b border-[#ebeef5] px-4 py-3 font-medium text-[#303133]">主单信息</div>
+        <div className="border-b border-line-soft px-4 py-3 font-medium text-ink">主单信息</div>
         <div className="grid grid-cols-5 gap-4 p-4">
           <Field disabled label="预付款合同号" value={contract.contractNo} onChange={() => undefined} />
           <Field disabled label="状态" value={contract.status} onChange={() => undefined} />
@@ -376,42 +376,42 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
       </Panel>
 
       <Panel>
-        <div className="border-b border-[#ebeef5] px-4 py-3 font-medium text-[#303133]">实例明细</div>
+        <div className="border-b border-line-soft px-4 py-3 font-medium text-ink">实例明细</div>
         <StickyTable className="table-scroll overflow-auto" tableKey={`prepayment-contract-${contractNo}-instances`}>
           <table className="min-w-full border-collapse text-sm">
-            <thead className="bg-[#f5f7fa] text-[#303133]">
+            <thead className="bg-canvas text-ink">
               <tr>
                 {instanceColumns.map((column) => (
-                  <th className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium" key={column.key}>
+                  <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium" key={column.key}>
                     {column.label}
                   </th>
                 ))}
-                <th className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium">合同币种</th>
-                <th className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium">合同单价</th>
-                <th className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium">合同总价</th>
-                <th className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium">起始核销月份</th>
+                <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">合同币种</th>
+                <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">合同单价</th>
+                <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">合同总价</th>
+                <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">起始核销月份</th>
               </tr>
             </thead>
             <tbody>
               {instanceLines.map((line) => (
-                <tr className="hover:bg-[#fafafa]" key={line.id}>
+                <tr className="hover:bg-surface-2" key={line.id}>
                   {instanceColumns.map((column) => (
-                    <td className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3" key={column.key}>
+                    <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3" key={column.key}>
                       {column.key === "undertakingUnitId" || column.key === "supplierId" || column.key === "customerId"
                         ? partyCode(line, column.key)
                         : formatValue(line[column.key], column.type)}
                     </td>
                   ))}
-                  <td className="border-b border-r border-[#ebeef5] px-3 py-3">
+                  <td className="border-b border-r border-line-soft px-3 py-3">
                     <Input className="w-24 min-w-0" disabled={!canEdit} value={line.contractCurrency ?? ""} onChange={(event) => updateLine(line.id, { contractCurrency: event.target.value })} />
                   </td>
-                  <td className="border-b border-r border-[#ebeef5] px-3 py-3">
+                  <td className="border-b border-r border-line-soft px-3 py-3">
                     <Input className="w-28 min-w-0" disabled={!canEdit} type="number" value={line.contractUnitPrice} onChange={(event) => updateLine(line.id, { contractUnitPrice: Number(event.target.value) })} />
                   </td>
-                  <td className="border-b border-r border-[#ebeef5] px-3 py-3">
+                  <td className="border-b border-r border-line-soft px-3 py-3">
                     <Input className="w-32 min-w-0" disabled={!canEdit} type="number" value={line.contractTotalAmount} onChange={(event) => updateLine(line.id, { contractTotalAmount: Number(event.target.value) })} />
                   </td>
-                  <td className="border-b border-r border-[#ebeef5] px-3 py-3">
+                  <td className="border-b border-r border-line-soft px-3 py-3">
                     <Input className="w-40 min-w-0" disabled={!canEdit} type="date" value={formatDateInputValue(line.writeOffStartMonth)} onChange={(event) => updateLine(line.id, { writeOffStartMonth: event.target.value })} />
                   </td>
                 </tr>
@@ -422,8 +422,8 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
       </Panel>
 
       <Panel>
-        <div className="flex items-center border-b border-[#ebeef5] px-4 py-3">
-          <div className="font-medium text-[#303133]">费用明细</div>
+        <div className="flex items-center border-b border-line-soft px-4 py-3">
+          <div className="font-medium text-ink">费用明细</div>
           <Button className="ml-auto" disabled={!canEdit} onClick={addFeeLine}>
             <Plus size={15} />
             新增费用明细
@@ -431,30 +431,30 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
         </div>
         <StickyTable className="table-scroll overflow-auto" tableKey={`prepayment-contract-${contractNo}-fees`}>
           <table className="min-w-full border-collapse text-sm">
-            <thead className="bg-[#f5f7fa] text-[#303133]">
+            <thead className="bg-canvas text-ink">
               <tr>
-                <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">费用名称</th>
-                <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">国家</th>
-                <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">批次号</th>
-                <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">说明</th>
-                <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">承接单位</th>
-                <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">供应商</th>
-                <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">客户</th>
-                <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">币种</th>
-                <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">金额</th>
-                <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">起始核销月份</th>
-                <th className="border-b border-[#ebeef5] px-3 py-3 text-left">操作</th>
+                <th className="border-b border-r border-line-soft px-3 py-3 text-left">费用名称</th>
+                <th className="border-b border-r border-line-soft px-3 py-3 text-left">国家</th>
+                <th className="border-b border-r border-line-soft px-3 py-3 text-left">批次号</th>
+                <th className="border-b border-r border-line-soft px-3 py-3 text-left">说明</th>
+                <th className="border-b border-r border-line-soft px-3 py-3 text-left">承接单位</th>
+                <th className="border-b border-r border-line-soft px-3 py-3 text-left">供应商</th>
+                <th className="border-b border-r border-line-soft px-3 py-3 text-left">客户</th>
+                <th className="border-b border-r border-line-soft px-3 py-3 text-left">币种</th>
+                <th className="border-b border-r border-line-soft px-3 py-3 text-left">金额</th>
+                <th className="border-b border-r border-line-soft px-3 py-3 text-left">起始核销月份</th>
+                <th className="border-b border-line-soft px-3 py-3 text-left">操作</th>
               </tr>
             </thead>
             <tbody>
               {feeLines.map((line) => (
                 <tr key={line.id}>
-                  <td className="border-b border-r border-[#ebeef5] px-3 py-3">
+                  <td className="border-b border-r border-line-soft px-3 py-3">
                     <Input disabled={!canEdit} value={line.feeName ?? ""} onChange={(event) => updateLine(line.id, { feeName: event.target.value, nameEn: event.target.value })} />
                   </td>
-                  <td className="border-b border-r border-[#ebeef5] px-3 py-3">
+                  <td className="border-b border-r border-line-soft px-3 py-3">
                     <select
-                      className="h-9 min-w-[150px] rounded border border-[#dcdfe6] bg-white px-2"
+                      className="h-9 min-w-[150px] rounded border border-line bg-white px-2"
                       disabled={!canEdit}
                       value={line.countryCode ?? ""}
                       onChange={(event) => updateLine(line.id, { countryCode: event.target.value })}
@@ -474,40 +474,40 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
                         ))}
                     </select>
                   </td>
-                  <td className="border-b border-r border-[#ebeef5] px-3 py-3">
+                  <td className="border-b border-r border-line-soft px-3 py-3">
                     <Input disabled={!canEdit} value={line.batchName ?? ""} onChange={(event) => updateLine(line.id, { batchName: event.target.value })} />
                   </td>
-                  <td className="border-b border-r border-[#ebeef5] px-3 py-3">
+                  <td className="border-b border-r border-line-soft px-3 py-3">
                     <Textarea disabled={!canEdit} value={line.feeDescription ?? ""} onChange={(event) => updateLine(line.id, { feeDescription: event.target.value })} />
                   </td>
-                  <td className="border-b border-r border-[#ebeef5] px-3 py-3">
-                    <select className="h-9 min-w-[160px] rounded border border-[#dcdfe6] bg-white px-2" disabled={!canEdit} value={line.undertakingUnitId ?? ""} onChange={(event) => updateLine(line.id, { undertakingUnitId: event.target.value })}>
+                  <td className="border-b border-r border-line-soft px-3 py-3">
+                    <select className="h-9 min-w-[160px] rounded border border-line bg-white px-2" disabled={!canEdit} value={line.undertakingUnitId ?? ""} onChange={(event) => updateLine(line.id, { undertakingUnitId: event.target.value })}>
                       <option value="">请选择</option>
                       {undertakingUnits.map((unit) => <option key={String(unit.undertakingUnitId)} value={String(unit.undertakingUnitId)}>{partyOptionLabel(unit, ["undertakingUnitCode", "entityCode"], ["shortName", "entityName", "name"])}</option>)}
                     </select>
                   </td>
-                  <td className="border-b border-r border-[#ebeef5] px-3 py-3">
-                    <select className="h-9 min-w-[160px] rounded border border-[#dcdfe6] bg-white px-2" disabled={!canEdit} value={line.supplierId ?? ""} onChange={(event) => updateLine(line.id, { supplierId: event.target.value })}>
+                  <td className="border-b border-r border-line-soft px-3 py-3">
+                    <select className="h-9 min-w-[160px] rounded border border-line bg-white px-2" disabled={!canEdit} value={line.supplierId ?? ""} onChange={(event) => updateLine(line.id, { supplierId: event.target.value })}>
                       <option value="">请选择</option>
                       {suppliers.map((supplier) => <option key={String(supplier.supplierId)} value={String(supplier.supplierId)}>{partyOptionLabel(supplier, ["supplierCode"], ["shortName", "nameCn"])}</option>)}
                     </select>
                   </td>
-                  <td className="border-b border-r border-[#ebeef5] px-3 py-3">
-                    <select className="h-9 min-w-[160px] rounded border border-[#dcdfe6] bg-white px-2" disabled={!canEdit} value={line.customerId ?? ""} onChange={(event) => updateLine(line.id, { customerId: event.target.value })}>
+                  <td className="border-b border-r border-line-soft px-3 py-3">
+                    <select className="h-9 min-w-[160px] rounded border border-line bg-white px-2" disabled={!canEdit} value={line.customerId ?? ""} onChange={(event) => updateLine(line.id, { customerId: event.target.value })}>
                       <option value="">请选择</option>
                       {customers.map((customer) => <option key={String(customer.customerId)} value={String(customer.customerId)}>{partyOptionLabel(customer, ["customerCode"], ["shortName", "nameCn", "name"])}</option>)}
                     </select>
                   </td>
-                  <td className="border-b border-r border-[#ebeef5] px-3 py-3">
+                  <td className="border-b border-r border-line-soft px-3 py-3">
                     <Input className="w-24 min-w-0" disabled={!canEdit} value={line.contractCurrency ?? ""} onChange={(event) => updateLine(line.id, { contractCurrency: event.target.value })} />
                   </td>
-                  <td className="border-b border-r border-[#ebeef5] px-3 py-3">
+                  <td className="border-b border-r border-line-soft px-3 py-3">
                     <Input className="w-32 min-w-0" disabled={!canEdit} type="number" value={line.contractTotalAmount} onChange={(event) => updateLine(line.id, { contractTotalAmount: Number(event.target.value), contractUnitPrice: Number(event.target.value) })} />
                   </td>
-                  <td className="border-b border-r border-[#ebeef5] px-3 py-3">
+                  <td className="border-b border-r border-line-soft px-3 py-3">
                     <Input className="w-40 min-w-0" disabled={!canEdit} type="date" value={formatDateInputValue(line.writeOffStartMonth)} onChange={(event) => updateLine(line.id, { writeOffStartMonth: event.target.value })} />
                   </td>
-                  <td className="border-b border-[#ebeef5] px-3 py-3">
+                  <td className="border-b border-line-soft px-3 py-3">
                     <Button disabled={!canEdit} tone="danger" onClick={() => removeLine(line.id)}>
                       <Trash2 size={15} />
                       删除
@@ -517,7 +517,7 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
               ))}
               {!feeLines.length ? (
                 <tr>
-                  <td className="py-8 text-center text-[#909399]" colSpan={10}>暂无费用明细</td>
+                  <td className="py-8 text-center text-ink-3" colSpan={10}>暂无费用明细</td>
                 </tr>
               ) : null}
             </tbody>
@@ -556,7 +556,7 @@ function Field({
 }) {
   return (
     <label>
-      <span className="mb-1 block text-sm font-medium text-[#606266]">{label}</span>
+      <span className="mb-1 block text-sm font-medium text-ink-2">{label}</span>
       <Input className="w-full" disabled={disabled} type={type} value={type === "date" ? formatDateInputValue(value) : value ?? ""} onChange={(event) => onChange(event.target.value)} />
     </label>
   );

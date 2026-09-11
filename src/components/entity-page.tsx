@@ -731,12 +731,12 @@ export function EntityPage({
   return (
     <div>
       {!hideHeading ? <div className="mb-4">
-        <h1 className="text-xl font-medium text-[#303133]">{config.title}</h1>
-        <p className="mt-1 text-sm text-[#909399]">{config.description}</p>
+        <h1 className="text-xl font-medium text-ink">{config.title}</h1>
+        <p className="mt-1 text-sm text-ink-3">{config.description}</p>
       </div> : null}
 
       <Panel>
-        <div className="flex flex-wrap items-center gap-2 border-b border-[#ebeef5] p-4">
+        <div className="flex flex-wrap items-center gap-2 border-b border-line-soft p-4">
           <Input
             placeholder={config.filters[0]?.placeholder ?? "请输入关键字"}
             value={keyword}
@@ -756,7 +756,7 @@ export function EntityPage({
             .map((filter) => (
               filter.type === "select" ? (
                 <select
-                  className="h-9 min-w-36 rounded border border-[#dcdfe6] bg-white px-3 text-sm outline-none focus:border-[#1890ff]"
+                  className="h-9 min-w-36 rounded border border-line bg-white px-3 text-sm outline-none focus:border-primary"
                   key={filter.key}
                   value={filterValues[filter.key] ?? ""}
                   onChange={(event) => {
@@ -876,13 +876,13 @@ export function EntityPage({
             </Button>
           ) : null}
           {config.batchDelete && selectedRowIds.length ? (
-            <div className="flex items-center gap-2 rounded border border-[#d9ecff] bg-[#ecf5ff] px-3 py-1.5">
-              <span className="text-sm text-[#1890ff]">已选 {selectedRowIds.length} 条</span>
+            <div className="flex items-center gap-2 rounded border border-[#d9ecff] bg-info-soft px-3 py-1.5">
+              <span className="text-sm text-primary">已选 {selectedRowIds.length} 条</span>
               <Button disabled={batchBusy} tone="danger" onClick={() => void runBatchDelete()}>
                 <Trash2 size={15} />
                 批量退回
               </Button>
-              <button className="text-sm text-[#909399] hover:text-[#303133]" onClick={() => setSelectedRowIds([])} type="button">
+              <button className="text-sm text-ink-3 hover:text-ink" onClick={() => setSelectedRowIds([])} type="button">
                 清空选择
               </button>
             </div>
@@ -903,7 +903,7 @@ export function EntityPage({
         </div>
 
         {config.key === "instance-models" && latestMaterialSync ? (
-          <div className="border-b border-[#ebeef5] bg-[#fafafa] px-4 py-2 text-xs text-[#909399]">
+          <div className="border-b border-line-soft bg-surface-2 px-4 py-2 text-xs text-ink-3">
             最近同步：{latestMaterialSync.status === "success" ? "成功" : "失败"}
             {latestMaterialSync.dryRun ? "（试运行）" : ""}，读取 {latestMaterialSync.fetched} 条，新增 {latestMaterialSync.created} 条
             （{materialSyncCreatedBreakdown(latestMaterialSync)}）
@@ -913,25 +913,25 @@ export function EntityPage({
         ) : null}
 
         {hiddenColumns.length ? (
-          <div className="border-b border-[#ebeef5] bg-[#fffdf5] px-4 py-2 text-xs text-[#909399]">
+          <div className="border-b border-line-soft bg-[#fffdf5] px-4 py-2 text-xs text-ink-3">
             当前隐藏字段：{hiddenColumns.map((field) => field.label).join("、")}
           </div>
         ) : null}
 
         <StickyTable className="table-scroll overflow-auto" tableKey={config.key}>
           <table className="min-w-full border-collapse text-sm">
-            <thead className="bg-[#f5f7fa] text-[#303133]">
+            <thead className="bg-canvas text-ink">
               <tr>
                 {config.showSequence ? (
-                  <th className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium">序号</th>
+                  <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">序号</th>
                 ) : null}
                 {config.batchDelete ? (
-                  <th className="table-select-cell border-b border-r border-[#ebeef5] py-3 text-center font-medium [&>input]:h-4 [&>input]:w-4 [&>input]:align-middle">
+                  <th className="table-select-cell border-b border-r border-line-soft py-3 text-center font-medium [&>input]:h-4 [&>input]:w-4 [&>input]:align-middle">
                     <input aria-label="全选本页" checked={allRowsSelected} type="checkbox" onChange={toggleAllRowsSelected} />
                   </th>
                 ) : null}
                 {visibleColumns.map((column) => (
-                  <th className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium" key={column.key}>
+                  <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium" key={column.key}>
                     <TableColumnMenu
                       column={column}
                       filterValues={columnFilters[column.key] ?? []}
@@ -943,7 +943,7 @@ export function EntityPage({
                   </th>
                 ))}
                 {!readOnly ? (
-                  <th className="sticky right-0 border-b border-[#ebeef5] bg-[#f5f7fa] px-3 py-3 text-left font-medium">
+                  <th className="sticky right-0 border-b border-line-soft bg-canvas px-3 py-3 text-left font-medium">
                     操作
                   </th>
                 ) : null}
@@ -951,12 +951,12 @@ export function EntityPage({
             </thead>
             <tbody>
               {rows.map((row, index) => (
-                <tr className="hover:bg-[#fafafa]" key={String(row[config.primaryKey])}>
+                <tr className="hover:bg-surface-2" key={String(row[config.primaryKey])}>
                   {config.showSequence ? (
-                    <td className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3">{(page - 1) * pageSize + index + 1}</td>
+                    <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3">{(page - 1) * pageSize + index + 1}</td>
                   ) : null}
                   {config.batchDelete ? (
-                    <td className="table-select-cell border-b border-r border-[#ebeef5] py-3 text-center [&>input]:h-4 [&>input]:w-4 [&>input]:align-middle">
+                    <td className="table-select-cell border-b border-r border-line-soft py-3 text-center [&>input]:h-4 [&>input]:w-4 [&>input]:align-middle">
                       <input
                         aria-label={`选择 ${String(row[config.primaryKey] ?? "")}`}
                         checked={selectedRowIds.includes(String(row[config.primaryKey] ?? ""))}
@@ -966,15 +966,15 @@ export function EntityPage({
                     </td>
                   ) : null}
                   {visibleColumns.map((column) => (
-                    <td className={`max-w-[260px] border-b border-r border-[#ebeef5] px-3 py-3 ${isPartyArchive ? "align-top" : "truncate"}`} key={column.key}>
+                    <td className={`max-w-[260px] border-b border-r border-line-soft px-3 py-3 ${isPartyArchive ? "align-top" : "truncate"}`} key={column.key}>
                       {isPartyArchive ? (
                         <PartyListCell config={config} row={row} column={column} firstVisibleKey={visibleColumns[0]?.key ?? ""} nameField={partyNameField} />
                       ) : config.detailRoute && column.key === visibleColumns[0]?.key ? (
-                        <Link className="text-[#1890ff] hover:underline" href={`${config.detailRoute}/${encodeURIComponent(String(row[config.primaryKey] ?? ""))}`}>
+                        <Link className="text-primary hover:underline" href={`${config.detailRoute}/${encodeURIComponent(String(row[config.primaryKey] ?? ""))}`}>
                           {getListCellValue(row, column)}
                         </Link>
                       ) : config.key === "shipments" && column.key === "poNo" && row.purchaseOrderId ? (
-                        <Link className="text-[#1890ff] hover:underline" href={`/purchase/orders/${encodeURIComponent(String(row.purchaseOrderId))}`}>
+                        <Link className="text-primary hover:underline" href={`/purchase/orders/${encodeURIComponent(String(row.purchaseOrderId))}`}>
                           {getListCellValue(row, column)}
                         </Link>
                       ) : (
@@ -983,13 +983,13 @@ export function EntityPage({
                     </td>
                   ))}
                   {!readOnly ? (
-                    <td className="sticky right-0 whitespace-nowrap border-b border-[#ebeef5] bg-white px-3 py-3">
+                    <td className="sticky right-0 whitespace-nowrap border-b border-line-soft bg-white px-3 py-3">
                       {isPartyArchive ? (
                         <>
-                          <Link className="inline-flex h-8 w-8 items-center justify-center text-[#606266] hover:text-[#1890ff]" href={`${config.detailRoute}/${encodeURIComponent(String(row[config.primaryKey] ?? ""))}`} aria-label="查看" title="查看">
+                          <Link className="inline-flex h-8 w-8 items-center justify-center text-ink-2 hover:text-primary" href={`${config.detailRoute}/${encodeURIComponent(String(row[config.primaryKey] ?? ""))}`} aria-label="查看" title="查看">
                             <Eye size={16} />
                           </Link>
-                          <button className="ml-2 inline-flex h-8 w-8 items-center justify-center text-[#f56c6c] hover:text-[#ff4949]" type="button" onClick={() => void deleteRow(row)} aria-label="删除" title="删除">
+                          <button className="ml-2 inline-flex h-8 w-8 items-center justify-center text-danger hover:text-danger-strong" type="button" onClick={() => void deleteRow(row)} aria-label="删除" title="删除">
                             <Trash2 size={16} />
                           </button>
                         </>
@@ -1027,7 +1027,7 @@ export function EntityPage({
               ))}
               {!rows.length && (
                 <tr>
-                  <td className="py-12 text-center text-[#909399]" colSpan={visibleColumns.length + (readOnly ? 0 : 1) + (config.showSequence ? 1 : 0) + (config.batchDelete ? 1 : 0)}>
+                  <td className="py-12 text-center text-ink-3" colSpan={visibleColumns.length + (readOnly ? 0 : 1) + (config.showSequence ? 1 : 0) + (config.batchDelete ? 1 : 0)}>
                     <TableStateContent empty="暂无数据" loading={loading} />
                   </td>
                 </tr>
@@ -1058,9 +1058,9 @@ export function EntityPage({
             className="max-h-[84vh] w-[820px] overflow-auto bg-white p-6 shadow-xl"
           >
             <div className="mb-5 flex items-center">
-              <h2 className="text-lg text-[#303133]">{editing ? `编辑${config.title}` : `新建${config.title}`}</h2>
+              <h2 className="text-lg text-ink">{editing ? `编辑${config.title}` : `新建${config.title}`}</h2>
               <button
-                className="ml-auto text-xl text-[#909399]"
+                className="ml-auto text-xl text-ink-3"
                 type="button"
                 onClick={() => {
                   setShowForm(false);
@@ -1075,8 +1075,8 @@ export function EntityPage({
             <div className="grid grid-cols-2 gap-x-8 gap-y-4">
               {config.formFields.filter((field) => !field.hidden).map((field) => (
                 <label className={field.type === "textarea" ? "col-span-2" : ""} key={field.key}>
-                  <span className="mb-1 block text-sm font-medium text-[#606266]">
-                    {field.required ? <span className="text-[#f56c6c]">*</span> : null}
+                  <span className="mb-1 block text-sm font-medium text-ink-2">
+                    {field.required ? <span className="text-danger">*</span> : null}
                     {field.label}
                   </span>
                   {field.type === "textarea" ? (
@@ -1087,7 +1087,7 @@ export function EntityPage({
                     />
                   ) : field.lookupSource === "undertaking-units" || field.lookupSource === "customers" ? (
                     <select
-                      className="h-9 w-full rounded border border-[#dcdfe6] bg-white px-3 text-sm outline-none focus:border-[#1890ff]"
+                      className="h-9 w-full rounded border border-line bg-white px-3 text-sm outline-none focus:border-primary"
                       defaultValue={String(editing?.[field.key] ?? fixedValues[field.key] ?? "")}
                       name={field.key}
                       required={field.required}
@@ -1102,7 +1102,7 @@ export function EntityPage({
                     </select>
                   ) : field.type === "select" ? (
                     <select
-                      className="h-9 w-full rounded border border-[#dcdfe6] bg-white px-3 text-sm outline-none focus:border-[#1890ff]"
+                      className="h-9 w-full rounded border border-line bg-white px-3 text-sm outline-none focus:border-primary"
                       defaultValue={String(editing?.[field.key] ?? fixedValues[field.key] ?? field.options?.[0]?.value ?? "")}
                       name={field.key}
                       required={field.required}
@@ -1115,7 +1115,7 @@ export function EntityPage({
                     </select>
                   ) : field.type === "boolean" ? (
                     field.readonly && config.key === "product-masters" && field.key === "needNom" ? (
-                      <div className="flex h-9 items-center text-sm text-[#606266]">
+                      <div className="flex h-9 items-center text-sm text-ink-2">
                         {selectedProductCategory ? (Number(selectedProductCategory.needNom ?? 0) === 1 ? "是" : "否") : Boolean(editing?.[field.key]) ? "是" : "否"}
                       </div>
                     ) : (
@@ -1127,7 +1127,7 @@ export function EntityPage({
                       />
                     )
                   ) : field.type === "switch" ? (
-                    <label className="inline-flex h-9 cursor-pointer items-center gap-2 text-sm text-[#606266]">
+                    <label className="inline-flex h-9 cursor-pointer items-center gap-2 text-sm text-ink-2">
                       <input
                         className="peer sr-only"
                         name={field.key}
@@ -1135,7 +1135,7 @@ export function EntityPage({
                         value="已回款"
                         defaultChecked={String(editing?.[field.key] ?? fixedValues[field.key] ?? "未回款") === "已回款"}
                       />
-                      <span className="relative inline-flex h-5 w-10 rounded-full bg-[#c0c4cc] transition-colors peer-checked:bg-[#13ce66]">
+                      <span className="relative inline-flex h-5 w-10 rounded-full bg-ink-4 transition-colors peer-checked:bg-success">
                         <span className="absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform peer-checked:translate-x-[22px]" />
                       </span>
                       <span className="peer-checked:hidden">未回款</span>
@@ -1151,7 +1151,7 @@ export function EntityPage({
                         onChange={(event) => setBillingContractNo(event.target.value)}
                       />
                       {!selectedBillingContract ? (
-                        <div className="mt-1 text-xs text-[#f56c6c]">请选择与当前国家和实例编码匹配的实例合同号</div>
+                        <div className="mt-1 text-xs text-danger">请选择与当前国家和实例编码匹配的实例合同号</div>
                       ) : null}
                     </>
                   ) : (
@@ -1248,7 +1248,7 @@ export function EntityPage({
                           : undefined
                       }
                     />
-                    {field.type === "percentage" ? <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm text-[#909399]">%</span> : null}
+                    {field.type === "percentage" ? <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm text-ink-3">%</span> : null}
                     </div>
                   )}
                 </label>
@@ -1291,34 +1291,34 @@ export function EntityPage({
               </datalist>
             ) : null}
             {config.key === "quotation-items" ? (
-              <div className="col-span-2 rounded border border-[#ebeef5] bg-[#fafafa] p-4">
+              <div className="col-span-2 rounded border border-line-soft bg-surface-2 p-4">
                 <div className="flex items-center">
-                  <div className="text-sm font-medium text-[#303133]">报价预览</div>
-                  {quotationItemPreviewLoading ? <div className="ml-2 text-xs text-[#909399]">加载中...</div> : null}
+                  <div className="text-sm font-medium text-ink">报价预览</div>
+                  {quotationItemPreviewLoading ? <div className="ml-2 text-xs text-ink-3">加载中...</div> : null}
                 </div>
                 {!quotationItemQuotationId.trim() || !quotationItemProductCode.trim() ? (
-                  <div className="mt-2 text-xs text-[#909399]">输入报价单ID和产品编码后，会自动显示最近历史价。</div>
+                  <div className="mt-2 text-xs text-ink-3">输入报价单ID和产品编码后，会自动显示最近历史价。</div>
                 ) : quotationItemPreview ? (
                   <div className="mt-3 grid grid-cols-4 gap-3 text-sm">
                     <div>
-                      <div className="text-xs text-[#909399]">报价单</div>
-                      <div className="mt-1 text-[#303133]">{String(quotationItemPreview.quotation?.quotationNo ?? quotationItemQuotationId)}</div>
+                      <div className="text-xs text-ink-3">报价单</div>
+                      <div className="mt-1 text-ink">{String(quotationItemPreview.quotation?.quotationNo ?? quotationItemQuotationId)}</div>
                     </div>
                     <div>
-                      <div className="text-xs text-[#909399]">产品</div>
-                      <div className="mt-1 text-[#303133]">{String(quotationItemPreview.product?.productName ?? "-")}</div>
+                      <div className="text-xs text-ink-3">产品</div>
+                      <div className="mt-1 text-ink">{String(quotationItemPreview.product?.productName ?? "-")}</div>
                     </div>
                     <div>
-                      <div className="text-xs text-[#909399]">最近历史价</div>
-                      <div className="mt-1 text-[#303133]">
+                      <div className="text-xs text-ink-3">最近历史价</div>
+                      <div className="mt-1 text-ink">
                         {quotationItemPreview.latestHistory
                           ? `${String(quotationItemPreview.latestHistory.customerPrice ?? "-")} ${String(quotationItemPreview.latestHistory.currency ?? "")}`
                           : "暂无"}
                       </div>
                     </div>
                     <div>
-                      <div className="text-xs text-[#909399]">估算毛利</div>
-                      <div className="mt-1 text-[#303133]">
+                      <div className="text-xs text-ink-3">估算毛利</div>
+                      <div className="mt-1 text-ink">
                         {quotationItemPreview.latestHistory
                           ? `${(Number(quotationItemPreview.latestHistory.customerPrice ?? 0) - Number(quotationItemPreview.product?.suggestedPurchaseUnitPrice ?? 0)).toFixed(4)}`
                           : "暂无"}
@@ -1326,7 +1326,7 @@ export function EntityPage({
                     </div>
                   </div>
                 ) : (
-                  <div className="mt-2 text-xs text-[#f56c6c]">未找到匹配的产品或历史报价。</div>
+                  <div className="mt-2 text-xs text-danger">未找到匹配的产品或历史报价。</div>
                 )}
               </div>
             ) : null}
@@ -1371,13 +1371,13 @@ export function EntityPage({
           <div className="w-[720px] bg-white p-6 shadow-xl">
             <div className="mb-4 flex items-center">
               <div>
-                <h2 className="text-lg text-[#303133]">物流字段设置</h2>
-                <p className="mt-1 text-sm text-[#909399]">
+                <h2 className="text-lg text-ink">物流字段设置</h2>
+                <p className="mt-1 text-sm text-ink-3">
                   勾选需要在物流列表中显示的字段，隐藏字段仍会在这里集中展示。
                 </p>
               </div>
               <button
-                className="ml-auto text-xl text-[#909399]"
+                className="ml-auto text-xl text-ink-3"
                 type="button"
                 onClick={() => setShowFieldSettings(false)}
               >
@@ -1402,7 +1402,7 @@ export function EntityPage({
               />
             </div>
 
-            <div className="rounded border border-[#ebeef5] bg-[#fffdf5] px-3 py-2 text-xs leading-6 text-[#909399]">
+            <div className="rounded border border-line-soft bg-[#fffdf5] px-3 py-2 text-xs leading-6 text-ink-3">
               当前隐藏字段：
               {hiddenColumns.length ? hiddenColumns.map((field) => field.label).join("、") : "无"}
             </div>
@@ -1436,15 +1436,15 @@ function FieldSettingsSection({
   onChange: React.Dispatch<React.SetStateAction<ColumnVisibility>>;
 }) {
   return (
-    <div className="min-h-[260px] rounded border border-[#ebeef5]">
-      <div className="flex items-center gap-2 border-b border-[#ebeef5] bg-[#f5f7fa] px-3 py-2 font-medium text-[#303133]">
+    <div className="min-h-[260px] rounded border border-line-soft">
+      <div className="flex items-center gap-2 border-b border-line-soft bg-canvas px-3 py-2 font-medium text-ink">
         {icon === "visible" ? <Eye size={15} /> : <EyeOff size={15} />}
         {title}
       </div>
       <div className="grid max-h-[300px] grid-cols-2 gap-2 overflow-auto p-3">
         {columns.map((field) => (
           <label
-            className="flex min-h-9 items-center gap-2 rounded border border-[#ebeef5] bg-white px-3 text-sm text-[#606266]"
+            className="flex min-h-9 items-center gap-2 rounded border border-line-soft bg-white px-3 text-sm text-ink-2"
             key={field.key}
             title={field.label}
           >
@@ -1459,7 +1459,7 @@ function FieldSettingsSection({
           </label>
         ))}
         {!columns.length ? (
-          <div className="col-span-2 py-8 text-center text-sm text-[#909399]">暂无字段</div>
+          <div className="col-span-2 py-8 text-center text-sm text-ink-3">暂无字段</div>
         ) : null}
       </div>
     </div>
@@ -1468,11 +1468,11 @@ function FieldSettingsSection({
 
 function ShipmentTimelinePreview() {
   return (
-    <div className="mt-6 border-t border-[#ebeef5] pt-4">
-      <div className="mb-3 text-sm font-medium text-[#303133]">物流时间线</div>
-      <div className="flex flex-wrap gap-2 text-xs text-[#606266]">
+    <div className="mt-6 border-t border-line-soft pt-4">
+      <div className="mb-3 text-sm font-medium text-ink">物流时间线</div>
+      <div className="flex flex-wrap gap-2 text-xs text-ink-2">
         {["CRD", "APD交单", "ASD提货", "起飞/开船", "到港", "清关完成", "派送"].map((item) => (
-          <span className="rounded border border-[#dcdfe6] bg-[#f5f7fa] px-3 py-2" key={item}>
+          <span className="rounded border border-line bg-canvas px-3 py-2" key={item}>
             {item}
           </span>
         ))}
@@ -1506,14 +1506,14 @@ function PartyListCell({
   const isName = column.key === nameField;
   const isTags = column.key === "supplyCategories" || column.key === "brands" || column.key === "businessTypes";
   const display = getConfiguredValue(row[column.key], column);
-  const content = isTags ? <PartyTags value={row[column.key]} /> : isName ? <div><div>{display}</div>{row.shortName ? <div className="mt-1 text-xs text-[#909399]">{String(row.shortName)}</div> : null}</div> : display;
-  return config.detailRoute && (column.key === firstVisibleKey || isName) ? <Link className="text-[#1890ff] hover:underline" href={detailHref}>{content}</Link> : content;
+  const content = isTags ? <PartyTags value={row[column.key]} /> : isName ? <div><div>{display}</div>{row.shortName ? <div className="mt-1 text-xs text-ink-3">{String(row.shortName)}</div> : null}</div> : display;
+  return config.detailRoute && (column.key === firstVisibleKey || isName) ? <Link className="text-primary hover:underline" href={detailHref}>{content}</Link> : content;
 }
 
 function PartyTags({ value }: { value: Row[string] }) {
   const values = String(value ?? "").split(/[,，、;；\n]+/).map((item) => item.trim()).filter(Boolean);
   if (!values.length) return <span>-</span>;
-  return <span className="flex flex-wrap gap-1">{values.slice(0, 4).map((item) => <span className="inline-flex max-w-full items-center bg-[#f0f5ff] px-2 py-1 text-xs text-[#5b7db1]" key={item}>{item}</span>)}{values.length > 4 ? <span className="inline-flex items-center bg-[#f5f7fa] px-2 py-1 text-xs text-[#909399]">+{values.length - 4}</span> : null}</span>;
+  return <span className="flex flex-wrap gap-1">{values.slice(0, 4).map((item) => <span className="inline-flex max-w-full items-center bg-[#f0f5ff] px-2 py-1 text-xs text-[#5b7db1]" key={item}>{item}</span>)}{values.length > 4 ? <span className="inline-flex items-center bg-canvas px-2 py-1 text-xs text-ink-3">+{values.length - 4}</span> : null}</span>;
 }
 
 function getConfiguredValue(value: Row[string], field: EntityField) {

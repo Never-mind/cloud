@@ -157,14 +157,14 @@ export function RequestProductLinesPage() {
   return (
     <div className="space-y-5">
       <div>
-        <h1 className="text-xl font-medium text-[#303133]">需求明细一览</h1>
-        <p className="mt-1 text-sm text-[#909399]">从需求单同步展示国家、需求单号、产品实例、供应商、数量和交付时间等信息。</p>
+        <h1 className="text-xl font-medium text-ink">需求明细一览</h1>
+        <p className="mt-1 text-sm text-ink-3">从需求单同步展示国家、需求单号、产品实例、供应商、数量和交付时间等信息。</p>
       </div>
 
       <Panel>
-        <div className="flex flex-wrap items-center gap-2 border-b border-[#ebeef5] p-4">
+        <div className="flex flex-wrap items-center gap-2 border-b border-line-soft p-4">
           <Input placeholder="搜索国家/批次/需求单号/设备编码/机型/供应商" value={keyword} onChange={(event) => setKeyword(event.target.value)} />
-          <select className="h-9 min-w-32 rounded border border-[#dcdfe6] bg-white px-3 text-sm outline-none focus:border-[#1890ff]" value={countryCode} onChange={(event) => setCountryCode(event.target.value)}>
+          <select className="h-9 min-w-32 rounded border border-line bg-white px-3 text-sm outline-none focus:border-primary" value={countryCode} onChange={(event) => setCountryCode(event.target.value)}>
             <option value="">全部国家</option>
             {countries
               .map((country) => ({ code: String(country.code ?? "").trim(), nameZh: String(country.nameZh ?? "").trim() }))
@@ -188,12 +188,12 @@ export function RequestProductLinesPage() {
 
         <StickyTable className="table-scroll overflow-auto" tableKey="request-product-lines">
           <table className="min-w-full border-collapse text-sm">
-            <thead className="bg-[#f5f7fa] text-[#303133]">
-              <tr>{columns.map((column) => <th className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium" key={column.key}>{renderHeader(column)}</th>)}</tr>
+            <thead className="bg-canvas text-ink">
+              <tr>{columns.map((column) => <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium" key={column.key}>{renderHeader(column)}</th>)}</tr>
             </thead>
             <tbody>
-              {rows.map((row) => <tr className="hover:bg-[#fafafa]" key={String(row.id)}>{columns.map((column) => <td className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3" key={column.key}>{formatValue(row[column.key])}</td>)}</tr>)}
-              {!rows.length ? <tr><td className="py-12 text-center text-[#909399]" colSpan={columns.length}><TableStateContent empty="暂无数据" loading={loading} /></td></tr> : null}
+              {rows.map((row) => <tr className="hover:bg-surface-2" key={String(row.id)}>{columns.map((column) => <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3" key={column.key}>{formatValue(row[column.key])}</td>)}</tr>)}
+              {!rows.length ? <tr><td className="py-12 text-center text-ink-3" colSpan={columns.length}><TableStateContent empty="暂无数据" loading={loading} /></td></tr> : null}
             </tbody>
           </table>
         </StickyTable>

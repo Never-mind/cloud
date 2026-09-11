@@ -264,7 +264,7 @@ export function OrderDetailPage({
 
   if (!master) {
     return (
-      <Panel className="p-8 text-center text-[#909399]">
+      <Panel className="p-8 text-center text-ink-3">
         未找到单据：{id}
       </Panel>
     );
@@ -280,10 +280,10 @@ export function OrderDetailPage({
           </Button>
         </Link>
         <div>
-          <h1 className="text-xl font-medium text-[#303133]">
+          <h1 className="text-xl font-medium text-ink">
             {mode === "requests" ? "需求单明细" : "采购清单明细"}：{mode === "purchase" ? String(master.poNo ?? id) : id}
           </h1>
-          <p className="mt-1 text-sm text-[#909399]">
+          <p className="mt-1 text-sm text-ink-3">
             {mode === "requests"
               ? "查看当前需求单的主单信息和需求明细。"
               : "查看当前采购清单的主单信息和采购明细，可修改草稿信息，确认后生成物流单据。"}
@@ -323,15 +323,15 @@ export function OrderDetailPage({
       </div>
 
       <Panel>
-        <div className="border-b border-[#ebeef5] px-4 py-3 font-medium text-[#303133]">主单信息</div>
+        <div className="border-b border-line-soft px-4 py-3 font-medium text-ink">主单信息</div>
         {editing && mode === "purchase" ? (
           <div className="grid grid-cols-4 gap-3 p-4">
             {masterFormFields.map((field) => (
               <label key={field.key}>
-                <span className="mb-1 block text-xs text-[#909399]">{field.label}</span>
+                <span className="mb-1 block text-xs text-ink-3">{field.label}</span>
                 {field.type === "select" ? (
                   <select
-                    className="h-9 w-full min-w-0 rounded border border-[#dcdfe6] bg-white px-3 text-sm outline-none focus:border-[#1890ff]"
+                    className="h-9 w-full min-w-0 rounded border border-line bg-white px-3 text-sm outline-none focus:border-primary"
                     disabled={field.key === masterConfig.primaryKey}
                     value={String(masterDraft[field.key] ?? field.options?.[0]?.value ?? "")}
                     onChange={(event) => updateMasterDraft(field.key, event.target.value)}
@@ -360,7 +360,7 @@ export function OrderDetailPage({
               </label>
             ))}
             <label>
-              <span className="mb-1 block text-xs text-[#909399]">整机价转合同汇率（CNY → USD）</span>
+              <span className="mb-1 block text-xs text-ink-3">整机价转合同汇率（CNY → USD）</span>
               <Input className="w-full min-w-0" step="0.000000000000001" type="number" value={formatNumericInputValue(Number(masterDraft.usdRate ?? 0))} onChange={(event) => updateMasterDraft("usdRate", parseNumericInputValue(event.target.value))} />
             </label>
             <Info label="总数量" value={totalQuantity} />
@@ -381,13 +381,13 @@ export function OrderDetailPage({
       </Panel>
 
       <Panel>
-        <div className="border-b border-[#ebeef5] px-4 py-3 font-medium text-[#303133]">明细列表</div>
+        <div className="border-b border-line-soft px-4 py-3 font-medium text-ink">明细列表</div>
         <StickyTable className="table-scroll overflow-auto" tableKey={`order-detail-${mode}`}>
           <table className={mode === "purchase" ? "min-w-[2200px] whitespace-nowrap border-collapse text-sm" : "min-w-[1050px] whitespace-nowrap border-collapse text-sm"}>
-            <thead className="bg-[#f5f7fa] text-[#303133]">
+            <thead className="bg-canvas text-ink">
               <tr>
                 {detailColumns.map((field) => (
-                  <th className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium" key={field.key}>
+                  <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium" key={field.key}>
                     {field.label}
                   </th>
                 ))}
@@ -397,16 +397,16 @@ export function OrderDetailPage({
               {detailRows.map((row) => {
                 const pricing = mode === "purchase" ? getDisplayPricing(row) : null;
                 return (
-                <tr className="hover:bg-[#fafafa]" key={String(row.id ?? row[detailConfig.primaryKey])}>
+                <tr className="hover:bg-surface-2" key={String(row.id ?? row[detailConfig.primaryKey])}>
                   {detailColumns.map((field) => (
-                    <td className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3" key={field.key}>
+                    <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3" key={field.key}>
                       {field.key === "powerPricing" && mode === "purchase" ? (
-                        editing ? <button className="inline-flex h-8 w-8 items-center justify-center border border-[#b3d8ff] text-[#1890ff] hover:bg-[#ecf5ff] disabled:cursor-not-allowed disabled:border-[#ebeef5] disabled:text-[#c0c4cc]" disabled={!getPricingContext(detailDrafts.find((item) => String(item.id) === String(row.id)) ?? row)} title="算力服务费测算" type="button" onClick={() => setPricingDetailId(String(row.id))}><Calculator size={15} /></button> : "-"
+                        editing ? <button className="inline-flex h-8 w-8 items-center justify-center border border-info-border text-primary hover:bg-info-soft disabled:cursor-not-allowed disabled:border-line-soft disabled:text-ink-4" disabled={!getPricingContext(detailDrafts.find((item) => String(item.id) === String(row.id)) ?? row)} title="算力服务费测算" type="button" onClick={() => setPricingDetailId(String(row.id))}><Calculator size={15} /></button> : "-"
                       ) : field.key === "powerFirst24VatIncluded" || field.key === "powerNext36VatIncluded" ? (
                          renderPowerPrice(row, field.key, pricing)
                       ) : editing && mode === "purchase" && field.key === "currency" ? (
                         <select
-                          className="h-9 min-w-[100px] rounded border border-[#dcdfe6] bg-white px-2"
+                          className="h-9 min-w-[100px] rounded border border-line bg-white px-2"
                           value={normalizePurchaseOrderItemCurrency(row[field.key], String(masterDraft.currency ?? master?.currency ?? "USD"))}
                           onChange={(event) => updateDetailDraft(String(row.id), field.key, event.target.value)}
                         >
@@ -427,7 +427,7 @@ export function OrderDetailPage({
               })}
               {!details.length ? (
                 <tr>
-                  <td className="py-10 text-center text-[#909399]" colSpan={detailColumns.length}>
+                  <td className="py-10 text-center text-ink-3" colSpan={detailColumns.length}>
                     暂无明细
                   </td>
                 </tr>
@@ -468,9 +468,9 @@ type OrderDetailResponse = {
 
 function Info({ label, value, type }: { label: string; value: unknown; type?: string }) {
   return (
-    <div className="border border-[#ebeef5] bg-[#fafafa] p-3">
-      <div className="text-xs text-[#909399]">{label}</div>
-      <div className="mt-1 truncate text-sm text-[#303133]">{formatValue(value, type)}</div>
+    <div className="border border-line-soft bg-surface-2 p-3">
+      <div className="text-xs text-ink-3">{label}</div>
+      <div className="mt-1 truncate text-sm text-ink">{formatValue(value, type)}</div>
     </div>
   );
 }
@@ -512,7 +512,7 @@ function renderPowerPrice(row: Row, field: string, pricing: PowerPricingSnapshot
     : "latestInstanceContractNext36PriceUSD";
   const comparison = getPurchasePriceComparison(value, row[benchmarkKey]);
   if (comparison.relation === "unavailable") return `USD ${formatPowerPrice(value)}`;
-  const tone = comparison.relation === "higher" ? "text-[#f56c6c]" : comparison.relation === "lower" ? "text-[#67c23a]" : "text-[#606266]";
+  const tone = comparison.relation === "higher" ? "text-danger" : comparison.relation === "lower" ? "text-success-strong" : "text-ink-2";
   const label = comparison.relation === "higher" ? "高于最近合同" : comparison.relation === "lower" ? "低于最近合同" : "与最近合同相同";
   return (
     <span className={`inline-flex flex-col ${tone}`} title={`${row.latestInstanceContractNo ?? "最近实例合同"}${row.latestInstanceContractDateSigned ? `，签署于${row.latestInstanceContractDateSigned}` : ""}`}>

@@ -60,7 +60,7 @@ export function EmptyState({
 export function LoadingBlock({ text = "加载中" }: { text?: string }) {
   return (
     <div className="flex items-center justify-center gap-2 py-6 text-sm text-ink-3">
-      <span aria-hidden className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-[#dcdfe6] border-t-[#1890ff]" />
+      <span aria-hidden className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-line border-t-[#1890ff]" />
       {text}
     </div>
   );

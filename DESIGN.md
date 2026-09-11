@@ -660,12 +660,24 @@ notify(error instanceof Error ? error.message : "保存失败", "error");
 | 导出按钮 | ✅ 由亮黄实心改为白底琥珀描边，按钮层级收敛为主操作实心 / 工具操作描边 |
 | 原生弹窗 | ✅ 新增 `confirmDialog` + `notify`，替换 52 处 `confirm` 与 160 处 `alert` |
 | 容器圆角 | ✅ `Panel` 补齐 4px 圆角与裁切，与控件一致；清理 8 处冗余 `overflow-hidden` |
+| 硬编码颜色 | ✅ 2,547 处 → 169 处，工具类下沉到语义令牌，新增 12 个状态色变体令牌 |
 
 ### 13.3 待整改
 
-1. 约 2,500 处硬编码颜色按模块渐进替换为语义类。
+1. 剩余 169 处硬编码颜色：其中约 40 处在 SVG 属性与 JS `style` 对象里（`home-dashboard-panel` 图表、`sticky-table`、`table-column-menu`），其余是使用 1~6 次的长尾色值，可按需继续收敛或合并。
 2. 约 125 个符号导出后只在自身文件内使用，可去掉 `export` 收缩模块对外接口。
 3. 下拉浮层、图表区域等非表格位置的加载态，改用 `LoadingBlock`。
+
+### 13.4 状态色令牌对照
+
+除主色与文字色外，状态色补充了「浅底 / 描边 / 加深」三档，用于标签和提示块：
+
+| 语义 | 令牌 | 色值 |
+| --- | --- | --- |
+| 信息底 / 描边 / 文字 | `bg-info-soft` / `border-info-border` / `text-info` | `#ecf5ff` / `#b3d8ff` / `#409eff` |
+| 成功底 / 描边 / 加深 | `bg-success-soft` / `border-success-border` / `text-success-strong` | `#f0f9eb` / `#c2e7b0` / `#67c23a` |
+| 提醒底 / 加深 | `bg-warning-soft` / `text-warning-deep` | `#fdf6ec` / `#e6a23c` |
+| 危险底 / 描边 / 加深 | `bg-danger-soft` / `border-danger-border` / `text-danger-strong` | `#fff0f0` / `#fde2e2` / `#ff4949` |
 
 ## 14. 可访问性
 

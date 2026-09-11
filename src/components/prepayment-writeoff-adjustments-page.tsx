@@ -133,12 +133,12 @@ export function PrepaymentWriteOffAdjustmentsPage() {
   return (
     <div className="space-y-5">
       <div>
-        <h1 className="text-xl font-medium text-[#303133]">预付款核销调整单</h1>
-        <p className="mt-1 text-sm text-[#909399]">针对特定批次、实例、月份调整预付款每月核销金额，未选择的月份保持不变。</p>
+        <h1 className="text-xl font-medium text-ink">预付款核销调整单</h1>
+        <p className="mt-1 text-sm text-ink-3">针对特定批次、实例、月份调整预付款每月核销金额，未选择的月份保持不变。</p>
       </div>
 
       <Panel>
-        <div className="flex items-center gap-2 border-b border-[#ebeef5] bg-[#fafafa] p-3">
+        <div className="flex items-center gap-2 border-b border-line-soft bg-surface-2 p-3">
           <Button tone={statusTab === "draft" ? "primary" : "default"} onClick={() => { setStatusTab("draft"); setPage(1); void loadData(1, pageSizeRef.current, "draft"); }}>
             草稿
             <span className="ml-1 rounded bg-white/35 px-1.5 text-xs">
@@ -153,7 +153,7 @@ export function PrepaymentWriteOffAdjustmentsPage() {
           </Button>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 border-b border-[#ebeef5] p-4">
+        <div className="flex flex-wrap items-center gap-2 border-b border-line-soft p-4">
           <Input placeholder="搜索调整单/合同/批次/原因" value={keyword} onChange={(event) => setKeyword(event.target.value)} />
           <Button tone="primary" onClick={() => { setAppliedKeyword(keyword); setPage(1); void loadData(1, pageSizeRef.current, statusTab, keyword); }}>
             <Search size={15} />
@@ -173,14 +173,14 @@ export function PrepaymentWriteOffAdjustmentsPage() {
 
         <StickyTable className="table-scroll overflow-auto" tableKey="prepayment-writeoff-adjustments">
           <table className="min-w-full border-collapse text-sm">
-            <thead className="bg-[#f5f7fa] text-[#303133]">
+            <thead className="bg-canvas text-ink">
               <tr>
                 {tableColumns.map((column) => (
-                  <th className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium" key={column.key}>
+                  <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium" key={column.key}>
                     {renderHeader(column)}
                   </th>
                 ))}
-                <th className="sticky right-0 border-b border-[#ebeef5] bg-[#f5f7fa] px-3 py-3 text-left font-medium">操作</th>
+                <th className="sticky right-0 border-b border-line-soft bg-canvas px-3 py-3 text-left font-medium">操作</th>
               </tr>
             </thead>
             <tbody>
@@ -188,11 +188,11 @@ export function PrepaymentWriteOffAdjustmentsPage() {
                 const adjustmentNo = String(row.adjustmentNo ?? "");
                 const confirmed = String(row.status ?? "") === "已确认";
                 return (
-                  <tr className="hover:bg-[#fafafa]" key={adjustmentNo}>
+                  <tr className="hover:bg-surface-2" key={adjustmentNo}>
                     {columns.map((column) => (
-                      <td className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3" key={column.key}>
+                      <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3" key={column.key}>
                         {column.key === "adjustmentNo" ? (
-                          <Link className="font-medium text-[#1890ff] hover:underline" href={buildDetailRoute(`/finance/prepayment-writeoff-adjustments/${encodeURIComponent(adjustmentNo)}`, currentRoute)}>
+                          <Link className="font-medium text-primary hover:underline" href={buildDetailRoute(`/finance/prepayment-writeoff-adjustments/${encodeURIComponent(adjustmentNo)}`, currentRoute)}>
                             {adjustmentNo}
                           </Link>
                         ) : (
@@ -200,7 +200,7 @@ export function PrepaymentWriteOffAdjustmentsPage() {
                         )}
                       </td>
                     ))}
-                    <td className="sticky right-0 whitespace-nowrap border-b border-[#ebeef5] bg-white px-3 py-3">
+                    <td className="sticky right-0 whitespace-nowrap border-b border-line-soft bg-white px-3 py-3">
                       <div className="flex items-center gap-2">
                         <Link href={buildDetailRoute(`/finance/prepayment-writeoff-adjustments/${encodeURIComponent(adjustmentNo)}`, currentRoute)}>
                           <Button>{confirmed ? "查看" : "编辑"}</Button>
@@ -220,7 +220,7 @@ export function PrepaymentWriteOffAdjustmentsPage() {
               })}
               {!rows.length ? (
                 <tr>
-                  <td className="py-12 text-center text-[#909399]" colSpan={columns.length + 1}>
+                  <td className="py-12 text-center text-ink-3" colSpan={columns.length + 1}>
                     <TableStateContent empty="暂无数据" loading={loading} />
                   </td>
                 </tr>

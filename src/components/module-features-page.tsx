@@ -61,25 +61,25 @@ export function ModuleFeaturesPage() {
   }
 
   return <Panel>
-    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#ebeef5] p-4">
-      <div><h1 className="font-medium text-[#303133]">功能模块管理</h1><p className="mt-1 text-sm text-[#909399]">停用后模块不会出现在左侧目录和首页，代码及业务数据仍会保留。</p></div>
+    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line-soft p-4">
+      <div><h1 className="font-medium text-ink">功能模块管理</h1><p className="mt-1 text-sm text-ink-3">停用后模块不会出现在左侧目录和首页，代码及业务数据仍会保留。</p></div>
       <Button onClick={() => void load()}><RefreshCw size={15} />刷新</Button>
     </div>
-    {!isAdmin && !loading ? <div className="border-b border-[#f5dab1] bg-[#fdf6ec] px-4 py-3 text-sm text-[#a66b00]">当前账号没有修改权限，仅可查看模块状态。</div> : null}
+    {!isAdmin && !loading ? <div className="border-b border-[#f5dab1] bg-warning-soft px-4 py-3 text-sm text-[#a66b00]">当前账号没有修改权限，仅可查看模块状态。</div> : null}
     <StickyTable className="table-scroll overflow-auto" tableKey="module-features">
       <table className="min-w-[900px] w-full border-collapse text-sm">
-        <thead className="bg-[#f5f7fa]"><tr>{["模块名称", "所属目录", "路由", "默认状态", "当前状态", "操作"].map((label) => <th className="whitespace-nowrap border-b border-r border-[#ebeef5] px-4 py-3 text-left font-medium" key={label}>{label}</th>)}</tr></thead>
+        <thead className="bg-canvas"><tr>{["模块名称", "所属目录", "路由", "默认状态", "当前状态", "操作"].map((label) => <th className="whitespace-nowrap border-b border-r border-line-soft px-4 py-3 text-left font-medium" key={label}>{label}</th>)}</tr></thead>
         <tbody>
           {features.map((feature) => <tr key={feature.key}>
-            <td className="border-b border-r border-[#ebeef5] px-4 py-3 font-medium text-[#303133]">{feature.title}</td>
-            <td className="border-b border-r border-[#ebeef5] px-4 py-3 text-[#606266]">{feature.childGroupTitle ? `${feature.groupTitle} / ${feature.childGroupTitle}` : feature.groupTitle}</td>
-            <td className="border-b border-r border-[#ebeef5] px-4 py-3 font-mono text-xs text-[#909399]">{feature.route}</td>
-            <td className="border-b border-r border-[#ebeef5] px-4 py-3">{feature.defaultEnabled ? "启用" : "停用"}</td>
-            <td className="border-b border-r border-[#ebeef5] px-4 py-3"><span className={`inline-flex items-center gap-1 ${feature.enabled ? "text-[#67c23a]" : "text-[#909399]"}`}>{feature.enabled ? <Check size={15} /> : <ShieldOff size={15} />}{feature.enabled ? "已启用" : "已停用"}</span></td>
-            <td className="border-b border-[#ebeef5] px-4 py-3"><Button disabled={!isAdmin || saving === feature.key} onClick={() => void toggle(feature)}>{saving === feature.key ? <RefreshCw className="animate-spin" size={15} /> : <Save size={15} />}{feature.enabled ? "停用" : "启用"}</Button></td>
+            <td className="border-b border-r border-line-soft px-4 py-3 font-medium text-ink">{feature.title}</td>
+            <td className="border-b border-r border-line-soft px-4 py-3 text-ink-2">{feature.childGroupTitle ? `${feature.groupTitle} / ${feature.childGroupTitle}` : feature.groupTitle}</td>
+            <td className="border-b border-r border-line-soft px-4 py-3 font-mono text-xs text-ink-3">{feature.route}</td>
+            <td className="border-b border-r border-line-soft px-4 py-3">{feature.defaultEnabled ? "启用" : "停用"}</td>
+            <td className="border-b border-r border-line-soft px-4 py-3"><span className={`inline-flex items-center gap-1 ${feature.enabled ? "text-success-strong" : "text-ink-3"}`}>{feature.enabled ? <Check size={15} /> : <ShieldOff size={15} />}{feature.enabled ? "已启用" : "已停用"}</span></td>
+            <td className="border-b border-line-soft px-4 py-3"><Button disabled={!isAdmin || saving === feature.key} onClick={() => void toggle(feature)}>{saving === feature.key ? <RefreshCw className="animate-spin" size={15} /> : <Save size={15} />}{feature.enabled ? "停用" : "启用"}</Button></td>
           </tr>)}
-          {!loading && !features.length ? <tr><td className="py-10 text-center text-[#909399]" colSpan={6}>无数据</td></tr> : null}
-          {loading ? <tr><td className="py-10 text-center text-[#909399]" colSpan={6}>加载中</td></tr> : null}
+          {!loading && !features.length ? <tr><td className="py-10 text-center text-ink-3" colSpan={6}>无数据</td></tr> : null}
+          {loading ? <tr><td className="py-10 text-center text-ink-3" colSpan={6}>加载中</td></tr> : null}
         </tbody>
       </table>
     </StickyTable>

@@ -230,12 +230,12 @@ export function PrepaymentContractsPage() {
   return (
     <div className="space-y-5">
       <div>
-        <h1 className="text-xl font-medium text-[#303133]">预付款合同</h1>
-        <p className="mt-1 text-sm text-[#909399]">管理预付款合同草稿和已确认合同，草稿删除后会释放对应实例。</p>
+        <h1 className="text-xl font-medium text-ink">预付款合同</h1>
+        <p className="mt-1 text-sm text-ink-3">管理预付款合同草稿和已确认合同，草稿删除后会释放对应实例。</p>
       </div>
 
       <Panel>
-        <div className="flex items-center gap-2 border-b border-[#ebeef5] bg-[#fafafa] p-3">
+        <div className="flex items-center gap-2 border-b border-line-soft bg-surface-2 p-3">
           <Button tone={statusTab === "draft" ? "primary" : "default"} onClick={() => { setStatusTab("draft"); setSelectedNos([]); setPage(1); void loadData(1, pageSizeRef.current, "draft"); }}>
             草稿
             <span className="ml-1 rounded bg-white/35 px-1.5 text-xs">
@@ -250,7 +250,7 @@ export function PrepaymentContractsPage() {
           </Button>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 border-b border-[#ebeef5] p-4">
+        <div className="flex flex-wrap items-center gap-2 border-b border-line-soft p-4">
           <Input placeholder="搜索合同号/状态/币种" value={keyword} onChange={(event) => setKeyword(event.target.value)} />
           <Button tone="primary" onClick={() => { setAppliedKeyword(keyword); setPage(1); void loadData(1, pageSizeRef.current, statusTab, keyword); }}>
             <Search size={15} />
@@ -261,8 +261,8 @@ export function PrepaymentContractsPage() {
             刷新
           </Button>
           {selectedNos.length ? (
-            <div className="flex items-center gap-2 rounded border border-[#d9ecff] bg-[#ecf5ff] px-3 py-1.5">
-              <span className="text-sm text-[#1890ff]">已选 {selectedNos.length} 条</span>
+            <div className="flex items-center gap-2 rounded border border-[#d9ecff] bg-info-soft px-3 py-1.5">
+              <span className="text-sm text-primary">已选 {selectedNos.length} 条</span>
               {statusTab === "confirmed" ? (
                 <Button disabled={batchBusy} tone="warning" onClick={() => void runBatch("rollback")}>
                   <RotateCcw size={15} />
@@ -274,7 +274,7 @@ export function PrepaymentContractsPage() {
                   批量删除草稿
                 </Button>
               )}
-              <button className="text-sm text-[#909399] hover:text-[#303133]" onClick={() => setSelectedNos([])} type="button">
+              <button className="text-sm text-ink-3 hover:text-ink" onClick={() => setSelectedNos([])} type="button">
                 清空选择
               </button>
             </div>
@@ -290,17 +290,17 @@ export function PrepaymentContractsPage() {
 
         <StickyTable className="table-scroll overflow-auto" tableKey="prepayment-contracts">
           <table className="min-w-full border-collapse text-sm">
-            <thead className="bg-[#f5f7fa] text-[#303133]">
+            <thead className="bg-canvas text-ink">
               <tr>
-                <th className="table-select-cell border-b border-r border-[#ebeef5] py-3 text-center font-medium [&>input]:h-4 [&>input]:w-4 [&>input]:align-middle">
+                <th className="table-select-cell border-b border-r border-line-soft py-3 text-center font-medium [&>input]:h-4 [&>input]:w-4 [&>input]:align-middle">
                   <input aria-label="全选本页预付款合同" checked={allVisibleSelected} type="checkbox" onChange={toggleAllVisible} />
                 </th>
                 {columns.map((column) => (
-                  <th className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium" key={column.key}>
+                  <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium" key={column.key}>
                     {renderHeader(column)}
                   </th>
                 ))}
-                <th className="sticky right-0 border-b border-[#ebeef5] bg-[#f5f7fa] px-3 py-3 text-left font-medium">操作</th>
+                <th className="sticky right-0 border-b border-line-soft bg-canvas px-3 py-3 text-left font-medium">操作</th>
               </tr>
             </thead>
             <tbody>
@@ -308,8 +308,8 @@ export function PrepaymentContractsPage() {
                 const contractNo = String(row.contractNo ?? "");
                 const confirmed = String(row.status ?? "") === "已确认";
                 return (
-                  <tr className="hover:bg-[#fafafa]" key={contractNo}>
-                    <td className="table-select-cell border-b border-r border-[#ebeef5] py-3 text-center [&>input]:h-4 [&>input]:w-4 [&>input]:align-middle">
+                  <tr className="hover:bg-surface-2" key={contractNo}>
+                    <td className="table-select-cell border-b border-r border-line-soft py-3 text-center [&>input]:h-4 [&>input]:w-4 [&>input]:align-middle">
                       <input
                         aria-label={`选择 ${contractNo}`}
                         checked={selectedNos.includes(contractNo)}
@@ -318,9 +318,9 @@ export function PrepaymentContractsPage() {
                       />
                     </td>
                     {columns.map((column) => (
-                      <td className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3" key={column.key}>
+                      <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3" key={column.key}>
                         {column.key === "contractNo" ? (
-                          <Link className="font-medium text-[#1890ff] hover:underline" href={buildDetailRoute(`/finance/prepayment-contracts/${encodeURIComponent(contractNo)}`, currentRoute)}>
+                          <Link className="font-medium text-primary hover:underline" href={buildDetailRoute(`/finance/prepayment-contracts/${encodeURIComponent(contractNo)}`, currentRoute)}>
                             {contractNo}
                           </Link>
                         ) : (
@@ -328,7 +328,7 @@ export function PrepaymentContractsPage() {
                         )}
                       </td>
                     ))}
-                    <td className="sticky right-0 whitespace-nowrap border-b border-[#ebeef5] bg-white px-3 py-3">
+                    <td className="sticky right-0 whitespace-nowrap border-b border-line-soft bg-white px-3 py-3">
                       <div className="flex items-center gap-2">
                         <Link href={buildDetailRoute(`/finance/prepayment-contracts/${encodeURIComponent(contractNo)}`, currentRoute)}>
                           <Button>{confirmed ? "查看" : "编辑"}</Button>
@@ -348,7 +348,7 @@ export function PrepaymentContractsPage() {
               })}
               {!rows.length ? (
                 <tr>
-                  <td className="py-12 text-center text-[#909399]" colSpan={columns.length + 2}>
+                  <td className="py-12 text-center text-ink-3" colSpan={columns.length + 2}>
                     <TableStateContent empty="暂无数据" loading={loading} />
                   </td>
                 </tr>
@@ -360,33 +360,33 @@ export function PrepaymentContractsPage() {
       </Panel>
       {showCreate ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 p-4">
-          <div className="w-full max-w-xl border border-[#dcdfe6] bg-white shadow-xl">
-            <div className="flex items-center border-b border-[#ebeef5] px-5 py-4">
+          <div className="w-full max-w-xl border border-line bg-white shadow-xl">
+            <div className="flex items-center border-b border-line-soft px-5 py-4">
               <div>
-                <h2 className="font-medium text-[#303133]">新建空白预付款合同</h2>
-                <p className="mt-1 text-xs text-[#909399]">适用于没有实例、仅登记费用明细的预付款合同。</p>
+                <h2 className="font-medium text-ink">新建空白预付款合同</h2>
+                <p className="mt-1 text-xs text-ink-3">适用于没有实例、仅登记费用明细的预付款合同。</p>
               </div>
-              <button className="ml-auto text-[#909399] hover:text-[#303133]" onClick={() => setShowCreate(false)} type="button">
+              <button className="ml-auto text-ink-3 hover:text-ink" onClick={() => setShowCreate(false)} type="button">
                 <X size={18} />
               </button>
             </div>
             <div className="grid gap-4 p-5 sm:grid-cols-2">
               <label className="sm:col-span-2">
-                <span className="mb-1 block text-sm text-[#606266]">预付款合同号</span>
+                <span className="mb-1 block text-sm text-ink-2">预付款合同号</span>
                 <Input className="w-full" value={newContractNo} onChange={(event) => setNewContractNo(event.target.value)} />
               </label>
               <label>
-                <span className="mb-1 block text-sm text-[#606266]">合同币种</span>
-                <select className="h-9 w-full rounded border border-[#dcdfe6] bg-white px-3 text-sm" value={newCurrency} onChange={(event) => setNewCurrency(event.target.value)}>
+                <span className="mb-1 block text-sm text-ink-2">合同币种</span>
+                <select className="h-9 w-full rounded border border-line bg-white px-3 text-sm" value={newCurrency} onChange={(event) => setNewCurrency(event.target.value)}>
                   {["CNY", "MXN", "CLP", "USD", "BRL"].map((currency) => <option key={currency} value={currency}>{currency}</option>)}
                 </select>
               </label>
               <label>
-                <span className="mb-1 block text-sm text-[#606266]">生效日期</span>
+                <span className="mb-1 block text-sm text-ink-2">生效日期</span>
                 <Input className="w-full" type="date" value={newEffectiveDate} onChange={(event) => setNewEffectiveDate(event.target.value)} />
               </label>
             </div>
-            <div className="flex justify-end gap-2 border-t border-[#ebeef5] px-5 py-4">
+            <div className="flex justify-end gap-2 border-t border-line-soft px-5 py-4">
               <Button disabled={creating} onClick={() => setShowCreate(false)}>取消</Button>
               <Button disabled={creating} tone="primary" onClick={() => void createBlankDraft()}>{creating ? "创建中" : "创建并进入明细"}</Button>
             </div>

@@ -11,12 +11,12 @@ export function Button({
   const tones = {
     // 层级约定：primary / success 用实心，表示主操作；default / warning / danger 用描边，
     // 表示次级或工具类操作。导出这类工具按钮不再用整块亮黄填充。
-    default: "border border-[#dcdfe6] bg-white text-[#606266] hover:border-[#c6cbd4] hover:bg-[#f7f8fa]",
-    primary: "border border-[#1890ff] bg-[#1890ff] text-white hover:border-[#0f7ae0] hover:bg-[#0f7ae0]",
-    success: "border border-[#13ce66] bg-[#13ce66] text-white hover:border-[#0fb457] hover:bg-[#0fb457]",
+    default: "border border-line bg-white text-ink-2 hover:border-[#c6cbd4] hover:bg-[#f7f8fa]",
+    primary: "border border-primary bg-primary text-white hover:border-primary-dark hover:bg-primary-dark",
+    success: "border border-success bg-success text-white hover:border-success-dark hover:bg-success-dark",
     // 描边式提醒按钮：白底 + 琥珀边框 + 深琥珀文字（对比度约 6.4:1），hover 时浅琥珀底。
-    warning: "border border-[#e6a23c] bg-white text-[#8a5200] hover:border-[#d48806] hover:bg-[#fdf6ec]",
-    danger: "border border-[#f56c6c] bg-[#fff0f0] text-[#f56c6c] hover:border-[#f78989] hover:bg-[#fde2e2]",
+    warning: "border border-warning-deep bg-white text-[#8a5200] hover:border-[#d48806] hover:bg-warning-soft",
+    danger: "border border-danger bg-danger-soft text-danger hover:border-[#f78989] hover:bg-danger-border",
   };
 
   return (
@@ -24,7 +24,7 @@ export function Button({
       {...props}
       className={clsx(
         // 用背景色变化代替整体 opacity：白底按钮 hover 时不再发灰，同时补上键盘焦点样式。
-        "inline-flex h-9 min-w-0 shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded px-3 text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[#1890ff]/35 focus-visible:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-50",
+        "inline-flex h-9 min-w-0 shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded px-3 text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary/35 focus-visible:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-50",
         tones[tone],
         props.className,
       )}
@@ -40,7 +40,7 @@ export const Input = forwardRef<HTMLInputElement, React.InputHTMLAttributes<HTML
       ref={ref}
       {...props}
       className={clsx(
-        "h-9 min-w-0 max-w-full rounded border border-[#dcdfe6] bg-white px-3 text-sm outline-none transition-colors placeholder:text-[#c0c4cc] focus:border-[#1890ff] focus:ring-2 focus:ring-[#1890ff]/20 disabled:cursor-not-allowed disabled:bg-[#f5f7fa] disabled:text-[#909399]",
+        "h-9 min-w-0 max-w-full rounded border border-line bg-white px-3 text-sm outline-none transition-colors placeholder:text-ink-4 focus:border-primary focus:ring-2 focus:ring-primary/20 disabled:cursor-not-allowed disabled:bg-canvas disabled:text-ink-3",
         props.className,
       )}
     />
@@ -52,7 +52,7 @@ export function Textarea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement
     <textarea
       {...props}
       className={clsx(
-        "min-h-20 min-w-0 max-w-full rounded border border-[#dcdfe6] bg-white px-3 py-2 text-sm outline-none transition-colors placeholder:text-[#c0c4cc] focus:border-[#1890ff] focus:ring-2 focus:ring-[#1890ff]/20 disabled:cursor-not-allowed disabled:bg-[#f5f7fa] disabled:text-[#909399]",
+        "min-h-20 min-w-0 max-w-full rounded border border-line bg-white px-3 py-2 text-sm outline-none transition-colors placeholder:text-ink-4 focus:border-primary focus:ring-2 focus:ring-primary/20 disabled:cursor-not-allowed disabled:bg-canvas disabled:text-ink-3",
         props.className,
       )}
     />
@@ -63,7 +63,7 @@ export function Panel({ children, className }: { children: React.ReactNode; clas
   return (
     // 圆角与控件保持一致（4px）。overflow-hidden 让内部的表头色条、表格边框跟着圆角裁切，
     // 否则容器是圆角、里面是直角会显得拼凑。已确认浮层都用 createPortal 挂到 body，不会被裁切。
-    <div className={clsx("min-w-0 max-w-full overflow-hidden rounded border border-[#ebeef5] bg-white shadow-sm", className)}>{children}</div>
+    <div className={clsx("min-w-0 max-w-full overflow-hidden rounded border border-line-soft bg-white shadow-sm", className)}>{children}</div>
   );
 }
 
@@ -91,11 +91,11 @@ export function AuditInfoBar({
     ["确认时间", confirmedAt],
   ] as const;
   return (
-    <div className="grid gap-3 border-t border-[#ebeef5] bg-[#fafafa] p-4 text-xs text-[#909399] sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6">
+    <div className="grid gap-3 border-t border-line-soft bg-surface-2 p-4 text-xs text-ink-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6">
       {fields.map(([label, value]) => (
         <div className="min-w-0" key={label}>
           <span className="block">{label}</span>
-          <span className="mt-1 block truncate text-sm text-[#606266]" title={value == null ? "-" : String(value)}>{value == null || value === "" ? "-" : String(value)}</span>
+          <span className="mt-1 block truncate text-sm text-ink-2" title={value == null ? "-" : String(value)}>{value == null || value === "" ? "-" : String(value)}</span>
         </div>
       ))}
     </div>

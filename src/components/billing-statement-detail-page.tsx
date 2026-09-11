@@ -81,7 +81,7 @@ export function BillingStatementDetailPage({ snapshotNo }: { snapshotNo: string 
   );
 
   if (loading) return <LoadingBlock />;
-  if (!data?.snapshot) return <div className="text-[#909399]">未找到月账单对账单。</div>;
+  if (!data?.snapshot) return <div className="text-ink-3">未找到月账单对账单。</div>;
 
   const confirmed = data.snapshot.status === "已确认";
 
@@ -93,8 +93,8 @@ export function BillingStatementDetailPage({ snapshotNo }: { snapshotNo: string 
           返回列表
         </Button>
         <div>
-          <h1 className="text-xl font-medium text-[#303133]">月账单对账单明细</h1>
-          <p className="mt-1 text-sm text-[#909399]">查看已生成对账单的快照信息和汇总后的实例明细。</p>
+          <h1 className="text-xl font-medium text-ink">月账单对账单明细</h1>
+          <p className="mt-1 text-sm text-ink-3">查看已生成对账单的快照信息和汇总后的实例明细。</p>
         </div>
         <a className="ml-auto" href={`/api/billing-statements/${encodeURIComponent(snapshotNo)}/export`}>
           <Button tone="warning">
@@ -105,14 +105,14 @@ export function BillingStatementDetailPage({ snapshotNo }: { snapshotNo: string 
       </div>
 
       <Panel>
-        <div className="border-b border-[#ebeef5] px-4 py-3 font-medium text-[#303133]">对账单信息</div>
+        <div className="border-b border-line-soft px-4 py-3 font-medium text-ink">对账单信息</div>
         <div className="grid gap-x-5 gap-y-4 p-4 sm:grid-cols-2 xl:grid-cols-4">
           {summaryFields.map((field) => (
             <div key={field.key}>
-              <div className="text-xs text-[#909399]">{field.label}</div>
-              <div className="mt-1 break-all text-sm text-[#303133]">
+              <div className="text-xs text-ink-3">{field.label}</div>
+              <div className="mt-1 break-all text-sm text-ink">
                 {field.key === "status" ? (
-                  <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${confirmed ? "bg-[#f0f9eb] text-[#67c23a]" : "bg-[#fff7e6] text-[#e6a23c]"}`}>
+                  <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${confirmed ? "bg-success-soft text-success-strong" : "bg-[#fff7e6] text-warning-deep"}`}>
                     {confirmed ? "已确认" : "未确认"}
                   </span>
                 ) : formatValue(data.snapshot?.[field.key], field.type)}
@@ -123,16 +123,16 @@ export function BillingStatementDetailPage({ snapshotNo }: { snapshotNo: string 
       </Panel>
 
       <Panel>
-        <div className="flex items-center justify-between border-b border-[#ebeef5] px-4 py-3">
-          <span className="font-medium text-[#303133]">对账单明细</span>
-          <span className="text-sm text-[#909399]">共 {data.items.length} 条，金额合计 {formatValue(total, "money")}</span>
+        <div className="flex items-center justify-between border-b border-line-soft px-4 py-3">
+          <span className="font-medium text-ink">对账单明细</span>
+          <span className="text-sm text-ink-3">共 {data.items.length} 条，金额合计 {formatValue(total, "money")}</span>
         </div>
         <StickyTable className="table-scroll overflow-auto" tableKey="billing-statement-detail-items">
           <table className="min-w-full border-collapse text-sm">
-            <thead className="bg-[#f5f7fa] text-[#303133]">
+            <thead className="bg-canvas text-ink">
               <tr>
                 {itemColumns.map((column) => (
-                  <th className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium" key={column.key}>
+                  <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium" key={column.key}>
                     {column.label}
                   </th>
                 ))}
@@ -140,16 +140,16 @@ export function BillingStatementDetailPage({ snapshotNo }: { snapshotNo: string 
             </thead>
             <tbody>
               {data.items.map((row, index) => (
-                <tr className="hover:bg-[#fafafa]" key={`${row.instanceContractNo}-${row.productType}-${row.currency}-${index}`}>
+                <tr className="hover:bg-surface-2" key={`${row.instanceContractNo}-${row.productType}-${row.currency}-${index}`}>
                   {itemColumns.map((column) => (
-                    <td className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3" key={column.key}>
+                    <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3" key={column.key}>
                       {formatValue(row[column.key], column.type)}
                     </td>
                   ))}
                 </tr>
               ))}
               {!data.items.length ? (
-                <tr><td className="py-12 text-center text-[#909399]" colSpan={itemColumns.length}>暂无明细</td></tr>
+                <tr><td className="py-12 text-center text-ink-3" colSpan={itemColumns.length}>暂无明细</td></tr>
               ) : null}
             </tbody>
           </table>

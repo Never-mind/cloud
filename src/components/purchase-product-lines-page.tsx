@@ -148,14 +148,14 @@ export function PurchaseProductLinesPage() {
   return (
     <div className="space-y-5">
       <div>
-        <h1 className="text-xl font-medium text-[#303133]">采购明细一览</h1>
-        <p className="mt-1 text-sm text-[#909399]">按已确认采购订单中的产品实例集中展示实例编码、名称、数量、币种和单价。</p>
+        <h1 className="text-xl font-medium text-ink">采购明细一览</h1>
+        <p className="mt-1 text-sm text-ink-3">按已确认采购订单中的产品实例集中展示实例编码、名称、数量、币种和单价。</p>
       </div>
 
       <Panel>
-        <div className="flex flex-wrap items-center gap-2 border-b border-[#ebeef5] p-4">
+        <div className="flex flex-wrap items-center gap-2 border-b border-line-soft p-4">
           <Input placeholder="搜索PO订单号/需求单号/实例编码/名称" value={keyword} onChange={(event) => setKeyword(event.target.value)} />
-          <select className="h-9 min-w-32 rounded border border-[#dcdfe6] bg-white px-3 text-sm outline-none focus:border-[#1890ff]" value={countryCode} onChange={(event) => setCountryCode(event.target.value)}>
+          <select className="h-9 min-w-32 rounded border border-line bg-white px-3 text-sm outline-none focus:border-primary" value={countryCode} onChange={(event) => setCountryCode(event.target.value)}>
             <option value="">全部国家</option>
             {countries
               .map((country) => ({ code: String(country.code ?? "").trim(), nameZh: String(country.nameZh ?? "").trim() }))
@@ -179,10 +179,10 @@ export function PurchaseProductLinesPage() {
 
         <StickyTable className="table-scroll overflow-auto" tableKey="purchase-product-lines">
           <table className="min-w-full border-collapse text-sm">
-            <thead className="bg-[#f5f7fa] text-[#303133]"><tr>{columns.map((column) => <th className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium" key={column.key}>{renderHeader(column)}</th>)}</tr></thead>
+            <thead className="bg-canvas text-ink"><tr>{columns.map((column) => <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium" key={column.key}>{renderHeader(column)}</th>)}</tr></thead>
             <tbody>
-              {rows.map((row) => <tr className="hover:bg-[#fafafa]" key={String(row.id)}>{columns.map((column) => <td className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3" key={column.key}>{renderValue(row, column.key, column.type)}</td>)}</tr>)}
-              {!rows.length ? <tr><td className="py-12 text-center text-[#909399]" colSpan={columns.length}><TableStateContent empty="暂无数据" loading={loading} /></td></tr> : null}
+              {rows.map((row) => <tr className="hover:bg-surface-2" key={String(row.id)}>{columns.map((column) => <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3" key={column.key}>{renderValue(row, column.key, column.type)}</td>)}</tr>)}
+              {!rows.length ? <tr><td className="py-12 text-center text-ink-3" colSpan={columns.length}><TableStateContent empty="暂无数据" loading={loading} /></td></tr> : null}
             </tbody>
           </table>
         </StickyTable>
@@ -226,7 +226,7 @@ function renderValue(row: Row, key: string, type?: string) {
     : "latestInstanceContractNext36PriceUSD";
   const comparison = getPurchasePriceComparison(value, row[benchmarkKey]);
   if (comparison.relation === "unavailable") return `USD ${formatPowerPrice(value)}`;
-  const tone = comparison.relation === "higher" ? "text-[#f56c6c]" : comparison.relation === "lower" ? "text-[#67c23a]" : "text-[#606266]";
+  const tone = comparison.relation === "higher" ? "text-danger" : comparison.relation === "lower" ? "text-success-strong" : "text-ink-2";
   const label = comparison.relation === "higher" ? "高于最近合同" : comparison.relation === "lower" ? "低于最近合同" : "与最近合同相同";
   return <span className={`inline-flex flex-col ${tone}`} title={`${row.latestInstanceContractNo ?? "最近实例合同"}${row.latestInstanceContractDateSigned ? `，签署于${row.latestInstanceContractDateSigned}` : ""}`}><span>USD {formatPowerPrice(value)}</span><span className="text-xs">{label} {comparison.difference === 0 ? "" : `USD ${formatPowerPrice(Math.abs(comparison.difference ?? 0))}`}</span></span>;
 }

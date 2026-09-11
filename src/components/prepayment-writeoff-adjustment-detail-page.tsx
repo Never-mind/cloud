@@ -239,29 +239,29 @@ export function PrepaymentWriteOffAdjustmentDetailPage({ adjustmentNo: routeAdju
   return (
     <div className="space-y-5">
       <div>
-        <h1 className="text-xl font-medium text-[#303133]">预付款核销调整单明细</h1>
-        <p className="mt-1 text-sm text-[#909399]">先搜索特定实例或月份，添加到下方调整明细后再填写调整金额。</p>
+        <h1 className="text-xl font-medium text-ink">预付款核销调整单明细</h1>
+        <p className="mt-1 text-sm text-ink-3">先搜索特定实例或月份，添加到下方调整明细后再填写调整金额。</p>
       </div>
 
       <Panel>
-        <div className="grid gap-4 border-b border-[#ebeef5] p-4 md:grid-cols-4">
+        <div className="grid gap-4 border-b border-line-soft p-4 md:grid-cols-4">
           <label>
-            <span className="mb-1 block text-sm font-medium text-[#606266]">调整单号</span>
+            <span className="mb-1 block text-sm font-medium text-ink-2">调整单号</span>
             <Input className="w-full" disabled={!isNew || confirmed} value={adjustmentNo} onChange={(event) => setAdjustmentNo(event.target.value)} />
           </label>
           <label>
-            <span className="mb-1 block text-sm font-medium text-[#606266]">状态</span>
+            <span className="mb-1 block text-sm font-medium text-ink-2">状态</span>
             <Input className="w-full" disabled value={status} />
           </label>
           <label className="md:col-span-2">
-            <span className="mb-1 block text-sm font-medium text-[#606266]">调整原因</span>
+            <span className="mb-1 block text-sm font-medium text-ink-2">调整原因</span>
             <Textarea className="w-full" disabled={confirmed} value={reason} onChange={(event) => setReason(event.target.value)} />
           </label>
         </div>
 
         {!confirmed ? (
           <>
-            <div className="flex flex-wrap items-center gap-2 border-b border-[#ebeef5] p-4">
+            <div className="flex flex-wrap items-center gap-2 border-b border-line-soft p-4">
               <Input placeholder="搜索合同/批次/需求单/PO/实例" value={keyword} onChange={(event) => setKeyword(event.target.value)} />
               <Input type="date" value={startMonth} onChange={(event) => setStartMonth(event.target.value)} />
               <Input type="date" value={endMonth} onChange={(event) => setEndMonth(event.target.value)} />
@@ -279,17 +279,17 @@ export function PrepaymentWriteOffAdjustmentDetailPage({ adjustmentNo: routeAdju
               </Button>
             </div>
 
-            <div className="border-b border-[#ebeef5] bg-white px-4 py-3 text-sm font-medium text-[#303133]">搜索结果</div>
-            <div className="table-scroll max-h-[320px] overflow-auto border-b border-[#ebeef5]">
+            <div className="border-b border-line-soft bg-white px-4 py-3 text-sm font-medium text-ink">搜索结果</div>
+            <div className="table-scroll max-h-[320px] overflow-auto border-b border-line-soft">
               <table className="min-w-full border-collapse text-sm">
-                <thead className="bg-[#f5f7fa] text-[#303133]">
+                <thead className="bg-canvas text-ink">
                   <tr>
                     {availableColumns.map((column) => (
-                      <th className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium" key={column.key}>
+                      <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium" key={column.key}>
                         {column.label}
                       </th>
                     ))}
-                    <th className="sticky right-0 border-b border-[#ebeef5] bg-[#f5f7fa] px-3 py-3 text-left font-medium">操作</th>
+                    <th className="sticky right-0 border-b border-line-soft bg-canvas px-3 py-3 text-left font-medium">操作</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -297,13 +297,13 @@ export function PrepaymentWriteOffAdjustmentDetailPage({ adjustmentNo: routeAdju
                     const id = String(row.id);
                     const added = selectedRows.some((selected) => String(selected.id) === id);
                     return (
-                      <tr className="hover:bg-[#fafafa]" key={id}>
+                      <tr className="hover:bg-surface-2" key={id}>
                         {availableColumns.map((column) => (
-                          <td className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3" key={column.key}>
+                          <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3" key={column.key}>
                             {formatValue(row[column.key], column.type)}
                           </td>
                         ))}
-                        <td className="sticky right-0 whitespace-nowrap border-b border-[#ebeef5] bg-white px-3 py-3">
+                        <td className="sticky right-0 whitespace-nowrap border-b border-line-soft bg-white px-3 py-3">
                           <Button disabled={added} tone="primary" onClick={() => addRow(row)}>
                             <Plus size={15} />
                             {added ? "已添加" : "添加"}
@@ -314,7 +314,7 @@ export function PrepaymentWriteOffAdjustmentDetailPage({ adjustmentNo: routeAdju
                   })}
                   {!searchRows.length ? (
                     <tr>
-                      <td className="py-10 text-center text-[#909399]" colSpan={availableColumns.length + 1}>
+                      <td className="py-10 text-center text-ink-3" colSpan={availableColumns.length + 1}>
                         <TableStateContent empty="请先搜索需要调整的实例或月份" loading={loading} />
                       </td>
                     </tr>
@@ -330,7 +330,7 @@ export function PrepaymentWriteOffAdjustmentDetailPage({ adjustmentNo: routeAdju
               onPageSizeChange={(next) => { searchPageSizeRef.current = next; setSearchPageSize(next); setSearchPage(1); void loadSearchRows(1, next); }}
             />
 
-            <div className="flex flex-wrap items-center gap-4 border-b border-[#ebeef5] bg-[#fafafa] p-4 text-sm text-[#606266]">
+            <div className="flex flex-wrap items-center gap-4 border-b border-line-soft bg-surface-2 p-4 text-sm text-ink-2">
               <span>已添加 {selectedSummary.count} 条</span>
               <span>原金额合计 {formatValue(selectedSummary.originalTotal, "number")}</span>
               <span>调整后合计 {formatValue(selectedSummary.adjustedTotal, "number")}</span>
@@ -347,7 +347,7 @@ export function PrepaymentWriteOffAdjustmentDetailPage({ adjustmentNo: routeAdju
               </div>
             </div>
 
-            <div className="border-b border-[#ebeef5] bg-white px-4 py-3 text-sm font-medium text-[#303133]">已添加调整明细</div>
+            <div className="border-b border-line-soft bg-white px-4 py-3 text-sm font-medium text-ink">已添加调整明细</div>
             <AdjustmentTable
               adjustedAmounts={adjustedAmounts}
               rows={selectedRows}
@@ -357,7 +357,7 @@ export function PrepaymentWriteOffAdjustmentDetailPage({ adjustmentNo: routeAdju
           </>
         ) : (
           <>
-            <div className="flex flex-wrap items-center gap-4 border-b border-[#ebeef5] bg-[#fafafa] p-4 text-sm text-[#606266]">
+            <div className="flex flex-wrap items-center gap-4 border-b border-line-soft bg-surface-2 p-4 text-sm text-ink-2">
               <span>已确认 {confirmedItems.length} 条</span>
               <div className="ml-auto flex gap-2">
                 <Button disabled={saving} tone="warning" onClick={() => void rollbackAdjustment()}>
@@ -388,28 +388,28 @@ function AdjustmentTable({
   return (
     <StickyTable className="table-scroll overflow-auto" tableKey="prepayment-writeoff-adjustment-detail-selected">
       <table className="min-w-full border-collapse text-sm">
-        <thead className="bg-[#f5f7fa] text-[#303133]">
+        <thead className="bg-canvas text-ink">
           <tr>
             {availableColumns.map((column) => (
-              <th className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium" key={column.key}>
+              <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium" key={column.key}>
                 {column.label}
               </th>
             ))}
-            <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium">调整后月核销金额</th>
-            <th className="sticky right-0 border-b border-[#ebeef5] bg-[#f5f7fa] px-3 py-3 text-left font-medium">操作</th>
+            <th className="border-b border-r border-line-soft px-3 py-3 text-left font-medium">调整后月核销金额</th>
+            <th className="sticky right-0 border-b border-line-soft bg-canvas px-3 py-3 text-left font-medium">操作</th>
           </tr>
         </thead>
         <tbody>
           {rows.map((row) => {
             const id = String(row.id);
             return (
-              <tr className="hover:bg-[#fafafa]" key={id}>
+              <tr className="hover:bg-surface-2" key={id}>
                 {availableColumns.map((column) => (
-                  <td className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3" key={column.key}>
+                  <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3" key={column.key}>
                     {formatValue(row[column.key], column.type)}
                   </td>
                 ))}
-                <td className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3">
+                <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3">
                   <Input
                     className="min-w-[120px]"
                     type="number"
@@ -418,7 +418,7 @@ function AdjustmentTable({
                     onChange={(event) => onAmountChange(id, event.target.value)}
                   />
                 </td>
-                <td className="sticky right-0 whitespace-nowrap border-b border-[#ebeef5] bg-white px-3 py-3">
+                <td className="sticky right-0 whitespace-nowrap border-b border-line-soft bg-white px-3 py-3">
                   <Button tone="danger" onClick={() => onRemove(id)}>
                     <Trash2 size={15} />
                     移除
@@ -429,7 +429,7 @@ function AdjustmentTable({
           })}
           {!rows.length ? (
             <tr>
-              <td className="py-12 text-center text-[#909399]" colSpan={availableColumns.length + 2}>
+              <td className="py-12 text-center text-ink-3" colSpan={availableColumns.length + 2}>
                 暂无已添加明细，请从搜索结果中添加
               </td>
             </tr>
@@ -444,10 +444,10 @@ function ConfirmedTable({ rows }: { rows: Row[] }) {
   return (
     <StickyTable className="table-scroll overflow-auto" tableKey="prepayment-writeoff-adjustment-detail-confirmed">
       <table className="min-w-full border-collapse text-sm">
-        <thead className="bg-[#f5f7fa] text-[#303133]">
+        <thead className="bg-canvas text-ink">
           <tr>
             {confirmedColumns.map((column) => (
-              <th className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium" key={column.key}>
+              <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium" key={column.key}>
                 {column.label}
               </th>
             ))}
@@ -455,9 +455,9 @@ function ConfirmedTable({ rows }: { rows: Row[] }) {
         </thead>
         <tbody>
           {rows.map((row) => (
-            <tr className="hover:bg-[#fafafa]" key={String(row.id)}>
+            <tr className="hover:bg-surface-2" key={String(row.id)}>
               {confirmedColumns.map((column) => (
-                <td className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3" key={column.key}>
+                <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3" key={column.key}>
                   {formatValue(row[column.key], column.type)}
                 </td>
               ))}
@@ -465,7 +465,7 @@ function ConfirmedTable({ rows }: { rows: Row[] }) {
           ))}
           {!rows.length ? (
             <tr>
-              <td className="py-12 text-center text-[#909399]" colSpan={confirmedColumns.length}>
+              <td className="py-12 text-center text-ink-3" colSpan={confirmedColumns.length}>
                 暂无调整明细
               </td>
             </tr>

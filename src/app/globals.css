@@ -27,6 +27,20 @@
   --color-surface: #ffffff;
   --color-surface-2: #fafafa;
   --color-canvas: #f5f7fa;
+  --color-canvas-deep: #f0f2f5;
+  --color-fill-soft: #f4f4f5;
+
+  /* 状态色的浅底、描边与加深变体，用于标签和提示块 */
+  --color-info: #409eff;
+  --color-info-soft: #ecf5ff;
+  --color-info-border: #b3d8ff;
+  --color-success-strong: #67c23a;
+  --color-success-soft: #f0f9eb;
+  --color-success-border: #c2e7b0;
+  --color-warning-deep: #e6a23c;
+  --color-warning-soft: #fdf6ec;
+  --color-danger-strong: #ff4949;
+  --color-danger-border: #fde2e2;
 
   /* 左侧导航 */
   --color-sidebar: #304156;

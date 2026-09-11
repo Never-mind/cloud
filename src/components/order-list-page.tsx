@@ -352,10 +352,10 @@ export function OrderListPage({
   return (
     <div className="space-y-5">
       <div>
-        <h1 className="text-xl font-medium text-[#303133]">
+        <h1 className="text-xl font-medium text-ink">
           {mode === "requests" ? "需求单列表" : "采购清单列表"}
         </h1>
-        <p className="mt-1 text-sm text-[#909399]">
+        <p className="mt-1 text-sm text-ink-3">
           {mode === "requests"
             ? "需求单按草稿和已确认分区展示，点击需求单号进入明细页面。"
             : "采购清单按草稿和已确认分区展示，草稿确认后会自动生成物流单据。"}
@@ -363,7 +363,7 @@ export function OrderListPage({
       </div>
 
       <Panel>
-        <div className="flex items-center gap-2 border-b border-[#ebeef5] bg-[#fafafa] p-3">
+        <div className="flex items-center gap-2 border-b border-line-soft bg-surface-2 p-3">
           <Button tone={statusTab === "draft" ? "primary" : "default"} onClick={() => { setStatusTab("draft"); setPage(1); void loadData(1, pageSizeRef.current, "draft"); }}>
             草稿
             <span className="ml-1 rounded bg-white/35 px-1.5 text-xs">{statusCounts.draft}</span>
@@ -377,7 +377,7 @@ export function OrderListPage({
           </Button>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 border-b border-[#ebeef5] p-4">
+        <div className="flex flex-wrap items-center gap-2 border-b border-line-soft p-4">
           <Input
             placeholder={mode === "requests" ? "搜索需求单号/状态/批次" : "搜索PO单号/需求单号/状态"}
             value={keyword}
@@ -391,7 +391,7 @@ export function OrderListPage({
             }}
           />
           <select
-            className="h-9 min-w-32 rounded border border-[#dcdfe6] bg-white px-3 text-sm outline-none focus:border-[#1890ff]"
+            className="h-9 min-w-32 rounded border border-line bg-white px-3 text-sm outline-none focus:border-primary"
             value={countryCode}
             onChange={(event) => {
               const value = event.target.value;
@@ -446,10 +446,10 @@ export function OrderListPage({
 
         <StickyTable className="table-scroll overflow-auto" tableKey={`orders-${mode}`}>
           <table className="w-full min-w-[1180px] border-collapse text-sm">
-            <thead className="bg-[#f5f7fa] text-[#303133]">
+            <thead className="bg-canvas text-ink">
               <tr>
                 {canBatchDelete ? (
-                  <th className="table-select-cell border-b border-r border-[#ebeef5] py-3 text-center font-medium [&>input]:h-4 [&>input]:w-4 [&>input]:align-middle">
+                  <th className="table-select-cell border-b border-r border-line-soft py-3 text-center font-medium [&>input]:h-4 [&>input]:w-4 [&>input]:align-middle">
                     <input
                       aria-label="全选当前页需求单"
                       type="checkbox"
@@ -468,54 +468,54 @@ export function OrderListPage({
                     />
                   </th>
                 ) : null}
-                <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium">
+                <th className="border-b border-r border-line-soft px-3 py-3 text-left font-medium">
                   {renderHeader(mode === "requests" ? "requestNo" : "poNo", mode === "requests" ? "需求单号" : "PO订单号")}
                 </th>
                 {mode === "requests" ? (
                   <>
-                    <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium">{renderHeader("countryCode", "国家")}</th>
-                    <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium">{renderHeader("batchName", "批次号")}</th>
+                    <th className="border-b border-r border-line-soft px-3 py-3 text-left font-medium">{renderHeader("countryCode", "国家")}</th>
+                    <th className="border-b border-r border-line-soft px-3 py-3 text-left font-medium">{renderHeader("batchName", "批次号")}</th>
                   </>
                 ) : null}
                 {mode === "purchase" ? (
-                  <th className="w-[260px] min-w-[260px] border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium">
+                  <th className="w-[260px] min-w-[260px] border-b border-r border-line-soft px-3 py-3 text-left font-medium">
                     {renderHeader("requestNo", "来源需求单")}
                   </th>
                 ) : null}
                 {mode === "purchase" ? (
-                  <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium">
+                  <th className="border-b border-r border-line-soft px-3 py-3 text-left font-medium">
                     {renderHeader("countryCode", "国家")}
                   </th>
                 ) : null}
                 {mode === "purchase" ? (
-                  <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium">
+                  <th className="border-b border-r border-line-soft px-3 py-3 text-left font-medium">
                     {renderHeader("batchName", "批次号")}
                   </th>
                 ) : null}
-                <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium">{renderHeader("status", "状态")}</th>
+                <th className="border-b border-r border-line-soft px-3 py-3 text-left font-medium">{renderHeader("status", "状态")}</th>
                 {mode === "requests" ? (
-                  <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium">{renderHeader("remoteStatus", "远端状态")}</th>
+                  <th className="border-b border-r border-line-soft px-3 py-3 text-left font-medium">{renderHeader("remoteStatus", "远端状态")}</th>
                 ) : null}
                 {mode === "purchase" ? (
                   <>
-                        <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium">{renderHeader("currency", "币种")}</th>
+                        <th className="border-b border-r border-line-soft px-3 py-3 text-left font-medium">{renderHeader("currency", "币种")}</th>
                   </>
                 ) : null}
-                <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium">{renderHeader("totalQuantity", "总数量")}</th>
+                <th className="border-b border-r border-line-soft px-3 py-3 text-left font-medium">{renderHeader("totalQuantity", "总数量")}</th>
                 {mode === "purchase" ? (
-                  <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium">
+                  <th className="border-b border-r border-line-soft px-3 py-3 text-left font-medium">
                     {renderHeader("purchaseTotalAmount", "采购总金额")}
                   </th>
                 ) : null}
                 {mode === "requests" ? (
-                  <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium">
+                  <th className="border-b border-r border-line-soft px-3 py-3 text-left font-medium">
                     {renderHeader("plannedDeliveryDate", "计划交付日期")}
                   </th>
                 ) : null}
-                <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium">{renderHeader("createdAt", "创建时间")}</th>
-                <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium">{renderHeader("updatedAt", "更新时间")}</th>
+                <th className="border-b border-r border-line-soft px-3 py-3 text-left font-medium">{renderHeader("createdAt", "创建时间")}</th>
+                <th className="border-b border-r border-line-soft px-3 py-3 text-left font-medium">{renderHeader("updatedAt", "更新时间")}</th>
                 {hasActionColumn ? (
-                  <th className="sticky right-0 border-b border-[#ebeef5] bg-[#f5f7fa] px-3 py-3 text-left font-medium">
+                  <th className="sticky right-0 border-b border-line-soft bg-canvas px-3 py-3 text-left font-medium">
                     操作
                   </th>
                 ) : null}
@@ -527,9 +527,9 @@ export function OrderListPage({
                 const primaryDisplayValue = getOrderListPrimaryDisplayValue(mode, row);
                 const confirmed = isConfirmedOrderStatus(mode, row.status);
                 return (
-                  <tr className="hover:bg-[#fafafa]" key={id}>
+                  <tr className="hover:bg-surface-2" key={id}>
                     {canBatchDelete ? (
-                      <td className="table-select-cell border-b border-r border-[#ebeef5] py-3 text-center [&>input]:h-4 [&>input]:w-4 [&>input]:align-middle">
+                      <td className="table-select-cell border-b border-r border-line-soft py-3 text-center [&>input]:h-4 [&>input]:w-4 [&>input]:align-middle">
                         <input
                           aria-label={`选择需求单 ${id}`}
                           type="checkbox"
@@ -546,9 +546,9 @@ export function OrderListPage({
                         />
                       </td>
                     ) : null}
-                    <td className="border-b border-r border-[#ebeef5] px-3 py-3">
+                    <td className="border-b border-r border-line-soft px-3 py-3">
                       <Link
-                        className="font-medium text-[#1890ff] hover:underline"
+                        className="font-medium text-primary hover:underline"
                         href={buildDetailRoute(getOrderDetailRoute(mode, id), currentRoute)}
                         onClick={(event) => openOrderDetail(id, event)}
                       >
@@ -557,63 +557,63 @@ export function OrderListPage({
                     </td>
                     {mode === "requests" ? (
                       <>
-                        <td className="border-b border-r border-[#ebeef5] px-3 py-3">
+                        <td className="border-b border-r border-line-soft px-3 py-3">
                           {formatValue(row.countryCode)}
                         </td>
-                        <td className="border-b border-r border-[#ebeef5] px-3 py-3">
+                        <td className="border-b border-r border-line-soft px-3 py-3">
                           {formatValue(row.batchName)}
                         </td>
                       </>
                     ) : null}
                     {mode === "purchase" ? (
-                      <td className="w-[260px] max-w-[260px] border-b border-r border-[#ebeef5] px-3 py-3">
+                      <td className="w-[260px] max-w-[260px] border-b border-r border-line-soft px-3 py-3">
                         <span className="block truncate" title={String(row.requestNo ?? "")}>{formatValue(row.requestNo)}</span>
                       </td>
                     ) : null}
                     {mode === "purchase" ? (
-                      <td className="border-b border-r border-[#ebeef5] px-3 py-3">
+                      <td className="border-b border-r border-line-soft px-3 py-3">
                         {formatValue(row.countryCode)}
                       </td>
                     ) : null}
                     {mode === "purchase" ? (
-                      <td className="border-b border-r border-[#ebeef5] px-3 py-3">
+                      <td className="border-b border-r border-line-soft px-3 py-3">
                         {formatValue(row.batchName)}
                       </td>
                     ) : null}
-                    <td className="border-b border-r border-[#ebeef5] px-3 py-3">
+                    <td className="border-b border-r border-line-soft px-3 py-3">
                       <StatusBadge mode={mode} value={String(row.status ?? "-")} />
                     </td>
                     {mode === "requests" ? (
-                      <td className="border-b border-r border-[#ebeef5] px-3 py-3">{formatDisplayValue(row.remoteStatus, "text")}</td>
+                      <td className="border-b border-r border-line-soft px-3 py-3">{formatDisplayValue(row.remoteStatus, "text")}</td>
                     ) : null}
                     {mode === "purchase" ? (
                       <>
-                        <td className="border-b border-r border-[#ebeef5] px-3 py-3">
+                        <td className="border-b border-r border-line-soft px-3 py-3">
                           {formatValue(row.currency)}
                         </td>
                       </>
                     ) : null}
-                    <td className="border-b border-r border-[#ebeef5] px-3 py-3">
+                    <td className="border-b border-r border-line-soft px-3 py-3">
                       {formatValue(row.totalQuantity)}
                     </td>
                     {mode === "purchase" ? (
-                      <td className="border-b border-r border-[#ebeef5] px-3 py-3">
+                      <td className="border-b border-r border-line-soft px-3 py-3">
                         {formatValue(row.purchaseTotalAmount, "money")}
                       </td>
                     ) : null}
                     {mode === "requests" ? (
-                      <td className="border-b border-r border-[#ebeef5] px-3 py-3">
+                      <td className="border-b border-r border-line-soft px-3 py-3">
                         {formatValue(row.plannedDeliveryDate, "date")}
                       </td>
                     ) : null}
-                    <td className="border-b border-r border-[#ebeef5] px-3 py-3">
+                    <td className="border-b border-r border-line-soft px-3 py-3">
                       {formatValue(row.createdAt, "datetime")}
                     </td>
-                    <td className="border-b border-r border-[#ebeef5] px-3 py-3">
+                    <td className="border-b border-r border-line-soft px-3 py-3">
                       {formatValue(row.updatedAt, "datetime")}
                     </td>
                     {hasActionColumn ? (
-                      <td className="sticky right-0 whitespace-nowrap border-b border-[#ebeef5] bg-white px-3 py-3">
+                      <td className="sticky right-0 whitespace-nowrap border-b border-line-soft bg-white px-3 py-3">
                         {mode === "requests" ? (
                           <div className="flex items-center gap-2">
                             <Link
@@ -661,7 +661,7 @@ export function OrderListPage({
               })}
               {!rows.length ? (
                 <tr>
-                  <td className="py-12 text-center text-[#909399]" colSpan={columnKeys.length + (canBatchDelete ? 1 : 0)}>
+                  <td className="py-12 text-center text-ink-3" colSpan={columnKeys.length + (canBatchDelete ? 1 : 0)}>
                     <TableStateContent empty="暂无数据" loading={loading} />
                   </td>
                 </tr>
@@ -696,10 +696,10 @@ export function OrderListPage({
 
 function StatusBadge({ mode, value }: { mode: PageMode; value: string }) {
   const tone = isConfirmedOrderStatus(mode, value)
-    ? "border-[#13ce66] bg-[#f0fff7] text-[#13a85a]"
+    ? "border-success bg-[#f0fff7] text-[#13a85a]"
     : value === "草稿" || value === "待采购"
-      ? "border-[#ffba00] bg-[#fff8e6] text-[#b88600]"
-      : "border-[#dcdfe6] bg-white text-[#606266]";
+      ? "border-warning bg-[#fff8e6] text-[#b88600]"
+      : "border-line bg-white text-ink-2";
 
   return <span className={`inline-flex rounded border px-2 py-0.5 text-xs ${tone}`}>{value}</span>;
 }

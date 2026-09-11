@@ -119,11 +119,11 @@ export function InternalServiceFeeAvailablePage() {
   return (
     <div className="space-y-5">
       <div>
-        <h1 className="text-xl font-medium text-[#303133]">待初始化内部服务费实例</h1>
-        <p className="mt-1 text-sm text-[#909399]">展示已有月账单台账但尚未生成内部服务费的实例，确认后自动建立 60 个月内部服务费计划。</p>
+        <h1 className="text-xl font-medium text-ink">待初始化内部服务费实例</h1>
+        <p className="mt-1 text-sm text-ink-3">展示已有月账单台账但尚未生成内部服务费的实例，确认后自动建立 60 个月内部服务费计划。</p>
       </div>
       <Panel>
-        <div className="flex flex-wrap items-center gap-2 border-b border-[#ebeef5] p-4">
+        <div className="flex flex-wrap items-center gap-2 border-b border-line-soft p-4">
           <Input placeholder="搜索批次、需求单、PO或实例编码" value={keyword} onChange={(event) => setKeyword(event.target.value)} />
           <Button tone="primary" onClick={() => { setPage(1); void loadRows(1, pageSizeRef.current); }}><Search size={15} />查询</Button>
           <Button onClick={() => void loadRows()}><RefreshCw size={15} />刷新</Button>
@@ -132,10 +132,10 @@ export function InternalServiceFeeAvailablePage() {
         </div>
         <StickyTable className="table-scroll overflow-auto" tableKey="internal-service-fee-available">
           <table className="w-full min-w-[1560px] border-collapse text-sm">
-            <thead className="bg-[#f5f7fa] text-[#303133]">
+            <thead className="bg-canvas text-ink">
               <tr>
-                <th className="table-select-cell border-b border-r border-[#ebeef5] py-3 text-center font-medium [&>input]:h-4 [&>input]:w-4 [&>input]:align-middle"><input type="checkbox" checked={allSelected} onChange={toggleCurrentPageSelection} /></th>
-                {columns.map(([key, label]) => <th className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium" key={key}>
+                <th className="table-select-cell border-b border-r border-line-soft py-3 text-center font-medium [&>input]:h-4 [&>input]:w-4 [&>input]:align-middle"><input type="checkbox" checked={allSelected} onChange={toggleCurrentPageSelection} /></th>
+                {columns.map(([key, label]) => <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium" key={key}>
                   <TableColumnMenu
                     column={{ key, label, sortable: true, filterable: true }}
                     sortOrder={sortField === key ? sortOrder : ""}
@@ -150,12 +150,12 @@ export function InternalServiceFeeAvailablePage() {
             <tbody>
               {rows.map((row) => {
                 const id = String(row.ledgerId);
-                return <tr className="hover:bg-[#fafafa]" key={id}>
-                  <td className="table-select-cell border-b border-r border-[#ebeef5] py-3 text-center [&>input]:h-4 [&>input]:w-4 [&>input]:align-middle"><input type="checkbox" checked={selected.includes(id)} onChange={() => toggleRow(id)} /></td>
-                  {columns.map(([key, , type]) => <td className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3" key={key}>{formatDisplayValue(row[key], type)}</td>)}
+                return <tr className="hover:bg-surface-2" key={id}>
+                  <td className="table-select-cell border-b border-r border-line-soft py-3 text-center [&>input]:h-4 [&>input]:w-4 [&>input]:align-middle"><input type="checkbox" checked={selected.includes(id)} onChange={() => toggleRow(id)} /></td>
+                  {columns.map(([key, , type]) => <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3" key={key}>{formatDisplayValue(row[key], type)}</td>)}
                 </tr>;
               })}
-              {!rows.length && <tr><td className="py-12 text-center text-[#909399]" colSpan={columns.length + 1}><TableStateContent empty="暂无待初始化实例" loading={loading} /></td></tr>}
+              {!rows.length && <tr><td className="py-12 text-center text-ink-3" colSpan={columns.length + 1}><TableStateContent empty="暂无待初始化实例" loading={loading} /></td></tr>}
             </tbody>
           </table>
         </StickyTable>

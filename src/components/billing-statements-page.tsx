@@ -190,23 +190,23 @@ export function BillingStatementsPage() {
   return (
     <div className="space-y-5">
       <div>
-        <h1 className="text-xl font-medium text-[#303133]">月账单对账单</h1>
-        <p className="mt-1 text-sm text-[#909399]">按国家和期间生成月账单对账单草稿，确认后冻结且不受后续月账单调整影响。</p>
+        <h1 className="text-xl font-medium text-ink">月账单对账单</h1>
+        <p className="mt-1 text-sm text-ink-3">按国家和期间生成月账单对账单草稿，确认后冻结且不受后续月账单调整影响。</p>
       </div>
 
       <Panel>
-        <div className="grid gap-4 border-b border-[#ebeef5] p-4 md:grid-cols-6">
+        <div className="grid gap-4 border-b border-line-soft p-4 md:grid-cols-6">
           <label>
-            <span className="mb-1 block text-sm font-medium text-[#606266]">国家</span>
-            <select className="h-9 w-full rounded border border-[#dcdfe6] bg-white px-3 text-sm outline-none focus:border-[#1890ff]" value={countryCode} onChange={(event) => setCountryCode(event.target.value)}>
+            <span className="mb-1 block text-sm font-medium text-ink-2">国家</span>
+            <select className="h-9 w-full rounded border border-line bg-white px-3 text-sm outline-none focus:border-primary" value={countryCode} onChange={(event) => setCountryCode(event.target.value)}>
               <option value="BR">BR</option>
               <option value="CL">CL</option>
               <option value="MX">MX</option>
             </select>
           </label>
           <label>
-            <span className="mb-1 block text-sm font-medium text-[#606266]">币种</span>
-            <select className="h-9 w-full rounded border border-[#dcdfe6] bg-white px-3 text-sm outline-none focus:border-[#1890ff]" value={currency} onChange={(event) => setCurrency(event.target.value)}>
+            <span className="mb-1 block text-sm font-medium text-ink-2">币种</span>
+            <select className="h-9 w-full rounded border border-line bg-white px-3 text-sm outline-none focus:border-primary" value={currency} onChange={(event) => setCurrency(event.target.value)}>
               <option value="">全部</option>
               <option value="CNY">CNY</option>
               <option value="USD">USD</option>
@@ -216,19 +216,19 @@ export function BillingStatementsPage() {
             </select>
           </label>
           <label>
-            <span className="mb-1 block text-sm font-medium text-[#606266]">起始日期</span>
+            <span className="mb-1 block text-sm font-medium text-ink-2">起始日期</span>
             <Input className="w-full" type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} />
           </label>
           <label>
-            <span className="mb-1 block text-sm font-medium text-[#606266]">终止日期</span>
+            <span className="mb-1 block text-sm font-medium text-ink-2">终止日期</span>
             <Input className="w-full" type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} />
           </label>
           <label className="md:col-span-2">
-            <span className="mb-1 block text-sm font-medium text-[#606266]">对账单号</span>
+            <span className="mb-1 block text-sm font-medium text-ink-2">对账单号</span>
             <Input className="w-full" placeholder="不填自动生成" value={snapshotNo} onChange={(event) => setSnapshotNo(event.target.value)} />
           </label>
         </div>
-        <div className="flex flex-wrap items-center gap-2 border-b border-[#ebeef5] p-4">
+        <div className="flex flex-wrap items-center gap-2 border-b border-line-soft p-4">
           <Button onClick={() => void preview()}>
             <Search size={15} />
             预览
@@ -237,16 +237,16 @@ export function BillingStatementsPage() {
             <CheckCircle2 size={15} />
             {creating ? "生成中" : "生成对账单草稿"}
           </Button>
-          <span className="text-sm text-[#909399]">
+          <span className="text-sm text-ink-3">
             预览 {previewRows.length} 条，数量 {formatValue(previewSummary.totalQuantity, "number")}，金额 {formatValue(previewSummary.totalAmount, "number")}
           </span>
         </div>
         <div className="table-scroll max-h-[360px] overflow-auto">
           <table className="min-w-full border-collapse text-sm">
-            <thead className="bg-[#f5f7fa] text-[#303133]">
+            <thead className="bg-canvas text-ink">
               <tr>
                 {previewColumns.map((column) => (
-                  <th className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium" key={column.key}>
+                  <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium" key={column.key}>
                     {column.label}
                   </th>
                 ))}
@@ -254,9 +254,9 @@ export function BillingStatementsPage() {
             </thead>
             <tbody>
               {previewRows.map((row, index) => (
-                <tr className="hover:bg-[#fafafa]" key={`${row.instanceContractNo}-${row.productType}-${index}`}>
+                <tr className="hover:bg-surface-2" key={`${row.instanceContractNo}-${row.productType}-${index}`}>
                   {previewColumns.map((column) => (
-                    <td className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3" key={column.key}>
+                    <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3" key={column.key}>
                       {formatValue(row[column.key], column.type)}
                     </td>
                   ))}
@@ -264,7 +264,7 @@ export function BillingStatementsPage() {
               ))}
               {!previewRows.length ? (
                 <tr>
-                  <td className="py-10 text-center text-[#909399]" colSpan={previewColumns.length}>
+                  <td className="py-10 text-center text-ink-3" colSpan={previewColumns.length}>
                     请选择条件后预览或生成快照
                   </td>
                 </tr>
@@ -275,9 +275,9 @@ export function BillingStatementsPage() {
       </Panel>
 
       <Panel>
-        <div className="flex flex-wrap items-center gap-2 border-b border-[#ebeef5] p-4">
+        <div className="flex flex-wrap items-center gap-2 border-b border-line-soft p-4">
           <Input placeholder="搜索对账单号/国家/币种" value={keyword} onChange={(event) => setKeyword(event.target.value)} />
-          <select className="h-9 min-w-28 rounded border border-[#dcdfe6] bg-white px-3 text-sm" value={status} onChange={(event) => setStatus(event.target.value)}>
+          <select className="h-9 min-w-28 rounded border border-line bg-white px-3 text-sm" value={status} onChange={(event) => setStatus(event.target.value)}>
             <option value="">全部状态</option>
             <option value="未确认">未确认</option>
             <option value="已确认">已确认</option>
@@ -293,14 +293,14 @@ export function BillingStatementsPage() {
         </div>
         <StickyTable className="table-scroll overflow-auto" tableKey="billing-statements">
           <table className="min-w-full border-collapse text-sm">
-            <thead className="bg-[#f5f7fa] text-[#303133]">
+            <thead className="bg-canvas text-ink">
               <tr>
                 {tableColumns.map((column) => (
-                  <th className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium" key={column.key}>
+                  <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium" key={column.key}>
                     {renderHeader(column)}
                   </th>
                 ))}
-                <th className="sticky right-0 border-b border-[#ebeef5] bg-[#f5f7fa] px-3 py-3 text-left font-medium">操作</th>
+                <th className="sticky right-0 border-b border-line-soft bg-canvas px-3 py-3 text-left font-medium">操作</th>
               </tr>
             </thead>
             <tbody>
@@ -308,12 +308,12 @@ export function BillingStatementsPage() {
                 const snapshot = String(row.snapshotNo ?? "");
                 const confirmed = row.status === "已确认";
                 return (
-                  <tr className="hover:bg-[#fafafa]" key={snapshot}>
+                  <tr className="hover:bg-surface-2" key={snapshot}>
                     {snapshotColumns.map((column) => (
-                      <td className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3" key={column.key}>
+                      <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3" key={column.key}>
                         {column.key === "snapshotNo" ? (
                           <button
-                            className="font-medium text-[#1890ff] hover:underline"
+                            className="font-medium text-primary hover:underline"
                             onClick={() => postWorkspaceMessage({
                               type: "cloud-power:open-tab",
                               route: `/finance/billing-statements/${encodeURIComponent(snapshot)}`,
@@ -327,7 +327,7 @@ export function BillingStatementsPage() {
                         ) : formatValue(row[column.key], column.type)}
                       </td>
                     ))}
-                    <td className="sticky right-0 whitespace-nowrap border-b border-[#ebeef5] bg-white px-3 py-3">
+                    <td className="sticky right-0 whitespace-nowrap border-b border-line-soft bg-white px-3 py-3">
                       <div className="flex items-center gap-2">
                         {!confirmed ? <Button tone="success" onClick={() => void changeSnapshot(snapshot, "confirm")}><CheckCircle2 size={15} />确认</Button> : null}
                         {!confirmed ? <Button tone="danger" onClick={() => void changeSnapshot(snapshot, "delete")}><Trash2 size={15} />删除</Button> : null}
@@ -341,7 +341,7 @@ export function BillingStatementsPage() {
               })}
               {!snapshots.length ? (
                 <tr>
-                  <td className="py-12 text-center text-[#909399]" colSpan={snapshotColumns.length + 1}>
+                  <td className="py-12 text-center text-ink-3" colSpan={snapshotColumns.length + 1}>
                     <TableStateContent empty="暂无月账单对账单" loading={loading} />
                   </td>
                 </tr>

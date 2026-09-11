@@ -304,10 +304,10 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
           返回列表
         </Button>
         <div>
-          <h1 className="text-xl font-medium text-[#303133]">
+          <h1 className="text-xl font-medium text-ink">
             {requestNo ? "修改需求单明细表" : "新建需求单明细表"}
           </h1>
-          <p className="mt-1 text-sm text-[#909399]">
+          <p className="mt-1 text-sm text-ink-3">
             保存后需求单为草稿；确认后需求单状态为待下单，并自动生成一张采购草稿。
           </p>
         </div>
@@ -347,16 +347,16 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
       </div>
 
       <Panel>
-        <div className="border-b border-[#ebeef5] px-4 py-3 font-medium text-[#303133]">主单信息</div>
+        <div className="border-b border-line-soft px-4 py-3 font-medium text-ink">主单信息</div>
         <div className="grid grid-cols-3 gap-4 p-4">
           <Field disabled={!canEdit || Boolean(requestNo)} label="需求单号" required value={master.requestNo} onChange={(value) => updateMaster("requestNo", value)} />
           <label>
-            <span className="mb-1 block text-sm font-medium text-[#606266]">
-              <span className="text-[#f56c6c]">*</span>
+            <span className="mb-1 block text-sm font-medium text-ink-2">
+              <span className="text-danger">*</span>
               国家
             </span>
             <select
-              className="h-9 w-full rounded border border-[#dcdfe6] bg-white px-3 text-sm outline-none focus:border-[#1890ff]"
+              className="h-9 w-full rounded border border-line bg-white px-3 text-sm outline-none focus:border-primary"
               required
               disabled={!canEdit}
               value={master.countryCode}
@@ -373,12 +373,12 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
           <Field disabled={!canEdit} label="合同号" required value={master.contractNo} onChange={(value) => updateMaster("contractNo", value)} />
           <Field disabled={!canEdit} label="批次名称" required value={master.batchName} onChange={(value) => updateMaster("batchName", value)} />
           <label>
-            <span className="mb-1 block text-sm font-medium text-[#606266]">
-              <span className="text-[#f56c6c]">*</span>
+            <span className="mb-1 block text-sm font-medium text-ink-2">
+              <span className="text-danger">*</span>
               类型
             </span>
             <select
-              className="h-9 w-full rounded border border-[#dcdfe6] bg-white px-3 text-sm outline-none focus:border-[#1890ff] disabled:bg-[#f5f7fa] disabled:text-[#909399]"
+              className="h-9 w-full rounded border border-line bg-white px-3 text-sm outline-none focus:border-primary disabled:bg-canvas disabled:text-ink-3"
               required
               disabled={!canEdit}
               value={master.requestType}
@@ -394,8 +394,8 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
       </Panel>
 
       <Panel>
-        <div className="flex items-center gap-2 border-b border-[#ebeef5] px-4 py-3">
-          <div className="font-medium text-[#303133]">需求明细</div>
+        <div className="flex items-center gap-2 border-b border-line-soft px-4 py-3">
+          <div className="font-medium text-ink">需求明细</div>
           <Button className="ml-auto" disabled={!canEdit} onClick={() => setDetails((current) => [...current, { ...emptyDetail }])}>
             <Plus size={15} />
             新增明细
@@ -422,15 +422,15 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
 
         <StickyTable className="table-scroll overflow-auto" tableKey="request-order-form-details">
           <table className="min-w-[1220px] whitespace-nowrap border-collapse text-sm">
-            <thead className="bg-[#f5f7fa] text-[#303133]">
+            <thead className="bg-canvas text-ink">
               <tr>
-                <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">设备编码</th>
-                <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">机型</th>
-                <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">英文名称</th>
-                <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">供应商</th>
-                <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">承接单位</th>
-                <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">客户</th>
-                <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left">节点数量</th>
+                <th className="border-b border-r border-line-soft px-3 py-3 text-left">设备编码</th>
+                <th className="border-b border-r border-line-soft px-3 py-3 text-left">机型</th>
+                <th className="border-b border-r border-line-soft px-3 py-3 text-left">英文名称</th>
+                <th className="border-b border-r border-line-soft px-3 py-3 text-left">供应商</th>
+                <th className="border-b border-r border-line-soft px-3 py-3 text-left">承接单位</th>
+                <th className="border-b border-r border-line-soft px-3 py-3 text-left">客户</th>
+                <th className="border-b border-r border-line-soft px-3 py-3 text-left">节点数量</th>
               </tr>
             </thead>
             <tbody>
@@ -438,20 +438,20 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
                 const model = getModel(detail.deviceCode);
                 return (
                   <tr key={index}>
-                    <td className="border-b border-r border-[#ebeef5] px-3 py-3">
+                    <td className="border-b border-r border-line-soft px-3 py-3">
                       <SearchPicker
                         allowFreeText
                         options={instanceModels.map((item) => ({ value: String(item.deviceCode ?? ""), label: String(item.deviceCode ?? ""), keywords: `${String(item.modelCode ?? "")} ${String(item.nameEn ?? "")}` }))}
                         placeholder="搜索或输入设备编码"
-                        className="h-9 min-w-[180px] rounded border border-[#dcdfe6] bg-white px-2"
+                        className="h-9 min-w-[180px] rounded border border-line bg-white px-2"
                         value={detail.deviceCode}
                         disabled={!canEdit}
                         onChange={(value) => updateDetail(index, { deviceCode: value })}
                       />
                     </td>
-                    <td className="border-b border-r border-[#ebeef5] px-3 py-3">{formatValue(model?.modelCode)}</td>
-                    <td className="border-b border-r border-[#ebeef5] px-3 py-3">{formatValue(model?.nameEn)}</td>
-                    <td className="border-b border-r border-[#ebeef5] px-3 py-3">
+                    <td className="border-b border-r border-line-soft px-3 py-3">{formatValue(model?.modelCode)}</td>
+                    <td className="border-b border-r border-line-soft px-3 py-3">{formatValue(model?.nameEn)}</td>
+                    <td className="border-b border-r border-line-soft px-3 py-3">
                       <SearchPicker
                         options={suppliers.map((supplier) => {
                           const label = getPartyReferenceLabel(supplier, ["supplierCode"], ["supplierCode", "supplierId"]);
@@ -463,13 +463,13 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
                           };
                         })}
                         placeholder="搜索供应商"
-                        className="h-9 min-w-[160px] rounded border border-[#dcdfe6] bg-white px-2"
+                        className="h-9 min-w-[160px] rounded border border-line bg-white px-2"
                         value={detail.supplierId}
                         disabled={!canEdit}
                         onChange={(value) => updateDetail(index, { supplierId: value })}
                       />
                     </td>
-                    <td className="border-b border-r border-[#ebeef5] px-3 py-3">
+                    <td className="border-b border-r border-line-soft px-3 py-3">
                       <SearchPicker
                         options={undertakingUnits.map((unit) => {
                           const label = getPartyReferenceLabel(unit, ["entityCode", "undertakingUnitCode"], ["entityCode", "undertakingUnitCode", "undertakingUnitId"]);
@@ -486,7 +486,7 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
                         onChange={(value) => updateDetail(index, { undertakingUnitId: value })}
                       />
                     </td>
-                    <td className="border-b border-r border-[#ebeef5] px-3 py-3">
+                    <td className="border-b border-r border-line-soft px-3 py-3">
                       <SearchPicker
                         options={customers.map((customer) => {
                           const label = getPartyReferenceLabel(customer, ["customerCode"], ["customerCode", "customerId"]);
@@ -503,7 +503,7 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
                         onChange={(value) => updateDetail(index, { customerId: value })}
                       />
                     </td>
-                    <td className="border-b border-r border-[#ebeef5] px-3 py-3">
+                    <td className="border-b border-r border-line-soft px-3 py-3">
                       <Input
                         className="w-28 min-w-0"
                         min={0}
@@ -615,10 +615,10 @@ function SearchPicker({
         onChange={(event) => handleInput(event.target.value)}
       />
       {focused && !disabled && matches.length ? (
-        <div className="fixed z-[100] max-h-64 overflow-auto border border-[#dcdfe6] bg-white py-1 shadow-xl" style={{ left: menuPosition.left, top: menuPosition.top, width: menuPosition.width }}>
+        <div className="fixed z-[100] max-h-64 overflow-auto border border-line bg-white py-1 shadow-xl" style={{ left: menuPosition.left, top: menuPosition.top, width: menuPosition.width }}>
           {matches.map((option) => (
             <button
-              className="block w-full px-3 py-2 text-left text-sm text-[#606266] hover:bg-[#f5f7fa]"
+              className="block w-full px-3 py-2 text-left text-sm text-ink-2 hover:bg-canvas"
               key={option.value}
               type="button"
               onMouseDown={(event) => event.preventDefault()}
@@ -628,7 +628,7 @@ function SearchPicker({
                 onChange(option.value);
               }}
             >
-              <span className="block text-[#303133]">{option.code ? `${option.code} - ` : ""}{option.label}</span>
+              <span className="block text-ink">{option.code ? `${option.code} - ` : ""}{option.label}</span>
             </button>
           ))}
         </div>
@@ -654,8 +654,8 @@ function Field({
 }) {
   return (
     <label>
-      <span className="mb-1 block text-sm font-medium text-[#606266]">
-        {required ? <span className="text-[#f56c6c]">*</span> : null}
+      <span className="mb-1 block text-sm font-medium text-ink-2">
+        {required ? <span className="text-danger">*</span> : null}
         {label}
       </span>
       <Input className="w-full" disabled={disabled} required={required} type={type} value={type === "date" ? formatDateInputValue(value) : value} onChange={(event) => onChange(event.target.value)} />

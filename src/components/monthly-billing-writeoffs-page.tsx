@@ -200,17 +200,17 @@ export function MonthlyBillingWriteOffsPage() {
   return (
     <div className="space-y-5">
       <div>
-        <h1 className="text-xl font-medium text-[#303133]">月账单每月明细</h1>
-        <p className="mt-1 text-sm text-[#909399]">查看实例月账单生成的60个月核销明细和调整单影响。</p>
+        <h1 className="text-xl font-medium text-ink">月账单每月明细</h1>
+        <p className="mt-1 text-sm text-ink-3">查看实例月账单生成的60个月核销明细和调整单影响。</p>
       </div>
       <Panel>
-        <div className="flex flex-wrap items-center gap-2 border-b border-[#ebeef5] p-4">
+        <div className="flex flex-wrap items-center gap-2 border-b border-line-soft p-4">
           <Input placeholder="搜索国家/批次/需求单/PO/实例编码/合同号" value={keyword} onChange={(event) => setKeyword(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { const filters = { keyword, countryCode, batchName, startMonth, endMonth, requestType }; setAppliedFilters(filters); setPage(1); void loadData(1, pageSizeRef.current, filters); } }} />
           <Input placeholder="国家" value={countryCode} onChange={(event) => setCountryCode(event.target.value)} />
           <Input placeholder="批次" value={batchName} onChange={(event) => setBatchName(event.target.value)} />
           <Input type="date" value={startMonth} onChange={(event) => setStartMonth(event.target.value)} />
           <Input type="date" value={endMonth} onChange={(event) => setEndMonth(event.target.value)} />
-          <select className="h-9 rounded border border-[#dcdfe6] bg-white px-3 text-sm" value={requestType} onChange={(event) => setRequestType(event.target.value)}>
+          <select className="h-9 rounded border border-line bg-white px-3 text-sm" value={requestType} onChange={(event) => setRequestType(event.target.value)}>
             <option value="">全部类型</option>
             <option value="整机">整机</option>
             <option value="备件">备件</option>
@@ -228,15 +228,15 @@ export function MonthlyBillingWriteOffsPage() {
             导出
           </Button>
         </div>
-        <div className="border-b border-[#ebeef5] bg-[#fafafa] px-4 py-3 text-sm text-[#606266]">
+        <div className="border-b border-line-soft bg-surface-2 px-4 py-3 text-sm text-ink-2">
           当前筛选共 {total} 条，月账单核销总金额合计 {formatValue(totalAmount, "money")}
         </div>
         <StickyTable className="table-scroll overflow-auto" tableKey="monthly-billing-writeoffs">
           <table className="min-w-full border-collapse text-sm">
-            <thead className="bg-[#f5f7fa] text-[#303133]">
+            <thead className="bg-canvas text-ink">
               <tr>
                 {displayColumns.map((column) => (
-                  <th className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium" key={column.key}>
+                  <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium" key={column.key}>
                     {renderHeader(column)}
                   </th>
                 ))}
@@ -244,9 +244,9 @@ export function MonthlyBillingWriteOffsPage() {
             </thead>
             <tbody>
               {rows.map((row) => (
-                <tr className="hover:bg-[#fafafa]" key={String(row.id)}>
+                <tr className="hover:bg-surface-2" key={String(row.id)}>
                   {displayColumns.map((column) => (
-                    <td className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3" key={column.key}>
+                    <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3" key={column.key}>
                       {renderLinkedValue(row, column, currentRoute)}
                     </td>
                   ))}
@@ -254,7 +254,7 @@ export function MonthlyBillingWriteOffsPage() {
               ))}
               {!rows.length ? (
                 <tr>
-                  <td className="py-12 text-center text-[#909399]" colSpan={displayColumns.length}>
+                  <td className="py-12 text-center text-ink-3" colSpan={displayColumns.length}>
                     <TableStateContent empty="暂无月账单核销明细" loading={loading} />
                   </td>
                 </tr>
@@ -290,10 +290,10 @@ export function MonthlyBillingWriteOffsPage() {
 function renderLinkedValue(row: Row, column: { key: string; type?: string }, returnTo: string) {
   const value = formatValue(row[column.key], column.type);
   if (column.key === "requestNo" && row.requestNo) {
-    return <Link className="font-medium text-[#1890ff] hover:underline" href={buildDetailRoute(`/requests/orders/${encodeURIComponent(String(row.requestNo))}`, returnTo)}>{value}</Link>;
+    return <Link className="font-medium text-primary hover:underline" href={buildDetailRoute(`/requests/orders/${encodeURIComponent(String(row.requestNo))}`, returnTo)}>{value}</Link>;
   }
   if (column.key === "poNo" && row.purchaseOrderId) {
-    return <Link className="font-medium text-[#1890ff] hover:underline" href={buildDetailRoute(`/purchase/orders/${encodeURIComponent(String(row.purchaseOrderId))}`, returnTo)}>{value}</Link>;
+    return <Link className="font-medium text-primary hover:underline" href={buildDetailRoute(`/purchase/orders/${encodeURIComponent(String(row.purchaseOrderId))}`, returnTo)}>{value}</Link>;
   }
   return value;
 }

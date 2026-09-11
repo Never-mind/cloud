@@ -293,7 +293,7 @@ export function StickyTable({ children, className, tableKey, topOffset = 0 }: St
       </div>
       {metrics.stuck ? (
         <div
-          className="pointer-events-auto fixed z-[60] overflow-hidden border border-[#dcdfe6] bg-white shadow-sm"
+          className="pointer-events-auto fixed z-[60] overflow-hidden border border-line bg-white shadow-sm"
           style={{
             left: metrics.left,
             top: topOffset,

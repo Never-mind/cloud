@@ -209,32 +209,32 @@ export function BillingAdjustmentDetailPage({ adjustmentNo: routeAdjustmentNo }:
   return (
     <div className="space-y-5">
       <div>
-        <h1 className="text-xl font-medium text-[#303133]">实例合同调整单明细</h1>
-        <p className="mt-1 text-sm text-[#909399]">一个实例合同单号可对应多条实例明细，导入入口在下方明细区域内。</p>
+        <h1 className="text-xl font-medium text-ink">实例合同调整单明细</h1>
+        <p className="mt-1 text-sm text-ink-3">一个实例合同单号可对应多条实例明细，导入入口在下方明细区域内。</p>
       </div>
 
       <Panel>
-        <div className="grid gap-4 border-b border-[#ebeef5] p-4 md:grid-cols-4">
+        <div className="grid gap-4 border-b border-line-soft p-4 md:grid-cols-4">
           <label>
-            <span className="mb-1 block text-sm font-medium text-[#606266]">调整单号</span>
+            <span className="mb-1 block text-sm font-medium text-ink-2">调整单号</span>
             <Input className="w-full" disabled={!canEdit || !isNew} value={adjustmentNo} onChange={(event) => setAdjustmentNo(event.target.value)} />
           </label>
           <label>
-            <span className="mb-1 block text-sm font-medium text-[#606266]">实例合同单号</span>
+            <span className="mb-1 block text-sm font-medium text-ink-2">实例合同单号</span>
             <Input className="w-full" disabled={!canEdit} value={instanceContractNo} onChange={(event) => setInstanceContractNo(event.target.value)} />
           </label>
           <label>
-            <span className="mb-1 block text-sm font-medium text-[#606266]">状态</span>
+            <span className="mb-1 block text-sm font-medium text-ink-2">状态</span>
             <Input className="w-full" disabled value={status} />
           </label>
           <label>
-            <span className="mb-1 block text-sm font-medium text-[#606266]">调整原因</span>
+            <span className="mb-1 block text-sm font-medium text-ink-2">调整原因</span>
             <Textarea className="w-full" disabled={!canEdit} value={reason} onChange={(event) => setReason(event.target.value)} />
           </label>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 border-b border-[#ebeef5] p-4">
-          <span className="mr-auto text-sm font-medium text-[#303133]">调整明细</span>
+        <div className="flex flex-wrap items-center gap-2 border-b border-line-soft p-4">
+          <span className="mr-auto text-sm font-medium text-ink">调整明细</span>
           {!confirmed ? (
             <>
               {canEdit ? (
@@ -298,26 +298,26 @@ export function BillingAdjustmentDetailPage({ adjustmentNo: routeAdjustmentNo }:
 
         <StickyTable className="table-scroll overflow-auto" tableKey="billing-adjustment-detail-items">
           <table className="min-w-full border-collapse text-sm">
-            <thead className="bg-[#f5f7fa] text-[#303133]">
+            <thead className="bg-canvas text-ink">
               <tr>
                 {itemColumns.map((column) => (
-                  <th className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium" key={column.key}>
+                  <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium" key={column.key}>
                     {column.label}
                   </th>
                 ))}
-                {canEdit ? <th className="sticky right-0 border-b border-[#ebeef5] bg-[#f5f7fa] px-3 py-3 text-left font-medium">操作</th> : null}
+                {canEdit ? <th className="sticky right-0 border-b border-line-soft bg-canvas px-3 py-3 text-left font-medium">操作</th> : null}
               </tr>
             </thead>
             <tbody>
               {items.map((item, index) => (
-                <tr className="hover:bg-[#fafafa]" key={String(item.id ?? index)}>
+                <tr className="hover:bg-surface-2" key={String(item.id ?? index)}>
                   {itemColumns.map((column) => (
-                    <td className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3" key={column.key}>
+                    <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3" key={column.key}>
                       {!canEdit ? (
                         formatValue(item[column.key], column.type)
                       ) : column.key === "currency" ? (
                         <select
-                          className="h-9 min-w-[100px] rounded border border-[#dcdfe6] bg-white px-3 text-sm outline-none focus:border-[#1890ff]"
+                          className="h-9 min-w-[100px] rounded border border-line bg-white px-3 text-sm outline-none focus:border-primary"
                           value={String(item[column.key] ?? "USD")}
                           onChange={(event) => updateItem(index, column.key, event.target.value)}
                         >
@@ -341,7 +341,7 @@ export function BillingAdjustmentDetailPage({ adjustmentNo: routeAdjustmentNo }:
                     </td>
                   ))}
                   {canEdit ? (
-                    <td className="sticky right-0 whitespace-nowrap border-b border-[#ebeef5] bg-white px-3 py-3">
+                    <td className="sticky right-0 whitespace-nowrap border-b border-line-soft bg-white px-3 py-3">
                       <Button disabled={items.length <= 1} tone="danger" onClick={() => removeItem(index)}>
                         <Trash2 size={15} />
                         删除
@@ -352,7 +352,7 @@ export function BillingAdjustmentDetailPage({ adjustmentNo: routeAdjustmentNo }:
               ))}
               {!items.length ? (
                 <tr>
-                  <td className="py-12 text-center text-[#909399]" colSpan={itemColumns.length + (canEdit ? 1 : 0)}>
+                  <td className="py-12 text-center text-ink-3" colSpan={itemColumns.length + (canEdit ? 1 : 0)}>
                     暂无调整明细
                   </td>
                 </tr>

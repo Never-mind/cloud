@@ -220,7 +220,7 @@ export function DocumentManagerPage() {
   return (
     <div className="space-y-4">
       <Panel>
-        <div className="flex flex-wrap items-center gap-2 border-b border-[#ebeef5] px-4 py-3">
+        <div className="flex flex-wrap items-center gap-2 border-b border-line-soft px-4 py-3">
           <Button disabled={historyIndex <= 0} onClick={goBack} title="后退" type="button">
             <ArrowLeft size={16} />
           </Button>
@@ -243,7 +243,7 @@ export function DocumentManagerPage() {
             刷新
           </Button>
           <div className="ml-auto flex items-center gap-2">
-            <Search className="text-[#909399]" size={16} />
+            <Search className="text-ink-3" size={16} />
             <Input
               className="min-w-[220px]"
               onChange={(event) => setKeyword(event.target.value)}
@@ -261,15 +261,15 @@ export function DocumentManagerPage() {
           />
         </div>
         <div className="flex min-h-[620px]">
-          <aside className="w-[240px] shrink-0 border-r border-[#ebeef5] bg-[#fafafa] p-3">
+          <aside className="w-[240px] shrink-0 border-r border-line-soft bg-surface-2 p-3">
             <FolderTree folders={tree} parentId={null} activeFolderId={folderId} onCreateFolder={createFolder} onOpen={goToFolder} />
           </aside>
           <section className="min-w-0 flex-1">
-            <div className="flex min-h-[44px] items-center gap-1 border-b border-[#ebeef5] px-4 text-sm text-[#606266]">
+            <div className="flex min-h-[44px] items-center gap-1 border-b border-line-soft px-4 text-sm text-ink-2">
               {breadcrumbs.map((item, index) => (
                 <span className="flex items-center gap-1" key={item.folderId}>
-                  {index > 0 ? <span className="text-[#c0c4cc]">/</span> : null}
-                  <button className="hover:text-[#1890ff]" onClick={() => goToFolder(item.folderId)} type="button">
+                  {index > 0 ? <span className="text-ink-4">/</span> : null}
+                  <button className="hover:text-primary" onClick={() => goToFolder(item.folderId)} type="button">
                     {item.name}
                   </button>
                 </span>
@@ -278,7 +278,7 @@ export function DocumentManagerPage() {
             <div className="overflow-auto p-4">
               {loading ? <LoadingBlock /> : null}
               {!loading && filteredFolders.length === 0 && files.length === 0 ? (
-                <div className="py-20 text-center text-[#909399]">当前文件夹暂无内容</div>
+                <div className="py-20 text-center text-ink-3">当前文件夹暂无内容</div>
               ) : null}
               <div className="grid grid-cols-[repeat(auto-fill,minmax(190px,1fr))] gap-3">
                 {filteredFolders.map((folder) => (
@@ -368,7 +368,7 @@ function FolderTree({
         <div key={folder.folderId}>
           <button
             className={`flex h-8 w-full min-w-0 items-center gap-2 rounded px-2 text-left text-sm ${
-              activeFolderId === folder.folderId ? "bg-[#e6f4ff] text-[#1890ff]" : "text-[#606266] hover:bg-white"
+              activeFolderId === folder.folderId ? "bg-[#e6f4ff] text-primary" : "text-ink-2 hover:bg-white"
             }`}
             onContextMenu={(event) => {
               event.preventDefault();
@@ -414,7 +414,7 @@ function DocumentTile({
 }) {
   return (
     <div
-      className="flex h-[84px] min-w-0 cursor-default items-center gap-3 rounded border border-[#ebeef5] bg-white px-3 hover:border-[#b3d8ff] hover:bg-[#f5fbff]"
+      className="flex h-[84px] min-w-0 cursor-default items-center gap-3 rounded border border-line-soft bg-white px-3 hover:border-info-border hover:bg-[#f5fbff]"
       onContextMenu={onContextMenu}
       onDoubleClick={onDoubleClick}
       title={name}
@@ -434,9 +434,9 @@ function DocumentTile({
             value={renameValue}
           />
         ) : (
-          <div className="truncate text-sm font-medium text-[#303133]">{name}</div>
+          <div className="truncate text-sm font-medium text-ink">{name}</div>
         )}
-        <div className="mt-1 truncate text-xs text-[#909399]">{subText}</div>
+        <div className="mt-1 truncate text-xs text-ink-3">{subText}</div>
       </div>
     </div>
   );
@@ -463,7 +463,7 @@ function ContextMenu({
 }) {
   return (
     <div
-      className="fixed z-50 w-44 rounded border border-[#dcdfe6] bg-white py-1 text-sm shadow-lg"
+      className="fixed z-50 w-44 rounded border border-line bg-white py-1 text-sm shadow-lg"
       onClick={(event) => event.stopPropagation()}
       style={{ left: x, top: y }}
     >
@@ -479,7 +479,7 @@ function ContextMenu({
 function MenuButton({ danger, icon, label, onClick }: { danger?: boolean; icon: React.ReactNode; label: string; onClick: () => void }) {
   return (
     <button
-      className={`flex h-9 w-full items-center gap-2 px-3 text-left hover:bg-[#f5f7fa] ${danger ? "text-[#f56c6c]" : "text-[#606266]"}`}
+      className={`flex h-9 w-full items-center gap-2 px-3 text-left hover:bg-canvas ${danger ? "text-danger" : "text-ink-2"}`}
       onClick={onClick}
       type="button"
     >
@@ -490,10 +490,10 @@ function MenuButton({ danger, icon, label, onClick }: { danger?: boolean; icon: 
 }
 
 function FileIcon({ category }: { category: string }) {
-  if (category === "image") return <FileImage className="text-[#67c23a]" size={30} />;
-  if (category === "spreadsheet") return <FileSpreadsheet className="text-[#13ce66]" size={30} />;
-  if (category === "archive") return <FileArchive className="text-[#909399]" size={30} />;
-  return <FileText className="text-[#409eff]" size={30} />;
+  if (category === "image") return <FileImage className="text-success-strong" size={30} />;
+  if (category === "spreadsheet") return <FileSpreadsheet className="text-success" size={30} />;
+  if (category === "archive") return <FileArchive className="text-ink-3" size={30} />;
+  return <FileText className="text-info" size={30} />;
 }
 
 function formatFileSize(size: number) {

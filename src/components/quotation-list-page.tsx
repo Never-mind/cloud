@@ -205,12 +205,12 @@ export function QuotationListPage({ config }: { config: EntityConfig }) {
     <div className="space-y-4">
       <div className="flex flex-wrap items-end gap-3">
         <div className="mr-auto">
-          <h1 className="text-xl font-medium text-[#303133]">报价列表</h1>
-          <p className="mt-1 text-sm text-[#909399]">报价单主单与报价产品明细。</p>
+          <h1 className="text-xl font-medium text-ink">报价列表</h1>
+          <p className="mt-1 text-sm text-ink-3">报价单主单与报价产品明细。</p>
         </div>
       </div>
       <Panel>
-        <div className="flex flex-wrap items-center gap-2 border-b border-[#ebeef5] bg-[#fafafa] p-3">
+        <div className="flex flex-wrap items-center gap-2 border-b border-line-soft bg-surface-2 p-3">
           {[
             ["draft", "草稿", statusCounts.draft],
             ["confirmed", "已确认", statusCounts.confirmed],
@@ -222,11 +222,11 @@ export function QuotationListPage({ config }: { config: EntityConfig }) {
               onClick={() => { setPage(1); setStatus((current) => current === value ? "" : String(value)); }}
             >
               {label}
-              <span className={`ml-1 rounded px-1.5 text-xs ${status === value ? "bg-white/30" : "bg-[#f4f4f5] text-[#909399]"}`}>{count}</span>
+              <span className={`ml-1 rounded px-1.5 text-xs ${status === value ? "bg-white/30" : "bg-fill-soft text-ink-3"}`}>{count}</span>
             </Button>
           ))}
         </div>
-        <div className="flex flex-wrap items-center gap-2 border-b border-[#ebeef5] p-3">
+        <div className="flex flex-wrap items-center gap-2 border-b border-line-soft p-3">
           <div className="flex min-w-[260px] max-w-xl flex-1 gap-2">
             <span className="sr-only">搜索报价单</span>
             <Input className="h-8 w-full" value={keyword} placeholder="搜索报价单号、客户、承接单位或来源PO" onChange={(event) => setKeyword(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { setPage(1); setAppliedKeyword(keyword.trim()); } }} />
@@ -235,33 +235,33 @@ export function QuotationListPage({ config }: { config: EntityConfig }) {
           <Button className="h-8 px-3" onClick={() => void load()} disabled={loading}><RefreshCw size={14} />刷新</Button>
           <Button tone="warning" className="h-8 px-3" onClick={() => download(`/api/entities/quotations/export?status=${encodeURIComponent(status)}`)}><FileDown size={14} />导出 Excel</Button>
         </div>
-        {error ? <div className="border-b border-[#fde2e2] bg-[#fef0f0] px-4 py-3 text-sm text-[#f56c6c]">{error}</div> : null}
+        {error ? <div className="border-b border-danger-border bg-danger-soft px-4 py-3 text-sm text-danger">{error}</div> : null}
         <StickyTable className="table-scroll overflow-auto" tableKey="quotation-list">
           <table className="min-w-[1500px] border-collapse text-sm">
-            <thead className="bg-[#f5f7fa] text-[#303133]"><tr>
+            <thead className="bg-canvas text-ink"><tr>
               {config.listFields.map((field) => (
-                <th className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium" key={field.key}>
+                <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium" key={field.key}>
                   <TableColumnMenu column={field} filterValues={columnFilters[field.key] ?? []} loadOptions={(optionKeyword) => loadOptions(field.key, optionKeyword)} onFilter={(values) => { setPage(1); setColumnFilters((current) => ({ ...current, [field.key]: values })); }} onSort={(order) => { setPage(1); setSortField(field.key); setSortOrder(order); }} sortOrder={sortField === field.key ? sortOrder : ""} />
                 </th>
               ))}
-              <th className="sticky right-0 border-b border-[#ebeef5] bg-[#f5f7fa] px-3 py-3 text-left font-medium">操作</th>
+              <th className="sticky right-0 border-b border-line-soft bg-canvas px-3 py-3 text-left font-medium">操作</th>
             </tr></thead>
             <tbody>
-              {loading ? <tr><td className="px-4 py-12 text-center text-[#909399]" colSpan={config.listFields.length + 1}><TableSkeleton /></td></tr> : null}
+              {loading ? <tr><td className="px-4 py-12 text-center text-ink-3" colSpan={config.listFields.length + 1}><TableSkeleton /></td></tr> : null}
               {!loading && rows.map((row) => {
                 const id = String(row[config.primaryKey] ?? "");
-                return <tr className="hover:bg-[#fafafa]" key={id}>
-                  {config.listFields.map((field, index) => <td className="max-w-[250px] truncate whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3" key={field.key}>
-                    {index === 0 ? <button className="text-[#1890ff] hover:underline" type="button" onClick={() => openRoute(`/quotation/list/${encodeURIComponent(id)}?returnTo=%2Fquotation%2Flist`, "报价单明细")}>{formatQuotationValue(row[field.key], field.type)}</button> : field.key === "status" ? <StatusTag status={String(row[field.key] ?? "draft")} label={formatQuotationValue(row[field.key], field.type)} /> : formatQuotationValue(row[field.key], field.type)}
+                return <tr className="hover:bg-surface-2" key={id}>
+                  {config.listFields.map((field, index) => <td className="max-w-[250px] truncate whitespace-nowrap border-b border-r border-line-soft px-3 py-3" key={field.key}>
+                    {index === 0 ? <button className="text-primary hover:underline" type="button" onClick={() => openRoute(`/quotation/list/${encodeURIComponent(id)}?returnTo=%2Fquotation%2Flist`, "报价单明细")}>{formatQuotationValue(row[field.key], field.type)}</button> : field.key === "status" ? <StatusTag status={String(row[field.key] ?? "draft")} label={formatQuotationValue(row[field.key], field.type)} /> : formatQuotationValue(row[field.key], field.type)}
                   </td>)}
-                  <td className="sticky right-0 whitespace-nowrap border-b border-[#ebeef5] bg-white px-3 py-3">
-                    <button className="inline-flex h-8 w-8 items-center justify-center text-[#606266] hover:text-[#1890ff]" type="button" aria-label="查看" title="查看" onClick={() => openRoute(`/quotation/list/${encodeURIComponent(id)}?returnTo=%2Fquotation%2Flist`, "报价单明细")}><Eye size={16} /></button>
-                    <button className="ml-2 inline-flex h-8 w-8 items-center justify-center text-[#606266] hover:text-[#1890ff]" type="button" aria-label="导出" title="导出报价单" onClick={() => download(`/api/entities/quotations/export?filter.quotationNo=${encodeURIComponent(String(row.quotationNo ?? ""))}`)}><FileDown size={16} /></button>
-                    {String(row.status ?? "draft") !== "confirmed" ? <button className="ml-2 inline-flex h-8 w-8 items-center justify-center text-[#f56c6c] hover:text-[#ff4949]" type="button" aria-label="删除" title="删除草稿" onClick={() => void deleteQuotation(id, String(row.quotationNo ?? ""))}><Trash2 size={16} /></button> : null}
+                  <td className="sticky right-0 whitespace-nowrap border-b border-line-soft bg-white px-3 py-3">
+                    <button className="inline-flex h-8 w-8 items-center justify-center text-ink-2 hover:text-primary" type="button" aria-label="查看" title="查看" onClick={() => openRoute(`/quotation/list/${encodeURIComponent(id)}?returnTo=%2Fquotation%2Flist`, "报价单明细")}><Eye size={16} /></button>
+                    <button className="ml-2 inline-flex h-8 w-8 items-center justify-center text-ink-2 hover:text-primary" type="button" aria-label="导出" title="导出报价单" onClick={() => download(`/api/entities/quotations/export?filter.quotationNo=${encodeURIComponent(String(row.quotationNo ?? ""))}`)}><FileDown size={16} /></button>
+                    {String(row.status ?? "draft") !== "confirmed" ? <button className="ml-2 inline-flex h-8 w-8 items-center justify-center text-danger hover:text-danger-strong" type="button" aria-label="删除" title="删除草稿" onClick={() => void deleteQuotation(id, String(row.quotationNo ?? ""))}><Trash2 size={16} /></button> : null}
                   </td>
                 </tr>;
               })}
-              {!loading && !rows.length ? <tr><td className="px-4 py-12 text-center text-[#909399]" colSpan={config.listFields.length + 1}>暂无报价单</td></tr> : null}
+              {!loading && !rows.length ? <tr><td className="px-4 py-12 text-center text-ink-3" colSpan={config.listFields.length + 1}>暂无报价单</td></tr> : null}
             </tbody>
           </table>
         </StickyTable>
@@ -522,10 +522,10 @@ export function QuotationDetailPage({ id }: { id: string }) {
       />;
     }
     if (field.key === "transportType") {
-      return <select className="h-8 w-28 border border-[#dcdfe6] bg-white px-2 text-sm" value={String(value)} onChange={(event) => updateItemDraft(itemId, field.key, event.target.value)}><option value="air">空运</option><option value="sea">海运</option><option value="none">无运输</option></select>;
+      return <select className="h-8 w-28 border border-line bg-white px-2 text-sm" value={String(value)} onChange={(event) => updateItemDraft(itemId, field.key, event.target.value)}><option value="air">空运</option><option value="sea">海运</option><option value="none">无运输</option></select>;
     }
     if (field.key === "isCustomsClearance" || field.key === "enableNom") {
-      return <select className="h-8 w-24 border border-[#dcdfe6] bg-white px-2 text-sm" value={toBooleanValue(value) ? "1" : "0"} onChange={(event) => updateItemDraft(itemId, field.key, event.target.value === "1")}><option value="0">否</option><option value="1">是</option></select>;
+      return <select className="h-8 w-24 border border-line bg-white px-2 text-sm" value={toBooleanValue(value) ? "1" : "0"} onChange={(event) => updateItemDraft(itemId, field.key, event.target.value === "1")}><option value="0">否</option><option value="1">是</option></select>;
     }
     const type = ["quantity", "purchaseUnitPrice", "markupRate", "unitPrice"].includes(field.key) ? "number" : "text";
     const step = field.key === "quantity" ? "1" : type === "number" ? "0.0001" : undefined;
@@ -536,7 +536,7 @@ export function QuotationDetailPage({ id }: { id: string }) {
   }
 
   if (loading) return <LoadingBlock />;
-  if (!quotation) return <div className="space-y-4 p-5"><Button onClick={() => postWorkspaceMessage({ type: "cloud-power:route", route: returnTo, title: "报价列表" })}><ArrowLeft size={15} />返回报价列表</Button><Panel><div className="p-6 text-sm text-[#f56c6c]">{error || "报价单不存在"}</div></Panel></div>;
+  if (!quotation) return <div className="space-y-4 p-5"><Button onClick={() => postWorkspaceMessage({ type: "cloud-power:route", route: returnTo, title: "报价列表" })}><ArrowLeft size={15} />返回报价列表</Button><Panel><div className="p-6 text-sm text-danger">{error || "报价单不存在"}</div></Panel></div>;
 
   const totalQuantity = items.reduce((sum, row) => sum + Number(row.quantity ?? 0), 0);
   const quotationSummary = summarizeQuotationDetails(visibleItems);
@@ -553,7 +553,7 @@ export function QuotationDetailPage({ id }: { id: string }) {
     <div className="space-y-4 p-5">
       <div className="flex flex-wrap items-center gap-3">
         <Button onClick={() => postWorkspaceMessage({ type: "cloud-power:route", route: returnTo, title: "报价列表" })}><ArrowLeft size={15} />返回报价列表</Button>
-        <div className="mr-auto"><h1 className="text-xl font-medium text-[#303133]">{String(quotation.quotationNo ?? "报价单详情")}</h1><p className="mt-1 text-sm text-[#909399]">报价单主单与产品明细。</p></div>
+        <div className="mr-auto"><h1 className="text-xl font-medium text-ink">{String(quotation.quotationNo ?? "报价单详情")}</h1><p className="mt-1 text-sm text-ink-3">报价单主单与产品明细。</p></div>
         {String(quotation.status ?? "") === "draft" ? <>{editing ? <><Button onClick={cancelEditing} disabled={saving}><X size={15} />取消</Button><Button tone="primary" onClick={() => void saveQuotation()} disabled={saving}><Save size={15} />{saving ? "保存中..." : "保存"}</Button></> : <Button onClick={startEditing}><Edit3 size={15} />修改</Button>}<Button tone="success" disabled={confirming || editing} onClick={() => void confirmQuotation()}><CheckCircle2 size={15} />{confirming ? "确认中" : "确认报价单"}</Button></> : null}
         {String(quotation.status ?? "") === "draft" ? <>
           <Button onClick={() => { const link = document.createElement("a"); link.href = `/api/po/quotations/${encodeURIComponent(id)}/items/template`; link.download = ""; link.click(); }}><Download size={15} />下载明细模板</Button>
@@ -564,32 +564,32 @@ export function QuotationDetailPage({ id }: { id: string }) {
         <Button onClick={() => { const link = document.createElement("a"); link.href = `/api/entities/quotations/export?filter.quotationNo=${encodeURIComponent(String(quotation.quotationNo ?? ""))}`; link.download = ""; link.click(); }}><FileDown size={15} />导出主单</Button>
       </div>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7">
-        {summaryCards.map((card) => <div className="min-w-0 min-h-[84px] rounded border border-[#d9e2ec] bg-white px-4 py-3 shadow-sm" key={card.label}><div className="truncate text-xs text-[#909399]" title={card.label}>{card.label}</div><div className="mt-2 truncate text-xl font-semibold text-[#303133]" title={card.value}>{card.value}</div></div>)}
+        {summaryCards.map((card) => <div className="min-w-0 min-h-[84px] rounded border border-[#d9e2ec] bg-white px-4 py-3 shadow-sm" key={card.label}><div className="truncate text-xs text-ink-3" title={card.label}>{card.label}</div><div className="mt-2 truncate text-xl font-semibold text-ink" title={card.value}>{card.value}</div></div>)}
       </div>
-      {error ? <div className="border border-[#fde2e2] bg-[#fef0f0] px-4 py-3 text-sm text-[#f56c6c]">{error}</div> : null}
+      {error ? <div className="border border-danger-border bg-danger-soft px-4 py-3 text-sm text-danger">{error}</div> : null}
       {importReport ? <Panel>
-        <div className="flex flex-wrap items-center gap-3 border-b border-[#ebeef5] px-4 py-3 text-sm"><strong>导入结果</strong><span className="text-[#606266]">共 {importReport.total} 条，成功 {importReport.success} 条，失败 {importReport.failed.length} 条</span><button className="ml-auto text-[#909399] hover:text-[#303133]" type="button" aria-label="关闭导入结果" title="关闭" onClick={() => setImportReport(null)}><X size={16} /></button></div>
-        {importReport.failed.length ? <div className="overflow-auto"><table className="w-full border-collapse text-sm"><thead className="bg-[#f5f7fa]"><tr><th className="border-b border-r border-[#ebeef5] px-3 py-2 text-left">Excel行号</th><th className="border-b border-r border-[#ebeef5] px-3 py-2 text-left">匹配标识</th><th className="border-b border-[#ebeef5] px-3 py-2 text-left">失败原因</th></tr></thead><tbody>{importReport.failed.map((failure) => <tr key={`${failure.rowNumber}-${failure.primaryKey}-${failure.error}`}><td className="border-b border-r border-[#ebeef5] px-3 py-2">{failure.rowNumber}</td><td className="border-b border-r border-[#ebeef5] px-3 py-2">{failure.primaryKey || "-"}</td><td className="border-b border-[#ebeef5] px-3 py-2 text-[#f56c6c]">{failure.error}</td></tr>)}</tbody></table></div> : null}
+        <div className="flex flex-wrap items-center gap-3 border-b border-line-soft px-4 py-3 text-sm"><strong>导入结果</strong><span className="text-ink-2">共 {importReport.total} 条，成功 {importReport.success} 条，失败 {importReport.failed.length} 条</span><button className="ml-auto text-ink-3 hover:text-ink" type="button" aria-label="关闭导入结果" title="关闭" onClick={() => setImportReport(null)}><X size={16} /></button></div>
+        {importReport.failed.length ? <div className="overflow-auto"><table className="w-full border-collapse text-sm"><thead className="bg-canvas"><tr><th className="border-b border-r border-line-soft px-3 py-2 text-left">Excel行号</th><th className="border-b border-r border-line-soft px-3 py-2 text-left">匹配标识</th><th className="border-b border-line-soft px-3 py-2 text-left">失败原因</th></tr></thead><tbody>{importReport.failed.map((failure) => <tr key={`${failure.rowNumber}-${failure.primaryKey}-${failure.error}`}><td className="border-b border-r border-line-soft px-3 py-2">{failure.rowNumber}</td><td className="border-b border-r border-line-soft px-3 py-2">{failure.primaryKey || "-"}</td><td className="border-b border-line-soft px-3 py-2 text-danger">{failure.error}</td></tr>)}</tbody></table></div> : null}
       </Panel> : null}
       {editing ? <Panel>
-        <div className="border-b border-[#ebeef5] px-4 py-3 font-medium text-[#303133]">报价参数</div>
+        <div className="border-b border-line-soft px-4 py-3 font-medium text-ink">报价参数</div>
         <div className="grid gap-3 p-4 md:grid-cols-4 lg:grid-cols-6">
-          {editableQuotationFields.map((field) => <label key={field.key}><span className="mb-1 block text-xs text-[#606266]">{field.label}</span><Input className="w-full" type="number" step="0.0001" value={String(draft[field.key] ?? "")} onChange={(event) => setDraft((current) => ({ ...current, [field.key]: event.target.value === "" ? null : Number(event.target.value) }))} /></label>)}
-          <label className="md:col-span-3 lg:col-span-4"><span className="mb-1 block text-xs text-[#606266]">备注</span><Textarea className="w-full" value={String(draft.remark ?? "")} onChange={(event) => setDraft((current) => ({ ...current, remark: event.target.value }))} /></label>
+          {editableQuotationFields.map((field) => <label key={field.key}><span className="mb-1 block text-xs text-ink-2">{field.label}</span><Input className="w-full" type="number" step="0.0001" value={String(draft[field.key] ?? "")} onChange={(event) => setDraft((current) => ({ ...current, [field.key]: event.target.value === "" ? null : Number(event.target.value) }))} /></label>)}
+          <label className="md:col-span-3 lg:col-span-4"><span className="mb-1 block text-xs text-ink-2">备注</span><Textarea className="w-full" value={String(draft.remark ?? "")} onChange={(event) => setDraft((current) => ({ ...current, remark: event.target.value }))} /></label>
         </div>
       </Panel> : null}
       <Panel>
-        <div className="border-b border-[#ebeef5] px-4 py-3 font-medium text-[#303133]">报价参数</div>
+        <div className="border-b border-line-soft px-4 py-3 font-medium text-ink">报价参数</div>
         <div className="grid grid-cols-2 gap-3 p-4 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-8">
-          {detailSummaryFields.map((field) => <div className="min-w-0 min-h-[66px] rounded border border-[#d9e2ec] bg-[#f8fafc] px-3 py-2.5" key={field.key}><div className="break-words text-xs leading-5 text-[#909399]">{field.label}</div><div className="mt-1 break-words text-sm font-semibold text-[#303133]">{formatQuotationValue(quotation[field.key], field.type, ["exchangeRateUsd", "exchangeRateMxn", "badDebtRate"].includes(field.key))}</div></div>)}
+          {detailSummaryFields.map((field) => <div className="min-w-0 min-h-[66px] rounded border border-[#d9e2ec] bg-[#f8fafc] px-3 py-2.5" key={field.key}><div className="break-words text-xs leading-5 text-ink-3">{field.label}</div><div className="mt-1 break-words text-sm font-semibold text-ink">{formatQuotationValue(quotation[field.key], field.type, ["exchangeRateUsd", "exchangeRateMxn", "badDebtRate"].includes(field.key))}</div></div>)}
         </div>
       </Panel>
       <Panel>
-        <div className="flex items-center border-b border-[#ebeef5] p-4"><div><h2 className="font-medium text-[#303133]">报价明细</h2><p className="mt-1 text-xs text-[#909399]">共 {items.length} 条，数量合计 {formatQuotationValue(totalQuantity, "number")}。</p></div></div>
+        <div className="flex items-center border-b border-line-soft p-4"><div><h2 className="font-medium text-ink">报价明细</h2><p className="mt-1 text-xs text-ink-3">共 {items.length} 条，数量合计 {formatQuotationValue(totalQuantity, "number")}。</p></div></div>
         <StickyTable className="table-scroll overflow-auto" tableKey="quotation-detail-items">
-          <table className="w-max min-w-full table-auto border-collapse text-sm"><thead className="bg-[#f5f7fa] text-[#303133]"><tr>{itemFields.map((field) => <th className={`whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium ${field.key === "lineNo" ? "w-[72px] min-w-[72px] max-w-[72px]" : ""}`} key={field.key}><TableColumnMenu column={field} filterValues={itemFilters[field.key] ?? []} loadOptions={(keyword) => loadItemOptions(field.key, keyword)} onFilter={(values) => setItemFilters((current) => ({ ...current, [field.key]: values }))} onSort={(order) => { setItemSortField(field.key); setItemSortOrder(order); }} sortOrder={itemSortField === field.key ? itemSortOrder : ""} /></th>)}</tr></thead>
-            <tbody>{visibleItems.map((row) => <tr className="hover:bg-[#fafafa]" key={String(row.id)}>{itemFields.map((field) => <td className={`max-w-[240px] truncate whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3 ${field.key === "lineNo" ? "w-[72px] min-w-[72px] max-w-[72px]" : ""}`} key={field.key}>{renderItemValue(row, field)}</td>)}</tr>)}{!visibleItems.length ? <tr><td className="px-4 py-10 text-center text-[#909399]" colSpan={itemFields.length}>暂无报价明细</td></tr> : null}</tbody>
-            <tfoot><tr>{itemFields.map((field) => <td className="whitespace-nowrap border-t border-r border-[#ebeef5] bg-[#fcfcfd] px-3 py-3 font-medium" key={field.key}>{formatQuotationSummaryValue(field, quotationSummary)}</td>)}</tr></tfoot>
+          <table className="w-max min-w-full table-auto border-collapse text-sm"><thead className="bg-canvas text-ink"><tr>{itemFields.map((field) => <th className={`whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium ${field.key === "lineNo" ? "w-[72px] min-w-[72px] max-w-[72px]" : ""}`} key={field.key}><TableColumnMenu column={field} filterValues={itemFilters[field.key] ?? []} loadOptions={(keyword) => loadItemOptions(field.key, keyword)} onFilter={(values) => setItemFilters((current) => ({ ...current, [field.key]: values }))} onSort={(order) => { setItemSortField(field.key); setItemSortOrder(order); }} sortOrder={itemSortField === field.key ? itemSortOrder : ""} /></th>)}</tr></thead>
+            <tbody>{visibleItems.map((row) => <tr className="hover:bg-surface-2" key={String(row.id)}>{itemFields.map((field) => <td className={`max-w-[240px] truncate whitespace-nowrap border-b border-r border-line-soft px-3 py-3 ${field.key === "lineNo" ? "w-[72px] min-w-[72px] max-w-[72px]" : ""}`} key={field.key}>{renderItemValue(row, field)}</td>)}</tr>)}{!visibleItems.length ? <tr><td className="px-4 py-10 text-center text-ink-3" colSpan={itemFields.length}>暂无报价明细</td></tr> : null}</tbody>
+            <tfoot><tr>{itemFields.map((field) => <td className="whitespace-nowrap border-t border-r border-line-soft bg-[#fcfcfd] px-3 py-3 font-medium" key={field.key}>{formatQuotationSummaryValue(field, quotationSummary)}</td>)}</tr></tfoot>
           </table>
         </StickyTable>
        </Panel>

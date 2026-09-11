@@ -297,7 +297,7 @@ export function AppShell({
 
   if (isEmbedded) {
     if (currentModuleKey && !isModuleFeatureEnabled(currentModuleKey, moduleFeatureState)) {
-      return <main className="min-h-screen bg-canvas p-5" data-app-shell="inner"><div className="border border-[#ebeef5] bg-white p-6"><h1 className="text-lg font-medium text-[#303133]">功能模块暂未启用</h1><p className="mt-2 text-sm text-[#606266]">请联系管理员在“功能模块管理”中启用该功能。</p></div><AppDialogHost /></main>;
+      return <main className="min-h-screen bg-canvas p-5" data-app-shell="inner"><div className="border border-line-soft bg-white p-6"><h1 className="text-lg font-medium text-ink">功能模块暂未启用</h1><p className="mt-2 text-sm text-ink-2">请联系管理员在“功能模块管理”中启用该功能。</p></div><AppDialogHost /></main>;
     }
     // 每个内嵌标签页是独立文档，弹窗宿主必须在各自文档里挂载一份。
     return <main className="app-embedded-page min-h-screen bg-canvas p-4 sm:p-5" data-app-shell="inner">{children}<AppDialogHost /></main>;
@@ -306,7 +306,7 @@ export function AppShell({
   if (!workspaceReady) {
     return (
       <main className="min-h-screen bg-canvas" data-app-shell="outer">
-        <div className="flex min-h-screen items-center justify-center text-sm text-[#909399]">正在加载...</div>
+        <div className="flex min-h-screen items-center justify-center text-sm text-ink-3">正在加载...</div>
       </main>
     );
   }
@@ -395,7 +395,7 @@ export function AppShell({
         </div>
         <nav className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden pb-4">
           <button
-            className="flex h-14 w-full min-w-0 items-center gap-3 px-5 text-left text-[#409eff]"
+            className="flex h-14 w-full min-w-0 items-center gap-3 px-5 text-left text-info"
             onClick={() => openTab({ route: "/", title: "首页", closable: false })}
             type="button"
           >
@@ -460,7 +460,7 @@ export function AppShell({
                         ))
                       : group.items.map((item) => (
                           <button
-                            className="block h-10 w-full truncate px-8 pr-3 text-left leading-10 hover:text-[#409eff]"
+                            className="block h-10 w-full truncate px-8 pr-3 text-left leading-10 hover:text-info"
                             key={item.key}
                             onClick={() => openTab({ route: item.route, title: item.title, closable: true })}
                             title={item.title}
@@ -478,18 +478,18 @@ export function AppShell({
       </aside>
       <main className="app-content min-h-screen">
         <header className="app-header sticky top-0 z-10 flex h-[50px] min-w-0 items-center gap-2 border-b border-[#e5e7eb] bg-white px-3 sm:px-4">
-          <Menu size={19} className="shrink-0 text-[#303133]" />
+          <Menu size={19} className="shrink-0 text-ink" />
           <div className="app-breadcrumb flex min-w-0 items-center gap-2">
-            <span className="truncate text-[#909399]">{currentSectionTitle}</span>
-            <span className="shrink-0 text-[#c0c4cc]">/</span>
-            <span className="shrink-0 text-[#606266]">管理后台</span>
+            <span className="truncate text-ink-3">{currentSectionTitle}</span>
+            <span className="shrink-0 text-ink-4">/</span>
+            <span className="shrink-0 text-ink-2">管理后台</span>
           </div>
-          <div className="app-header-user ml-auto flex min-w-0 shrink-0 items-center gap-2 text-[#606266] sm:gap-4">
+          <div className="app-header-user ml-auto flex min-w-0 shrink-0 items-center gap-2 text-ink-2 sm:gap-4">
             <span className="app-header-user-name max-w-[24vw] truncate">{currentUserName || "用户"}</span>
             <div className="h-8 w-8 rounded bg-[#eef1f5]" />
             <button
               aria-label="退出登录"
-              className="app-logout inline-flex h-8 shrink-0 items-center gap-1 rounded border border-[#dcdfe6] px-2 text-xs hover:border-[#1890ff] hover:text-[#1890ff]"
+              className="app-logout inline-flex h-8 shrink-0 items-center gap-1 rounded border border-line px-2 text-xs hover:border-primary hover:text-primary"
               onClick={logout}
               type="button"
             >
@@ -498,13 +498,13 @@ export function AppShell({
             </button>
           </div>
         </header>
-        <div className="app-tabs flex h-[38px] min-w-0 items-center gap-1 overflow-x-auto border-b border-[#dcdfe6] bg-white px-2 sm:px-3">
+        <div className="app-tabs flex h-[38px] min-w-0 items-center gap-1 overflow-x-auto border-b border-line bg-white px-2 sm:px-3">
           {workspace.tabs.map((tab) => {
             const active = tab.route === workspace.activeRoute;
             return (
               <div
                 className={`flex h-7 max-w-[190px] shrink-0 items-center border px-3 text-xs ${
-                  active ? "border-[var(--color-tab-active)] bg-[var(--color-tab-active)] text-white" : "border-[#dcdfe6] bg-white text-[#606266]"
+                  active ? "border-[var(--color-tab-active)] bg-[var(--color-tab-active)] text-white" : "border-line bg-white text-ink-2"
                 }`}
                 key={getWorkspaceTabId(tab)}
               >
@@ -528,7 +528,7 @@ export function AppShell({
                 </button>
                 {tab.closable ? (
                   <button
-                    className={`ml-2 shrink-0 ${active ? "text-white" : "text-[#909399] hover:text-[#f56c6c]"}`}
+                    className={`ml-2 shrink-0 ${active ? "text-white" : "text-ink-3 hover:text-danger"}`}
                     onClick={() => closeTab(tab.route)}
                     title="关闭"
                     type="button"
@@ -565,8 +565,8 @@ export function AppShell({
               );
             })}
           {contentLoading && !displayedTabId ? (
-            <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center bg-canvas text-sm text-[#606266]">
-              <span className="border border-[#dcdfe6] bg-white px-3 py-2 shadow-sm">
+            <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center bg-canvas text-sm text-ink-2">
+              <span className="border border-line bg-white px-3 py-2 shadow-sm">
                 正在加载页面...
               </span>
             </div>
@@ -637,7 +637,7 @@ function ChildNavGroup({
             ))}
             {child.items.map((item) => (
               <button
-                className="block h-10 w-full truncate text-left leading-10 hover:text-[#409eff] pr-3"
+                className="block h-10 w-full truncate text-left leading-10 hover:text-info pr-3"
                 style={{ paddingLeft: `${16 + Math.min(depth, 4) * 8}px` }}
                 key={item.key}
                 onClick={() => onOpenTab({ route: item.route, title: item.title, closable: true })}

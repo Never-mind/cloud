@@ -140,8 +140,8 @@ export function PoInvoiceSummaryPage() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-end gap-3">
         <div className="mr-auto">
-          <h1 className="text-xl font-medium text-[#303133]">发票汇总</h1>
-          <p className="mt-1 text-sm text-[#909399]">集中查看集采项目结算中的收入和成本发票。</p>
+          <h1 className="text-xl font-medium text-ink">发票汇总</h1>
+          <p className="mt-1 text-sm text-ink-3">集中查看集采项目结算中的收入和成本发票。</p>
         </div>
         <Button onClick={() => void load()} disabled={loading} aria-label="刷新" title="刷新"><RefreshCw size={15} /></Button>
         <Button onClick={downloadSummary} aria-label="导出" title="导出发票汇总"><Download size={15} />导出</Button>
@@ -152,7 +152,7 @@ export function PoInvoiceSummaryPage() {
         <Metric label="发票净额（USD）" value={result.totals.netUsd} tone="primary" />
       </div>
       <Panel>
-        <div className="flex flex-wrap items-end gap-3 border-b border-[#ebeef5] p-4">
+        <div className="flex flex-wrap items-end gap-3 border-b border-line-soft p-4">
           <label className="min-w-[280px] flex-1">
             <span className="sr-only">搜索发票</span>
             <div className="flex gap-2">
@@ -160,19 +160,19 @@ export function PoInvoiceSummaryPage() {
               <Button tone="primary" className="h-10 w-10 px-0" aria-label="查询" title="查询" onClick={applySearch}><Search size={16} /></Button>
             </div>
           </label>
-          <label className="w-32 text-sm text-[#606266]"><span className="mb-1 block text-xs text-[#909399]">类型</span><select className="h-10 w-full rounded border border-[#dcdfe6] bg-white px-3 outline-none focus:border-[#1890ff]" value={type} onChange={(event) => { setPage(1); setType(event.target.value); }}><option value="">全部类型</option><option value="income">收入</option><option value="cost">成本</option></select></label>
-          <label className="text-sm text-[#606266]"><span className="mb-1 block text-xs text-[#909399]">账期开始</span><Input className="h-10" type="date" value={accountPeriodStart} onChange={(event) => { setPage(1); setAccountPeriodStart(event.target.value); }} /></label>
-          <label className="text-sm text-[#606266]"><span className="mb-1 block text-xs text-[#909399]">账期结束</span><Input className="h-10" type="date" value={accountPeriodEnd} onChange={(event) => { setPage(1); setAccountPeriodEnd(event.target.value); }} /></label>
-          <span className="text-sm text-[#909399]">共 {result.total} 条</span>
+          <label className="w-32 text-sm text-ink-2"><span className="mb-1 block text-xs text-ink-3">类型</span><select className="h-10 w-full rounded border border-line bg-white px-3 outline-none focus:border-primary" value={type} onChange={(event) => { setPage(1); setType(event.target.value); }}><option value="">全部类型</option><option value="income">收入</option><option value="cost">成本</option></select></label>
+          <label className="text-sm text-ink-2"><span className="mb-1 block text-xs text-ink-3">账期开始</span><Input className="h-10" type="date" value={accountPeriodStart} onChange={(event) => { setPage(1); setAccountPeriodStart(event.target.value); }} /></label>
+          <label className="text-sm text-ink-2"><span className="mb-1 block text-xs text-ink-3">账期结束</span><Input className="h-10" type="date" value={accountPeriodEnd} onChange={(event) => { setPage(1); setAccountPeriodEnd(event.target.value); }} /></label>
+          <span className="text-sm text-ink-3">共 {result.total} 条</span>
         </div>
-        {error ? <div className="border-b border-[#fde2e2] bg-[#fef0f0] px-4 py-3 text-sm text-[#f56c6c]">{error}</div> : null}
+        {error ? <div className="border-b border-danger-border bg-danger-soft px-4 py-3 text-sm text-danger">{error}</div> : null}
         <StickyTable className="table-scroll max-h-[calc(100vh-340px)] overflow-auto" tableKey="po-invoice-summary">
           <table className="min-w-[2900px] border-collapse text-sm">
-            <thead className="bg-[#f5f7fa] text-[#303133]"><tr>{columns.map((column) => <th className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium" key={column.key}><TableColumnMenu column={{ ...column, sortable: true, filterable: true }} filterValues={columnFilters[column.key] ?? []} loadOptions={(optionKeyword) => loadOptions(column.key, optionKeyword)} onFilter={(values) => { setPage(1); setColumnFilters((current) => ({ ...current, [column.key]: values })); }} onSort={(order) => { setPage(1); setSortField(column.key); setSortOrder(order); }} sortOrder={sortField === column.key ? sortOrder : ""} /></th>)}<th className="sticky right-0 border-b border-[#ebeef5] bg-[#f5f7fa] px-3 py-3 text-left font-medium">操作</th></tr></thead>
+            <thead className="bg-canvas text-ink"><tr>{columns.map((column) => <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium" key={column.key}><TableColumnMenu column={{ ...column, sortable: true, filterable: true }} filterValues={columnFilters[column.key] ?? []} loadOptions={(optionKeyword) => loadOptions(column.key, optionKeyword)} onFilter={(values) => { setPage(1); setColumnFilters((current) => ({ ...current, [column.key]: values })); }} onSort={(order) => { setPage(1); setSortField(column.key); setSortOrder(order); }} sortOrder={sortField === column.key ? sortOrder : ""} /></th>)}<th className="sticky right-0 border-b border-line-soft bg-canvas px-3 py-3 text-left font-medium">操作</th></tr></thead>
             <tbody>
-              {loading ? <tr><td className="px-4 py-12 text-center text-[#909399]" colSpan={columns.length + 1}><TableSkeleton /></td></tr> : null}
-              {!loading && result.items.map((row) => <tr className="hover:bg-[#fafafa]" key={row.id}>{columns.map((column, index) => <td className="max-w-[260px] truncate whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3" key={column.key}>{index === 0 ? <button className="text-[#1890ff] hover:underline" type="button" onClick={() => openProject(row)}>{row.projectNo || "-"}</button> : column.key === "projectStatus" ? <StatusTag status={row.projectStatus} label={statusLabel(row.projectStatus)} /> : formatValue(row[column.key as keyof PoInvoiceSummaryRow], column.type)}</td>)}<td className="sticky right-0 whitespace-nowrap border-b border-[#ebeef5] bg-white px-3 py-3"><button className="text-[#1890ff] hover:underline" type="button" onClick={() => openProject(row)}>查看项目</button></td></tr>)}
-              {!loading && !result.items.length ? <tr><td className="px-4 py-12 text-center text-[#909399]" colSpan={columns.length + 1}>暂无发票明细</td></tr> : null}
+              {loading ? <tr><td className="px-4 py-12 text-center text-ink-3" colSpan={columns.length + 1}><TableSkeleton /></td></tr> : null}
+              {!loading && result.items.map((row) => <tr className="hover:bg-surface-2" key={row.id}>{columns.map((column, index) => <td className="max-w-[260px] truncate whitespace-nowrap border-b border-r border-line-soft px-3 py-3" key={column.key}>{index === 0 ? <button className="text-primary hover:underline" type="button" onClick={() => openProject(row)}>{row.projectNo || "-"}</button> : column.key === "projectStatus" ? <StatusTag status={row.projectStatus} label={statusLabel(row.projectStatus)} /> : formatValue(row[column.key as keyof PoInvoiceSummaryRow], column.type)}</td>)}<td className="sticky right-0 whitespace-nowrap border-b border-line-soft bg-white px-3 py-3"><button className="text-primary hover:underline" type="button" onClick={() => openProject(row)}>查看项目</button></td></tr>)}
+              {!loading && !result.items.length ? <tr><td className="px-4 py-12 text-center text-ink-3" colSpan={columns.length + 1}>暂无发票明细</td></tr> : null}
             </tbody>
           </table>
         </StickyTable>
@@ -184,7 +184,7 @@ export function PoInvoiceSummaryPage() {
 
 function Metric({ label, value, tone }: { label: string; value: number; tone: "success" | "warning" | "primary" }) {
   const border = tone === "success" ? "border-[#b7ebc6]" : tone === "warning" ? "border-[#f5d79a]" : "border-[#b8d8f8]";
-  return <div className={`min-h-[84px] rounded border bg-white px-4 py-3 shadow-sm ${border}`}><div className="text-xs text-[#909399]">{label}</div><div className="mt-2 text-xl font-semibold text-[#303133]">{money(value)}</div></div>;
+  return <div className={`min-h-[84px] rounded border bg-white px-4 py-3 shadow-sm ${border}`}><div className="text-xs text-ink-3">{label}</div><div className="mt-2 text-xl font-semibold text-ink">{money(value)}</div></div>;
 }
 
 function formatValue(value: unknown, type?: Column["type"]) {

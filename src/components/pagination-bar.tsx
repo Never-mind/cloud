@@ -25,13 +25,13 @@ export function PaginationBar({
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-2 border-t border-[#ebeef5] p-4 text-sm text-[#606266]">
+    <div className="flex flex-wrap items-center gap-2 border-t border-line-soft p-4 text-sm text-ink-2">
       <span>共 {state.total} 条</span>
       <span>
         当前 {state.start}-{state.end} 条
       </span>
       <select
-        className="h-9 rounded border border-[#dcdfe6] bg-white px-2 text-sm outline-none focus:border-[#1890ff]"
+        className="h-9 rounded border border-line bg-white px-2 text-sm outline-none focus:border-primary"
         value={state.pageSize}
         onChange={(event) => {
           onPageSizeChange?.(Number(event.target.value));

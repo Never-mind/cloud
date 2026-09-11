@@ -70,14 +70,14 @@ export function HomeDashboardPanel() {
 
   return (
     <Panel className="mb-5">
-      <div className="flex flex-wrap items-center gap-3 border-b border-[#ebeef5] px-4 py-3">
+      <div className="flex flex-wrap items-center gap-3 border-b border-line-soft px-4 py-3">
         <div>
-          <h2 className="text-base font-medium text-[#303133]">经营汇总面板</h2>
-          <p className="mt-1 text-xs text-[#909399]">按国家、月份查看服务费合计和新增实例数量。</p>
+          <h2 className="text-base font-medium text-ink">经营汇总面板</h2>
+          <p className="mt-1 text-xs text-ink-3">按国家、月份查看服务费合计和新增实例数量。</p>
         </div>
         <div className="ml-auto flex items-center gap-2">
           <select
-            className="h-9 rounded border border-[#dcdfe6] bg-white px-3 text-sm outline-none focus:border-[#1890ff]"
+            className="h-9 rounded border border-line bg-white px-3 text-sm outline-none focus:border-primary"
             value={countryCode}
             onChange={(event) => {
               setCountryCode(event.target.value);
@@ -101,8 +101,8 @@ export function HomeDashboardPanel() {
       <div className="grid gap-4 p-4 lg:grid-cols-[1.15fr_0.85fr]">
         <div>
           <div className="mb-2 flex items-center justify-between">
-            <div className="font-medium text-[#303133]">每月服务费合计</div>
-            <div className="text-xs text-[#909399]">当前合计：{formatNumber(totalServiceFee)}</div>
+            <div className="font-medium text-ink">每月服务费合计</div>
+            <div className="text-xs text-ink-3">当前合计：{formatNumber(totalServiceFee)}</div>
           </div>
           <ServiceFeeLineChart chart={serviceFeeChart} loading={loading} />
           <SummaryTable
@@ -119,8 +119,8 @@ export function HomeDashboardPanel() {
 
         <div>
           <div className="mb-2 flex items-center justify-between">
-            <div className="font-medium text-[#303133]">每月新增实例数量</div>
-            <div className="text-xs text-[#909399]">当前合计：{formatNumber(totalInstances)}</div>
+            <div className="font-medium text-ink">每月新增实例数量</div>
+            <div className="text-xs text-ink-3">当前合计：{formatNumber(totalInstances)}</div>
           </div>
           <SummaryTable
             columns={[
@@ -174,8 +174,8 @@ function ServiceFeeLineChart({
   const yTicks = [maxValue, minValue + span / 2, minValue];
 
   return (
-    <div className="mb-3 border border-[#ebeef5] bg-white p-3">
-      <div className="mb-2 flex flex-wrap items-center gap-3 text-xs text-[#606266]">
+    <div className="mb-3 border border-line-soft bg-white p-3">
+      <div className="mb-2 flex flex-wrap items-center gap-3 text-xs text-ink-2">
         {chart.series.map((line, index) => (
           <span className="inline-flex items-center gap-1" key={line.key}>
             <span className="h-2 w-5" style={{ backgroundColor: colors[index % colors.length] }} />
@@ -245,12 +245,12 @@ function SummaryTable({
   rows: Array<Record<string, string | number>>;
 }) {
   return (
-    <div className="max-h-[320px] overflow-auto border border-[#ebeef5]">
+    <div className="max-h-[320px] overflow-auto border border-line-soft">
       <table className="min-w-full border-collapse text-sm">
-        <thead className="sticky top-0 bg-[#f5f7fa] text-[#303133]">
+        <thead className="sticky top-0 bg-canvas text-ink">
           <tr>
             {columns.map((column) => (
-              <th className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-2 text-left font-medium" key={column.key}>
+              <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-2 text-left font-medium" key={column.key}>
                 {column.label}
               </th>
             ))}
@@ -258,9 +258,9 @@ function SummaryTable({
         </thead>
         <tbody>
           {rows.map((row, index) => (
-            <tr className="hover:bg-[#fafafa]" key={`${row.countryCode}-${row.month}-${row.currency ?? ""}-${index}`}>
+            <tr className="hover:bg-surface-2" key={`${row.countryCode}-${row.month}-${row.currency ?? ""}-${index}`}>
               {columns.map((column) => (
-                <td className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-2" key={column.key}>
+                <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-2" key={column.key}>
                   {formatDisplayValue(row[column.key], column.type)}
                 </td>
               ))}
@@ -268,7 +268,7 @@ function SummaryTable({
           ))}
           {!rows.length ? (
             <tr>
-              <td className="py-10 text-center text-[#909399]" colSpan={columns.length}>
+              <td className="py-10 text-center text-ink-3" colSpan={columns.length}>
                 {emptyText}
               </td>
             </tr>

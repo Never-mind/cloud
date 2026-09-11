@@ -210,21 +210,21 @@ export function PrepaymentAvailablePage() {
   return (
     <div className="space-y-5 pb-24">
       <div>
-        <h1 className="text-xl font-medium text-[#303133]">待生成预付款实例</h1>
-        <p className="mt-1 text-sm text-[#909399]">
+        <h1 className="text-xl font-medium text-ink">待生成预付款实例</h1>
+        <p className="mt-1 text-sm text-ink-3">
           仅展示已确认采购、且需求单已下单、尚未被预付款草稿或合同占用的实例。
         </p>
       </div>
 
       <Panel>
-        <div className="flex flex-wrap items-center gap-2 border-b border-[#ebeef5] p-4">
+        <div className="flex flex-wrap items-center gap-2 border-b border-line-soft p-4">
           <Input
             placeholder="搜索批次/需求单/PO/实例编码/机型"
             value={keyword}
             onChange={(event) => setKeyword(event.target.value)}
           />
           <select
-            className="h-9 min-w-32 rounded border border-[#dcdfe6] bg-white px-3 text-sm outline-none focus:border-[#1890ff]"
+            className="h-9 min-w-32 rounded border border-line bg-white px-3 text-sm outline-none focus:border-primary"
             value={countryCode}
             onChange={(event) => setCountryCode(event.target.value)}
           >
@@ -239,7 +239,7 @@ export function PrepaymentAvailablePage() {
               ))}
           </select>
           <select
-            className="h-9 min-w-28 rounded border border-[#dcdfe6] bg-white px-3 text-sm outline-none focus:border-[#1890ff]"
+            className="h-9 min-w-28 rounded border border-line bg-white px-3 text-sm outline-none focus:border-primary"
             value={requestType}
             onChange={(event) => setRequestType(event.target.value)}
           >
@@ -266,7 +266,7 @@ export function PrepaymentAvailablePage() {
           </Button>
           <div className="ml-auto flex max-w-[520px] flex-wrap items-end gap-3">
             <label className="min-w-[220px] flex-1">
-              <span className="mb-1 block text-xs font-medium text-[#606266]">预付款合同号</span>
+              <span className="mb-1 block text-xs font-medium text-ink-2">预付款合同号</span>
           <Input
             className="w-full"
             placeholder="预付款合同号"
@@ -275,14 +275,14 @@ export function PrepaymentAvailablePage() {
           />
             </label>
             <label className="min-w-[160px]">
-              <span className="mb-1 block text-xs font-medium text-[#606266]">合同生效日期</span>
+              <span className="mb-1 block text-xs font-medium text-ink-2">合同生效日期</span>
           <Input
             type="date"
             value={effectiveDate}
             onChange={(event) => setEffectiveDate(event.target.value)}
           />
             </label>
-            <p className="w-full text-xs text-[#909399]">
+            <p className="w-full text-xs text-ink-3">
               勾选实例后，系统会按这里填写的合同号和生效日期生成预付款合同草稿。
             </p>
           </div>
@@ -290,13 +290,13 @@ export function PrepaymentAvailablePage() {
 
         <StickyTable className="table-scroll overflow-auto" tableKey="prepayment-available">
           <table className="min-w-full border-collapse text-sm">
-            <thead className="bg-[#f5f7fa] text-[#303133]">
+            <thead className="bg-canvas text-ink">
               <tr>
-                <th className="table-select-cell border-b border-r border-[#ebeef5] py-3 text-center font-medium [&>input]:h-4 [&>input]:w-4 [&>input]:align-middle">
+                <th className="table-select-cell border-b border-r border-line-soft py-3 text-center font-medium [&>input]:h-4 [&>input]:w-4 [&>input]:align-middle">
                   <input checked={allVisibleSelected} type="checkbox" onChange={toggleAllVisible} />
                 </th>
                 {columns.map((column) => (
-                  <th className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium" key={column.key}>
+                  <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium" key={column.key}>
                     <TableColumnMenu
                       column={{ key: column.key, label: column.label, sortable: true, filterable: true }}
                       sortOrder={sortField === column.key ? sortOrder : ""}
@@ -311,12 +311,12 @@ export function PrepaymentAvailablePage() {
             </thead>
             <tbody>
               {rows.map((row) => (
-                <tr className="hover:bg-[#fafafa]" key={row.id}>
-                  <td className="table-select-cell border-b border-r border-[#ebeef5] py-3 text-center [&>input]:h-4 [&>input]:w-4 [&>input]:align-middle">
+                <tr className="hover:bg-surface-2" key={row.id}>
+                  <td className="table-select-cell border-b border-r border-line-soft py-3 text-center [&>input]:h-4 [&>input]:w-4 [&>input]:align-middle">
                     <input checked={selectedIds.includes(row.id)} type="checkbox" onChange={() => toggleSelected(row)} />
                   </td>
                   {columns.map((column) => (
-                    <td className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3" key={column.key}>
+                    <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3" key={column.key}>
                       {formatValue(row[column.key])}
                     </td>
                   ))}
@@ -324,7 +324,7 @@ export function PrepaymentAvailablePage() {
               ))}
               {!rows.length ? (
                 <tr>
-                  <td className="py-12 text-center text-[#909399]" colSpan={columns.length + 1}>
+                  <td className="py-12 text-center text-ink-3" colSpan={columns.length + 1}>
                     <TableStateContent empty="暂无可生成预付款合同的实例" loading={loading} />
                   </td>
                 </tr>
@@ -336,12 +336,12 @@ export function PrepaymentAvailablePage() {
       </Panel>
 
       {selectedIds.length ? (
-        <div className="fixed bottom-5 left-[230px] right-5 z-20 border border-[#1890ff] bg-white p-4 shadow-lg">
-          <div className="flex flex-wrap items-center gap-5 text-sm text-[#606266]">
-            <span>已选实例：<b className="text-[#303133]">{summary.selectedRows}</b></span>
-            <span>已选数量：<b className="text-[#303133]">{summary.totalQuantity}</b></span>
-            <span>实际总价：<b className="text-[#303133]">{formatValue(summary.actualTotalAmount, "money")}</b></span>
-            <span>预付款合同总价金额：<b className="text-[#303133]">{formatValue(summary.actualTotalAmount, "money")}</b></span>
+        <div className="fixed bottom-5 left-[230px] right-5 z-20 border border-primary bg-white p-4 shadow-lg">
+          <div className="flex flex-wrap items-center gap-5 text-sm text-ink-2">
+            <span>已选实例：<b className="text-ink">{summary.selectedRows}</b></span>
+            <span>已选数量：<b className="text-ink">{summary.totalQuantity}</b></span>
+            <span>实际总价：<b className="text-ink">{formatValue(summary.actualTotalAmount, "money")}</b></span>
+            <span>预付款合同总价金额：<b className="text-ink">{formatValue(summary.actualTotalAmount, "money")}</b></span>
             <Button className="ml-auto" disabled={creating || !contractNo || !selectedIds.length} tone="primary" onClick={() => void createDraft()}>
               <FilePlus2 size={15} />
               生成预付款合同草稿

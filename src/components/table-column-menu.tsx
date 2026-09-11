@@ -296,42 +296,42 @@ export function TableColumnMenu({
   const panel = open || filterOpen ? (
     <div
       ref={panelRef}
-      className="fixed z-[80] border border-[#dcdfe6] bg-white shadow-xl"
+      className="fixed z-[80] border border-line bg-white shadow-xl"
       style={{ top: position.top, left: position.left, width: position.width }}
     >
       {open ? (
-        <div className="p-1 text-sm text-[#303133]">
-          <button className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-[#f5f7fa]" type="button" onClick={() => { onSort("asc"); setOpen(false); }}>
+        <div className="p-1 text-sm text-ink">
+          <button className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-canvas" type="button" onClick={() => { onSort("asc"); setOpen(false); }}>
             <ArrowUpAZ size={15} />
             升序
           </button>
-          <button className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-[#f5f7fa]" type="button" onClick={() => { onSort("desc"); setOpen(false); }}>
+          <button className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-canvas" type="button" onClick={() => { onSort("desc"); setOpen(false); }}>
             <ArrowDownAZ size={15} />
             降序
           </button>
-          <button className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-[#f5f7fa]" type="button" onClick={openFilter}>
+          <button className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-canvas" type="button" onClick={openFilter}>
                    <ListFilter size={15} />
                    筛选
                  </button>
-          <button className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-[#f5f7fa]" type="button" onClick={toggleLock}>
+          <button className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-canvas" type="button" onClick={toggleLock}>
             {locked ? <Unlock size={15} /> : <Lock size={15} />}
             {locked ? "取消锁定此列" : "锁定此列"}
           </button>
           {(sortOrder || filterValues.length) ? (
-              <button className="flex w-full items-center gap-2 border-t border-[#ebeef5] px-3 py-2 text-left text-[#909399] hover:bg-[#f5f7fa]" type="button" onClick={() => { onSort(""); onFilter([]); setOpen(false); }}>
+              <button className="flex w-full items-center gap-2 border-t border-line-soft px-3 py-2 text-left text-ink-3 hover:bg-canvas" type="button" onClick={() => { onSort(""); onFilter([]); setOpen(false); }}>
               <X size={15} />
               清除当前设置
             </button>
           ) : null}
         </div>
       ) : (
-        <div className="text-sm text-[#303133]">
-          <div className="flex items-center gap-2 border-b border-[#ebeef5] p-2">
-            <Search className="text-[#909399]" size={15} />
+        <div className="text-sm text-ink">
+          <div className="flex items-center gap-2 border-b border-line-soft p-2">
+            <Search className="text-ink-3" size={15} />
             <Input className="h-8 min-w-0 flex-1 border-0 px-1 shadow-none focus:border-0" placeholder="请输入关键字" value={search} onChange={(event) => updateSearch(event.target.value)} autoFocus />
           </div>
           <div className="max-h-[260px] overflow-auto p-2">
-            <label className="flex cursor-pointer items-center gap-2 border-b border-[#ebeef5] px-1 py-2 text-xs font-medium text-[#606266]">
+            <label className="flex cursor-pointer items-center gap-2 border-b border-line-soft px-1 py-2 text-xs font-medium text-ink-2">
               <input
                 checked={options.length > 0 && options.every((option) => selected.has(option.value))}
                 type="checkbox"
@@ -349,10 +349,10 @@ export function TableColumnMenu({
               />
               全选
             </label>
-            {loading ? <div className="py-6 text-center text-xs text-[#909399]">加载中...</div> : null}
-            {!loading && !options.length ? <div className="py-6 text-center text-xs text-[#909399]">暂无可选值</div> : null}
+            {loading ? <div className="py-6 text-center text-xs text-ink-3">加载中...</div> : null}
+            {!loading && !options.length ? <div className="py-6 text-center text-xs text-ink-3">暂无可选值</div> : null}
             {!loading ? options.map((option) => (
-              <label className="flex cursor-pointer items-center gap-2 px-1 py-1.5 text-sm hover:bg-[#f5f7fa]" key={option.value} title={option.label ?? option.value}>
+              <label className="flex cursor-pointer items-center gap-2 px-1 py-1.5 text-sm hover:bg-canvas" key={option.value} title={option.label ?? option.value}>
                 <input
                   checked={selected.has(option.value)}
                   type="checkbox"
@@ -367,15 +367,15 @@ export function TableColumnMenu({
                   }}
                 />
                 <span className="min-w-0 flex-1 truncate">{(option.label ?? option.value) || "（空白）"}</span>
-                {option.count === undefined ? null : <span className="text-xs text-[#909399]">({option.count})</span>}
+                {option.count === undefined ? null : <span className="text-xs text-ink-3">({option.count})</span>}
               </label>
             )) : null}
           </div>
-          <div className="flex items-center justify-between border-t border-[#ebeef5] p-2 text-xs">
-            <span className="text-[#606266]">已选择 {visibleSelectedCount} / {options.length}</span>
+          <div className="flex items-center justify-between border-t border-line-soft p-2 text-xs">
+            <span className="text-ink-2">已选择 {visibleSelectedCount} / {options.length}</span>
             <div className="flex items-center gap-2">
-              <button className="px-2 py-1 text-[#606266] hover:bg-[#f5f7fa]" type="button" onClick={() => setFilterOpen(false)}>取消</button>
-              <button className="inline-flex items-center gap-1 bg-[#f56c6c] px-3 py-1 text-white hover:opacity-85" type="button" onClick={applyFilter}><Check size={13} />确定</button>
+              <button className="px-2 py-1 text-ink-2 hover:bg-canvas" type="button" onClick={() => setFilterOpen(false)}>取消</button>
+              <button className="inline-flex items-center gap-1 bg-danger px-3 py-1 text-white hover:opacity-85" type="button" onClick={applyFilter}><Check size={13} />确定</button>
             </div>
           </div>
         </div>
@@ -391,7 +391,7 @@ export function TableColumnMenu({
                  ref={buttonRef}
           aria-expanded={open || filterOpen}
           aria-label={`${column.label}排序和筛选`}
-           className={`inline-flex h-5 w-5 items-center justify-center ${active ? "text-[#1890ff]" : "text-[#909399]"} hover:text-[#1890ff]`}
+           className={`inline-flex h-5 w-5 items-center justify-center ${active ? "text-primary" : "text-ink-3"} hover:text-primary`}
            data-cloud-power-column={column.key}
           title="排序和筛选"
           type="button"

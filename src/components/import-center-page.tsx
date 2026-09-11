@@ -147,8 +147,8 @@ export function ImportCenterPage() {
     <div className="space-y-5">
       <div className="flex items-start gap-3">
         <div>
-          <h1 className="text-xl font-medium text-[#303133]">数据导入中心</h1>
-          <p className="mt-1 text-sm text-[#909399]">
+          <h1 className="text-xl font-medium text-ink">数据导入中心</h1>
+          <p className="mt-1 text-sm text-ink-3">
             统一管理模板下载、文件上传、导入预览、错误报告和导入历史；主从单据会按模板规则自动生成。
           </p>
         </div>
@@ -160,14 +160,14 @@ export function ImportCenterPage() {
 
       <div className="grid gap-5 lg:grid-cols-[280px_1fr]">
         <Panel className="p-3">
-          <div className="mb-2 px-2 text-sm font-medium text-[#303133]">导入类型</div>
+          <div className="mb-2 px-2 text-sm font-medium text-ink">导入类型</div>
           <div className="space-y-2">
             {targets.map((target) => (
               <button
                 className={`w-full border px-3 py-3 text-left text-sm ${
                   currentTarget?.key === target.key
-                    ? "border-[#1890ff] bg-[#ecf5ff] text-[#1890ff]"
-                    : "border-[#ebeef5] bg-white text-[#606266] hover:border-[#c6e2ff]"
+                    ? "border-primary bg-info-soft text-primary"
+                    : "border-line-soft bg-white text-ink-2 hover:border-[#c6e2ff]"
                 }`}
                 key={target.key}
                 type="button"
@@ -177,7 +177,7 @@ export function ImportCenterPage() {
                 }}
               >
                 <div className="font-medium">{target.title}</div>
-                <div className="mt-1 text-xs text-[#909399]">{target.description}</div>
+                <div className="mt-1 text-xs text-ink-3">{target.description}</div>
               </button>
             ))}
           </div>
@@ -185,10 +185,10 @@ export function ImportCenterPage() {
 
         <div className="space-y-5">
           <Panel>
-            <div className="flex flex-wrap items-center gap-3 border-b border-[#ebeef5] p-4">
+            <div className="flex flex-wrap items-center gap-3 border-b border-line-soft p-4">
               <div>
-                <div className="font-medium text-[#303133]">{currentTarget?.title ?? "请选择导入类型"}</div>
-                <div className="mt-1 text-xs text-[#909399]">{currentTarget?.description}</div>
+                <div className="font-medium text-ink">{currentTarget?.title ?? "请选择导入类型"}</div>
+                <div className="mt-1 text-xs text-ink-3">{currentTarget?.description}</div>
               </div>
               {currentTarget ? (
                 <>
@@ -217,10 +217,10 @@ export function ImportCenterPage() {
               ) : null}
             </div>
 
-            <div className="flex flex-wrap items-center gap-3 border-b border-[#ebeef5] bg-[#fafafa] px-4 py-3">
-              <span className="text-sm font-medium text-[#303133]">导入策略</span>
+            <div className="flex flex-wrap items-center gap-3 border-b border-line-soft bg-surface-2 px-4 py-3">
+              <span className="text-sm font-medium text-ink">导入策略</span>
               <select
-                className="h-9 min-w-[180px] border border-[#dcdfe6] bg-white px-2 text-sm text-[#303133] outline-none focus:border-[#1890ff]"
+                className="h-9 min-w-[180px] border border-line bg-white px-2 text-sm text-ink outline-none focus:border-primary"
                 value={strategy}
                 onChange={(event) => {
                   setStrategy(event.target.value as ImportStrategy);
@@ -229,25 +229,25 @@ export function ImportCenterPage() {
               >
                 {strategyOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
               </select>
-              <span className="text-xs text-[#909399]">{strategyOptions.find((option) => option.value === strategy)?.description}</span>
+              <span className="text-xs text-ink-3">{strategyOptions.find((option) => option.value === strategy)?.description}</span>
             </div>
 
             <div className="grid gap-4 p-4 lg:grid-cols-[1fr_320px]">
               <StickyTable className="overflow-auto" tableKey="import-center-columns">
                 <table className="min-w-full border-collapse text-sm">
-                  <thead className="bg-[#f5f7fa]">
+                  <thead className="bg-canvas">
                     <tr>
-                      <th className="border-b border-r border-[#ebeef5] px-3 py-2 text-left">字段</th>
-                      <th className="border-b border-r border-[#ebeef5] px-3 py-2 text-left">列名</th>
-                      <th className="border-b border-r border-[#ebeef5] px-3 py-2 text-left">要求</th>
+                      <th className="border-b border-r border-line-soft px-3 py-2 text-left">字段</th>
+                      <th className="border-b border-r border-line-soft px-3 py-2 text-left">列名</th>
+                      <th className="border-b border-r border-line-soft px-3 py-2 text-left">要求</th>
                     </tr>
                   </thead>
                   <tbody>
                     {currentTarget?.columns.map((column) => (
                       <tr key={column.key}>
-                        <td className="border-b border-r border-[#ebeef5] px-3 py-2">{column.key}</td>
-                        <td className="border-b border-r border-[#ebeef5] px-3 py-2">{column.label}</td>
-                        <td className="border-b border-r border-[#ebeef5] px-3 py-2">
+                        <td className="border-b border-r border-line-soft px-3 py-2">{column.key}</td>
+                        <td className="border-b border-r border-line-soft px-3 py-2">{column.label}</td>
+                        <td className="border-b border-r border-line-soft px-3 py-2">
                           {column.required ? "必填" : "可选"}{column.note ? `，${column.note}` : ""}
                         </td>
                       </tr>
@@ -256,13 +256,13 @@ export function ImportCenterPage() {
                 </table>
               </StickyTable>
 
-              <div className="border border-[#ebeef5] bg-[#fafafa] p-4">
-                <div className="mb-3 flex items-center gap-2 font-medium text-[#303133]">
+              <div className="border border-line-soft bg-surface-2 p-4">
+                <div className="mb-3 flex items-center gap-2 font-medium text-ink">
                   <FileSpreadsheet size={16} />
                   导入预览
                 </div>
                 {preview ? (
-                  <div className="space-y-3 text-sm text-[#606266]">
+                  <div className="space-y-3 text-sm text-ink-2">
                     <Metric label="任务编号" value={preview.jobId} />
                     <Metric label="总行数" value={preview.report.total} />
                     <Metric label="可导入行数" value={preview.report.success} />
@@ -274,7 +274,7 @@ export function ImportCenterPage() {
                     <Metric label="覆盖已确认" value={preview.execution?.updateConfirmed ?? 0} />
                     <Metric label="跳过记录" value={preview.execution?.skip ?? 0} />
                     {preview.strategy === "overwrite-all" && (preview.execution?.updateConfirmed ?? 0) > 0 ? (
-                      <div className="flex gap-2 border border-[#fde2e2] bg-[#fef0f0] p-2 text-xs text-[#f56c6c]">
+                      <div className="flex gap-2 border border-danger-border bg-danger-soft p-2 text-xs text-danger">
                         <AlertTriangle size={15} className="shrink-0" />
                         已确认单据将按导入文件覆盖，确认导入时需再次确认。
                       </div>
@@ -291,39 +291,39 @@ export function ImportCenterPage() {
                     )}
                   </div>
                 ) : (
-                  <div className="text-sm text-[#909399]">上传模板文件后，系统会先预览校验，不会立即写入数据库。</div>
+                  <div className="text-sm text-ink-3">上传模板文件后，系统会先预览校验，不会立即写入数据库。</div>
                 )}
               </div>
             </div>
           </Panel>
 
           <Panel>
-            <div className="border-b border-[#ebeef5] px-4 py-3 font-medium text-[#303133]">导入历史</div>
+            <div className="border-b border-line-soft px-4 py-3 font-medium text-ink">导入历史</div>
             <StickyTable className="overflow-auto" tableKey="import-center-history">
               <table className="min-w-full border-collapse text-sm">
-                <thead className="bg-[#f5f7fa]">
+                <thead className="bg-canvas">
                   <tr>
                     {["任务编号", "导入类型", "文件名", "状态", "总行数", "成功", "失败", "主单", "明细", "创建时间", "更新时间", "操作"].map((label) => (
-                      <th className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3 text-left" key={label}>{label}</th>
+                      <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left" key={label}>{label}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
                   {jobs.map((job) => (
-                    <tr className="hover:bg-[#fafafa]" key={job.jobId}>
-                      <td className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3">{job.jobId}</td>
-                      <td className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3">{job.targetTitle}</td>
-                      <td className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3">{job.fileName}</td>
-                      <td className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3">{job.status}</td>
-                      <td className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3">{job.totalRows}</td>
-                      <td className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3">{job.successRows}</td>
-                      <td className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3">{job.failedRows}</td>
-                      <td className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3">{job.masterCount}</td>
-                      <td className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3">{job.detailCount}</td>
-                      <td className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3">{formatDisplayValue(job.createdAt)}</td>
-                      <td className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3">{formatDisplayValue(job.updatedAt)}</td>
-                      <td className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3">
-                        <a className="text-[#1890ff] hover:underline" href={`/api/import-center/jobs/${encodeURIComponent(job.jobId)}/errors`}>
+                    <tr className="hover:bg-surface-2" key={job.jobId}>
+                      <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3">{job.jobId}</td>
+                      <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3">{job.targetTitle}</td>
+                      <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3">{job.fileName}</td>
+                      <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3">{job.status}</td>
+                      <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3">{job.totalRows}</td>
+                      <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3">{job.successRows}</td>
+                      <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3">{job.failedRows}</td>
+                      <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3">{job.masterCount}</td>
+                      <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3">{job.detailCount}</td>
+                      <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3">{formatDisplayValue(job.createdAt)}</td>
+                      <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3">{formatDisplayValue(job.updatedAt)}</td>
+                      <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3">
+                        <a className="text-primary hover:underline" href={`/api/import-center/jobs/${encodeURIComponent(job.jobId)}/errors`}>
                           错误报告
                         </a>
                       </td>
@@ -331,7 +331,7 @@ export function ImportCenterPage() {
                   ))}
                   {!jobs.length ? (
                     <tr>
-                      <td className="py-10 text-center text-[#909399]" colSpan={12}>暂无导入历史</td>
+                      <td className="py-10 text-center text-ink-3" colSpan={12}>暂无导入历史</td>
                     </tr>
                   ) : null}
                 </tbody>
@@ -354,8 +354,8 @@ export function ImportCenterPage() {
 function Metric({ label, value }: { label: string; value: unknown }) {
   return (
     <div className="flex items-start justify-between gap-3">
-      <span className="text-[#909399]">{label}</span>
-      <span className="text-right font-medium text-[#303133]">{String(value ?? "-")}</span>
+      <span className="text-ink-3">{label}</span>
+      <span className="text-right font-medium text-ink">{String(value ?? "-")}</span>
     </div>
   );
 }

@@ -153,22 +153,22 @@ export function PartyArchiveDetailPage({ config, id, related }: { config: Entity
     { id: "attachments", label: "附件" },
   ];
 
-  if (loading) return <Panel className="p-10 text-center text-sm text-[#909399]">正在加载{config.title}档案...</Panel>;
-  if (!record) return <Panel className="p-10 text-center text-sm text-[#f56c6c]">{error || `未找到${config.title}`}</Panel>;
+  if (loading) return <Panel className="p-10 text-center text-sm text-ink-3">正在加载{config.title}档案...</Panel>;
+  if (!record) return <Panel className="p-10 text-center text-sm text-danger">{error || `未找到${config.title}`}</Panel>;
 
   return (
     <div className="space-y-4">
       <Panel>
-        <header className="flex flex-wrap items-center gap-3 border-b border-[#ebeef5] px-5 py-4">
-          <Link className="inline-flex h-9 w-9 items-center justify-center border border-[#dcdfe6] bg-white text-[#606266] hover:border-[#1890ff] hover:text-[#1890ff]" href={config.route} aria-label={`返回${config.title}`} title={`返回${config.title}`}>
+        <header className="flex flex-wrap items-center gap-3 border-b border-line-soft px-5 py-4">
+          <Link className="inline-flex h-9 w-9 items-center justify-center border border-line bg-white text-ink-2 hover:border-primary hover:text-primary" href={config.route} aria-label={`返回${config.title}`} title={`返回${config.title}`}>
             <ArrowLeft size={17} />
           </Link>
           <div className="min-w-0">
-            <h1 className="truncate text-xl font-medium text-[#303133]">{String(record[nameKey] || record.nameCn || (isCreate ? `新建${config.title}` : config.title))}</h1>
-            <div className="mt-1 font-mono text-xs text-[#909399]">{String(record[codeKey] || (isCreate ? "新建档案" : id))}</div>
+            <h1 className="truncate text-xl font-medium text-ink">{String(record[nameKey] || record.nameCn || (isCreate ? `新建${config.title}` : config.title))}</h1>
+            <div className="mt-1 font-mono text-xs text-ink-3">{String(record[codeKey] || (isCreate ? "新建档案" : id))}</div>
           </div>
           <div className="ml-auto flex flex-wrap items-center gap-2">
-            {!isCreate ? <div className="mr-2 text-xs text-[#909399]">
+            {!isCreate ? <div className="mr-2 text-xs text-ink-3">
               <span>创建 {formatDisplayValue(record.createdAt, "datetime")}</span>
               <span className="mx-2">更新 {formatDisplayValue(record.updatedAt, "datetime")}</span>
             </div> : null}
@@ -183,11 +183,11 @@ export function PartyArchiveDetailPage({ config, id, related }: { config: Entity
             <Button className="h-9 w-9 px-0" onClick={() => void load()} aria-label="刷新" title="刷新"><RefreshCw size={15} /></Button>
           </div>
         </header>
-        {error ? <div className="border-b border-[#fde2e2] bg-[#fef0f0] px-5 py-3 text-sm text-[#f56c6c]">{error}</div> : null}
-        {notice ? <div className="border-b border-[#c2e7b0] bg-[#f0f9eb] px-5 py-3 text-sm text-[#67c23a]">{notice}</div> : null}
+        {error ? <div className="border-b border-danger-border bg-danger-soft px-5 py-3 text-sm text-danger">{error}</div> : null}
+        {notice ? <div className="border-b border-success-border bg-success-soft px-5 py-3 text-sm text-success-strong">{notice}</div> : null}
 
-        <nav className="flex overflow-x-auto border-b border-[#ebeef5] bg-white px-5" aria-label="档案分区">
-          {tabItems.map((tab, index) => <a className={`whitespace-nowrap border-b-2 px-1 py-3 mr-7 text-sm ${index === 0 ? "border-[#1890ff] text-[#1890ff]" : "border-transparent text-[#606266] hover:text-[#1890ff]"}`} href={`#${tab.id}`} key={tab.id}>{tab.label}</a>)}
+        <nav className="flex overflow-x-auto border-b border-line-soft bg-white px-5" aria-label="档案分区">
+          {tabItems.map((tab, index) => <a className={`whitespace-nowrap border-b-2 px-1 py-3 mr-7 text-sm ${index === 0 ? "border-primary text-primary" : "border-transparent text-ink-2 hover:text-primary"}`} href={`#${tab.id}`} key={tab.id}>{tab.label}</a>)}
         </nav>
 
         <ArchiveSection id="basic-info" title="基础资料" icon={Building2}>
@@ -213,7 +213,7 @@ export function PartyArchiveDetailPage({ config, id, related }: { config: Entity
 }
 
 function ArchiveSection({ id, title, icon: Icon, children }: { id: string; title: string; icon: typeof Building2; children: React.ReactNode }) {
-  return <section id={id} className="scroll-mt-20 border-t border-[#ebeef5] p-5"><div className="mb-4 flex items-center gap-2 border-b border-[#ebeef5] pb-3 text-[#1890ff]"><Icon size={17} /><h2 className="text-base font-medium text-[#303133]">{title}</h2></div>{children}</section>;
+  return <section id={id} className="scroll-mt-20 border-t border-line-soft p-5"><div className="mb-4 flex items-center gap-2 border-b border-line-soft pb-3 text-primary"><Icon size={17} /><h2 className="text-base font-medium text-ink">{title}</h2></div>{children}</section>;
 }
 
 function ScopeFieldEditor({ field, value, editing, onChange }: { field: EntityField; value: Row[string]; editing: boolean; onChange: (value: Row[string]) => void }) {
@@ -233,7 +233,7 @@ function TagCheckboxEditor({ field, options, value, editing, onChange }: { field
     onChange(joinTags([...selected, next]));
     setInput("");
   };
-  return <div className="md:col-span-2"><span className="mb-2 block text-xs text-[#606266]">{field.label}</span><div className="flex flex-wrap gap-x-5 gap-y-3">{[...options, ...customOptions].map((item) => <label className="inline-flex items-center gap-2 text-sm text-[#606266]" key={item}><input checked={selected.includes(item)} disabled={!editing} type="checkbox" onChange={() => toggle(item)} />{item}</label>)}</div><div className="mt-3 flex gap-2"><Input className="min-w-0 flex-1" disabled={!editing} placeholder={`输入其他${field.label}后按回车添加`} value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); add(); } }} /><Button disabled={!editing || !input.trim()} onClick={add}><Plus size={15} />添加</Button></div></div>;
+  return <div className="md:col-span-2"><span className="mb-2 block text-xs text-ink-2">{field.label}</span><div className="flex flex-wrap gap-x-5 gap-y-3">{[...options, ...customOptions].map((item) => <label className="inline-flex items-center gap-2 text-sm text-ink-2" key={item}><input checked={selected.includes(item)} disabled={!editing} type="checkbox" onChange={() => toggle(item)} />{item}</label>)}</div><div className="mt-3 flex gap-2"><Input className="min-w-0 flex-1" disabled={!editing} placeholder={`输入其他${field.label}后按回车添加`} value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); add(); } }} /><Button disabled={!editing || !input.trim()} onClick={add}><Plus size={15} />添加</Button></div></div>;
 }
 
 function TagListEditor({ field, value, editing, onChange }: { field: EntityField; value: Row[string]; editing: boolean; onChange: (value: Row[string]) => void }) {
@@ -245,7 +245,7 @@ function TagListEditor({ field, value, editing, onChange }: { field: EntityField
     onChange(joinTags([...tags, next]));
     setInput("");
   };
-  return <div className="md:col-span-2"><span className="mb-2 block text-xs text-[#606266]">{field.label}</span><div className="flex gap-2"><Input className="min-w-0 flex-1" disabled={!editing} placeholder={`输入${field.label}后按回车添加`} value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); add(); } }} /><Button disabled={!editing || !input.trim()} onClick={add}><Plus size={15} />添加</Button></div><div className="mt-2 flex min-h-8 flex-wrap gap-2">{tags.map((tag) => <span className="inline-flex items-center gap-1 bg-[#ecf5ff] px-2 py-1 text-xs text-[#409eff]" key={tag}>{tag}{editing ? <button className="text-[#79bbff] hover:text-[#1890ff]" type="button" onClick={() => onChange(joinTags(tags.filter((value) => value !== tag)))}>x</button> : null}</span>)}</div></div>;
+  return <div className="md:col-span-2"><span className="mb-2 block text-xs text-ink-2">{field.label}</span><div className="flex gap-2"><Input className="min-w-0 flex-1" disabled={!editing} placeholder={`输入${field.label}后按回车添加`} value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); add(); } }} /><Button disabled={!editing || !input.trim()} onClick={add}><Plus size={15} />添加</Button></div><div className="mt-2 flex min-h-8 flex-wrap gap-2">{tags.map((tag) => <span className="inline-flex items-center gap-1 bg-info-soft px-2 py-1 text-xs text-info" key={tag}>{tag}{editing ? <button className="text-[#79bbff] hover:text-primary" type="button" onClick={() => onChange(joinTags(tags.filter((value) => value !== tag)))}>x</button> : null}</span>)}</div></div>;
 }
 
 function parseTags(value: Row[string]) {
@@ -266,25 +266,25 @@ function FieldEditor({ field, value, editing, onChange }: { field: EntityField; 
 
   return (
     <label className={wide ? "block md:col-span-2 lg:col-span-4" : "block"}>
-      <span className="mb-1 block text-xs text-[#606266]">{field.label}{field.required ? <b className="text-[#f56c6c]"> *</b> : null}</span>
+      <span className="mb-1 block text-xs text-ink-2">{field.label}{field.required ? <b className="text-danger"> *</b> : null}</span>
       {wide ? (
-        <Textarea className="min-h-20 w-full disabled:bg-[#f5f7fa] disabled:text-[#606266]" disabled={!editing} required={field.required} value={inputValue} onChange={(event) => onChange(event.target.value)} />
+        <Textarea className="min-h-20 w-full disabled:bg-canvas disabled:text-ink-2" disabled={!editing} required={field.required} value={inputValue} onChange={(event) => onChange(event.target.value)} />
       ) : field.type === "boolean" ? (
-        <span className="flex h-9 items-center gap-2 text-sm text-[#606266]"><input checked={Boolean(value)} disabled={!editing} type="checkbox" onChange={(event) => onChange(event.target.checked)} />{Boolean(value) ? "是" : "否"}</span>
+        <span className="flex h-9 items-center gap-2 text-sm text-ink-2"><input checked={Boolean(value)} disabled={!editing} type="checkbox" onChange={(event) => onChange(event.target.checked)} />{Boolean(value) ? "是" : "否"}</span>
       ) : field.type === "select" && field.allowCustom ? (
         <>
-          <Input className="w-full disabled:bg-[#f5f7fa] disabled:text-[#606266]" disabled={!editing} list={`party-${field.key}-options`} required={field.required} value={inputValue} onChange={(event) => onChange(event.target.value)} />
+          <Input className="w-full disabled:bg-canvas disabled:text-ink-2" disabled={!editing} list={`party-${field.key}-options`} required={field.required} value={inputValue} onChange={(event) => onChange(event.target.value)} />
           <datalist id={`party-${field.key}-options`}>
             {field.options?.map((option) => <option key={option.value} label={option.label} value={option.value} />)}
           </datalist>
         </>
       ) : field.type === "select" ? (
-        <select className="h-9 w-full rounded border border-[#dcdfe6] bg-white px-3 text-sm disabled:bg-[#f5f7fa] disabled:text-[#606266]" disabled={!editing} required={field.required} value={String(value ?? "")} onChange={(event) => onChange(event.target.value)}>
+        <select className="h-9 w-full rounded border border-line bg-white px-3 text-sm disabled:bg-canvas disabled:text-ink-2" disabled={!editing} required={field.required} value={String(value ?? "")} onChange={(event) => onChange(event.target.value)}>
           <option value="">请选择</option>
           {field.options?.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
         </select>
       ) : (
-        <Input className="w-full disabled:bg-[#f5f7fa] disabled:text-[#606266]" disabled={!editing} required={field.required} type={field.type === "number" || field.type === "money" || field.type === "percentage" ? "number" : field.type === "date" ? "date" : "text"} value={inputValue} onChange={(event) => onChange(event.target.value)} />
+        <Input className="w-full disabled:bg-canvas disabled:text-ink-2" disabled={!editing} required={field.required} type={field.type === "number" || field.type === "money" || field.type === "percentage" ? "number" : field.type === "date" ? "date" : "text"} value={inputValue} onChange={(event) => onChange(event.target.value)} />
       )}
     </label>
   );
@@ -425,21 +425,21 @@ function RelatedSection({ config, ownerId, editing, enabled, persisted, pendingR
   }
 
   return (
-    <section className="border-t border-[#ebeef5] p-5">
-      <div className="mb-4 flex items-center gap-2 border-b border-[#ebeef5] pb-3 text-[#1890ff]">{isBank ? <Landmark size={17} /> : <UserRound size={17} />}<h2 className="text-base font-medium text-[#303133]">{isBank ? "银行账户" : "联系人"}</h2><Button className="ml-auto" tone="primary" disabled={!editing || !enabled} onClick={openNew}><Plus size={15} />新增{isBank ? "账户" : "联系人"}</Button></div>
+    <section className="border-t border-line-soft p-5">
+      <div className="mb-4 flex items-center gap-2 border-b border-line-soft pb-3 text-primary">{isBank ? <Landmark size={17} /> : <UserRound size={17} />}<h2 className="text-base font-medium text-ink">{isBank ? "银行账户" : "联系人"}</h2><Button className="ml-auto" tone="primary" disabled={!editing || !enabled} onClick={openNew}><Plus size={15} />新增{isBank ? "账户" : "联系人"}</Button></div>
       <div className="space-y-3">
         {visibleRows.map((row, index) => {
           const rowId = String(row[config.primaryKey]);
           const rowEditing = editingId === rowId;
           const rowValue = rowEditing ? draft : row;
-          return <div className="border border-[#ebeef5] p-4" key={rowId}>
-            <div className="mb-3 flex flex-wrap items-start gap-3"><strong className="text-sm text-[#303133]">{isBank ? `账户 ${index + 1}` : `联系人 ${index + 1}`}</strong><label className="ml-auto inline-flex cursor-pointer items-center gap-2 text-sm text-[#606266]"><input checked={Boolean(rowValue[defaultKey])} disabled={!editing} type="checkbox" onChange={(event) => void toggleDefault(row, event.target.checked)} />{isBank ? "默认账户" : "默认联系人"}</label>{editing ? <div className="flex items-center gap-3"><button className="text-sm text-[#1890ff]" type="button" onClick={() => openEdit(row)}>编辑</button><button className="text-sm text-[#f56c6c]" type="button" onClick={() => void remove(row)}>删除</button></div> : null}</div>
+          return <div className="border border-line-soft p-4" key={rowId}>
+            <div className="mb-3 flex flex-wrap items-start gap-3"><strong className="text-sm text-ink">{isBank ? `账户 ${index + 1}` : `联系人 ${index + 1}`}</strong><label className="ml-auto inline-flex cursor-pointer items-center gap-2 text-sm text-ink-2"><input checked={Boolean(rowValue[defaultKey])} disabled={!editing} type="checkbox" onChange={(event) => void toggleDefault(row, event.target.checked)} />{isBank ? "默认账户" : "默认联系人"}</label>{editing ? <div className="flex items-center gap-3"><button className="text-sm text-primary" type="button" onClick={() => openEdit(row)}>编辑</button><button className="text-sm text-danger" type="button" onClick={() => void remove(row)}>删除</button></div> : null}</div>
             <div className="grid gap-x-5 gap-y-4 md:grid-cols-2 lg:grid-cols-4">{fields.map((field) => <FieldEditor field={field} editing={rowEditing} key={field.key} value={rowValue[field.key]} onChange={(value) => setDraft((current) => ({ ...current, [field.key]: value }))} />)}</div>
           </div>;
         })}
-        {!visibleRows.length ? <div className="border border-dashed border-[#dcdfe6] px-4 py-8 text-center text-sm text-[#909399]">暂无{isBank ? "银行账户" : "联系人"}</div> : null}
+        {!visibleRows.length ? <div className="border border-dashed border-line px-4 py-8 text-center text-sm text-ink-3">暂无{isBank ? "银行账户" : "联系人"}</div> : null}
       </div>
-      {editingId !== null ? <form className="mt-4 border border-[#b3d8ff] bg-[#f4faff] p-4" onSubmit={save}><div className="mb-3 flex items-center"><strong className="text-sm text-[#303133]">{editingId ? `编辑${isBank ? "银行账户" : "联系人"}` : `新增${isBank ? "银行账户" : "联系人"}`}</strong><button className="ml-auto text-sm text-[#909399]" type="button" onClick={() => setEditingId(null)}>取消</button></div><div className="grid gap-x-5 gap-y-4 md:grid-cols-2 lg:grid-cols-4">{fields.map((field) => <FieldEditor field={field} editing value={draft[field.key]} key={field.key} onChange={(value) => setDraft((current) => ({ ...current, [field.key]: value }))} />)}</div><div className="mt-4 flex justify-end"><Button tone="primary" type="submit" disabled={saving}><Save size={15} />{saving ? "保存中..." : "保存"}</Button></div></form> : null}
+      {editingId !== null ? <form className="mt-4 border border-info-border bg-[#f4faff] p-4" onSubmit={save}><div className="mb-3 flex items-center"><strong className="text-sm text-ink">{editingId ? `编辑${isBank ? "银行账户" : "联系人"}` : `新增${isBank ? "银行账户" : "联系人"}`}</strong><button className="ml-auto text-sm text-ink-3" type="button" onClick={() => setEditingId(null)}>取消</button></div><div className="grid gap-x-5 gap-y-4 md:grid-cols-2 lg:grid-cols-4">{fields.map((field) => <FieldEditor field={field} editing value={draft[field.key]} key={field.key} onChange={(value) => setDraft((current) => ({ ...current, [field.key]: value }))} />)}</div><div className="mt-4 flex justify-end"><Button tone="primary" type="submit" disabled={saving}><Save size={15} />{saving ? "保存中..." : "保存"}</Button></div></form> : null}
     </section>
   );
 }
@@ -485,7 +485,7 @@ function AttachmentsSection({ config, ownerId, attachments, editing, onAttachmen
     await load();
   }
 
-  return <section className="border-t border-[#ebeef5] p-5"><div className="mb-4 flex items-center gap-2 border-b border-[#ebeef5] pb-3 text-[#1890ff]"><FileUp size={17} /><h2 className="text-base font-medium text-[#303133]">附件</h2><label className={`ml-auto inline-flex h-9 items-center gap-1 border border-[#dcdfe6] bg-white px-3 text-sm ${!editing || uploading.length ? "cursor-not-allowed text-[#c0c4cc]" : "cursor-pointer text-[#606266] hover:border-[#1890ff] hover:text-[#1890ff]"}`}><Plus size={15} />上传附件<input className="hidden" disabled={!editing || uploading.length > 0} type="file" multiple onChange={(event) => void upload(event)} /></label></div><div className="divide-y divide-[#ebeef5] border border-[#ebeef5]">{uploading.map((name) => <div className="flex items-center gap-3 px-4 py-3 text-sm" key={name}><FileUp className="text-[#1890ff]" size={17} /><div><strong>{name}</strong><div className="text-xs text-[#909399]">上传中...</div></div></div>)}{attachments.map((attachment) => <div className="flex items-center gap-3 px-4 py-3 text-sm" key={attachment.attachmentId}><FileUp className="text-[#909399]" size={17} /><div className="min-w-0 flex-1"><strong className="block truncate">{attachment.fileName}</strong><div className="text-xs text-[#909399]">{formatBytes(attachment.fileSize)} · {attachment.uploadedAt ? formatDisplayValue(attachment.uploadedAt, "datetime") : ""}</div></div><div className="flex items-center gap-3"><a className="inline-flex items-center gap-1 text-[#1890ff] hover:underline" download href={`/api/common/attachments/${encodeURIComponent(config.key)}/${encodeURIComponent(ownerId)}/${encodeURIComponent(attachment.attachmentId)}`}><Download size={15} />下载</a><button className="inline-flex items-center gap-1 text-[#f56c6c] disabled:cursor-not-allowed disabled:text-[#c0c4cc]" disabled={!editing} type="button" onClick={() => void remove(attachment)}><Trash2 size={15} />删除</button></div></div>)}{!attachments.length && !uploading.length ? <div className="px-4 py-8 text-center text-sm text-[#909399]">暂无附件</div> : null}</div></section>;
+  return <section className="border-t border-line-soft p-5"><div className="mb-4 flex items-center gap-2 border-b border-line-soft pb-3 text-primary"><FileUp size={17} /><h2 className="text-base font-medium text-ink">附件</h2><label className={`ml-auto inline-flex h-9 items-center gap-1 border border-line bg-white px-3 text-sm ${!editing || uploading.length ? "cursor-not-allowed text-ink-4" : "cursor-pointer text-ink-2 hover:border-primary hover:text-primary"}`}><Plus size={15} />上传附件<input className="hidden" disabled={!editing || uploading.length > 0} type="file" multiple onChange={(event) => void upload(event)} /></label></div><div className="divide-y divide-line-soft border border-line-soft">{uploading.map((name) => <div className="flex items-center gap-3 px-4 py-3 text-sm" key={name}><FileUp className="text-primary" size={17} /><div><strong>{name}</strong><div className="text-xs text-ink-3">上传中...</div></div></div>)}{attachments.map((attachment) => <div className="flex items-center gap-3 px-4 py-3 text-sm" key={attachment.attachmentId}><FileUp className="text-ink-3" size={17} /><div className="min-w-0 flex-1"><strong className="block truncate">{attachment.fileName}</strong><div className="text-xs text-ink-3">{formatBytes(attachment.fileSize)} · {attachment.uploadedAt ? formatDisplayValue(attachment.uploadedAt, "datetime") : ""}</div></div><div className="flex items-center gap-3"><a className="inline-flex items-center gap-1 text-primary hover:underline" download href={`/api/common/attachments/${encodeURIComponent(config.key)}/${encodeURIComponent(ownerId)}/${encodeURIComponent(attachment.attachmentId)}`}><Download size={15} />下载</a><button className="inline-flex items-center gap-1 text-danger disabled:cursor-not-allowed disabled:text-ink-4" disabled={!editing} type="button" onClick={() => void remove(attachment)}><Trash2 size={15} />删除</button></div></div>)}{!attachments.length && !uploading.length ? <div className="px-4 py-8 text-center text-sm text-ink-3">暂无附件</div> : null}</div></section>;
 }
 
 function formatBytes(value: number) {

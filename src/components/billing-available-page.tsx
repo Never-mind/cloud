@@ -245,14 +245,14 @@ export function BillingAvailablePage() {
   return (
     <div className="space-y-5 pb-24">
       <div>
-        <h1 className="text-xl font-medium text-[#303133]">待生成月账单实例</h1>
-        <p className="mt-1 text-sm text-[#909399]">已确认下单且尚未生成月账单台账的实例会在这里集中确认。</p>
+        <h1 className="text-xl font-medium text-ink">待生成月账单实例</h1>
+        <p className="mt-1 text-sm text-ink-3">已确认下单且尚未生成月账单台账的实例会在这里集中确认。</p>
       </div>
       <Panel>
-        <div className="flex flex-wrap items-center gap-2 border-b border-[#ebeef5] p-4">
+        <div className="flex flex-wrap items-center gap-2 border-b border-line-soft p-4">
           <Input placeholder="搜索国家/批次/需求单/PO/实例编码" value={keyword} onChange={(event) => setKeyword(event.target.value)} />
           <select
-            className="h-9 min-w-32 rounded border border-[#dcdfe6] bg-white px-3 text-sm outline-none focus:border-[#1890ff]"
+            className="h-9 min-w-32 rounded border border-line bg-white px-3 text-sm outline-none focus:border-primary"
             value={countryCode}
             onChange={(event) => setCountryCode(event.target.value)}
           >
@@ -267,7 +267,7 @@ export function BillingAvailablePage() {
               ))}
           </select>
           <select
-            className="h-9 min-w-28 rounded border border-[#dcdfe6] bg-white px-3 text-sm outline-none focus:border-[#1890ff]"
+            className="h-9 min-w-28 rounded border border-line bg-white px-3 text-sm outline-none focus:border-primary"
             value={requestType}
             onChange={(event) => setRequestType(event.target.value)}
           >
@@ -295,13 +295,13 @@ export function BillingAvailablePage() {
         </div>
         <StickyTable className="table-scroll overflow-auto" tableKey="billing-available">
           <table className="min-w-full border-collapse text-sm">
-            <thead className="bg-[#f5f7fa] text-[#303133]">
+            <thead className="bg-canvas text-ink">
               <tr>
-                <th className="table-select-cell border-b border-r border-[#ebeef5] py-3 text-center font-medium [&>input]:h-4 [&>input]:w-4 [&>input]:align-middle">
+                <th className="table-select-cell border-b border-r border-line-soft py-3 text-center font-medium [&>input]:h-4 [&>input]:w-4 [&>input]:align-middle">
                 <input checked={allVisibleSelected} type="checkbox" onChange={toggleAllVisible} />
                 </th>
                 {columns.map((column) => (
-                  <th className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium" key={column.key}>
+                  <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium" key={column.key}>
                     <TableColumnMenu
                       column={{ key: column.key, label: column.label, type: column.type, sortable: true, filterable: true }}
                       sortOrder={sortField === column.key ? sortOrder : ""}
@@ -312,17 +312,17 @@ export function BillingAvailablePage() {
                     />
                   </th>
                 ))}
-                <th className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium">起始核销月份</th>
+                <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">起始核销月份</th>
               </tr>
             </thead>
             <tbody>
               {rows.map((row) => (
-                <tr className="hover:bg-[#fafafa]" key={row.purchaseOrderItemId}>
-                  <td className="table-select-cell border-b border-r border-[#ebeef5] py-3 text-center [&>input]:h-4 [&>input]:w-4 [&>input]:align-middle">
+                <tr className="hover:bg-surface-2" key={row.purchaseOrderItemId}>
+                  <td className="table-select-cell border-b border-r border-line-soft py-3 text-center [&>input]:h-4 [&>input]:w-4 [&>input]:align-middle">
                     <input checked={selectedIds.includes(row.purchaseOrderItemId)} disabled={!row.instanceContractNo || !row.contractCurrency} type="checkbox" onChange={() => toggleSelected(row)} />
                   </td>
                   {columns.map((column) => (
-                    <td className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3" key={column.key}>
+                    <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3" key={column.key}>
                       {column.key === "instanceContractNo" ? (
                         <>
                           <Input
@@ -341,13 +341,13 @@ export function BillingAvailablePage() {
                                 </option>
                               ))}
                           </datalist>
-                          {!row.contractCurrency ? <div className="mt-1 text-xs text-[#f56c6c]">未匹配</div> : null}
+                          {!row.contractCurrency ? <div className="mt-1 text-xs text-danger">未匹配</div> : null}
                         </>
                       ) : (
                         <span
                           className={
                             (column.key === "differenceUnitPrice" || column.key === "differenceTotalPrice") && Number(row[column.key] ?? 0) < 0
-                              ? "text-[#f56c6c]"
+                              ? "text-danger"
                               : undefined
                           }
                         >
@@ -356,14 +356,14 @@ export function BillingAvailablePage() {
                       )}
                     </td>
                   ))}
-                  <td className="border-b border-r border-[#ebeef5] px-3 py-3">
+                  <td className="border-b border-r border-line-soft px-3 py-3">
                     <Input className="w-40 min-w-0" type="date" value={row.startMonth} onChange={(event) => updateStartMonth(row.purchaseOrderItemId, event.target.value)} />
                   </td>
                 </tr>
               ))}
               {!rows.length ? (
                 <tr>
-                  <td className="py-12 text-center text-[#909399]" colSpan={columns.length + 2}>
+                  <td className="py-12 text-center text-ink-3" colSpan={columns.length + 2}>
                     <TableStateContent empty="暂无可生成月账单的实例" loading={loading} />
                   </td>
                 </tr>
@@ -374,10 +374,10 @@ export function BillingAvailablePage() {
         <PaginationBar page={page} pageSize={pageSize} total={total} onPageChange={(next) => { setPage(next); void loadData(next, pageSizeRef.current); }} onPageSizeChange={(next) => { pageSizeRef.current = next; setPageSize(next); setPage(1); void loadData(1, next); }} />
       </Panel>
       {selectedIds.length ? (
-        <div className="fixed bottom-5 left-[230px] right-5 z-20 border border-[#1890ff] bg-white p-4 shadow-lg">
-          <div className="flex items-center gap-5 text-sm text-[#606266]">
-            <span>已选实例：<b className="text-[#303133]">{selectedRows.length}</b></span>
-            <span>已选数量：<b className="text-[#303133]">{selectedRows.reduce((total, row) => total + Number(row.quantity ?? 0), 0)}</b></span>
+        <div className="fixed bottom-5 left-[230px] right-5 z-20 border border-primary bg-white p-4 shadow-lg">
+          <div className="flex items-center gap-5 text-sm text-ink-2">
+            <span>已选实例：<b className="text-ink">{selectedRows.length}</b></span>
+            <span>已选数量：<b className="text-ink">{selectedRows.reduce((total, row) => total + Number(row.quantity ?? 0), 0)}</b></span>
             <span>未匹配合同的实例无法确认生成。</span>
             <Button className="ml-auto" disabled={!canConfirm || confirming} tone="primary" onClick={() => void confirmSelected()}>
               <CheckCircle2 size={15} />

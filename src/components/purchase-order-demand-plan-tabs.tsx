@@ -21,7 +21,7 @@ export function PurchaseOrderDemandPlanTabs({
 
   return (
     <Panel>
-      <div className="flex gap-2 border-b border-[#ebeef5] px-4 pt-3">
+      <div className="flex gap-2 border-b border-line-soft px-4 pt-3">
         <Button tone={activeTab === "sn" ? "primary" : "default"} onClick={() => setActiveTab("sn")}>
           要货计划SN码
         </Button>

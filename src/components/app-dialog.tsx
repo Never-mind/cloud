@@ -114,8 +114,8 @@ export function AppDialogHost() {
           className="fixed inset-0 z-[90] flex items-center justify-center bg-black/35 p-4"
           role="dialog"
         >
-          <div className="w-full max-w-md rounded border border-[#ebeef5] bg-white shadow-xl">
-            <div className="flex items-start gap-3 border-b border-[#ebeef5] px-4 py-3">
+          <div className="w-full max-w-md rounded border border-line-soft bg-white shadow-xl">
+            <div className="flex items-start gap-3 border-b border-line-soft px-4 py-3">
               <span className={`mt-0.5 ${confirmToneIconClass(confirmRequest.tone)}`}>
                 <AlertTriangle size={18} />
               </span>
@@ -132,7 +132,7 @@ export function AppDialogHost() {
             <div className="max-h-[60vh] overflow-auto whitespace-pre-line px-4 py-4 text-sm text-ink-2">
               {confirmRequest.message}
             </div>
-            <div className="flex justify-end gap-2 border-t border-[#ebeef5] px-4 py-3">
+            <div className="flex justify-end gap-2 border-t border-line-soft px-4 py-3">
               <Button onClick={() => finishConfirm(false)}>{confirmRequest.cancelText ?? "取消"}</Button>
               <Button autoFocus onClick={() => finishConfirm(true)} tone={confirmRequest.tone ?? "primary"}>
                 {confirmRequest.confirmText ?? "确定"}
@@ -175,13 +175,13 @@ function confirmToneIconClass(tone: ConfirmOptions["tone"]) {
 }
 
 function noticeToneClass(tone: NoticeTone) {
-  if (tone === "success") return "border-[#c2e7b0]";
+  if (tone === "success") return "border-success-border";
   if (tone === "error") return "border-[#fbc4c4]";
   return "border-line";
 }
 
 function noticeIcon(tone: NoticeTone) {
-  if (tone === "success") return <CheckCircle2 className="text-[#67c23a]" size={16} />;
+  if (tone === "success") return <CheckCircle2 className="text-success-strong" size={16} />;
   if (tone === "error") return <AlertTriangle className="text-danger" size={16} />;
   return <Info className="text-primary" size={16} />;
 }
