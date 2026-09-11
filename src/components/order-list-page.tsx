@@ -582,7 +582,7 @@ export function OrderListPage({
                       <StatusBadge mode={mode} value={String(row.status ?? "-")} />
                     </td>
                     {mode === "requests" ? (
-                      <td className="border-b border-r border-[#ebeef5] px-3 py-3">{formatRequestRemoteStatus(row.remoteStatus) || "-"}</td>
+                      <td className="border-b border-r border-[#ebeef5] px-3 py-3">{formatDisplayValue(row.remoteStatus, "text")}</td>
                     ) : null}
                     {mode === "purchase" ? (
                       <>

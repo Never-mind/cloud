@@ -230,6 +230,7 @@ export async function listOrderFilterOptions(searchParams: URLSearchParams) {
         countryCode: "UPPER(TRIM(SUBSTRING_INDEX(req.countryCode, '-', 1)))",
         batchName: "req.batchName",
         status: "req.status",
+        remoteStatus: "req.remoteStatus",
         requestType: "COALESCE(NULLIF(req.requestType, ''), '整机')",
         totalQuantity: "COALESCE((SELECT SUM(quantity) FROM requestitems quantityItem WHERE quantityItem.requestNo = req.requestNo), 0)",
         plannedDeliveryDate: formatTableDateExpression("req.plannedDeliveryDate"),
