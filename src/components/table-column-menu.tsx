@@ -87,7 +87,10 @@ export function applyLockedColumns(table: HTMLTableElement, lockedColumns: strin
       cell.style.position = "sticky";
       cell.style.left = `${left}px`;
       cell.style.zIndex = row.parentElement === table.tHead ? "35" : "25";
-      cell.style.backgroundColor = row.parentElement === table.tHead ? "#f5f7fa" : "#ffffff";
+      // 不在这里写内联背景色：内联样式优先级高于 CSS，会导致锁定列在行悬浮、
+      // 斑马纹变化时始终是白底（表现为"这一列不跟着变色"）。
+      // 底色改由 globals.css 的 [data-cloud-power-locked="1"] 规则统一控制。
+      cell.style.backgroundColor = "";
       if (index === indexes[indexes.length - 1]) cell.style.boxShadow = "2px 0 4px rgba(0, 0, 0, 0.08)";
     }
     left += width;

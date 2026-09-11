@@ -205,6 +205,12 @@ textarea {
   background: #ffffff;
 }
 
+/* 锁定列的底色统一在这里定义（表头灰底、数据行白底），
+   不要在 JS 里写内联 background，否则会盖住下面的斑马纹与悬浮色。 */
+thead [data-cloud-power-locked="1"] {
+  background-color: #f5f7fa;
+}
+
 /* 斑马纹与悬停：整体很淡，只用来辅助横向看行。
    底色加在 tr 上，带自定义底色的单元格（状态标记等）仍会覆盖它。 */
 .table-scroll > table > tbody > tr:nth-child(even) {

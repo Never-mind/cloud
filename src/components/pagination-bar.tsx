@@ -55,10 +55,12 @@ export function PaginationBar({
       </Button>
       <span className="ml-2">跳至</span>
       <Input
-        className="h-8 min-w-0 px-1 text-center text-xs"
+        aria-label="跳转页码"
+        // number 输入框右侧的原生上下箭头会占掉近 20px，42px 宽度下数字几乎看不见；
+        // 这里加宽并隐藏箭头，保留居中显示。
+        className="h-8 w-14 shrink-0 px-2 text-center text-xs [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
         max={state.totalPages}
         min={1}
-        style={{ width: 42 }}
         type="number"
         value={targetPage}
         onChange={(event) => setTargetPage(event.target.value)}
