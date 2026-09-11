@@ -1,20 +1,37 @@
 @import "tailwindcss";
 
-:root {
+/* 设计令牌。放在 @theme 里，Tailwind 会同时生成语义工具类，例如
+   text-ink-2、border-line-soft、bg-surface、text-danger，新代码优先用这些，
+   不要再写 text-[#606266] 这类硬编码颜色。变量本身也可用 var(--color-*) 引用。 */
+@theme {
+  /* 品牌与状态色 */
   --color-primary: #1890ff;
+  --color-primary-dark: #0f7ae0;
   --color-success: #13ce66;
-  --color-tab-active: #42b983;
+  --color-success-dark: #0fb457;
   --color-warning: #ffba00;
+  --color-warning-dark: #f0a900;
   --color-danger: #f56c6c;
+  --color-danger-soft: #fff0f0;
+  --color-tab-active: #42b983;
+
+  /* 文字层级，由深到浅 */
+  --color-ink: #303133;
+  --color-ink-2: #606266;
+  --color-ink-3: #909399;
+  --color-ink-4: #c0c4cc;
+
+  /* 线条、容器与背景 */
+  --color-line: #dcdfe6;
+  --color-line-soft: #ebeef5;
+  --color-surface: #ffffff;
+  --color-surface-2: #fafafa;
+  --color-canvas: #f5f7fa;
+
+  /* 左侧导航 */
   --color-sidebar: #304156;
   --color-sidebar-active: #263445;
   --color-sidebar-deep: #1f2d3d;
-  --color-text-primary: #303133;
-  --color-text-regular: #606266;
-  --color-text-secondary: #909399;
-  --color-border: #dcdfe6;
-  --color-table-border: #ebeef5;
-  --color-page-bg: #f5f7fa;
 }
 
 * {
@@ -23,8 +40,8 @@
 
 body {
   margin: 0;
-  background: var(--color-page-bg);
-  color: var(--color-text-regular);
+  background: var(--color-canvas);
+  color: var(--color-ink-2);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
     "Hiragino Sans GB", "Microsoft YaHei", Arial, sans-serif;
   font-size: 14px;

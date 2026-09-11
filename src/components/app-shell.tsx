@@ -296,14 +296,14 @@ export function AppShell({
 
   if (isEmbedded) {
     if (currentModuleKey && !isModuleFeatureEnabled(currentModuleKey, moduleFeatureState)) {
-      return <main className="min-h-screen bg-[var(--color-page-bg)] p-5" data-app-shell="inner"><div className="border border-[#ebeef5] bg-white p-6"><h1 className="text-lg font-medium text-[#303133]">功能模块暂未启用</h1><p className="mt-2 text-sm text-[#606266]">请联系管理员在“功能模块管理”中启用该功能。</p></div></main>;
+      return <main className="min-h-screen bg-canvas p-5" data-app-shell="inner"><div className="border border-[#ebeef5] bg-white p-6"><h1 className="text-lg font-medium text-[#303133]">功能模块暂未启用</h1><p className="mt-2 text-sm text-[#606266]">请联系管理员在“功能模块管理”中启用该功能。</p></div></main>;
     }
-    return <main className="app-embedded-page min-h-screen bg-[var(--color-page-bg)] p-4 sm:p-5" data-app-shell="inner">{children}</main>;
+    return <main className="app-embedded-page min-h-screen bg-canvas p-4 sm:p-5" data-app-shell="inner">{children}</main>;
   }
 
   if (!workspaceReady) {
     return (
-      <main className="min-h-screen bg-[var(--color-page-bg)]" data-app-shell="outer">
+      <main className="min-h-screen bg-canvas" data-app-shell="outer">
         <div className="flex min-h-screen items-center justify-center text-sm text-[#909399]">正在加载...</div>
       </main>
     );
@@ -562,7 +562,7 @@ export function AppShell({
               );
             })}
           {contentLoading && !displayedTabId ? (
-            <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center bg-[var(--color-page-bg)] text-sm text-[#606266]">
+            <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center bg-canvas text-sm text-[#606266]">
               <span className="border border-[#dcdfe6] bg-white px-3 py-2 shadow-sm">
                 正在加载页面...
               </span>

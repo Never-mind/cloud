@@ -26,6 +26,8 @@
     "schema:sync-merge": "tsx scripts/sync-merge-schema.mjs",
     "data:check-remote-gaps": "tsx scripts/check-remote-data-gaps.mjs",
     "data:backfill-remote-baseline": "tsx scripts/backfill-remote-baseline.mjs",
+    "data:backfill-remote-derived-data": "tsx scripts/backfill-remote-derived-data.mjs",
+    "data:analyze-remote-backfill": "tsx scripts/analyze-remote-backfill.mjs",
     "migrate": "tsx scripts/migrate.ts",
     "cleanup:operation-logs": "tsx scripts/cleanup-operation-logs.ts",
     "sync:cloud-supplier-payments": "tsx scripts/sync-cloud-supplier-payments.ts",

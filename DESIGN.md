@@ -128,6 +128,25 @@ AppShell
 - 不使用装饰性彩色光斑、插画背景或营销化视觉。
 - 同一页面最多保留 1 个主操作按钮，其余用次级或文本按钮。
 
+### 3.4 对比度要求
+
+正文和需要看清的文字必须达到 WCAG AA 4.5:1，界面控件的边界与图标达到 3:1。
+
+| 组合 | 对比度 | 结论 |
+| --- | --- | --- |
+| `#303133` / 白底 | 13.0:1 | ✅ |
+| `#606266` / 白底 | 6.1:1 | ✅ 正文首选 |
+| `#909399` / 白底 | 3.1:1 | ⚠ 只能用于禁用态、非关键标签、占位文字 |
+| `#1890ff` 实心 + 白字 | 3.2:1 | ⚠ 按钮可接受（控件 3:1），长文本不要用 |
+| `#ffba00` 实心 + 白字 | 1.7:1 | ❌ 禁止。warning 按钮必须用深色文字 `#5a3d00`（5.8:1） |
+| `#13ce66` 实心 + 白字 | 2.1:1 | ⚠ 仅限短按钮文字，不要用于正文 |
+
+规则：
+
+- 提示、说明、空态文案统一用 `#606266`，不要用 `#909399`。
+- 实心彩色按钮上的文字如果对比度不足 4.5:1，短按钮可接受，但同一位置不要出现长句。
+- 新增颜色前先算对比度，不要凭肉眼判断。
+
 ## 4. 字体与排版
 
 ### 4.1 字体
@@ -265,6 +284,47 @@ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
 - 支持每页条数选择，例如 `10条/页`、`20条/页`。
 - 中间显示页码、上一页、下一页。
 - 右侧支持跳转页码，例如 `前往 1 页`。
+
+### 6.5 实现约定（重要，踩坑记录）
+
+表格相关的样式集中在 `src/app/globals.css`，组件里不要重复定义。
+
+**1）列宽下限**
+
+```css
+.table-scroll > table > thead > tr > th,
+.table-scroll > table > tbody > tr > td {
+  min-width: 4rem;
+}
+```
+
+这条规则给每一列一个防挤压底线。**注意它的选择器权重高于 Tailwind 的 `w-*`，而且 `min-width` 本身压过 `width`**：只给单元格写 `w-8`、`w-4` 是不生效的，列仍会被撑到 64px。历史上一度是 `min-width: 7rem`（112px），导致窄列被白白撑宽、表格频繁横向滚动，也造成"列宽怎么调都没反应"的排查困惑。
+
+**2）窄列（序号、勾选、状态图标等）**
+
+需要一列明显窄于其他列时，在该单元格上加 `table-select-cell` 标记类，用更高权重的规则豁免：
+
+```css
+.table-scroll > table > thead > tr > th.table-select-cell,
+.table-scroll > table > tbody > tr > td.table-select-cell {
+  width: 2.5rem;        /* 40px */
+  min-width: 0;
+  padding-left: 0.5rem;
+  padding-right: 0.5rem;
+}
+```
+
+批量选择列表头与数据格都要加这个类，复选框尺寸由单元格上的 `[&>input]:h-4 [&>input]:w-4 [&>input]:align-middle` 控制，改尺寸只改这一处，不要逐个 `<input>` 写样式。
+
+**3）操作列**
+
+操作列固定在右侧，靠 `data-cloud-power-action-column="1"` 属性触发 sticky，不要用自写的 `position: sticky`。
+
+**4）批量操作**
+
+- 表头复选框全选当前页，不是全选筛选结果。
+- 批量操作必须逐条 try/catch，单条失败不影响其余，返回 `{ succeeded, failed }`。
+- 失败项保留勾选并在弹窗里列业务单号与原因。
 
 ## 7. 表单与弹窗
 
@@ -436,40 +496,72 @@ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
 - 不在表格内堆叠复杂多行卡片。
 - 不让删除操作与普通编辑操作同等视觉强度。
 
+### 11.4 样式落地约定
+
+**禁止直接写十六进制颜色。** 新代码一律使用语义工具类，颜色只在一个地方定义（`globals.css` 的 `@theme`）。
+
+| 用途 | 用这个 | 不要再写 |
+| --- | --- | --- |
+| 主文字 | `text-ink` | `text-[#303133]` |
+| 正文 | `text-ink-2` | `text-[#606266]` |
+| 次要/禁用 | `text-ink-3` | `text-[#909399]` |
+| 占位符 | `text-ink-4` | `text-[#c0c4cc]` |
+| 控件边框 | `border-line` | `border-[#dcdfe6]` |
+| 表格线 | `border-line-soft` | `border-[#ebeef5]` |
+| 容器底色 | `bg-surface` | `bg-white`（语义化优先） |
+| 次层底色 | `bg-surface-2` | `bg-[#fafafa]` |
+| 页面底色 | `bg-canvas` | `bg-[#f5f7fa]` |
+| 主色 / 危险 | `text-primary` / `text-danger` | `text-[#1890ff]` / `text-[#f56c6c]` |
+
+补充约定：
+
+- 按钮、输入框、文本域统一用 `src/components/ui.tsx` 里的 `Button` / `Input` / `Textarea` / `Panel`，不要在业务页面里手写一套。
+- 按钮类型只选 `default` / `primary` / `success` / `warning` / `danger`，hover 与焦点态由组件内部处理，业务页面不要再写 `hover:opacity-*`。
+- 弹窗、抽屉、下拉浮层用 `createPortal` 挂到 `body`，避免被父容器的 `overflow: hidden` 裁切。
+- 组件容器如果要加 `overflow: hidden`，先确认里面没有 `position: sticky` 子元素（例如结差页的浮动汇总条），否则 sticky 会失效。
+
+**迁移节奏**：现有代码里还有约 2500 处硬编码颜色，按模块渐进替换，不要一次性全局搜索替换。改到哪个页面就顺手把该页面的颜色换成语义类，配合页面回归验证。
+
 ## 12. 设计令牌建议
 
 ```css
-:root {
+@theme {
+  /* 品牌与状态色 */
   --color-primary: #1890ff;
+  --color-primary-dark: #0f7ae0;
   --color-success: #13ce66;
-  --color-tab-active: #42b983;
+  --color-success-dark: #0fb457;
   --color-warning: #ffba00;
+  --color-warning-dark: #f0a900;
   --color-danger: #f56c6c;
+  --color-danger-soft: #fff0f0;
+  --color-tab-active: #42b983;
+
+  /* 文字层级，由深到浅 */
+  --color-ink: #303133;
+  --color-ink-2: #606266;
+  --color-ink-3: #909399;
+  --color-ink-4: #c0c4cc;
+
+  /* 线条、容器与背景 */
+  --color-line: #dcdfe6;
+  --color-line-soft: #ebeef5;
+  --color-surface: #ffffff;
+  --color-surface-2: #fafafa;
+  --color-canvas: #f5f7fa;
+
+  /* 左侧导航 */
   --color-sidebar: #304156;
   --color-sidebar-active: #263445;
   --color-sidebar-deep: #1f2d3d;
-  --color-text-primary: #303133;
-  --color-text-regular: #606266;
-  --color-text-secondary: #909399;
-  --color-text-placeholder: #c0c4cc;
-  --color-border: #dcdfe6;
-  --color-table-border: #ebeef5;
-  --color-page-bg: #f5f7fa;
-  --color-white: #ffffff;
-
-  --font-size-base: 14px;
-  --font-size-small: 13px;
-  --font-size-dialog-title: 18px;
-  --font-size-home-title: 28px;
-
-  --sidebar-width: 210px;
-  --topbar-height: 50px;
-  --tabs-height: 34px;
-  --control-height: 36px;
-  --table-row-height: 52px;
-  --radius-base: 4px;
 }
 ```
+
+说明：
+
+- 令牌写在 `@theme` 而不是 `:root`，Tailwind 才会据此生成 `text-ink-2`、`border-line-soft`、`bg-surface` 这类语义工具类；同时变量本身仍可通过 `var(--color-primary)` 在自定义 CSS 中引用。
+- Tailwind 按需生成：某个语义类只有在代码里被用到时才会出现在产物 CSS 中，因此"产物里搜不到某个类"不代表令牌没生效。
+- 尺寸类约定沿用 Tailwind 默认刻度：控件高度 `h-9`（36px）、圆角 `rounded`（4px）、表格单元格内边距 `px-3 py-3`。
 
 ## 13. 当前系统观察摘要
 
@@ -483,3 +575,64 @@ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
 - 新建报价使用大弹窗、双列表单和英文分组标题。
 - 操作按钮颜色层级明确：蓝色查询/新建、绿色导入、黄色导出、红色删除。
 - 配置类页面比业务页面更轻，但仍沿用同一工具栏和表格体系。
+
+### 13.1 2026-09-11 实测现状与差距
+
+以下是直接扫描代码得到的数据，用于判断规范落地程度：
+
+| 项目 | 实测 | 说明 |
+| --- | --- | --- |
+| 硬编码十六进制颜色 | 约 2,500 处 / 20 余种色值 | 令牌已定义但基本没被使用 |
+| 重复的表格单元格样式 | `border-b border-r border-[#ebeef5]` 出现 415 次 | 缺少统一的表格样式出口 |
+| `focus-visible` 使用 | 0 处 | 键盘操作看不到焦点 |
+| 骨架屏 | 0 处，`加载中...` 文字 43 处 | 列表加载是白屏后跳变 |
+| 近似重复色 | 3 种淡红、2 种绿、2 种灰 | 需要收敛到令牌 |
+| 每列最小宽度 | 曾为 `7rem`（112px），已改为 `4rem` | 影响表格观感的主要因素 |
+
+### 13.2 已完成的整改（2026-09-11）
+
+| 项 | 状态 |
+| --- | --- |
+| 键盘焦点样式 | ✅ 已补，按钮 `focus-visible:ring-2 ring-[#1890ff]/35`，输入框 `focus:ring-2` |
+| 按钮 hover | ✅ 由整体 `opacity` 改为背景色过渡 |
+| warning 按钮对比度 | ✅ 白字 1.7:1 → 深棕字 `#5a3d00`，5.8:1 |
+| 表格列宽下限 | ✅ 7rem → 4rem |
+| 滚动条 | ✅ 统一细滚动条样式，并补旧版 Chromium 兼容 |
+| 减少动态效果 | ✅ 支持 `prefers-reduced-motion` |
+| 语义令牌 | ✅ `@theme` 已建立，`bg-canvas` 等工具类可用 |
+| 死代码清理 | ✅ 删除 2 个零引用组件（约 60KB）、2 个废弃脚本 |
+
+### 13.3 待整改
+
+1. 约 2,500 处硬编码颜色按模块渐进替换为语义类。
+2. 表格样式抽公共出口，去掉纵向分隔线并评估是否需要斑马纹。
+3. 列表加载态改骨架屏，空状态做成"图标 + 说明 + 主操作"的标准组件。
+4. `Panel` 圆角与控件圆角统一（需先处理结差页 `sticky bottom-4` 浮动条与 `overflow: hidden` 的冲突）。
+5. 原生 `confirm()` / `alert()` 替换为统一确认弹窗组件。
+6. 约 45 个导出函数、40 余个导出类型在库外没有引用，可评估收缩导出面。
+
+## 14. 可访问性
+
+### 14.1 键盘焦点
+
+所有可交互元素必须有可见焦点样式，统一使用：
+
+```text
+focus-visible:ring-2 focus-visible:ring-[#1890ff]/35 focus-visible:ring-offset-1
+```
+
+输入类控件用 `focus:` 而不是 `focus-visible:`，保证鼠标点击也有反馈：
+
+```text
+focus:border-[#1890ff] focus:ring-2 focus:ring-[#1890ff]/20
+```
+
+按钮和输入框的这套样式已经内置在 `src/components/ui.tsx`，业务页面不要再写 `outline-none` 把焦点去掉。
+
+### 14.2 其他
+
+- 纯图标按钮必须带 `aria-label` 或 `title`。
+- 开关类控件使用 `role="switch"` + `aria-checked`。
+- 表单字段的可见标签用 `<label>` 包裹，不要只用 placeholder 代替标签。
+- 尊重 `prefers-reduced-motion`，已在 `globals.css` 统一处理。
+- 颜色不是唯一的信息载体：状态除了颜色，还要有文字。
