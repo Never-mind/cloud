@@ -10,7 +10,7 @@ export const SETTLEMENT_CURRENCIES = ["CNY", "USD", "MXN"] as const;
 export type SettlementCurrency = (typeof SETTLEMENT_CURRENCIES)[number];
 export const SETTLEMENT_PRICE_TYPES = ["tax_included", "tax_excluded"] as const;
 export type SettlementPriceType = (typeof SETTLEMENT_PRICE_TYPES)[number];
-export const SETTLEMENT_STATUSES = ["purchasing", "procurement_completed", "accepting", "closed"] as const;
+export const SETTLEMENT_STATUSES = ["purchasing", "procurement_completed", "accepting", "acceptance_completed", "closed"] as const;
 export type SettlementProjectStatus = (typeof SETTLEMENT_STATUSES)[number];
 export type SettlementExpenseType = "first_mile_freight" | "customs_fee" | "labor_fee" | "equipment_service_fee" | "other";
 export type SettlementInvoiceType = "income" | "cost";
@@ -248,6 +248,7 @@ export function settlementStatusLabel(value: unknown) {
     purchasing: "采购中",
     procurement_completed: "采购完成",
     accepting: "验收中",
+    acceptance_completed: "验收完成",
     closed: "已完结",
   }[normalizeSettlementStatus(value)];
 }
@@ -931,7 +932,7 @@ export async function deleteSettlementInvoice(projectId: string, invoiceId: stri
 }
 
 export async function addSettlementAttachment(projectId: string, input: Record<string, unknown>, actor: OperationActor | null, invoiceId: string | null = null) {
-  const project = await getProject(projectId); assertEditable(project);
+  const project = await getProject(projectId);
   const fileName = text(input.fileName);
   const dataUrl = text(input.dataUrl);
   if (!fileName || !dataUrl) throw new Error("附件文件不能为空");
@@ -948,7 +949,7 @@ export async function addSettlementAttachment(projectId: string, input: Record<s
 }
 
 export async function deleteSettlementAttachment(projectId: string, attachmentId: string, actor: OperationActor | null) {
-  const project = await getProject(projectId); assertEditable(project);
+  const project = await getProject(projectId);
   await execute("DELETE FROM merge_po_settlement_attachments WHERE id=:id AND projectId=:projectId", { id: attachmentId, projectId });
   return touchAndRecalculate(projectId, actor);
 }
@@ -971,6 +972,8 @@ export async function changeSettlementStatus(projectId: string, nextStatus: Sett
   } else if (project.status === "procurement_completed") {
     if (status !== "accepting") throw new Error("当前状态只能进入验收中");
   } else if (project.status === "accepting") {
+    if (status !== "acceptance_completed") throw new Error("当前状态只能进入验收完成");
+  } else if (project.status === "acceptance_completed") {
     if (status !== "closed") throw new Error("当前状态只能进入已完结");
   } else {
     throw new Error("项目结算状态流转不合法");
@@ -979,6 +982,7 @@ export async function changeSettlementStatus(projectId: string, nextStatus: Sett
   const assignments = ["status = :status"];
   if (status === "procurement_completed") { assignments.push("procurementCompletedAt = CURRENT_TIMESTAMP"); }
   if (status === "accepting") { assignments.push("acceptanceStartedAt = CURRENT_TIMESTAMP"); }
+  if (status === "acceptance_completed") { assignments.push("acceptanceCompletedAt = CURRENT_TIMESTAMP"); }
   if (status === "closed") { assignments.push("closedAt = CURRENT_TIMESTAMP"); Object.assign(fields, actorFields(actor, "confirm")); assignments.push("confirmedByUserId=:confirmedByUserId", "confirmedByName=:confirmedByName", "confirmedAt=:confirmedAt"); }
   if (actor) assignments.push("updatedByUserId=:updatedByUserId", "updatedByName=:updatedByName");
   await execute(`UPDATE merge_po_settlement_projects SET ${assignments.join(", ")} WHERE id=:id`, { ...fields, ...(actor ? { updatedByUserId: actor.userId, updatedByName: actor.displayName } : {}) });

@@ -553,6 +553,11 @@ async function main() {
     "`projectName` VARCHAR(255) NULL COMMENT 'project name' AFTER `quotationNo`",
   );
   await addColumnIfMissing(
+    "merge_po_settlement_projects",
+    "acceptanceCompletedAt",
+    "`acceptanceCompletedAt` DATETIME NULL COMMENT 'acceptance completed time' AFTER `acceptanceStartedAt`",
+  );
+  await addColumnIfMissing(
     "merge_po_settlement_invoices",
     "isInvoiced",
     "`isInvoiced` TINYINT(1) NOT NULL DEFAULT 0 COMMENT 'whether invoice has been issued' AFTER `isPaid`",
