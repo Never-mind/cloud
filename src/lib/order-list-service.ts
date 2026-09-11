@@ -78,6 +78,8 @@ async function listRequests(options: {
         req.batchName,
         req.requestType,
         req.status,
+        req.remoteStatus,
+        req.remoteCancelledItemCount,
         req.createdByName,
         req.updatedByName,
         req.confirmedByName,
@@ -88,7 +90,7 @@ async function listRequests(options: {
       FROM requests AS req
       LEFT JOIN requestitems AS ri ON ri.requestNo = req.requestNo
       ${baseWhere ? `WHERE ${baseWhere}` : ""}
-      GROUP BY req.requestNo, req.countryCode, req.contractNo, req.batchName, req.requestType, req.status,
+      GROUP BY req.requestNo, req.countryCode, req.contractNo, req.batchName, req.requestType, req.status, req.remoteStatus,
         req.createdByName, req.updatedByName, req.confirmedByName,
         req.plannedDeliveryDate, req.createdAt, req.updatedAt
       ORDER BY ${getRequestOrderBy(options.sortField, options.sortOrder)}
@@ -351,6 +353,7 @@ function getRequestOrderBy(sortField: string, sortOrder: "ASC" | "DESC") {
     batchName: "req.batchName",
     requestType: "req.requestType",
     status: "req.status",
+    remoteStatus: "req.remoteStatus",
     plannedDeliveryDate: "req.plannedDeliveryDate",
     totalQuantity: "totalQuantity",
     createdAt: "req.createdAt",
@@ -400,6 +403,7 @@ function buildRequestColumnFilters(searchParams: URLSearchParams, params: Row) {
     countryCode: "req.countryCode",
     batchName: "req.batchName",
     status: "req.status",
+    remoteStatus: "req.remoteStatus",
     requestType: "COALESCE(NULLIF(req.requestType, ''), '整机')",
     totalQuantity: "COALESCE((SELECT SUM(quantity) FROM requestitems quantityItem WHERE quantityItem.requestNo = req.requestNo), 0)",
     plannedDeliveryDate: formatTableDateExpression("req.plannedDeliveryDate"),

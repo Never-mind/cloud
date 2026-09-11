@@ -8,6 +8,7 @@ import { CheckCircle2, FileDown, Pencil, Plus, RefreshCw, Search, Trash2 } from 
 import { formatDisplayValue } from "@/lib/display-format";
 import type { EntityConfig } from "@/lib/modules";
 import { isConfirmedOrderStatus, type OrderStatusTab } from "@/lib/order-status";
+import { formatRequestRemoteStatus } from "@/lib/request-remote-status";
 import {
   getOrderListColumnKeys,
   getOrderListPrimaryDisplayValue,
@@ -307,7 +308,7 @@ export function OrderListPage({
     const columns: Array<[string, string, string?]> =
       mode === "requests"
         ? [
-            ["requestNo", "需求单号"], ["countryCode", "国家"], ["batchName", "批次号"], ["status", "状态"],
+            ["requestNo", "需求单号"], ["countryCode", "国家"], ["batchName", "批次号"], ["status", "状态"], ["remoteStatus", "远端状态"],
             ["totalQuantity", "总数量"], ["plannedDeliveryDate", "计划交付日期", "date"],
             ["createdAt", "创建日期", "datetime"], ["updatedAt", "更新日期", "datetime"],
           ]
@@ -490,6 +491,9 @@ export function OrderListPage({
                   </th>
                 ) : null}
                 <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium">{renderHeader("status", "状态")}</th>
+                {mode === "requests" ? (
+                  <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium">{renderHeader("remoteStatus", "远端状态")}</th>
+                ) : null}
                 {mode === "purchase" ? (
                   <>
                         <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium">{renderHeader("currency", "币种")}</th>
@@ -577,6 +581,9 @@ export function OrderListPage({
                     <td className="border-b border-r border-[#ebeef5] px-3 py-3">
                       <StatusBadge mode={mode} value={String(row.status ?? "-")} />
                     </td>
+                    {mode === "requests" ? (
+                      <td className="border-b border-r border-[#ebeef5] px-3 py-3">{formatRequestRemoteStatus(row.remoteStatus) || "-"}</td>
+                    ) : null}
                     {mode === "purchase" ? (
                       <>
                         <td className="border-b border-r border-[#ebeef5] px-3 py-3">
