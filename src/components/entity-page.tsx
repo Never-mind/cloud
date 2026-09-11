@@ -1052,10 +1052,10 @@ export function EntityPage({
       </Panel>
 
       {showForm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 p-4">
           <form
             action={saveRow}
-            className="max-h-[84vh] w-[820px] overflow-auto bg-white p-6 shadow-xl"
+            className="max-h-[88vh] w-[820px] overflow-auto rounded border border-line-soft bg-white p-6 shadow-xl"
           >
             <div className="mb-5 flex items-center">
               <h2 className="text-lg text-ink">{editing ? `编辑${config.title}` : `新建${config.title}`}</h2>
@@ -1367,8 +1367,8 @@ export function EntityPage({
       )}
 
       {showFieldSettings && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45">
-          <div className="w-[720px] bg-white p-6 shadow-xl">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 p-4">
+          <div className="w-[720px] rounded border border-line-soft bg-white p-6 shadow-xl">
             <div className="mb-4 flex items-center">
               <div>
                 <h2 className="text-lg text-ink">物流字段设置</h2>

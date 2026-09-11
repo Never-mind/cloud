@@ -137,7 +137,7 @@ export function PowerPriceCalculationDrawer({
 
   return (
     <>
-      <button aria-label="关闭价格测算" className="fixed inset-0 z-40 bg-black/20" type="button" onClick={onClose} />
+<button aria-label="关闭价格测算" className="fixed inset-0 z-[90] bg-black/40" type="button" onClick={onClose} />
       <aside className="fixed inset-y-0 right-0 z-50 flex w-full max-w-[760px] flex-col border-l border-line bg-white shadow-2xl">
         <div className="flex items-start justify-between border-b border-line-soft px-5 py-4">
           <div>

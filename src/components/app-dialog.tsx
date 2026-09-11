@@ -111,7 +111,7 @@ export function AppDialogHost() {
       {confirmRequest ? (
         <div
           aria-modal="true"
-          className="fixed inset-0 z-[90] flex items-center justify-center bg-black/35 p-4"
+          className="fixed inset-0 z-[90] flex items-center justify-center bg-black/40 p-4"
           role="dialog"
         >
           <div className="w-full max-w-md rounded border border-line-soft bg-white shadow-xl">

@@ -479,8 +479,8 @@ function MappingDialog({ mapping, masters, onCancel, onSave }: { mapping: Mappin
   const canSave = !shouldSelectTarget || Boolean(localEntityId);
   const title = mapping.status === "pending" || mapping.status === "conflict" ? "选择本地档案并确认" : "修改映射";
 
-  return <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-    <div className="w-full max-w-2xl bg-white shadow-xl">
+  return <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 p-4">
+    <div className="w-full max-w-2xl rounded border border-line-soft bg-white shadow-xl">
       <div className="flex items-center justify-between border-b border-line-soft px-5 py-4">
         <h2 className="text-lg font-medium text-ink">{title}</h2>
         <button type="button" title="关闭" onClick={onCancel}><X size={17} /></button>

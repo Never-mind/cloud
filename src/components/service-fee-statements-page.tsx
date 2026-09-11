@@ -674,8 +674,8 @@ export function ServiceFeeStatementsPage() {
         />
       </Panel>
       {repaymentDraft ? (
-        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/35 p-4" role="dialog" aria-modal="true" aria-label="登记回款信息">
-          <div className="w-full max-w-[680px] border border-line-soft bg-white shadow-xl">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 p-4" role="dialog" aria-modal="true" aria-label="登记回款信息">
+          <div className="w-full max-w-[680px] rounded border border-line-soft bg-white shadow-xl">
             <div className="flex items-center border-b border-line-soft px-5 py-4">
               <div>
                 <h2 className="font-medium text-ink">登记回款信息</h2>
@@ -742,8 +742,8 @@ export function ServiceFeeStatementsPage() {
         </div>
       ) : null}
       {invoiceDraft ? (
-        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/35 p-4" role="dialog" aria-modal="true" aria-label="编辑发票信息">
-          <div className="w-full max-w-[680px] border border-line-soft bg-white shadow-xl">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 p-4" role="dialog" aria-modal="true" aria-label="编辑发票信息">
+          <div className="w-full max-w-[680px] rounded border border-line-soft bg-white shadow-xl">
             <div className="flex items-center border-b border-line-soft px-5 py-4">
               <div>
                 <h2 className="font-medium text-ink">编辑发票信息</h2>

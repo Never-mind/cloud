@@ -17,8 +17,8 @@ export function WorkspaceNavigationDialog({
   onOpen: () => void;
 }) {
   return (
-    <div className="fixed inset-0 z-[130] flex items-center justify-center bg-black/35 p-4" role="dialog" aria-modal="true" aria-labelledby="workspace-navigation-title">
-      <div className="w-full max-w-[460px] border border-line-soft bg-white shadow-xl">
+    <div className="fixed inset-0 z-[130] flex items-center justify-center bg-black/40 p-4" role="dialog" aria-modal="true" aria-labelledby="workspace-navigation-title">
+      <div className="w-full max-w-[460px] rounded border border-line-soft bg-white shadow-xl">
         <div className="flex items-center border-b border-line-soft px-5 py-4">
           <h2 id="workspace-navigation-title" className="font-medium text-ink">{title}</h2>
           <button className="ml-auto text-ink-3 hover:text-ink" type="button" title="关闭" aria-label="关闭" onClick={onStay}>
