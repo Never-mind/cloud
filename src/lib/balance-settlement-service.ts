@@ -259,10 +259,11 @@ export async function listInstanceSettlementCandidates({
   const version = pricingVersionId ? await findPricingVersion(pricingVersionId) : undefined;
   if (pricingVersionId && !version) throw new Error("\u951a\u5b9a\u4ef7\u683c\u7248\u672c\u4e0d\u5b58\u5728\u6216\u5c1a\u672a\u786e\u8ba4");
   const appliedCountryCode = text(version?.countryCode) || text(countryCode);
-  const conditions = ["po.status = :purchaseStatus", "(req.requestType IS NULL OR req.requestType <> :spareType)"];
+  const conditions = ["po.status = :purchaseStatus", "(req.requestType IS NULL OR req.requestType <> :spareType)", "(req.status IS NULL OR req.status <> :requestCancelledStatus)"];
+  const paramsCancelled = "已取消";
   // 只有设备类型的实例进入实例结差候选。
   conditions.push(EQUIPMENT_ONLY_INSTANCE_CONDITION);
-  const params: Row = { purchaseStatus: CONFIRMED, spareType: SPARE_PART, pricingVersionId: text(pricingVersionId) };
+  const params: Row = { purchaseStatus: CONFIRMED, spareType: SPARE_PART, requestCancelledStatus: paramsCancelled, pricingVersionId: text(pricingVersionId) };
 
   if (appliedCountryCode) {
     conditions.push("req.countryCode = :countryCode");

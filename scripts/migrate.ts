@@ -274,6 +274,16 @@ async function ensureFrappeDemandSyncTables() {
   ] as const) {
     await addColumnIfMissing("merge_power_demand_sync_items", columnName, ddl);
   }
+  for (const [columnName, ddl] of [
+    ["remoteStatus", "`remoteStatus` VARCHAR(32) NULL COMMENT 'remote fulfillment status'"],
+    ["remoteStatusUpdatedAt", "`remoteStatusUpdatedAt` DATETIME NULL COMMENT 'remote status update time'"],
+    ["remoteCancelledItemCount", "`remoteCancelledItemCount` INT NOT NULL DEFAULT 0 COMMENT 'remote cancelled item count'"],
+    ["cancelReason", "`cancelReason` VARCHAR(32) NULL COMMENT 'remote_cancelled/local_manual/local_deleted'"],
+    ["cancelledAt", "`cancelledAt` DATETIME NULL COMMENT 'cancel time'"],
+    ["cancelledByName", "`cancelledByName` VARCHAR(255) NULL COMMENT 'cancel operator'"],
+  ] as const) {
+    await addColumnIfMissing("merge_power_requests", columnName, ddl);
+  }
 }
 
 async function ensureOperationLogTable() {

@@ -67,10 +67,11 @@ export async function listAvailablePrepaymentLines(options: {
       WHERE pci.purchaseOrderItemId = poi.id AND pc.status IN ('草稿', '已确认')
     )`,
     "COALESCE(NULLIF(poi.requestType, ''), NULLIF(ri.requestType, ''), NULLIF(req.requestType, ''), '整机') = COALESCE(NULLIF(:requestType, ''), COALESCE(NULLIF(poi.requestType, ''), NULLIF(ri.requestType, ''), NULLIF(req.requestType, ''), '整机'))",
+    "(req.status IS NULL OR req.status <> :requestCancelledStatus)",
     // 只有设备类型的实例进入预付款流程。
     EQUIPMENT_ONLY_INSTANCE_CONDITION,
   ];
-  const params: Row = { purchaseStatus: "%确认%", requestDraftStatus: "草稿", requestType: options.requestType?.trim() || null };
+  const params: Row = { purchaseStatus: "%确认%", requestDraftStatus: "草稿", requestCancelledStatus: "已取消", requestType: options.requestType?.trim() || null };
   if (options.countryCode?.trim()) {
     conditions.push("req.countryCode = :countryCode");
     params.countryCode = options.countryCode.trim();

@@ -266,7 +266,8 @@ export async function listAvailableBillingLines(options: {
     // 只有设备类型的实例进入月账单流程。
     EQUIPMENT_ONLY_INSTANCE_CONDITION,
   ];
-  const params: Row = { purchaseStatus: "%确认%", requestDraftStatus: "草稿", sparePartType: "备件" };
+  const params: Row = { purchaseStatus: "%确认%", requestDraftStatus: "草稿", requestCancelledStatus: "已取消", sparePartType: "备件" };
+  conditions.push("(req.status IS NULL OR req.status <> :requestCancelledStatus)");
   if (options.requestType?.trim() && options.requestType.trim() !== "备件") {
     conditions.push("COALESCE(NULLIF(poi.requestType, ''), NULLIF(ri.requestType, ''), NULLIF(req.requestType, ''), '整机') = :requestType");
     params.requestType = options.requestType.trim();
@@ -410,7 +411,7 @@ export async function listAvailableBillingLineFilterOptions(searchParams: URLSea
       "COALESCE(NULLIF(poi.requestType, ''), NULLIF(ri.requestType, ''), NULLIF(req.requestType, ''), '整机') <> :availableSparePartType",
       EQUIPMENT_ONLY_INSTANCE_CONDITION,
     ],
-    params: { availablePurchaseStatus: "%确认%", availableRequestDraftStatus: "草稿", availableSparePartType: "备件" },
+    params: { availablePurchaseStatus: "%确认%", availableRequestDraftStatus: "草稿", availableRequestCancelledStatus: "已取消", availableSparePartType: "备件" },
   });
 }
 

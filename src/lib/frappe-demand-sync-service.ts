@@ -7,6 +7,7 @@ const SOURCE_SYSTEM = "frappe";
 const MAPPING_TABLE = "merge_power_demand_sync_mappings";
 const RUN_TABLE = "merge_power_demand_sync_runs";
 const ITEM_TABLE = "merge_power_demand_sync_items";
+const REQUEST_TABLE = "merge_power_requests";
 const SYNC_LOCK_NAME = "suanli-frappe-demand-sync";
 const DEFAULT_API_BASE_URL = "http://192.168.2.27:1337";
 const DEFAULT_PAGE_SIZE = 200;
@@ -952,6 +953,8 @@ export async function runFrappeDemandSync({ triggerType = "manual", dryRun = fal
     await connection.execute(`INSERT INTO ${RUN_TABLE} (syncRunId,triggerType,status,dryRun,startedAt) VALUES (?,?,'running',?,CURRENT_TIMESTAMP)`, [runId, triggerType, dryRun ? 1 : 0]);
     const snapshot = await loadRemoteSnapshot();
     await Promise.all(snapshot.sources.filter((source) => activeMappingSourceTypes.includes(source.type as (typeof activeMappingSourceTypes)[number])).map((source) => saveSourceMapping(source, actor)));
+    // 远端履约状态回写到本地需求单（仅更新已存在的单，试运行不写）。
+    if (!dryRun) await persistRequestRemoteStatus(snapshot);
     summary.fetchedItems = snapshot.items.length;
     const mappings = await loadFrappeMappings();
     const existingRows = await queryRowsRaw<Row>(`SELECT sourceItemId, sourceHash, status, sourceDataJson FROM ${ITEM_TABLE}`);
@@ -1182,6 +1185,80 @@ export async function getFrappeDemandSyncUnhandledSummary() {
     mappings: Object.fromEntries(mappingRows.map((row) => [text(row.sourceType), Number(row.total ?? 0)])),
     ledger: Number(ledgerRows[0]?.total ?? 0),
   };
+}
+
+/** 远端履约状态的生命周期顺序：主单状态取"所有未取消明细中最靠前（最慢）的那条"。 */
+const REMOTE_STATUS_ORDER = ["Issued to Supplier", "Confirmed", "Committed", "Handed Over", "Shipped", "Arrived", "Received"];
+
+/**
+ * 把远端明细状态按需求单聚合写入本地需求单（只更新已存在的本地单）。
+ * 内容未变化时不写库，避免每次同步都把需求单的更新时间刷掉。
+ */
+async function persistRequestRemoteStatus(snapshot: RemoteSnapshot) {
+  const rankOf = (status: string) => {
+    const index = REMOTE_STATUS_ORDER.findIndex((value) => normalized(value) === normalized(status));
+    return index < 0 ? REMOTE_STATUS_ORDER.length : index;
+  };
+  const byOrder = new Map<string, RemoteDemandItem[]>();
+  for (const item of snapshot.items) {
+    byOrder.set(item.demandOrderId, [...(byOrder.get(item.demandOrderId) ?? []), item]);
+  }
+  let updated = 0;
+  for (const [orderId, items] of byOrder) {
+    const order = snapshot.orders.get(orderId);
+    if (!order) continue;
+    const requestNo = localRequestNo(order.customerPoNo);
+    if (!requestNo) continue;
+    const active = items.filter((item) => !isCancelledStatus(item.status));
+    const cancelledCount = items.length - active.length;
+    const remoteStatus = active.length
+      ? active.map((item) => item.status).sort((left, right) => rankOf(left) - rankOf(right))[0]
+      : items[0].status;
+    // 远端整单取消：草稿/待下单且未被下游引用的本地需求单自动取消，并登记取消来源。
+    if (isCancelledStatus(remoteStatus)) {
+      const local = (await queryRowsRaw<Row>("SELECT status FROM " + REQUEST_TABLE + " WHERE requestNo = :requestNo LIMIT 1", { requestNo }))[0];
+      if (!local || text(local.status) === "已取消") continue;
+      const usage = (await queryRowsRaw<Row>(
+        `SELECT
+           (SELECT COUNT(*) FROM merge_power_billinginstanceledgers WHERE requestNo = :requestNo) AS ledgerRows,
+           (SELECT COUNT(*) FROM merge_power_prepaymentcontractitems WHERE requestNo = :requestNo) AS prepayRows,
+           (SELECT COUNT(*) FROM merge_power_purchaseorderitems poi
+              JOIN merge_power_purchaseorders po ON po.purchaseOrderId = poi.purchaseOrderId
+             WHERE poi.requestNo = :requestNo AND po.status LIKE '%确认%') AS confirmedPoItems`,
+        { requestNo },
+      ))[0];
+      const inUse = Number(usage?.ledgerRows ?? 0) > 0 || Number(usage?.prepayRows ?? 0) > 0 || Number(usage?.confirmedPoItems ?? 0) > 0;
+      const cancellable = ["草稿", "待下单"].includes(text(local.status)) && !inUse;
+      if (cancellable) {
+        await executeRaw(
+          `UPDATE ${REQUEST_TABLE}
+              SET status = '已取消', cancelReason = 'remote_cancelled', cancelledAt = CURRENT_TIMESTAMP,
+                  cancelledByName = '系统同步（远端取消）', remoteStatus = :remoteStatus,
+                  remoteStatusUpdatedAt = CURRENT_TIMESTAMP, remoteCancelledItemCount = :cancelledCount
+            WHERE requestNo = :requestNo`,
+          { remoteStatus, cancelledCount, requestNo },
+        );
+      } else {
+        await executeRaw(
+          `UPDATE ${REQUEST_TABLE}
+              SET remoteStatus = :remoteStatus, remoteStatusUpdatedAt = CURRENT_TIMESTAMP, remoteCancelledItemCount = :cancelledCount
+            WHERE requestNo = :requestNo`,
+          { remoteStatus, cancelledCount, requestNo },
+        );
+      }
+      updated += 1;
+      continue;
+    }
+    const result = await executeRaw(
+      `UPDATE ${REQUEST_TABLE}
+          SET remoteStatus = :remoteStatus, remoteStatusUpdatedAt = CURRENT_TIMESTAMP, remoteCancelledItemCount = :cancelledCount
+        WHERE requestNo = :requestNo
+          AND (COALESCE(remoteStatus, '') <> COALESCE(:remoteStatus, '') OR remoteCancelledItemCount <> :cancelledCount)`,
+      { remoteStatus, cancelledCount, requestNo },
+    ) as { affectedRows?: number };
+    if (Number(result?.affectedRows ?? 0) > 0) updated += 1;
+  }
+  return { updated };
 }
 
 function parseChanges(value: unknown): RemoteDemandChange[] {

@@ -2,6 +2,7 @@ import type { TableColumn } from "./table-utils";
 import { PURCHASE_CURRENCY_OPTIONS } from "./purchase-order-form";
 import { REQUEST_TYPE_OPTIONS } from "./request-type";
 import { INSTANCE_MODEL_TYPE_OPTIONS } from "./instance-model-type";
+import { REQUEST_REMOTE_STATUS_OPTIONS } from "./request-remote-status";
 import { purchaseOrderPlanFieldSpecs, purchaseOrderSnFieldSpecs } from "./purchase-order-demand-plan-fields";
 
 export type FieldType = "text" | "number" | "money" | "percentage" | "date" | "datetime" | "boolean" | "switch" | "textarea" | "select" | "lineType";
@@ -368,6 +369,7 @@ export const entityConfigs: EntityConfig[] = [
     filters: [
       { key: "keyword", label: "需求单", placeholder: "请输入需求单号、合同号或批次" },
       { key: "status", label: "状态", placeholder: "请选择状态" },
+      { key: "remoteStatus", label: "远端状态", type: "select", options: REQUEST_REMOTE_STATUS_OPTIONS },
       { key: "requestType", label: "类型", type: "select", options: REQUEST_TYPE_OPTIONS },
     ],
     listFields: [
@@ -376,6 +378,7 @@ export const entityConfigs: EntityConfig[] = [
       { key: "contractNo", label: "合同号" },
       { key: "batchName", label: "批次名称" },
       { key: "requestType", label: "类型" },
+      { key: "remoteStatus", label: "远端状态", type: "select", options: REQUEST_REMOTE_STATUS_OPTIONS },
       { key: "status", label: "状态" },
       { key: "createdByName", label: "创建人" },
       { key: "updatedByName", label: "修改人" },
