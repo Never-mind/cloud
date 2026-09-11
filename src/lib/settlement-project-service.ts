@@ -454,7 +454,8 @@ async function recalculateProject(projectId: string, actor: OperationActor | nul
   const quotedSalesRevenueUsd = round(items.reduce((sum, item) => sum + item.quotedSalesRevenueUsd, 0));
   const receivedRevenueTaxIncludedUsd = round(sales.reduce((sum, item) => sum + item.receivedRevenueTaxIncludedUsd, 0));
   const receivedRevenueUsd = round(sales.reduce((sum, item) => sum + item.receivedRevenueUsd, 0));
-  const status = project.status === "accepting" || project.status === "closed"
+  // 验收中及之后的状态由状态流转按钮控制，重算时不能覆盖（否则"验收完成"会被打回采购完成）。
+  const status = project.status === "accepting" || project.status === "acceptance_completed" || project.status === "closed"
     ? project.status
     : items.length > 0 && items.every((item) => item.ordered) ? "procurement_completed" : "purchasing";
   const statusFields: Row = { status };
