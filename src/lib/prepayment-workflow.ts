@@ -114,6 +114,8 @@ export type MonthlyWriteOffRow = {
   undertakingUnitId: string;
   customerId: string;
   quantity: number;
+  /** 来源：合同确认首次生成 / 调整单修改。与月账单每月核销口径保持一致。 */
+  sourceType: "首次生成" | "调整单";
 };
 
 const WRITE_OFF_MONTHS = 24;
@@ -254,6 +256,7 @@ export function buildMonthlyWriteOffRows(lines: MonthlyWriteOffSourceLine[]): Mo
         undertakingUnitId: line.undertakingUnitId ?? "",
         customerId: line.customerId ?? "",
         quantity: Number(line.quantity ?? 0),
+        sourceType: "首次生成",
       };
     });
   });

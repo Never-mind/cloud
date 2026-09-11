@@ -1357,6 +1357,16 @@ async function main() {
     "adjustmentNo",
     "`adjustmentNo` VARCHAR(128) NULL COMMENT 'adjustment no' AFTER `sourceType`",
   );
+  // 月账单每月核销一直写「首次生成」，预付款每月核销早期留空，
+  // 这里统一口径：未挂调整单的历史行补成「首次生成」。
+  await execute(
+    `
+      UPDATE monthlyprepaymentwriteoffs
+      SET sourceType = '首次生成'
+      WHERE sourceType IS NULL
+        AND COALESCE(adjustmentNo, '') = ''
+    `,
+  );
   await execute(
     `
       UPDATE monthlyprepaymentwriteoffs mwo

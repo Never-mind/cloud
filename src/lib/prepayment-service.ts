@@ -392,11 +392,11 @@ export async function confirmPrepaymentContract(contractNo: string) {
         INSERT INTO monthlyprepaymentwriteoffs
           (id, contractNo, contractLineId, writeOffMonth, monthIndex, totalMonths, currency,
            originalAmount, monthlyAmount, lineType, requestType, countryCode, batchName, requestNo, poNo, deviceCode,
-           modelCode, nameEn, supplierId, undertakingUnitId, customerId, quantity)
+           modelCode, nameEn, supplierId, undertakingUnitId, customerId, quantity, sourceType)
         VALUES
           (:id, :contractNo, :contractLineId, :writeOffMonth, :monthIndex, :totalMonths, :currency,
            :originalAmount, :monthlyAmount, :lineType, :requestType, :countryCode, :batchName, :requestNo, :poNo, :deviceCode,
-           :modelCode, :nameEn, :supplierId, :undertakingUnitId, :customerId, :quantity)
+           :modelCode, :nameEn, :supplierId, :undertakingUnitId, :customerId, :quantity, :sourceType)
       `,
       row,
     );

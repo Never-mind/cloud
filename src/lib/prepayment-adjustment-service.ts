@@ -299,7 +299,7 @@ export async function rollbackPrepaymentWriteOffAdjustment(adjustmentNo: string)
         `
           UPDATE monthlyprepaymentwriteoffs
           SET monthlyAmount = :monthlyAmount,
-              sourceType = NULL,
+              sourceType = '首次生成',
               adjustmentNo = NULL
           WHERE id = :id
             AND adjustmentNo = :adjustmentNo

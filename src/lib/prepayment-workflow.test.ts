@@ -169,12 +169,15 @@ describe("prepayment workflow", () => {
       writeOffMonth: "2026-07-01",
       monthIndex: 1,
       monthlyAmount: 4.17,
+      // 来源与月账单每月核销口径一致：合同确认首次生成。
+      sourceType: "首次生成",
     });
     expect(rows[23]).toMatchObject({
       id: "MWO-PPCI-1-024",
       writeOffMonth: "2028-06-01",
       monthIndex: 24,
       monthlyAmount: 4.09,
+      sourceType: "首次生成",
     });
     expect(Math.round(rows.reduce((total, row) => total + row.monthlyAmount, 0) * 100) / 100).toBe(100);
   });
