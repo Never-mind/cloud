@@ -17,10 +17,22 @@ const local = await mysql.createConnection(buildDbConfig(process.env));
 const remote = await mysql.createConnection(remoteConfig);
 const differences = [];
 
-for (const logicalName of LOGICAL_TABLE_NAMES) {
-  const tableName = physicalTableName(logicalName);
-  const [localRows] = await local.query(`SHOW FULL COLUMNS FROM \`${tableName}\``);
+// 只遍历纳管表会漏掉 merge_po_* / merge_common_* 等表（历史上就是这样漏掉了
+// 项目结算的 acceptanceCompletedAt），因此这里以本地库实际存在的 merge_* 表为准。
+const [tableRows] = await local.query("SHOW TABLES");
+const tableKey = Object.keys(tableRows[0] ?? {})[0];
+const targetTables = new Set(tableRows.map((row) => String(row[tableKey])).filter((name) => /^merge_/.test(name)));
+for (const logicalName of LOGICAL_TABLE_NAMES) targetTables.add(physicalTableName(logicalName));
+
+for (const tableName of [...targetTables].sort()) {
+  const [localRows] = await local.query(`SHOW FULL COLUMNS FROM \`${tableName}\``).catch(() => [[]]);
   const [remoteRows] = await remote.query(`SHOW FULL COLUMNS FROM \`${tableName}\``).catch(() => [[]]);
+  // 逻辑表清单里存在、但本地库并未建表的条目直接跳过，避免整脚本中断。
+  if (!localRows.length && !remoteRows.length) continue;
+  if (!localRows.length) {
+    differences.push({ tableName, missing: [], extra: remoteRows.map((row) => row.Field), changed: [], remoteExists: true, localExists: false });
+    continue;
+  }
   const localByField = new Map(localRows.map((row) => [row.Field, normalize(row)]));
   const remoteByField = new Map(remoteRows.map((row) => [row.Field, normalize(row)]));
   const missing = [...localByField.keys()].filter((field) => !remoteByField.has(field));
