@@ -127,7 +127,7 @@ export function UsersPage() {
   }
 
   return (
-    <Panel className="overflow-hidden">
+    <Panel>
       <div className="flex items-center justify-between border-b border-[#ebeef5] p-4">
         <div><h1 className="font-medium text-[#303133]">用户与权限</h1><p className="mt-1 text-sm text-[#909399]">管理员可以管理账号状态、密码和系统权限。</p></div>
         <Button onClick={() => void load()}><RefreshCw size={15} />刷新</Button>

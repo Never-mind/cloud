@@ -61,7 +61,9 @@ export function Textarea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement
 
 export function Panel({ children, className }: { children: React.ReactNode; className?: string }) {
   return (
-    <div className={clsx("min-w-0 max-w-full border border-[#ebeef5] bg-white shadow-sm", className)}>{children}</div>
+    // 圆角与控件保持一致（4px）。overflow-hidden 让内部的表头色条、表格边框跟着圆角裁切，
+    // 否则容器是圆角、里面是直角会显得拼凑。已确认浮层都用 createPortal 挂到 body，不会被裁切。
+    <div className={clsx("min-w-0 max-w-full overflow-hidden rounded border border-[#ebeef5] bg-white shadow-sm", className)}>{children}</div>
   );
 }
 

@@ -240,6 +240,21 @@ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
 
 按钮高度推荐 `36px`。
 
+### 5.4 容器圆角
+
+容器（`Panel`）与控件统一使用 `4px` 圆角，不允许容器直角、控件圆角混用。
+
+```tsx
+// src/components/ui.tsx 已内置，业务页面直接 <Panel> 即可
+<div className="min-w-0 max-w-full overflow-hidden rounded border border-[#ebeef5] bg-white shadow-sm">
+```
+
+要点：
+
+- `Panel` 已带 `overflow-hidden`，内部表头色条和表格边框会跟着圆角裁切；页面里再写 `className="overflow-hidden"` 属于冗余，应删掉。
+- 加 `overflow-hidden` 前必须确认容器内没有依赖页面滚动容器的 `position: sticky` 元素；表格内的 sticky（固定列、sticky 表头）用的是 `.table-scroll` 自己的滚动容器，不受影响。
+- 下拉、筛选等浮层一律用 `createPortal` 挂到 `body`，避免被容器裁切。
+
 ## 6. 表格规范
 
 ### 6.1 基本样式
@@ -644,13 +659,13 @@ notify(error instanceof Error ? error.message : "保存失败", "error");
 | 空状态 | ✅ 新增 `EmptyState`（图标 + 主文案 + 补充说明），统一 24 个列表页 |
 | 导出按钮 | ✅ 由亮黄实心改为白底琥珀描边，按钮层级收敛为主操作实心 / 工具操作描边 |
 | 原生弹窗 | ✅ 新增 `confirmDialog` + `notify`，替换 52 处 `confirm` 与 160 处 `alert` |
+| 容器圆角 | ✅ `Panel` 补齐 4px 圆角与裁切，与控件一致；清理 8 处冗余 `overflow-hidden` |
 
 ### 13.3 待整改
 
 1. 约 2,500 处硬编码颜色按模块渐进替换为语义类。
-2. `Panel` 圆角与控件圆角统一（需先处理结差页 `sticky bottom-4` 浮动条与 `overflow: hidden` 的冲突）。
-3. 约 125 个符号导出后只在自身文件内使用，可去掉 `export` 收缩模块对外接口。
-4. 下拉浮层、图表区域等非表格位置的加载态，改用 `LoadingBlock`。
+2. 约 125 个符号导出后只在自身文件内使用，可去掉 `export` 收缩模块对外接口。
+3. 下拉浮层、图表区域等非表格位置的加载态，改用 `LoadingBlock`。
 
 ## 14. 可访问性
 

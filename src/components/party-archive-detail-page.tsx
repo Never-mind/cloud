@@ -158,7 +158,7 @@ export function PartyArchiveDetailPage({ config, id, related }: { config: Entity
 
   return (
     <div className="space-y-4">
-      <Panel className="overflow-hidden">
+      <Panel>
         <header className="flex flex-wrap items-center gap-3 border-b border-[#ebeef5] px-5 py-4">
           <Link className="inline-flex h-9 w-9 items-center justify-center border border-[#dcdfe6] bg-white text-[#606266] hover:border-[#1890ff] hover:text-[#1890ff]" href={config.route} aria-label={`返回${config.title}`} title={`返回${config.title}`}>
             <ArrowLeft size={17} />

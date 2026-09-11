@@ -60,7 +60,7 @@ export function ModuleFeaturesPage() {
     }
   }
 
-  return <Panel className="overflow-hidden">
+  return <Panel>
     <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#ebeef5] p-4">
       <div><h1 className="font-medium text-[#303133]">功能模块管理</h1><p className="mt-1 text-sm text-[#909399]">停用后模块不会出现在左侧目录和首页，代码及业务数据仍会保留。</p></div>
       <Button onClick={() => void load()}><RefreshCw size={15} />刷新</Button>
