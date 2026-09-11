@@ -171,8 +171,15 @@ textarea {
   width: max-content;
 }
 
+/* 表格基础样式同时覆盖两种容器结构：
+   - `.table-scroll > table`：页面直接使用的滚动容器（44 处）
+   - `.sticky-table-region > div > table`：StickyTable 组件渲染的结构，
+     有些页面传入的 className 没带 table-scroll（华为云对账、需求单同步台账、导入中心），
+     只写 .table-scroll 会让这些页面的悬浮/斑马纹/去纵线全部失效。 */
 .table-scroll > table > thead > tr > th,
-.table-scroll > table > tbody > tr > td {
+.table-scroll > table > tbody > tr > td,
+.sticky-table-region > div > table > thead > tr > th,
+.sticky-table-region > div > table > tbody > tr > td {
   /* 原来是 7rem，等于给每一列都强制 112px 下限，序号、数量、日期这类窄列
      被白白撑宽，表格整体变宽并频繁出现横向滚动。降到 4rem 只保留一个防挤压
      底线，其余交给内容决定宽度。 */
@@ -184,7 +191,9 @@ textarea {
 
 /* 批量选择列只放一个复选框，不受上面 7rem 最小宽度约束；40px 列宽配 16px 复选框，左右各 8px 内边距。 */
 .table-scroll > table > thead > tr > th.table-select-cell,
-.table-scroll > table > tbody > tr > td.table-select-cell {
+.table-scroll > table > tbody > tr > td.table-select-cell,
+.sticky-table-region > div > table > thead > tr > th.table-select-cell,
+.sticky-table-region > div > table > tbody > tr > td.table-select-cell {
   width: 2.5rem;
   min-width: 0;
   padding-left: 0.5rem;
@@ -217,7 +226,12 @@ thead [data-cloud-power-locked="1"] {
   background-color: #fafbfd;
 }
 
-.table-scroll > table > tbody > tr:hover {
+.sticky-table-region > div > table > tbody > tr:nth-child(even) {
+  background-color: #fafbfd;
+}
+
+.table-scroll > table > tbody > tr:hover,
+.sticky-table-region > div > table > tbody > tr:hover {
   background-color: #eef4fd;
 }
 
@@ -228,13 +242,19 @@ thead [data-cloud-power-locked="1"] {
    - 属性式：`data-cloud-power-action-column="1"` / `data-cloud-power-locked="1"` */
 .table-scroll > table > tbody > tr:nth-child(even) > td.sticky,
 .table-scroll > table > tbody > tr:nth-child(even) > [data-cloud-power-locked="1"],
-.table-scroll > table > tbody > tr:nth-child(even) > [data-cloud-power-action-column="1"] {
+.table-scroll > table > tbody > tr:nth-child(even) > [data-cloud-power-action-column="1"],
+.sticky-table-region > div > table > tbody > tr:nth-child(even) > td.sticky,
+.sticky-table-region > div > table > tbody > tr:nth-child(even) > [data-cloud-power-locked="1"],
+.sticky-table-region > div > table > tbody > tr:nth-child(even) > [data-cloud-power-action-column="1"] {
   background-color: #fafbfd;
 }
 
 .table-scroll > table > tbody > tr:hover > td.sticky,
 .table-scroll > table > tbody > tr:hover > [data-cloud-power-locked="1"],
-.table-scroll > table > tbody > tr:hover > [data-cloud-power-action-column="1"] {
+.table-scroll > table > tbody > tr:hover > [data-cloud-power-action-column="1"],
+.sticky-table-region > div > table > tbody > tr:hover > td.sticky,
+.sticky-table-region > div > table > tbody > tr:hover > [data-cloud-power-locked="1"],
+.sticky-table-region > div > table > tbody > tr:hover > [data-cloud-power-action-column="1"] {
   background-color: #eef4fd;
 }
 

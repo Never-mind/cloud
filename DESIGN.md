@@ -699,6 +699,21 @@ notify(error instanceof Error ? error.message : "保存失败", "error");
 
 因此保留现状，只有当某个页面的表格结构确实需要独立抽象时再处理。
 
+### 13.6 表格容器的两种结构（写样式必须同时覆盖）
+
+系统里的表格有两种包裹方式，`globals.css` 里的表格规则必须**同时**匹配，否则会出现"某些页面悬浮/斑马纹不生效"：
+
+| 结构 | 出现场景 |
+| --- | --- |
+| `.table-scroll > table` | 页面显式传 `className="table-scroll overflow-auto"` 给 `StickyTable`（44 处） |
+| `.sticky-table-region > div > table` | 页面传了别的 className（`max-h-[…] overflow-auto`、`overflow-auto`），容器没有 `table-scroll` 类 |
+
+受影响过的页面：华为云对账、需求单同步台账、导入中心。原因是 `StickyTable` 渲染成
+`.sticky-table-region > div(页面 className) > table`，只写 `.table-scroll` 会漏掉第二类。
+
+不能简单给 `StickyTable` 统一补 `table-scroll` 类：`.table-scroll` 规则里写了 `overflow-y: visible`（页面负责纵向滚动），
+补上会破坏需要固定高度纵向滚动的表格。
+
 ### 13.4 状态色令牌对照
 
 除主色与文字色外，状态色补充了「浅底 / 描边 / 加深」三档，用于标签和提示块：
