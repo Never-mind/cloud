@@ -252,6 +252,8 @@ async function ensureFrappeDemandSyncTables() {
         \`sourceHash\` CHAR(64) NOT NULL COMMENT 'remote sync fingerprint',
         \`status\` VARCHAR(32) NOT NULL COMMENT 'synced/skipped_existing/blocked/pending_change',
         \`errorMessage\` VARCHAR(1000) NULL COMMENT 'blocking or change message',
+        \`sourceDataJson\` LONGTEXT NULL COMMENT 'remote demand item payload snapshot',
+        \`changeJson\` TEXT NULL COMMENT 'field level remote change list',
         \`createdAt\` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'created time',
         \`updatedAt\` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'updated time',
         PRIMARY KEY (\`sourceItemId\`),
@@ -266,6 +268,12 @@ async function ensureFrappeDemandSyncTables() {
     "resultJson",
     "`resultJson` LONGTEXT NULL COMMENT 'limited per-demand-order result JSON' AFTER `errorJson`",
   );
+  for (const [columnName, ddl] of [
+    ["sourceDataJson", "`sourceDataJson` LONGTEXT NULL COMMENT 'remote demand item payload snapshot' AFTER `errorMessage`"],
+    ["changeJson", "`changeJson` TEXT NULL COMMENT 'field level remote change list' AFTER `sourceDataJson`"],
+  ] as const) {
+    await addColumnIfMissing("merge_power_demand_sync_items", columnName, ddl);
+  }
 }
 
 async function ensureOperationLogTable() {

@@ -11,7 +11,9 @@ const SYNC_LOCK_NAME = "suanli-frappe-demand-sync";
 const DEFAULT_API_BASE_URL = "http://192.168.2.27:1337";
 const DEFAULT_PAGE_SIZE = 200;
 
-const sourceTypes = ["supplier", "material", "datacenter", "delivery_location", "delivery_recipient_list"] as const;
+// 需要人工维护映射的只有供应商与实例型号；远端机房、收货地址、收件人信息
+// 在采购确认时直接取远端快照，不再走本地映射。
+const sourceTypes = ["supplier", "material"] as const;
 type SourceType = (typeof sourceTypes)[number];
 const activeMappingSourceTypes = ["supplier", "material"] as const;
 type MappingStatus = "pending" | "confirmed" | "conflict" | "ignored";
@@ -49,6 +51,8 @@ type RemoteSnapshot = {
   items: RemoteDemandItem[];
   orders: Map<string, RemoteDemandOrder>;
   sources: RemoteSource[];
+  /** 远端机房（含国家），用于解析需求单所属国家。 */
+  datacenters: Map<string, RemoteLogisticsDatacenter>;
 };
 
 type RemoteLogisticsDatacenter = {
@@ -151,10 +155,6 @@ function normalized(value: unknown) {
   return text(value).toLocaleLowerCase();
 }
 
-function normalizedPhone(value: unknown) {
-  return text(value).replace(/\D/g, "");
-}
-
 function firstValue(...values: unknown[]) {
   return values.find((value) => text(value)) ?? "";
 }
@@ -232,14 +232,12 @@ async function fetchFrappeList(doctype: string, fields: string[]) {
 }
 
 async function loadRemoteSnapshot(): Promise<RemoteSnapshot> {
-  const [rawItems, rawOrders, rawSuppliers, rawMaterials, rawDatacenters, rawLocations, rawRecipients] = await Promise.all([
+  const [rawItems, rawOrders, rawSuppliers, rawMaterials, rawDatacenters] = await Promise.all([
     fetchFrappeList("Demand Order Item", ["name", "demand_order", "material", "supplier", "status", "customer_batch_no", "quantity", "requested_delivery_date", "modified"]),
     fetchFrappeList("Demand Order", ["name", "customer_po_no", "datacenter", "delivery_recipient_list", "modified"]),
     fetchFrappeList("Business Partner", ["name", "partner_code", "partner_alias", "name_zh", "modified", "is_supplier"]),
     fetchFrappeList("Material", ["name", "customer_item_code", "customer_part_no", "material_code", "model", "name_zh", "material_type", "modified"]),
     fetchFrappeList("Datacenter", ["name", "datacenter_code", "name_zh", "name_en", "country", "delivery_location", "modified"]),
-    fetchFrappeList("Delivery Location", ["name", "location_type", "country", "state", "city", "address", "modified"]),
-    fetchFrappeList("Delivery Recipient List", ["name", "raw_contact", "raw_phone", "recipients_summary", "status", "modified"]),
   ]);
 
   const items = rawItems.map((row) => ({
@@ -254,6 +252,13 @@ async function loadRemoteSnapshot(): Promise<RemoteSnapshot> {
     };
     return [item.id, item] as const;
   }).filter(([id]) => id));
+  const datacenters = new Map(rawDatacenters.map((row) => {
+    const datacenter: RemoteLogisticsDatacenter = {
+      id: text(row.name), code: text(row.datacenter_code), nameZh: text(row.name_zh), nameEn: text(row.name_en),
+      country: text(row.country), deliveryLocationId: text(row.delivery_location), modified: text(row.modified),
+    };
+    return [datacenter.id, datacenter] as const;
+  }).filter(([id]) => id));
   const sources: RemoteSource[] = [
     ...rawSuppliers.filter((row) => Number(row.is_supplier ?? 0) === 1).map((row) => ({
       type: "supplier" as const, id: text(row.name), code: text(row.partner_code), name: text(firstValue(row.partner_alias, row.name_zh)), modified: text(row.modified),
@@ -263,20 +268,8 @@ async function loadRemoteSnapshot(): Promise<RemoteSnapshot> {
       type: "material" as const, id: text(row.name), code: text(row.customer_item_code), name: text(firstValue(row.name_zh, row.model)), modified: text(row.modified),
       data: { customerItemCode: text(row.customer_item_code), customerPartNo: text(row.customer_part_no), materialCode: text(row.material_code), model: text(row.model), nameZh: text(row.name_zh), materialType: text(row.material_type) },
     })),
-    ...rawDatacenters.map((row) => ({
-      type: "datacenter" as const, id: text(row.name), code: text(row.datacenter_code), name: text(firstValue(row.name_zh, row.name_en)), modified: text(row.modified),
-      data: { datacenterCode: text(row.datacenter_code), nameZh: text(row.name_zh), nameEn: text(row.name_en), country: text(row.country), deliveryLocationId: text(row.delivery_location) },
-    })),
-    ...rawLocations.map((row) => ({
-      type: "delivery_location" as const, id: text(row.name), code: text(row.name), name: text(firstValue(row.address, row.city, row.state)), modified: text(row.modified),
-      data: { locationType: text(row.location_type), country: text(row.country), state: text(row.state), city: text(row.city), address: text(row.address) },
-    })),
-    ...rawRecipients.map((row) => ({
-      type: "delivery_recipient_list" as const, id: text(row.name), code: text(row.name), name: text(firstValue(row.recipients_summary, row.raw_contact)), modified: text(row.modified),
-      data: { rawContact: text(row.raw_contact), rawPhone: text(row.raw_phone), recipientsSummary: text(row.recipients_summary), status: text(row.status) },
-    })),
   ].filter((source) => source.id);
-  return { items, orders, sources };
+  return { items, orders, sources, datacenters };
 }
 
 function uniqueText(values: unknown[]) {
@@ -441,16 +434,45 @@ export async function getFrappeDemandLogistics(requestNos: string[]): Promise<Fr
 }
 
 function sourceTargetType(sourceType: SourceType) {
-  return ({ supplier: "supplier", material: "instance_model", datacenter: "datacenter", delivery_location: "delivery_location", delivery_recipient_list: "delivery_contact" } as const)[sourceType];
+  return ({ supplier: "supplier", material: "instance_model" } as const)[sourceType];
 }
 
+/**
+ * 确认过的映射必须仍指向存在的本地档案：本地档案可能被删除（例如设备编码不符合 06/99
+ * 约束被清理），此时映射必须作废并重新匹配，否则会一直显示"已确认"并让需求同步被挡住。
+ */
+async function localEntityExists(sourceType: SourceType, localEntityId: string) {
+  if (!localEntityId) return false;
+  if (sourceType === "material") {
+    const rows = await queryRowsRaw<Row>("SELECT deviceCode FROM merge_power_instancemodels WHERE deviceCode = :id LIMIT 1", { id: localEntityId });
+    return rows.length > 0;
+  }
+  if (sourceType === "supplier") {
+    const rows = await queryRowsRaw<Row>("SELECT supplierId FROM merge_common_suppliers WHERE supplierId = :id LIMIT 1", { id: localEntityId });
+    return rows.length > 0;
+  }
+  return true;
+}
+
+/** 本地档案已被删除的映射行（用于列表标识与筛选）。 */
+const MAPPING_LOCAL_MISSING_SQL = `(localEntityId IS NOT NULL AND (
+    (sourceType = 'material' AND NOT EXISTS (SELECT 1 FROM merge_power_instancemodels im WHERE im.deviceCode = localEntityId))
+    OR (sourceType = 'supplier' AND NOT EXISTS (SELECT 1 FROM merge_common_suppliers s WHERE s.supplierId = localEntityId))
+  ))`;
+const MAPPING_LOCAL_ENTITY_SELECT = `CASE WHEN ${MAPPING_LOCAL_MISSING_SQL} THEN 0 WHEN localEntityId IS NOT NULL THEN 1 ELSE NULL END AS localEntityExists`;
+
 function sourceTypeWhere(tab: string | null) {
-  if (tab === "supplier") return "sourceType = 'supplier'";
-  if (tab === "material") return "sourceType = 'material'";
-  if (tab === "datacenter") return "sourceType = 'datacenter'";
-  if (tab === "delivery_location") return "sourceType = 'delivery_location'";
-  if (tab === "delivery_recipient_list") return "sourceType = 'delivery_recipient_list'";
-  return "sourceType IN ('datacenter', 'delivery_location', 'delivery_recipient_list')";
+  return tab === "material" ? "sourceType = 'material'" : "sourceType = 'supplier'";
+}
+
+/** 远端物料类型保存在 sourceDataJson.materialType，用于实例/物料映射的分类筛选。 */
+const MAPPING_MATERIAL_TYPE_SQL = "UPPER(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(sourceDataJson, '$.materialType')), ''))";
+const MAPPING_MATERIAL_TYPES = ["EQUIPMENT", "COMPONENT", "MATERIAL"] as const;
+
+function pageParams(params: URLSearchParams) {
+  const page = Math.max(1, Number(params.get("page") ?? 1) || 1);
+  const pageSize = Math.min(100, Math.max(1, Number(params.get("pageSize") ?? 20) || 20));
+  return { page, pageSize, offset: (page - 1) * pageSize };
 }
 
 function uniqueCandidates(candidates: LocalCandidate[]) {
@@ -490,24 +512,7 @@ async function findCandidates(source: RemoteSource): Promise<LocalCandidate[]> {
     }
     return [];
   }
-  if (source.type === "datacenter") {
-    const rows = await queryRowsRaw<Row>("SELECT dcCode, nameZh, nameEn FROM merge_power_datacenters");
-    const codes = [source.id, data.datacenterCode].map(normalized).filter(Boolean);
-    const matches = rows.filter((row) => codes.includes(normalized(row.dcCode)) || normalized(row.nameZh) === normalized(source.name) || normalized(row.nameEn) === normalized(source.name));
-    return chooseCandidates(matches, "dcCode", "datacenter", (row) => `${text(row.dcCode)} - ${text(firstValue(row.nameZh, row.nameEn))}`, "datacenter_code");
-  }
-  if (source.type === "delivery_location") {
-    const rows = await queryRowsRaw<Row>("SELECT locationId, nameZh, nameEn, fullAddress FROM merge_power_deliverylocations");
-    const address = normalized(data.address);
-    const matches = rows.filter((row) => normalized(row.locationId) === normalized(source.id) || (address && [row.fullAddress, row.nameZh, row.nameEn].some((value) => normalized(value) === address)));
-    return chooseCandidates(matches, "locationId", "delivery_location", (row) => `${text(row.locationId)} - ${text(firstValue(row.nameZh, row.fullAddress, row.nameEn))}`, "location_id");
-  }
-  const rows = await queryRowsRaw<Row>("SELECT contactId, locationId, name, phone, email FROM merge_power_deliverycontacts");
-  const phones = text(data.rawPhone).split("/").map(normalizedPhone).filter(Boolean);
-  const names = text(data.rawContact).split("/").map(normalized).filter(Boolean);
-  const byPhone = phones.length ? rows.filter((row) => phones.includes(normalizedPhone(row.phone))) : [];
-  const matches = byPhone.length ? byPhone : rows.filter((row) => names.includes(normalized(row.name)));
-  return chooseCandidates(matches, "contactId", "delivery_contact", (row) => `${text(row.contactId)} - ${text(row.name)}${text(row.phone) ? ` (${text(row.phone)})` : ""}`, byPhone.length ? "contact_phone" : "contact_name");
+  return [];
 }
 
 async function saveSourceMapping(source: RemoteSource, actor: OperationActor | null) {
@@ -518,7 +523,10 @@ async function saveSourceMapping(source: RemoteSource, actor: OperationActor | n
   const candidates = await findCandidates(source);
   const automatic = candidates.length === 1 ? candidates[0] : null;
   const currentStatus = text(existing?.status) as MappingStatus;
-  const preserveConfirmed = currentStatus === "confirmed" && text(existing?.localEntityId);
+  const currentLocalEntityId = text(existing?.localEntityId);
+  // 本地档案被删除后不能再沿用确认状态，否则映射会一直显示"已确认"却指向不存在的档案。
+  const preserveConfirmed = currentStatus === "confirmed" && Boolean(currentLocalEntityId)
+    && await localEntityExists(source.type, currentLocalEntityId);
   const preserveIgnored = currentStatus === "ignored";
   const automaticConfirmed = Boolean(automatic);
   const status: MappingStatus = preserveConfirmed ? "confirmed" : preserveIgnored ? "ignored" : automaticConfirmed ? "confirmed" : candidates.length > 1 ? "conflict" : "pending";
@@ -558,32 +566,70 @@ export async function refreshFrappeDemandMappings(actor: OperationActor | null) 
 export async function listFrappeDemandMappings(params: URLSearchParams) {
   const keyword = text(params.get("keyword"));
   const status = text(params.get("status"));
-  const conditions = ["sourceSystem = 'frappe'", sourceTypeWhere(params.get("tab"))];
+  const materialType = text(params.get("materialType")).toUpperCase();
+  const baseConditions = ["sourceSystem = 'frappe'"];
   const values: Row = {};
+  const localEntity = text(params.get("localEntity"));
+  if (localEntity === "missing") baseConditions.push(MAPPING_LOCAL_MISSING_SQL);
+  if (localEntity === "exists") baseConditions.push(`NOT ${MAPPING_LOCAL_MISSING_SQL} AND localEntityId IS NOT NULL`);
   if (keyword) {
-    conditions.push("(sourceId LIKE :keyword OR sourceCode LIKE :keyword OR sourceName LIKE :keyword OR localDisplayName LIKE :keyword)");
+    baseConditions.push("(sourceId LIKE :keyword OR sourceCode LIKE :keyword OR sourceName LIKE :keyword OR localDisplayName LIKE :keyword)");
     values.keyword = `%${keyword}%`;
   }
   if (["pending", "confirmed", "conflict", "ignored"].includes(status)) {
-    conditions.push("status = :status");
+    baseConditions.push("status = :status");
     values.status = status;
   }
-  const rows = await queryRowsRaw<MappingRow>(`SELECT * FROM ${MAPPING_TABLE} WHERE ${conditions.join(" AND ")} ORDER BY FIELD(status, 'conflict', 'pending', 'confirmed', 'ignored'), sourceType, sourceCode, sourceId`, values);
+  const baseWhere = baseConditions.join(" AND ");
+  const conditions = [...baseConditions, sourceTypeWhere(params.get("tab"))];
+  if ((MAPPING_MATERIAL_TYPES as readonly string[]).includes(materialType)) {
+    conditions.push(`${MAPPING_MATERIAL_TYPE_SQL} = :materialType`);
+    values.materialType = materialType;
+  }
+  const where = conditions.join(" AND ");
+  const { page, pageSize, offset } = pageParams(params);
+  const [countRows, rows, sourceTypeRows, materialTypeRows] = await Promise.all([
+    queryRowsRaw<{ total: number }>(`SELECT COUNT(*) AS total FROM ${MAPPING_TABLE} WHERE ${where}`, values),
+    queryRowsRaw<MappingRow>(
+      `SELECT *, ${MAPPING_LOCAL_ENTITY_SELECT} FROM ${MAPPING_TABLE} WHERE ${where}
+        ORDER BY FIELD(status, 'conflict', 'pending', 'confirmed', 'ignored'), sourceType, sourceCode, sourceId
+        LIMIT :limit OFFSET :offset`,
+      { ...values, limit: pageSize, offset },
+    ),
+    // 分类计数沿用关键字/状态筛选，便于标签上直接显示各分类数量。
+    queryRowsRaw<{ sourceType: string; total: number }>(
+      `SELECT sourceType, COUNT(*) AS total FROM ${MAPPING_TABLE} WHERE ${baseWhere} GROUP BY sourceType`,
+      values,
+    ),
+    queryRowsRaw<{ materialType: string; total: number }>(
+      `SELECT ${MAPPING_MATERIAL_TYPE_SQL} AS materialType, COUNT(*) AS total
+         FROM ${MAPPING_TABLE} WHERE ${baseWhere} AND sourceType = 'material' GROUP BY materialType`,
+      values,
+    ),
+  ]);
   return {
-    items: rows.map((row) => ({ ...row, sourceData: parseJson(row.sourceDataJson), candidates: parseCandidates(row.candidateJson) })),
-    total: rows.length,
+    items: rows.map((row) => ({
+      ...row,
+      sourceData: parseJson(row.sourceDataJson),
+      candidates: parseCandidates(row.candidateJson),
+      localEntityExists: row.localEntityExists === null || row.localEntityExists === undefined ? null : Number(row.localEntityExists) === 1,
+    })),
+    total: Number(countRows[0]?.total ?? 0),
+    page,
+    pageSize,
+    counts: Object.fromEntries(sourceTypeRows.map((row) => [row.sourceType, Number(row.total ?? 0)])),
+    materialTypeCounts: Object.fromEntries(materialTypeRows.map((row) => [row.materialType || "unknown", Number(row.total ?? 0)])),
   };
 }
 
 export async function getFrappeDemandMappingMasterData() {
-  const [suppliers, instanceModels, datacenters, locations, contacts] = await Promise.all([
+  // 机房 / 收货地址 / 收件人映射已废弃：同步只用供应商与实例型号映射，
+  // 远端机房、地址、收件人信息在采购确认时直接取远端快照。
+  const [suppliers, instanceModels] = await Promise.all([
     queryRowsRaw<Row>("SELECT supplierId, supplierCode, nameCn, shortName FROM merge_common_suppliers ORDER BY supplierCode, supplierId"),
     queryRowsRaw<Row>("SELECT deviceCode, modelCode, nameZh, nameEn FROM merge_power_instancemodels ORDER BY deviceCode"),
-    queryRowsRaw<Row>("SELECT dcCode, nameZh, nameEn FROM merge_power_datacenters ORDER BY dcCode"),
-    queryRowsRaw<Row>("SELECT locationId, nameZh, nameEn, fullAddress FROM merge_power_deliverylocations ORDER BY locationId"),
-    queryRowsRaw<Row>("SELECT contactId, locationId, name, phone, email FROM merge_power_deliverycontacts ORDER BY contactId"),
   ]);
-  return { suppliers, instanceModels, datacenters, locations, contacts };
+  return { suppliers, instanceModels };
 }
 
 async function findTarget(sourceType: SourceType, localEntityId: string) {
@@ -595,16 +641,7 @@ async function findTarget(sourceType: SourceType, localEntityId: string) {
     const row = (await queryRowsRaw<Row>("SELECT deviceCode, modelCode, nameZh, nameEn FROM merge_power_instancemodels WHERE deviceCode = :id LIMIT 1", { id: localEntityId }))[0];
     return row ? { type: "instance_model", id: text(row.deviceCode), label: `${text(row.deviceCode)} - ${text(firstValue(row.nameZh, row.modelCode, row.nameEn))}` } : null;
   }
-  if (sourceType === "datacenter") {
-    const row = (await queryRowsRaw<Row>("SELECT dcCode, nameZh, nameEn FROM merge_power_datacenters WHERE dcCode = :id LIMIT 1", { id: localEntityId }))[0];
-    return row ? { type: "datacenter", id: text(row.dcCode), label: `${text(row.dcCode)} - ${text(firstValue(row.nameZh, row.nameEn))}` } : null;
-  }
-  if (sourceType === "delivery_location") {
-    const row = (await queryRowsRaw<Row>("SELECT locationId, nameZh, nameEn, fullAddress FROM merge_power_deliverylocations WHERE locationId = :id LIMIT 1", { id: localEntityId }))[0];
-    return row ? { type: "delivery_location", id: text(row.locationId), label: `${text(row.locationId)} - ${text(firstValue(row.nameZh, row.fullAddress, row.nameEn))}` } : null;
-  }
-  const row = (await queryRowsRaw<Row>("SELECT contactId, name, phone FROM merge_power_deliverycontacts WHERE contactId = :id LIMIT 1", { id: localEntityId }))[0];
-  return row ? { type: "delivery_contact", id: text(row.contactId), label: `${text(row.contactId)} - ${text(row.name)}${text(row.phone) ? ` (${text(row.phone)})` : ""}` } : null;
+  return null;
 }
 
 export async function updateFrappeDemandMapping(mappingId: string, body: Row, actor: OperationActor | null) {
@@ -680,22 +717,12 @@ async function resolveSourceCountryCode(sourceCountry: string) {
   return matches.length === 1 ? text(matches[0].code) : "";
 }
 
-async function resolveCountryCode(sourceDatacenter?: MappingRow) {
-  // The Frappe datacenter is the source of truth.  Local datacenter/location
-  // relations are retained only as a compatibility fallback for older records.
-  const sourceCountry = text(parseJson(sourceDatacenter?.sourceDataJson).country);
-  const sourceCountryCode = await resolveSourceCountryCode(sourceCountry);
-  if (sourceCountryCode) return sourceCountryCode;
-
-  const datacenterCode = text(sourceDatacenter?.localEntityId);
-  if (!datacenterCode) return "";
-  const datacenter = (await queryRowsRaw<Row>("SELECT locationId FROM merge_power_datacenters WHERE dcCode = :dcCode LIMIT 1", { dcCode: datacenterCode }))[0];
-  const locationId = text(datacenter?.locationId);
-  if (locationId) {
-    const location = (await queryRowsRaw<Row>("SELECT countryCode FROM merge_power_deliverylocations WHERE locationId = :locationId LIMIT 1", { locationId }))[0];
-    if (text(location?.countryCode)) return text(location?.countryCode);
-  }
-  return "";
+/**
+ * 国家直接取远端机房维护的 country，不再依赖本地机房 / 收货地址映射。
+ * 远端机房是唯一来源，本地机房与交付地址档案仅用于历史追溯。
+ */
+async function resolveCountryCode(datacenter?: RemoteLogisticsDatacenter) {
+  return resolveSourceCountryCode(text(datacenter?.country));
 }
 
 type PreparedLine = {
@@ -716,17 +743,21 @@ async function loadFrappeMappings() {
   return new Map(rows.map((row) => [sourceKey(row.sourceType, row.sourceId), row]));
 }
 
-async function prepareLine(item: RemoteDemandItem, order: RemoteDemandOrder, mappings: Map<string, MappingRow>): Promise<PreparedLine | string> {
+async function prepareLine(
+  item: RemoteDemandItem,
+  order: RemoteDemandOrder,
+  mappings: Map<string, MappingRow>,
+  datacenters: Map<string, RemoteLogisticsDatacenter>,
+): Promise<PreparedLine | string> {
   const supplier = mappings.get(sourceKey("supplier", item.supplierId));
   const material = mappings.get(sourceKey("material", item.materialId));
-  const datacenter = mappings.get(sourceKey("datacenter", order.datacenterId));
   const requestNo = localRequestNo(order.customerPoNo);
   if (!requestNo) return `需求主单 ${order.id} 缺少 customer_po_no，无法生成本地需求单号`;
   if (supplier?.status !== "confirmed" || !supplier.localEntityId) return `供应商 ${item.supplierId || "（空）"} 尚未确认映射`;
   if (material?.status !== "confirmed" || !material.localEntityId) return `物料 ${item.materialId || "（空）"} 尚未确认映射`;
   const model = (await queryRowsRaw<Row>("SELECT deviceCode, instanceType FROM merge_power_instancemodels WHERE deviceCode = :deviceCode LIMIT 1", { deviceCode: material.localEntityId }))[0];
   if (!model) return `本地实例型号 ${material.localEntityId} 不存在`;
-  const countryCode = await resolveCountryCode(datacenter);
+  const countryCode = await resolveCountryCode(datacenters.get(order.datacenterId));
   if (!countryCode) return `远端机房 ${order.datacenterId || "（空）"} 的国家无法匹配本地国家管理`;
   const country = (await queryRowsRaw<Row>(`SELECT code, defaultUndertakingUnitId, defaultCustomerId FROM merge_power_countries WHERE code = :countryCode LIMIT 1`, { countryCode }))[0];
   const undertakingUnitId = text(country?.defaultUndertakingUnitId);
@@ -744,12 +775,106 @@ async function updateSyncRun(runId: string, values: Record<string, unknown>) {
   await executeRaw(`UPDATE ${RUN_TABLE} SET ${assignments}, updatedAt = CURRENT_TIMESTAMP WHERE syncRunId = :runId`, { ...values, runId });
 }
 
-async function persistBlockedItem(item: RemoteDemandItem, order: RemoteDemandOrder, hash: string, message: string) {
-  await executeRaw(`INSERT INTO ${ITEM_TABLE} (sourceItemId,sourceOrderId,sourceModifiedAt,sourceHash,status,errorMessage)
-    VALUES (:sourceItemId,:sourceOrderId,:sourceModifiedAt,:sourceHash,'blocked',:errorMessage)
-    ON DUPLICATE KEY UPDATE sourceOrderId=VALUES(sourceOrderId), sourceModifiedAt=VALUES(sourceModifiedAt), sourceHash=VALUES(sourceHash), status='blocked', errorMessage=VALUES(errorMessage)`, {
-    sourceItemId: item.id, sourceOrderId: order.id, sourceModifiedAt: item.modified || order.modified || null, sourceHash: hash, errorMessage: message.slice(0, 1000),
-  });
+/** 台账里已经"处理过"的状态：这些明细再次出现时不再自动创建。 */
+const TRACKED_ITEM_STATUSES = ["synced", "skipped_existing", "pending_change"] as const;
+
+/** 远端明细快照，用于下一次同步做字段级 diff。 */
+function itemSnapshot(item: RemoteDemandItem, order: RemoteDemandOrder) {
+  return {
+    quantity: item.quantity,
+    status: item.status,
+    supplierId: item.supplierId,
+    materialId: item.materialId,
+    requestedDeliveryDate: item.requestedDeliveryDate,
+    modified: item.modified,
+    order: {
+      customerPoNo: order.customerPoNo,
+      datacenterId: order.datacenterId,
+      deliveryRecipientListId: order.deliveryRecipientListId,
+      modified: order.modified,
+    },
+  };
+}
+
+const CHANGE_FIELD_LABELS: Record<string, string> = {
+  quantity: "数量",
+  status: "状态",
+  supplierId: "供应商",
+  materialId: "物料",
+  requestedDeliveryDate: "需求发货日期",
+  "order.customerPoNo": "客户PO号",
+  "order.datacenterId": "机房",
+  "order.deliveryRecipientListId": "收件人清单",
+};
+
+export type RemoteDemandChange = { field: string; label: string; from: string; to: string };
+
+/** 对比台账里的上次快照与本次远端内容，列出发生变化的字段。 */
+export function describeRemoteChanges(previousJson: unknown, current: ReturnType<typeof itemSnapshot>): RemoteDemandChange[] {
+  const previous = parseJson(previousJson);
+  if (!Object.keys(previous).length) return [];
+  const flatten = (value: Record<string, unknown>) => {
+    const order = (value.order ?? {}) as Record<string, unknown>;
+    return {
+      quantity: text(value.quantity),
+      status: text(value.status),
+      supplierId: text(value.supplierId),
+      materialId: text(value.materialId),
+      requestedDeliveryDate: text(value.requestedDeliveryDate),
+      "order.customerPoNo": text(order.customerPoNo),
+      "order.datacenterId": text(order.datacenterId),
+      "order.deliveryRecipientListId": text(order.deliveryRecipientListId),
+    } as Record<string, string>;
+  };
+  const before = flatten(previous);
+  const after = flatten(current as unknown as Record<string, unknown>);
+  return Object.keys(after)
+    .filter((key) => before[key] !== after[key])
+    .map((key) => ({ field: key, label: CHANGE_FIELD_LABELS[key] ?? key, from: before[key], to: after[key] }));
+}
+
+/** 写入/更新一条台账记录。preserveBaseline=true 时保留上次的比对基线（用于"远端已变更待核对"）。 */
+async function persistLedgerItem(
+  connection: PoolConnection,
+  options: {
+    item: RemoteDemandItem;
+    order: RemoteDemandOrder;
+    localRequestNo: string | null;
+    localRequestItemId?: string | null;
+    status: string;
+    errorMessage?: string | null;
+    changeJson?: RemoteDemandChange[] | null;
+    preserveBaseline?: boolean;
+  },
+) {
+  const { item, order } = options;
+  const baselineAssignments = options.preserveBaseline
+    ? ""
+    : ", sourceModifiedAt=VALUES(sourceModifiedAt), sourceHash=VALUES(sourceHash), sourceDataJson=VALUES(sourceDataJson)";
+  await connection.execute(
+    `INSERT INTO ${ITEM_TABLE}
+       (sourceItemId,sourceOrderId,localRequestNo,localRequestItemId,sourceModifiedAt,sourceHash,status,errorMessage,sourceDataJson,changeJson)
+     VALUES (?,?,?,?,?,?,?,?,?,?)
+     ON DUPLICATE KEY UPDATE sourceOrderId=VALUES(sourceOrderId), localRequestNo=VALUES(localRequestNo),
+       localRequestItemId=VALUES(localRequestItemId), status=VALUES(status), errorMessage=VALUES(errorMessage),
+       changeJson=VALUES(changeJson)${baselineAssignments}`,
+    [
+      item.id, order.id, options.localRequestNo, options.localRequestItemId ?? null,
+      item.modified || order.modified || null, sourceHash(item, order),
+      options.status, options.errorMessage ? options.errorMessage.slice(0, 1000) : null,
+      JSON.stringify(itemSnapshot(item, order)),
+      options.changeJson && options.changeJson.length ? JSON.stringify(options.changeJson) : null,
+    ],
+  );
+}
+
+async function persistBlockedItem(item: RemoteDemandItem, order: RemoteDemandOrder, _hash: string, message: string) {
+  const connection = await getDb().getConnection();
+  try {
+    await persistLedgerItem(connection, { item, order, localRequestNo: null, status: "blocked", errorMessage: message });
+  } finally {
+    connection.release();
+  }
 }
 
 async function requestExists(connection: PoolConnection, requestNo: string) {
@@ -760,12 +885,7 @@ async function requestExists(connection: PoolConnection, requestNo: string) {
 async function persistSkippedExistingItems(connection: PoolConnection, order: RemoteDemandOrder, items: RemoteDemandItem[], requestNo: string) {
   const message = "本地需求单已存在，未覆盖";
   for (const item of items) {
-    await connection.execute(
-      `INSERT INTO ${ITEM_TABLE} (sourceItemId,sourceOrderId,localRequestNo,sourceModifiedAt,sourceHash,status,errorMessage)
-       VALUES (?,?,?,?,?,'skipped_existing',?)
-       ON DUPLICATE KEY UPDATE sourceOrderId=VALUES(sourceOrderId), localRequestNo=VALUES(localRequestNo), sourceModifiedAt=VALUES(sourceModifiedAt), sourceHash=VALUES(sourceHash), status='skipped_existing', errorMessage=VALUES(errorMessage)`,
-      [item.id, order.id, requestNo, item.modified || order.modified || null, sourceHash(item, order), message],
-    );
+    await persistLedgerItem(connection, { item, order, localRequestNo: requestNo, status: "skipped_existing", errorMessage: message });
   }
 }
 
@@ -813,7 +933,7 @@ export async function runFrappeDemandSync({ triggerType = "manual", dryRun = fal
     await Promise.all(snapshot.sources.filter((source) => activeMappingSourceTypes.includes(source.type as (typeof activeMappingSourceTypes)[number])).map((source) => saveSourceMapping(source, actor)));
     summary.fetchedItems = snapshot.items.length;
     const mappings = await loadFrappeMappings();
-    const existingRows = await queryRowsRaw<Row>(`SELECT sourceItemId, sourceHash, status FROM ${ITEM_TABLE}`);
+    const existingRows = await queryRowsRaw<Row>(`SELECT sourceItemId, sourceHash, status, sourceDataJson FROM ${ITEM_TABLE}`);
     const existingById = new Map(existingRows.map((row) => [text(row.sourceItemId), row]));
     const groups = new Map<string, RemoteDemandItem[]>();
     for (const item of snapshot.items) {
@@ -847,42 +967,63 @@ export async function runFrappeDemandSync({ triggerType = "manual", dryRun = fal
         }
         continue;
       }
-      if (await requestExists(connection, requestNo)) {
+      const localExists = await requestExists(connection, requestNo);
+      // 变更检测：无论本地需求单是否还在，都对台账已跟踪的明细逐条比对内容，
+      // 保证"客户改了需求"一定有提示（包括没有被删除的本地单据）。
+      const changedItems: Array<{ item: RemoteDemandItem; changes: RemoteDemandChange[] }> = [];
+      for (let index = 0; index < items.length; index += 1) {
+        const prior = existingById.get(items[index].id);
+        if (!prior) continue;
+        // reset：人工触发重新拉取留下的标记，等待本次按远端重建，不参与变更比对。
+        if (text(prior.status) === "reset") continue;
+        const tracked = (TRACKED_ITEM_STATUSES as readonly string[]).includes(text(prior.status));
+        if (tracked && text(prior.sourceHash) === hashes[index]) continue;
+        changedItems.push({ item: items[index], changes: describeRemoteChanges(prior.sourceDataJson, itemSnapshot(items[index], order)) });
+      }
+      if (changedItems.length) {
+        summary.changedItems += changedItems.length;
+        for (const entry of changedItems) {
+          const detail = entry.changes.length
+            ? `远端需求已变化：${entry.changes.map((change) => `${change.label} ${change.from || "空"} → ${change.to || "空"}`).join("；")}`
+            : "远端需求已变化";
+          const message = `${detail}；本地需求单不自动覆盖，请人工核对`;
+          summary.errors.push({ sourceItemId: entry.item.id, error: message });
+          if (!dryRun) {
+            await persistLedgerItem(connection, {
+              item: entry.item, order, localRequestNo: requestNo, status: "pending_change",
+              errorMessage: message, changeJson: entry.changes, preserveBaseline: true,
+            });
+          }
+        }
+        summary.results.push({
+          status: "pending_change", sourceOrderId: order.id, localRequestNo: requestNo, itemCount: items.length,
+          reason: `远端需求已变化（${changedItems.length} 条明细）；${localExists ? "本地需求单已存在，未覆盖" : "本地需求单不存在，未自动重建"}，请人工核对`,
+        });
+        continue;
+      }
+
+      if (localExists) {
         const message = "本地需求单已存在，未覆盖";
         summary.skippedExisting += items.length;
         summary.results.push({ status: "skipped_existing", sourceOrderId: order.id, localRequestNo: requestNo, itemCount: items.length, reason: message });
         if (!dryRun) await persistSkippedExistingItems(connection, order, items, requestNo);
         continue;
       }
-      const prepared = await Promise.all(items.map((item) => prepareLine(item, order, mappings)));
-      const invalid = prepared.filter((line): line is string => typeof line === "string");
-      const existing = items.map((item) => existingById.get(item.id)).filter(Boolean);
-      if (existing.some((row) => ["synced", "skipped_existing", "pending_change"].includes(text(row?.status)))) {
-        let hasChanges = false;
-        for (let index = 0; index < items.length; index += 1) {
-          const prior = existingById.get(items[index].id);
-          if (prior && ["synced", "skipped_existing", "pending_change"].includes(text(prior.status)) && text(prior.sourceHash) === hashes[index]) summary.skippedExisting += 1;
-          else {
-            hasChanges = true;
-            summary.changedItems += 1;
-            const message = "远端需求已变化；本地需求单不自动覆盖，请人工核对";
-            summary.errors.push({ sourceItemId: items[index].id, error: message });
-            if (!dryRun) await executeRaw(`INSERT INTO ${ITEM_TABLE} (sourceItemId,sourceOrderId,localRequestNo,sourceModifiedAt,sourceHash,status,errorMessage)
-              VALUES (:sourceItemId,:sourceOrderId,:localRequestNo,:sourceModifiedAt,:sourceHash,'pending_change',:errorMessage)
-              ON DUPLICATE KEY UPDATE sourceOrderId=VALUES(sourceOrderId), localRequestNo=VALUES(localRequestNo), sourceModifiedAt=VALUES(sourceModifiedAt), sourceHash=VALUES(sourceHash), status='pending_change', errorMessage=VALUES(errorMessage)`, {
-              sourceItemId: items[index].id, sourceOrderId: order.id, localRequestNo: requestNo, sourceModifiedAt: items[index].modified || order.modified || null, sourceHash: hashes[index], errorMessage: message,
-            });
-          }
-        }
-        summary.results.push({
-          status: hasChanges ? "pending_change" : "skipped_existing",
-          sourceOrderId: order.id,
-          localRequestNo: requestNo,
-          itemCount: items.length,
-          reason: hasChanges ? "远端需求已变化；本地需求单不自动覆盖，请人工核对" : "远端需求此前已同步，本次不自动重新创建",
-        });
+
+      const trackedItems = items.filter((item) => {
+        const prior = existingById.get(item.id);
+        return prior && (TRACKED_ITEM_STATUSES as readonly string[]).includes(text(prior.status));
+      });
+      if (trackedItems.length) {
+        const message = "远端需求此前已同步，本次不自动重新创建";
+        summary.skippedExisting += trackedItems.length;
+        summary.results.push({ status: "skipped_existing", sourceOrderId: order.id, localRequestNo: requestNo, itemCount: items.length, reason: message });
+        if (!dryRun) await persistSkippedExistingItems(connection, order, trackedItems, requestNo);
         continue;
       }
+
+      const prepared = await Promise.all(items.map((item) => prepareLine(item, order, mappings, snapshot.datacenters)));
+      const invalid = prepared.filter((line): line is string => typeof line === "string");
       if (invalid.length) {
         const groupMessage = invalid[0];
         summary.results.push({ status: "blocked", sourceOrderId: order.id, localRequestNo: requestNo, itemCount: items.length, reason: groupMessage });
@@ -925,6 +1066,22 @@ export async function runFrappeDemandSync({ triggerType = "manual", dryRun = fal
         }
       }
     }
+    // 状态已不在可同步范围的明细：只对台账里已跟踪过的明细更新轨迹，
+    // 避免给"从未进入同步范围"的明细凭空建记录。
+    if (!dryRun) {
+      for (const item of snapshot.items) {
+        if (hasEligibleStatus(item.status)) continue;
+        const prior = existingById.get(item.id);
+        if (!prior) continue;
+        const order = snapshot.orders.get(item.demandOrderId);
+        if (!order) continue;
+        if (text(prior.status) === "out_of_scope" && text(prior.sourceHash) === sourceHash(item, order)) continue;
+        await persistLedgerItem(connection, {
+          item, order, localRequestNo: text(prior.localRequestNo) || null, status: "out_of_scope",
+          errorMessage: `远端明细状态为 ${item.status || "（空）"}，不在可同步范围内`,
+        });
+      }
+    }
     await updateSyncRun(runId, { status: "success", fetchedItemCount: summary.fetchedItems, eligibleItemCount: summary.eligibleItems, createdRequestCount: summary.createdRequests, createdItemCount: summary.createdItems, skippedExistingCount: summary.skippedExisting, blockedItemCount: summary.blockedItems, changedItemCount: summary.changedItems, errorJson: JSON.stringify(summary.errors.slice(0, 200)), resultJson: JSON.stringify(summary.results.slice(0, 200)), finishedAt: new Date() });
     return summary;
   } catch (error) {
@@ -961,6 +1118,127 @@ function parseSyncResults(value: unknown): FrappeDemandSyncResult[] {
   } catch {
     return [];
   }
+}
+
+function parseChanges(value: unknown): RemoteDemandChange[] {
+  if (typeof value !== "string" || !value.trim()) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? (parsed.filter((item) => item && typeof item === "object") as RemoteDemandChange[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * 同步台账：按远端需求单聚合，标出本地需求单是否还存在、远端是否已变更，
+ * 用于回答"哪些单曾拉取过、后来被删了"以及"远端改了什么"。
+ */
+export async function listFrappeDemandSyncLedger(params: URLSearchParams) {
+  const keyword = text(params.get("keyword"));
+  const category = text(params.get("category"));
+  const { page, pageSize, offset } = pageParams(params);
+  const values: Row = { limit: pageSize, offset };
+  const conditions: string[] = [];
+  if (keyword) {
+    conditions.push("(i.sourceOrderId LIKE :keyword OR i.localRequestNo LIKE :keyword)");
+    values.keyword = `%${keyword}%`;
+  }
+  const having: string[] = [];
+  if (category === "local_exists") having.push("MAX(r.requestNo IS NOT NULL) = 1");
+  if (category === "local_deleted") having.push("MAX(r.requestNo IS NOT NULL) = 0");
+  if (category === "remote_changed") having.push("SUM(i.status = 'pending_change') > 0");
+  if (category === "out_of_scope") having.push("SUM(i.status = 'out_of_scope') > 0");
+  const from = `
+    FROM ${ITEM_TABLE} i
+    LEFT JOIN merge_power_requests r ON r.requestNo = i.localRequestNo
+    ${conditions.length ? `WHERE ${conditions.join(" AND ")}` : ""}
+    GROUP BY i.sourceOrderId
+    ${having.length ? `HAVING ${having.join(" AND ")}` : ""}`;
+  const [countRows, rows] = await Promise.all([
+    queryRowsRaw<{ total: number }>(`SELECT COUNT(*) AS total FROM (SELECT i.sourceOrderId ${from}) groupedOrders`, values),
+    queryRowsRaw<Row>(
+      `SELECT i.sourceOrderId,
+              MAX(i.localRequestNo) AS localRequestNo,
+              COUNT(*) AS itemCount,
+              SUM(i.status = 'pending_change') AS changedCount,
+              SUM(i.status = 'out_of_scope') AS outOfScopeCount,
+              SUM(i.status = 'blocked') AS blockedCount,
+              MAX(r.requestNo IS NOT NULL) AS localExists,
+              MAX(i.updatedAt) AS lastSyncedAt
+       ${from}
+       ORDER BY lastSyncedAt DESC
+       LIMIT :limit OFFSET :offset`,
+      values,
+    ),
+  ]);
+  return {
+    items: rows.map((row) => ({
+      sourceOrderId: text(row.sourceOrderId),
+      localRequestNo: row.localRequestNo ? text(row.localRequestNo) : null,
+      itemCount: Number(row.itemCount ?? 0),
+      changedCount: Number(row.changedCount ?? 0),
+      outOfScopeCount: Number(row.outOfScopeCount ?? 0),
+      blockedCount: Number(row.blockedCount ?? 0),
+      localExists: Number(row.localExists ?? 0) === 1,
+      lastSyncedAt: row.lastSyncedAt ?? null,
+    })),
+    total: Number(countRows[0]?.total ?? 0),
+    page,
+    pageSize,
+  };
+}
+
+/** 某张需求单在台账里的逐条明细（含远端变更 diff）。 */
+export async function listFrappeDemandSyncLedgerItems(sourceOrderId: string) {
+  const rows = await queryRowsRaw<Row>(
+    `SELECT i.sourceItemId, i.localRequestNo, i.localRequestItemId, i.status, i.errorMessage, i.changeJson,
+            i.updatedAt, i.sourceDataJson, (r.requestNo IS NOT NULL) AS localRequestExists
+       FROM ${ITEM_TABLE} i
+       LEFT JOIN merge_power_requests r ON r.requestNo = i.localRequestNo
+      WHERE i.sourceOrderId = :sourceOrderId
+      ORDER BY i.sourceItemId`,
+    { sourceOrderId: text(sourceOrderId) },
+  );
+  return {
+    items: rows.map((row) => ({
+      sourceItemId: text(row.sourceItemId),
+      status: text(row.status),
+      errorMessage: row.errorMessage ? text(row.errorMessage) : null,
+      localRequestNo: row.localRequestNo ? text(row.localRequestNo) : null,
+      localRequestItemId: row.localRequestItemId ? text(row.localRequestItemId) : null,
+      localRequestExists: Number(row.localRequestExists ?? 0) === 1,
+      updatedAt: row.updatedAt ?? null,
+      changes: parseChanges(row.changeJson),
+      remote: parseJson(row.sourceDataJson),
+    })),
+  };
+}
+
+/**
+ * 人工触发重新拉取：把选中需求单的台账标记为 reset，使其回到"未同步"状态，
+ * 再跑一次同步按远端重新创建草稿（已存在、映射不完整、状态不在范围的情况不会被重建）。
+ */
+export async function rebuildFrappeDemandOrders(sourceOrderIds: readonly string[], actor: OperationActor | null) {
+  const ids = Array.from(new Set(sourceOrderIds.map(text).filter(Boolean)));
+  if (!ids.length) throw new Error("请至少选择一张需求单");
+  if (ids.length > 100) throw new Error("单次最多重新拉取 100 张需求单");
+  // 注意：executeRaw 走预处理语句，命名占位符传数组不会被展开成 IN 列表，这里逐条更新。
+  for (const sourceOrderId of ids) {
+    await executeRaw(
+      `UPDATE ${ITEM_TABLE} SET status = 'reset', errorMessage = '人工触发重新拉取', changeJson = NULL WHERE sourceOrderId = :sourceOrderId`,
+      { sourceOrderId },
+    );
+  }
+  const summary = await runFrappeDemandSync({ triggerType: "manual", actor });
+  return {
+    requested: ids,
+    results: summary.results.filter((result) => ids.includes(result.sourceOrderId)),
+    summary: {
+      runId: summary.runId, createdRequests: summary.createdRequests, createdItems: summary.createdItems,
+      blockedItems: summary.blockedItems, skippedExisting: summary.skippedExisting, changedItems: summary.changedItems,
+    },
+  };
 }
 
 export async function listFrappeDemandSyncRuns() {

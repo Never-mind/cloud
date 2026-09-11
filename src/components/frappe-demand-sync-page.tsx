@@ -1,11 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { DatabaseZap, FileSearch, Pencil, Play, RefreshCw, Save, X } from "lucide-react";
 import { Button, Input, Panel } from "./ui";
 import { StickyTable } from "./sticky-table";
+import { PaginationBar } from "./pagination-bar";
+import { DEFAULT_PAGE_SIZE } from "@/lib/pagination";
+import { formatInstanceModelType } from "@/lib/instance-model-type";
 
-type Tab = "supplier" | "material";
+type Tab = "supplier" | "material" | "ledger";
 type Row = Record<string, unknown>;
 type Mapping = Row & {
   mappingId: string;
@@ -17,6 +20,7 @@ type Mapping = Row & {
   status: string;
   localEntityId?: string | null;
   localDisplayName?: string | null;
+  localEntityExists?: boolean | null;
   undertakingUnitId?: string | null;
   candidates?: Array<{ id: string; label: string }>;
 };
@@ -24,9 +28,6 @@ type Mapping = Row & {
 type MasterSet = {
   suppliers: Row[];
   instanceModels: Row[];
-  datacenters: Row[];
-  locations: Row[];
-  contacts: Row[];
 };
 
 type SyncResult = {
@@ -51,10 +52,45 @@ type SyncRun = {
   results: SyncResult[];
 };
 
-const emptyMasters: MasterSet = { suppliers: [], instanceModels: [], datacenters: [], locations: [], contacts: [] };
+const emptyMasters: MasterSet = { suppliers: [], instanceModels: [] };
 const tabs: Array<[Tab, string]> = [
   ["supplier", "供应商映射"],
   ["material", "实例/物料映射"],
+  ["ledger", "同步台账"],
+];
+
+const ledgerCategories: Array<[string, string]> = [
+  ["", "全部分类"],
+  ["local_exists", "本地已存在"],
+  ["local_deleted", "本地已删除"],
+  ["remote_changed", "远端已变更"],
+  ["out_of_scope", "含状态变化明细"],
+];
+
+type LedgerRow = {
+  sourceOrderId: string;
+  localRequestNo: string | null;
+  itemCount: number;
+  changedCount: number;
+  outOfScopeCount: number;
+  blockedCount: number;
+  localExists: boolean;
+  lastSyncedAt: string | null;
+};
+
+type LedgerItem = {
+  sourceItemId: string;
+  status: string;
+  errorMessage: string | null;
+  localRequestItemId: string | null;
+  changes: Array<{ field: string; label: string; from: string; to: string }>;
+};
+
+/** 远端物料类型（sourceDataJson.materialType）分类，仅用于实例/物料映射。 */
+const materialTypeOptions: Array<[string, string]> = [
+  ["EQUIPMENT", formatInstanceModelType("Equipment")],
+  ["COMPONENT", formatInstanceModelType("Component")],
+  ["MATERIAL", formatInstanceModelType("Material")],
 ];
 
 function text(value: unknown) {
@@ -91,24 +127,27 @@ function formatRunTime(value: string | null) {
 }
 
 function sourceTypeLabel(sourceType: string) {
-  return ({ datacenter: "机房", delivery_location: "收货地址", delivery_recipient_list: "收件人" } as Record<string, string>)[sourceType] ?? sourceType;
+  return ({ supplier: "供应商", material: "实例型号" } as Record<string, string>)[sourceType] ?? sourceType;
+}
+
+function ledgerItemStatus(status: string) {
+  return ({
+    synced: "已创建", skipped_existing: "已存在", pending_change: "远端已变更",
+    blocked: "待处理", out_of_scope: "不在同步范围", reset: "待重新拉取",
+  } as Record<string, string>)[status] ?? status;
 }
 
 function sourceDetails(mapping: Mapping) {
   const data = mapping.sourceData ?? {};
   if (mapping.sourceType === "supplier") return [data.partnerCode && `供应商编码：${text(data.partnerCode)}`, data.partnerAlias && `简称：${text(data.partnerAlias)}`].filter(Boolean).join("  ");
-  if (mapping.sourceType === "material") return [data.customerItemCode && `设备编码：${text(data.customerItemCode)}`, data.customerPartNo && `客户料号：${text(data.customerPartNo)}`, data.materialCode && `xxll编码：${text(data.materialCode)}`].filter(Boolean).join("  ");
-  if (mapping.sourceType === "datacenter") return [data.datacenterCode && `机房编码：${text(data.datacenterCode)}`, data.country && `国家：${text(data.country)}`, data.deliveryLocationId && `收货地址：${text(data.deliveryLocationId)}`].filter(Boolean).join("  ");
-  if (mapping.sourceType === "delivery_location") return [data.locationType && `类型：${text(data.locationType)}`, data.address && `地址：${text(data.address)}`].filter(Boolean).join("  ");
-  return [data.rawContact && `联系人：${text(data.rawContact)}`, data.rawPhone && `电话：${text(data.rawPhone)}`].filter(Boolean).join("  ");
+  if (mapping.sourceType === "material") return [data.materialType && `类型：${formatInstanceModelType(data.materialType)}`, data.customerItemCode && `设备编码：${text(data.customerItemCode)}`, data.customerPartNo && `客户料号：${text(data.customerPartNo)}`, data.materialCode && `xxll编码：${text(data.materialCode)}`].filter(Boolean).join("  ");
+  return "";
 }
 
 function getTargetOptions(mapping: Mapping, masters: MasterSet) {
   if (mapping.sourceType === "supplier") return masters.suppliers.map((row) => ({ id: text(row.supplierId), label: `${text(row.supplierCode)} - ${text(row.shortName || row.nameCn)}` }));
   if (mapping.sourceType === "material") return masters.instanceModels.map((row) => ({ id: text(row.deviceCode), label: `${text(row.deviceCode)} - ${text(row.nameZh || row.modelCode || row.nameEn)}` }));
-  if (mapping.sourceType === "datacenter") return masters.datacenters.map((row) => ({ id: text(row.dcCode), label: `${text(row.dcCode)} - ${text(row.nameZh || row.nameEn)}` }));
-  if (mapping.sourceType === "delivery_location") return masters.locations.map((row) => ({ id: text(row.locationId), label: `${text(row.locationId)} - ${text(row.nameZh || row.fullAddress || row.nameEn)}` }));
-  return masters.contacts.map((row) => ({ id: text(row.contactId), label: `${text(row.contactId)} - ${text(row.name)}${text(row.phone) ? ` (${text(row.phone)})` : ""}` }));
+  return [];
 }
 
 export function FrappeDemandSyncPage() {
@@ -117,20 +156,47 @@ export function FrappeDemandSyncPage() {
   const [masters, setMasters] = useState<MasterSet>(emptyMasters);
   const [keyword, setKeyword] = useState("");
   const [status, setStatus] = useState("");
+  const [materialType, setMaterialType] = useState("");
+  const [localEntity, setLocalEntity] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+  const [total, setTotal] = useState(0);
+  const [counts, setCounts] = useState<Record<string, number>>({});
+  const [materialTypeCounts, setMaterialTypeCounts] = useState<Record<string, number>>({});
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const [editing, setEditing] = useState<Mapping | null>(null);
   const [syncRuns, setSyncRuns] = useState<SyncRun[]>([]);
+  const [ledger, setLedger] = useState<LedgerRow[]>([]);
+  const [ledgerTotal, setLedgerTotal] = useState(0);
+  const [ledgerPage, setLedgerPage] = useState(1);
+  const [ledgerPageSize, setLedgerPageSize] = useState(DEFAULT_PAGE_SIZE);
+  const [ledgerCategory, setLedgerCategory] = useState("");
+  const [selectedOrders, setSelectedOrders] = useState<string[]>([]);
+  const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
+  const [ledgerItems, setLedgerItems] = useState<LedgerItem[]>([]);
 
   const visibleMappings = mappings;
   const latestRun = syncRuns[0];
 
-  async function load() {
+  async function load(options: { page?: number; pageSize?: number; materialType?: string } = {}) {
+    const targetPage = options.page ?? page;
+    const targetPageSize = options.pageSize ?? pageSize;
+    const targetMaterialType = options.materialType ?? materialType;
     setBusy(true);
     try {
-      const params = new URLSearchParams({ tab, keyword, status });
-      const data = await requestJson<{ items: Mapping[] }>(`/api/integrations/frappe-demand-sync/mappings?${params}`);
+      const params = new URLSearchParams({ tab, keyword, status, page: String(targetPage), pageSize: String(targetPageSize) });
+      if (tab === "material" && targetMaterialType) params.set("materialType", targetMaterialType);
+      if (localEntity) params.set("localEntity", localEntity);
+      const data = await requestJson<{
+        items: Mapping[]; total: number; page: number;
+        counts?: Record<string, number>; materialTypeCounts?: Record<string, number>;
+      }>(`/api/integrations/frappe-demand-sync/mappings?${params}`);
       setMappings(data.items);
+      setTotal(Number(data.total ?? data.items.length));
+      setPage(Number(data.page ?? targetPage));
+      setCounts(data.counts ?? {});
+      setMaterialTypeCounts(data.materialTypeCounts ?? {});
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "映射加载失败");
     } finally {
@@ -147,7 +213,68 @@ export function FrappeDemandSyncPage() {
     }
   }
 
-  useEffect(() => { void load(); }, [tab]);
+  useEffect(() => { if (tab !== "ledger") void load({ page: 1 }); }, [tab, materialType, localEntity]);
+  useEffect(() => { if (tab === "ledger") void loadLedger({ page: 1 }); }, [tab, ledgerCategory]);
+
+  async function loadLedger(options: { page?: number; pageSize?: number; category?: string } = {}) {
+    const targetPage = options.page ?? ledgerPage;
+    const targetPageSize = options.pageSize ?? ledgerPageSize;
+    const targetCategory = options.category ?? ledgerCategory;
+    setBusy(true);
+    try {
+      const params = new URLSearchParams({ page: String(targetPage), pageSize: String(targetPageSize) });
+      if (keyword) params.set("keyword", keyword);
+      if (targetCategory) params.set("category", targetCategory);
+      const data = await requestJson<{ items: LedgerRow[]; total: number; page: number }>(`/api/integrations/frappe-demand-sync/ledger?${params}`);
+      setLedger(data.items ?? []);
+      setLedgerTotal(Number(data.total ?? 0));
+      setLedgerPage(Number(data.page ?? targetPage));
+      setSelectedOrders([]);
+      setExpandedOrder(null);
+      setLedgerItems([]);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "同步台账加载失败");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function toggleLedgerOrder(sourceOrderId: string) {
+    if (expandedOrder === sourceOrderId) {
+      setExpandedOrder(null);
+      setLedgerItems([]);
+      return;
+    }
+    setExpandedOrder(sourceOrderId);
+    try {
+      const data = await requestJson<{ items: LedgerItem[] }>(`/api/integrations/frappe-demand-sync/ledger/items?sourceOrderId=${encodeURIComponent(sourceOrderId)}`);
+      setLedgerItems(data.items ?? []);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "台账明细加载失败");
+    }
+  }
+
+  async function rebuildSelectedOrders() {
+    if (!selectedOrders.length) return;
+    if (!window.confirm(`将从远端重新拉取并创建 ${selectedOrders.length} 张需求单草稿（本地已存在或状态不在可同步范围的会被跳过），是否继续？`)) return;
+    setBusy(true);
+    try {
+      const result = await requestJson<{ requested: string[]; results: SyncResult[] }>("/api/integrations/frappe-demand-sync/ledger/rebuild", {
+        method: "POST",
+        body: JSON.stringify({ sourceOrderIds: selectedOrders }),
+      });
+      const created = result.results.filter((item) => item.status === "created");
+      const skipped = result.results.filter((item) => item.status === "blocked" || item.status === "skipped_existing" || item.status === "pending_change");
+      setNotice(`重新拉取完成：选中 ${result.requested.length} 张，新建 ${created.length} 张${skipped.length ? `，未创建 ${skipped.length} 张（${skipped.map((item) => `${item.sourceOrderId}：${item.reason}`).join("；")}）` : ""}`);
+      setSelectedOrders([]);
+      await loadLedger({ page: 1 });
+      await loadSyncRuns();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "重新拉取失败");
+    } finally {
+      setBusy(false);
+    }
+  }
   useEffect(() => { void loadSyncRuns(); }, []);
   useEffect(() => {
     void requestJson<MasterSet>("/api/integrations/frappe-demand-sync/master-data").then(setMasters)
@@ -210,14 +337,75 @@ export function FrappeDemandSyncPage() {
     </Panel> : null}
     <Panel>
       <div className="flex flex-wrap items-center gap-2 border-b border-[#ebeef5] p-3">
-        {tabs.map(([key, label]) => <button className={`border-b-2 px-3 py-2 text-sm ${tab === key ? "border-[#1890ff] text-[#1890ff]" : "border-transparent text-[#606266]"}`} type="button" key={key} onClick={() => { setTab(key); setStatus(""); }}>{label}</button>)}
-        <div className="ml-auto flex flex-wrap gap-2"><Input placeholder="远端编码、名称或本地档案" value={keyword} onChange={(event) => setKeyword(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void load(); }} /><select className="h-9 rounded border border-[#dcdfe6] bg-white px-3 text-sm" value={status} onChange={(event) => setStatus(event.target.value)}><option value="">全部状态</option><option value="pending">待处理</option><option value="confirmed">已确认</option><option value="conflict">冲突</option><option value="ignored">已忽略</option></select><Button disabled={busy} onClick={() => void load()}>查询</Button></div>
+        {tabs.map(([key, label]) => <button className={`border-b-2 px-3 py-2 text-sm ${tab === key ? "border-[#1890ff] text-[#1890ff]" : "border-transparent text-[#606266]"}`} type="button" key={key} onClick={() => { setTab(key); setStatus(""); }}>{label}{key === "ledger" ? null : <span className="ml-1 text-xs text-[#909399]">{counts[key] ?? 0}</span>}</button>)}
+        <div className="ml-auto flex flex-wrap gap-2">
+          {tab === "ledger" ? <>
+            <select className="h-9 rounded border border-[#dcdfe6] bg-white px-3 text-sm" value={ledgerCategory} onChange={(event) => setLedgerCategory(event.target.value)}>
+              {ledgerCategories.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            </select>
+            <Input placeholder="远端单号或本地需求单号" value={keyword} onChange={(event) => setKeyword(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void loadLedger({ page: 1 }); }} />
+            <Button disabled={busy} onClick={() => void loadLedger({ page: 1 })}>查询</Button>
+            <Button disabled={busy || !selectedOrders.length} tone="primary" onClick={() => void rebuildSelectedOrders()}><Play size={15} />重新拉取所选（{selectedOrders.length}）</Button>
+          </> : <>
+            {tab === "material" ? <select className="h-9 rounded border border-[#dcdfe6] bg-white px-3 text-sm" title="按远端实例类型分类" value={materialType} onChange={(event) => setMaterialType(event.target.value)}><option value="">全部类型（{Object.values(materialTypeCounts).reduce((sum, value) => sum + value, 0)}）</option>{materialTypeOptions.map(([value, label]) => <option key={value} value={value}>{label}（{materialTypeCounts[value] ?? 0}）</option>)}</select> : null}
+            <select className="h-9 rounded border border-[#dcdfe6] bg-white px-3 text-sm" title="按本地档案是否存在筛选" value={localEntity} onChange={(event) => setLocalEntity(event.target.value)}><option value="">本地档案：全部</option><option value="exists">仅本地存在</option><option value="missing">仅本地已删除</option></select>
+            <Input placeholder="远端编码、名称或本地档案" value={keyword} onChange={(event) => setKeyword(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void load({ page: 1 }); }} />
+            <select className="h-9 rounded border border-[#dcdfe6] bg-white px-3 text-sm" value={status} onChange={(event) => setStatus(event.target.value)}><option value="">全部状态</option><option value="pending">待处理</option><option value="confirmed">已确认</option><option value="conflict">冲突</option><option value="ignored">已忽略</option></select>
+            <Button disabled={busy} onClick={() => void load({ page: 1 })}>查询</Button>
+          </>}
+        </div>
       </div>
-      <StickyTable className="max-h-[calc(100vh-280px)] overflow-auto" tableKey="frappe-demand-sync-mappings">
-        <table className="min-w-[1260px] border-collapse text-sm"><thead className="bg-[#f5f7fa]"><tr><th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium">远端ID</th><th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium">远端信息</th><th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium">自动匹配</th><th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium">本地档案</th><th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium">状态</th><th className="border-b border-[#ebeef5] px-3 py-3 text-left font-medium">操作</th></tr></thead>
-          <tbody>{visibleMappings.map((mapping) => <tr key={mapping.mappingId}><td className="border-b border-r border-[#ebeef5] px-3 py-3 font-mono text-xs">{mapping.sourceId}</td><td className="max-w-[340px] border-b border-r border-[#ebeef5] px-3 py-3"><div>{display(mapping.sourceCode)} {mapping.sourceName ? `- ${mapping.sourceName}` : ""}</div><div className="mt-1 whitespace-normal text-xs text-[#909399]">{sourceDetails(mapping) || "-"}</div></td><td className="max-w-[260px] border-b border-r border-[#ebeef5] px-3 py-3 text-[#606266]">{mapping.candidates?.length === 1 ? mapping.candidates[0].label : mapping.candidates?.length ? `${mapping.candidates.length} 个候选项` : "无"}</td><td className="max-w-[260px] border-b border-r border-[#ebeef5] px-3 py-3">{display(mapping.localDisplayName)}</td><td className="border-b border-r border-[#ebeef5] px-3 py-3">{mappingStatus(mapping.status)}</td><td className="border-b border-[#ebeef5] px-3 py-3"><Button tone={mapping.status === "pending" || mapping.status === "conflict" ? "primary" : undefined} onClick={() => setEditing(mapping)}>{mapping.status === "pending" || mapping.status === "conflict" ? "去匹配" : <><Pencil size={14} />修改匹配</>}</Button></td></tr>)}{!visibleMappings.length ? <tr><td className="py-14 text-center text-[#909399]" colSpan={6}>{busy ? "加载中..." : "暂无映射记录"}</td></tr> : null}</tbody>
+      {tab === "ledger" ? <>
+      <StickyTable className="max-h-[calc(100vh-280px)] overflow-auto" tableKey="frappe-demand-sync-ledger">
+        <table className="min-w-[1100px] border-collapse text-sm">
+          <thead className="bg-[#f5f7fa]"><tr>
+            <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium"><input aria-label="全选需求单" checked={ledger.length > 0 && selectedOrders.length === ledger.length} type="checkbox" onChange={(event) => setSelectedOrders(event.target.checked ? ledger.map((row) => row.sourceOrderId) : [])} /></th>
+            {["远端需求单号", "本地需求单号", "明细数", "本地状态", "远端变更", "最后同步", "操作"].map((label) => <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium" key={label}>{label}</th>)}
+          </tr></thead>
+          <tbody>
+            {ledger.map((row) => <Fragment key={row.sourceOrderId}>
+              <tr className="hover:bg-[#fafafa]">
+                <td className="border-b border-r border-[#ebeef5] px-3 py-3"><input aria-label={`选择 ${row.sourceOrderId}`} checked={selectedOrders.includes(row.sourceOrderId)} type="checkbox" onChange={() => setSelectedOrders((current) => current.includes(row.sourceOrderId) ? current.filter((id) => id !== row.sourceOrderId) : [...current, row.sourceOrderId])} /></td>
+                <td className="border-b border-r border-[#ebeef5] px-3 py-3 font-mono text-xs">{row.sourceOrderId}</td>
+                <td className="border-b border-r border-[#ebeef5] px-3 py-3 font-mono text-xs">{display(row.localRequestNo)}</td>
+                <td className="border-b border-r border-[#ebeef5] px-3 py-3 text-right">{row.itemCount}</td>
+                <td className="border-b border-r border-[#ebeef5] px-3 py-3">{row.localExists ? <span className="text-[#13ce66]">已存在</span> : <span className="text-[#f56c6c]">已删除</span>}</td>
+                <td className="border-b border-r border-[#ebeef5] px-3 py-3">{row.changedCount ? <span className="text-[#e6a23c]">已变更 {row.changedCount} 条</span> : row.outOfScopeCount ? <span className="text-[#909399]">{row.outOfScopeCount} 条状态变化</span> : "-"}</td>
+                <td className="border-b border-r border-[#ebeef5] px-3 py-3 text-xs text-[#909399]">{formatRunTime(row.lastSyncedAt)}</td>
+                <td className="border-b border-[#ebeef5] px-3 py-3"><Button onClick={() => void toggleLedgerOrder(row.sourceOrderId)}>{expandedOrder === row.sourceOrderId ? "收起明细" : "查看明细"}</Button></td>
+              </tr>
+              {expandedOrder === row.sourceOrderId ? <tr><td className="border-b border-[#ebeef5] bg-[#fafafa] px-4 py-3" colSpan={8}>
+                <table className="w-full min-w-[900px] border-collapse text-sm">
+                  <thead><tr>{["明细ID", "台账状态", "本地明细", "远端变更", "说明"].map((label) => <th className="border-b border-[#ebeef5] px-3 py-2 text-left font-medium text-[#606266]" key={label}>{label}</th>)}</tr></thead>
+                  <tbody>{ledgerItems.map((item) => <tr key={item.sourceItemId}>
+                    <td className="border-b border-[#ebeef5] px-3 py-2 font-mono text-xs">{item.sourceItemId}</td>
+                    <td className="border-b border-[#ebeef5] px-3 py-2">{ledgerItemStatus(item.status)}</td>
+                    <td className="border-b border-[#ebeef5] px-3 py-2 font-mono text-xs">{display(item.localRequestItemId)}</td>
+                    <td className="border-b border-[#ebeef5] px-3 py-2">{item.changes.length ? item.changes.map((change) => `${change.label} ${change.from || "空"} → ${change.to || "空"}`).join("；") : "-"}</td>
+                    <td className="border-b border-[#ebeef5] px-3 py-2 text-[#606266]">{display(item.errorMessage)}</td>
+                  </tr>)}</tbody>
+                </table>
+              </td></tr> : null}
+            </Fragment>)}
+            {!ledger.length ? <tr><td className="py-14 text-center text-[#909399]" colSpan={8}>{busy ? "加载中..." : "暂无台账记录"}</td></tr> : null}
+          </tbody>
         </table>
       </StickyTable>
+      <PaginationBar page={ledgerPage} pageSize={ledgerPageSize} total={ledgerTotal} onPageChange={(next) => { setLedgerPage(next); void loadLedger({ page: next }); }} onPageSizeChange={(size) => { setLedgerPageSize(size); setLedgerPage(1); void loadLedger({ page: 1, pageSize: size }); }} />
+      </> : <>
+      <StickyTable className="max-h-[calc(100vh-280px)] overflow-auto" tableKey="frappe-demand-sync-mappings">
+        <table className="min-w-[1260px] border-collapse text-sm"><thead className="bg-[#f5f7fa]"><tr><th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium">远端ID</th><th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium">远端信息</th><th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium">自动匹配</th><th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium">本地档案</th><th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium">状态</th><th className="border-b border-[#ebeef5] px-3 py-3 text-left font-medium">操作</th></tr></thead>
+          <tbody>{visibleMappings.map((mapping) => <tr key={mapping.mappingId}><td className="border-b border-r border-[#ebeef5] px-3 py-3 font-mono text-xs">{mapping.sourceId}</td><td className="max-w-[340px] border-b border-r border-[#ebeef5] px-3 py-3"><div>{display(mapping.sourceCode)} {mapping.sourceName ? `- ${mapping.sourceName}` : ""}</div><div className="mt-1 whitespace-normal text-xs text-[#909399]">{sourceDetails(mapping) || "-"}</div></td><td className="max-w-[260px] border-b border-r border-[#ebeef5] px-3 py-3 text-[#606266]">{mapping.candidates?.length === 1 ? mapping.candidates[0].label : mapping.candidates?.length ? `${mapping.candidates.length} 个候选项` : "无"}</td><td className="max-w-[260px] border-b border-r border-[#ebeef5] px-3 py-3">{display(mapping.localDisplayName)}{mapping.localEntityExists === false ? <span className="ml-1 text-[#f56c6c]">（本地档案已删除）</span> : null}</td><td className="border-b border-r border-[#ebeef5] px-3 py-3">{mappingStatus(mapping.status)}</td><td className="border-b border-[#ebeef5] px-3 py-3"><Button tone={mapping.status === "pending" || mapping.status === "conflict" ? "primary" : undefined} onClick={() => setEditing(mapping)}>{mapping.status === "pending" || mapping.status === "conflict" ? "去匹配" : <><Pencil size={14} />修改匹配</>}</Button></td></tr>)}{!visibleMappings.length ? <tr><td className="py-14 text-center text-[#909399]" colSpan={6}>{busy ? "加载中..." : "暂无映射记录"}</td></tr> : null}</tbody>
+        </table>
+      </StickyTable>
+      <PaginationBar
+        page={page}
+        pageSize={pageSize}
+        total={total}
+        onPageChange={(next) => { setPage(next); void load({ page: next }); }}
+        onPageSizeChange={(size) => { setPageSize(size); setPage(1); void load({ page: 1, pageSize: size }); }}
+      />
+      </>}
     </Panel>
     {editing ? <MappingDialog mapping={editing} masters={masters} onCancel={() => setEditing(null)} onSave={async (body) => { try { await requestJson(`/api/integrations/frappe-demand-sync/mappings/${encodeURIComponent(editing.mappingId)}`, { method: "PATCH", body: JSON.stringify(body) }); setEditing(null); setNotice("映射已保存"); await load(); } catch (error) { setNotice(error instanceof Error ? error.message : "映射保存失败"); } }} /> : null}
   </div>;
