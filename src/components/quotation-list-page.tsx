@@ -12,6 +12,7 @@ import { StickyTable } from "./sticky-table";
 import { TableColumnMenu, type TableFilterOption, type TableSortOrder } from "./table-column-menu";
 import { StatusTag } from "./status-tag";
 import { AuditInfoBar, Button, Input, Panel, Textarea } from "./ui";
+import { LoadingBlock, TableSkeleton } from "./table-state";
 import { ProductMasterPicker } from "./customer-po-page";
 
 type Value = string | number | boolean | null | undefined;
@@ -245,7 +246,7 @@ export function QuotationListPage({ config }: { config: EntityConfig }) {
               <th className="sticky right-0 border-b border-[#ebeef5] bg-[#f5f7fa] px-3 py-3 text-left font-medium">操作</th>
             </tr></thead>
             <tbody>
-              {loading ? <tr><td className="px-4 py-12 text-center text-[#909399]" colSpan={config.listFields.length + 1}>加载中...</td></tr> : null}
+              {loading ? <tr><td className="px-4 py-12 text-center text-[#909399]" colSpan={config.listFields.length + 1}><TableSkeleton /></td></tr> : null}
               {!loading && rows.map((row) => {
                 const id = String(row[config.primaryKey] ?? "");
                 return <tr className="hover:bg-[#fafafa]" key={id}>
@@ -533,7 +534,7 @@ export function QuotationDetailPage({ id }: { id: string }) {
     return <Input className={type === "number" ? "h-8 w-32" : "h-8 w-40"} type={type} min={field.key === "quantity" ? "1" : undefined} step={step} value={String(value)} onChange={(event) => updateItemDraft(itemId, field.key, event.target.value)} />;
   }
 
-  if (loading) return <div className="p-5 text-sm text-[#909399]">加载中...</div>;
+  if (loading) return <LoadingBlock />;
   if (!quotation) return <div className="space-y-4 p-5"><Button onClick={() => postWorkspaceMessage({ type: "cloud-power:route", route: returnTo, title: "报价列表" })}><ArrowLeft size={15} />返回报价列表</Button><Panel><div className="p-6 text-sm text-[#f56c6c]">{error || "报价单不存在"}</div></Panel></div>;
 
   const totalQuantity = items.reduce((sum, row) => sum + Number(row.quantity ?? 0), 0);

@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { getReturnTo } from "@/lib/client-list-navigation";
 import { formatDisplayValue } from "@/lib/display-format";
 import { Button, Panel } from "./ui";
+import { LoadingBlock } from "./table-state";
 import { StickyTable } from "./sticky-table";
 
 type Row = Record<string, string | number | boolean | null>;
@@ -78,7 +79,7 @@ export function BillingStatementDetailPage({ snapshotNo }: { snapshotNo: string 
     [data?.items],
   );
 
-  if (loading) return <div className="text-[#909399]">加载中...</div>;
+  if (loading) return <LoadingBlock />;
   if (!data?.snapshot) return <div className="text-[#909399]">未找到月账单对账单。</div>;
 
   const confirmed = data.snapshot.status === "已确认";

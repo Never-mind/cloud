@@ -10,6 +10,7 @@ import { fetchAllEntityRows } from "@/lib/client-entity-fetch";
 import { getReturnTo } from "@/lib/client-list-navigation";
 import { postWorkspaceMessage } from "@/lib/tab-workspace";
 import { Button, Input, Panel, Textarea } from "./ui";
+import { LoadingBlock } from "./table-state";
 import { StickyTable } from "./sticky-table";
 import { WorkspaceNavigationDialog } from "./workspace-navigation-dialog";
 
@@ -330,7 +331,7 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
   }
 
   if (!contract) {
-    return <div className="text-[#909399]">加载中...</div>;
+    return <LoadingBlock />;
   }
 
   return (

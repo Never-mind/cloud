@@ -26,6 +26,7 @@ import { TableColumnMenu, type TableFilterOption, type TableSortOrder } from "./
 import { StickyTable } from "./sticky-table";
 import { StatusTag } from "./status-tag";
 import { AuditInfoBar, Button, Input, Panel, Textarea } from "./ui";
+import { TableSkeleton } from "./table-state";
 
 type Value = string | number | boolean | null | undefined;
 type Row = Record<string, Value>;
@@ -261,7 +262,7 @@ export function CustomerPoListPage({ config }: { config: EntityConfig }) {
           <table className="min-w-[1500px] border-collapse text-sm">
             <thead className="bg-[#f5f7fa] text-[#303133]"><tr>{listFields.map((field) => <th className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium" key={field.key}><TableColumnMenu column={field} filterValues={columnFilters[field.key] ?? []} loadOptions={(optionKeyword) => loadOptions(field.key, optionKeyword)} onFilter={(values) => { setPage(1); setColumnFilters((current) => ({ ...current, [field.key]: values })); }} onSort={(order) => { setPage(1); setSortField(field.key); setSortOrder(order); }} sortOrder={sortField === field.key ? sortOrder : ""} /></th>)}<th className="sticky right-0 border-b border-[#ebeef5] bg-[#f5f7fa] px-3 py-3 text-left font-medium">操作</th></tr></thead>
             <tbody>
-              {loading ? <tr><td className="px-4 py-12 text-center text-[#909399]" colSpan={listFields.length + 1}>加载中...</td></tr> : rows.map((row) => {
+              {loading ? <tr><td className="px-4 py-12 text-center text-[#909399]" colSpan={listFields.length + 1}><TableSkeleton /></td></tr> : rows.map((row) => {
                 const id = String(row.id ?? "");
                 return <tr className="hover:bg-[#fafafa]" key={id}>{listFields.map((field) => <td className="max-w-[240px] truncate whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3" key={field.key}>{field.key === "poNo" ? <button className="text-[#1890ff] hover:underline" type="button" onClick={() => openRoute(`/customer-pos/${encodeURIComponent(id)}?returnTo=%2Fcustomer-pos`, "客户PO明细")}>{String(row[field.key] ?? "-")}</button> : field.key === "status" ? <StatusTag status={String(row[field.key] ?? "draft")} label={formatPoStatus(row[field.key])} /> : formatPoListValue(row[field.key], "type" in field ? field.type : undefined)}</td>)}<td className="sticky right-0 whitespace-nowrap border-b border-[#ebeef5] bg-white px-3 py-3"><button className="inline-flex h-8 w-8 items-center justify-center text-[#606266] hover:text-[#1890ff]" type="button" aria-label="查看" title="查看" onClick={() => openRoute(`/customer-pos/${encodeURIComponent(id)}?returnTo=%2Fcustomer-pos`, "客户PO明细")}><Eye size={16} /></button>{String(row.status ?? "draft") !== "confirmed" ? <button className="ml-2 inline-flex h-8 w-8 items-center justify-center text-[#f56c6c] hover:text-[#ff4949]" type="button" aria-label="删除" title="删除草稿" onClick={() => void deletePo(id, String(row.poNo ?? ""))}><Trash2 size={16} /></button> : null}</td></tr>;
               })}

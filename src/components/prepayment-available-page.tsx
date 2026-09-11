@@ -12,6 +12,7 @@ import { StickyTable } from "./sticky-table";
 import { TableColumnMenu, type TableSortOrder } from "./table-column-menu";
 import { useRequestGuard } from "@/lib/table-query-client";
 import { Button, Input, Panel } from "./ui";
+import { TableStateContent } from "./table-state";
 
 type Row = {
   id: string;
@@ -323,7 +324,7 @@ export function PrepaymentAvailablePage() {
               {!rows.length ? (
                 <tr>
                   <td className="py-12 text-center text-[#909399]" colSpan={columns.length + 1}>
-                    {loading ? "加载中..." : "暂无可生成预付款合同的实例"}
+                    <TableStateContent empty="暂无可生成预付款合同的实例" loading={loading} />
                   </td>
                 </tr>
               ) : null}

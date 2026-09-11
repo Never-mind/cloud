@@ -3,6 +3,7 @@
 import { Fragment, useEffect, useState } from "react";
 import { DatabaseZap, FileSearch, Pencil, Play, RefreshCw, Save, X } from "lucide-react";
 import { Button, Input, Panel } from "./ui";
+import { TableStateContent } from "./table-state";
 import { StickyTable } from "./sticky-table";
 import { PaginationBar } from "./pagination-bar";
 import { DEFAULT_PAGE_SIZE } from "@/lib/pagination";
@@ -443,7 +444,7 @@ export function FrappeDemandSyncPage() {
                 </table>
               </td></tr> : null}
             </Fragment>)}
-            {!ledger.length ? <tr><td className="py-14 text-center text-[#909399]" colSpan={8}>{busy ? "加载中..." : "暂无台账记录"}</td></tr> : null}
+            {!ledger.length ? <tr><td className="py-14 text-center text-[#909399]" colSpan={8}><TableStateContent empty="暂无台账记录" loading={busy} /></td></tr> : null}
           </tbody>
         </table>
       </StickyTable>

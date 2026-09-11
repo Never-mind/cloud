@@ -11,6 +11,7 @@ import { Button, Input, Panel } from "./ui";
 import { PaginationBar } from "./pagination-bar";
 import { StickyTable } from "./sticky-table";
 import { TableColumnMenu, type TableFilterOption, type TableSortOrder } from "./table-column-menu";
+import { TableStateContent } from "./table-state";
 
 type Row = Record<string, string | number | boolean | null>;
 
@@ -224,7 +225,7 @@ export function BillingAdjustmentsPage() {
               {!rows.length ? (
                 <tr>
                   <td className="py-12 text-center text-[#909399]" colSpan={columns.length + 1}>
-                    {loading ? "加载中..." : "暂无调整单"}
+                    <TableStateContent empty="暂无调整单" loading={loading} />
                   </td>
                 </tr>
               ) : null}

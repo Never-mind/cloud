@@ -9,6 +9,7 @@ import { PaginationBar } from "./pagination-bar";
 import { StickyTable } from "./sticky-table";
 import { TableColumnMenu, type TableSortOrder } from "./table-column-menu";
 import { Button, Input, Panel } from "./ui";
+import { TableStateContent } from "./table-state";
 
 type Value = string | number | boolean | null | undefined;
 type Row = Record<string, Value | string[]>;
@@ -443,7 +444,7 @@ export function BalanceSettlementPage() {
                       <td className={`border-b border-r border-[#ebeef5] px-3 py-3 text-xs ${canGenerate ? "text-[#67c23a]" : "text-[#e6a23c]"}`}>{canGenerate ? "可生成" : missing.join("；")}</td>
                     </tr>;
                   })}
-                  {!candidates.length && <tr><td className="py-12 text-center text-[#909399]" colSpan={18}>{loading ? "加载中..." : "暂无可生成的实例结差数据"}</td></tr>}
+                  {!candidates.length && <tr><td className="py-12 text-center text-[#909399]" colSpan={18}><TableStateContent empty="暂无可生成的实例结差数据" loading={loading} /></td></tr>}
                 </tbody>
               </table>
             </StickyTable>
@@ -482,7 +483,7 @@ export function BalanceSettlementPage() {
                 {[["capexDifferenceTotal"], ["opexDifferenceTotal"], ["differenceTotal"]].map(([key]) => <td className={`whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3 ${isNegative(row[key]) ? "text-[#f56c6c]" : ""}`} key={key}>{formatMoney(row[key])}</td>)}
                 <td className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3">{formatDate(row.confirmedAt)}</td><td className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3">{formatDate(row.createdAt)}</td><td className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3">{formatDate(row.updatedAt)}</td>
               </tr>)}
-              {!settlements.length && <tr><td className="py-12 text-center text-[#909399]" colSpan={15}>{loading ? "加载中..." : "暂无结差来源单"}</td></tr>}
+              {!settlements.length && <tr><td className="py-12 text-center text-[#909399]" colSpan={15}><TableStateContent empty="暂无结差来源单" loading={loading} /></td></tr>}
             </tbody></table></StickyTable>
             <PaginationBar page={settlementPage} pageSize={settlementPageSize} total={settlementTotal} onPageChange={(next) => void loadSettlements(next)} onPageSizeChange={(next) => void loadSettlements(1, next)} />
           </Panel>

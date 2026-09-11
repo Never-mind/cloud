@@ -9,6 +9,7 @@ import { StickyTable } from "./sticky-table";
 import { StatusTag } from "./status-tag";
 import { TableColumnMenu, type TableFilterOption, type TableSortOrder } from "./table-column-menu";
 import { Button, Input, Panel } from "./ui";
+import { TableSkeleton } from "./table-state";
 
 type Column = { key: string; label: string; type?: "money" | "number" | "date" | "datetime" | "boolean" };
 
@@ -169,7 +170,7 @@ export function PoInvoiceSummaryPage() {
           <table className="min-w-[2900px] border-collapse text-sm">
             <thead className="bg-[#f5f7fa] text-[#303133]"><tr>{columns.map((column) => <th className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium" key={column.key}><TableColumnMenu column={{ ...column, sortable: true, filterable: true }} filterValues={columnFilters[column.key] ?? []} loadOptions={(optionKeyword) => loadOptions(column.key, optionKeyword)} onFilter={(values) => { setPage(1); setColumnFilters((current) => ({ ...current, [column.key]: values })); }} onSort={(order) => { setPage(1); setSortField(column.key); setSortOrder(order); }} sortOrder={sortField === column.key ? sortOrder : ""} /></th>)}<th className="sticky right-0 border-b border-[#ebeef5] bg-[#f5f7fa] px-3 py-3 text-left font-medium">操作</th></tr></thead>
             <tbody>
-              {loading ? <tr><td className="px-4 py-12 text-center text-[#909399]" colSpan={columns.length + 1}>加载中...</td></tr> : null}
+              {loading ? <tr><td className="px-4 py-12 text-center text-[#909399]" colSpan={columns.length + 1}><TableSkeleton /></td></tr> : null}
               {!loading && result.items.map((row) => <tr className="hover:bg-[#fafafa]" key={row.id}>{columns.map((column, index) => <td className="max-w-[260px] truncate whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3" key={column.key}>{index === 0 ? <button className="text-[#1890ff] hover:underline" type="button" onClick={() => openProject(row)}>{row.projectNo || "-"}</button> : column.key === "projectStatus" ? <StatusTag status={row.projectStatus} label={statusLabel(row.projectStatus)} /> : formatValue(row[column.key as keyof PoInvoiceSummaryRow], column.type)}</td>)}<td className="sticky right-0 whitespace-nowrap border-b border-[#ebeef5] bg-white px-3 py-3"><button className="text-[#1890ff] hover:underline" type="button" onClick={() => openProject(row)}>查看项目</button></td></tr>)}
               {!loading && !result.items.length ? <tr><td className="px-4 py-12 text-center text-[#909399]" colSpan={columns.length + 1}>暂无发票明细</td></tr> : null}
             </tbody>

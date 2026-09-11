@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Eye, FileDown, RefreshCw, Search, Trash2 } from "lucide-react";
 import { Button, Input, Panel } from "./ui";
+import { TableSkeleton } from "./table-state";
 import { PaginationBar } from "./pagination-bar";
 import { StickyTable } from "./sticky-table";
 import { TableColumnMenu, type TableFilterOption, type TableSortOrder } from "./table-column-menu";
@@ -111,7 +112,7 @@ export function SettlementProjectPage() {
         <StickyTable className="table-scroll max-h-[calc(100vh-300px)] overflow-auto" tableKey="settlement-projects">
          <table className="min-w-[2400px] border-collapse text-sm">
             <thead className="bg-[#f5f7fa]"><tr>{columns.map(([field, label]) => <th className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium" key={field}><TableColumnMenu column={{ key: field, label, sortable: true, filterable: true }} sortOrder={sortField === field ? sortOrder : ""} filterValues={columnFilters[field] ?? []} loadOptions={(optionKeyword) => loadOptions(field, optionKeyword)} onSort={(order) => { setPage(1); setSortField(order ? field : ""); setSortOrder(order); }} onFilter={(values) => { setPage(1); setColumnFilters((current) => ({ ...current, [field]: values })); }} /></th>)}<th className="border-b border-[#ebeef5] px-3 py-3 text-left font-medium">操作</th></tr></thead>
-             <tbody>{loading ? <tr><td className="px-4 py-12 text-center text-[#909399]" colSpan={columns.length + 1}>加载中...</td></tr> : rows.map((row) => <tr key={row.id}>
+             <tbody>{loading ? <tr><td className="px-4 py-12 text-center text-[#909399]" colSpan={columns.length + 1}><TableSkeleton /></td></tr> : rows.map((row) => <tr key={row.id}>
                <td className="whitespace-nowrap px-3 py-3"><button className="text-[#1890ff] hover:underline" type="button" onClick={() => openRoute(`/po/settlement-projects/${encodeURIComponent(row.id)}?returnTo=%2Fpo%2Fsettlement-projects`, "项目结算详情")}>{row.projectNo}</button></td><td className="whitespace-nowrap px-3 py-3"><button className="text-[#1890ff] hover:underline" type="button" onClick={() => openRoute(`/quotation/list?keyword=${encodeURIComponent(row.quotationNo)}`, "报价列表")}>{row.quotationNo}</button></td><td className="px-3 py-3">{row.projectName || "-"}</td><td className="px-3 py-3">{row.customerName || "-"}</td><td className="px-3 py-3">{row.contractingUnitName || "-"}</td>
                <td className="px-3 py-3"><StatusTag status={row.status} label={statusLabel(row.status)} /></td>
                <td className="numeric-cell px-3 py-3">{money(row.quotedPurchaseCostUsd)}</td><td className="numeric-cell px-3 py-3">{money(row.purchasedCostUsd)}</td><td className="numeric-cell px-3 py-3">{money(row.quotedSalesRevenueUsd)}</td><td className="numeric-cell px-3 py-3">{money(row.receivedRevenueTaxIncludedUsd)}</td><td className="numeric-cell px-3 py-3">{money(row.receivedRevenueUsd)}</td><td className="numeric-cell px-3 py-3">{money(row.grossProfitUsd)}</td>

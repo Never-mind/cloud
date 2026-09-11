@@ -19,6 +19,7 @@ import {
   Upload,
 } from "lucide-react";
 import { Button, Input, Panel } from "./ui";
+import { LoadingBlock } from "./table-state";
 import { PaginationBar } from "./pagination-bar";
 
 type DocumentFolder = {
@@ -274,7 +275,7 @@ export function DocumentManagerPage() {
               ))}
             </div>
             <div className="overflow-auto p-4">
-              {loading ? <div className="py-10 text-center text-[#909399]">加载中...</div> : null}
+              {loading ? <LoadingBlock /> : null}
               {!loading && filteredFolders.length === 0 && files.length === 0 ? (
                 <div className="py-20 text-center text-[#909399]">当前文件夹暂无内容</div>
               ) : null}

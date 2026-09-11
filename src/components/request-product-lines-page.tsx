@@ -13,6 +13,7 @@ import { TableColumnMenu, type TableFilterOption, type TableSortOrder } from "./
 import { useRequestGuard } from "@/lib/table-query-client";
 import { Button, Input, Panel } from "./ui";
 import { buildListRoute, getCurrentRoute, useListScrollPosition } from "@/lib/client-list-navigation";
+import { TableStateContent } from "./table-state";
 
 type Row = Record<string, string | number | boolean | null>;
 type ListResponse = { rows: Row[]; total: number; page: number; pageSize: number; totalPages: number };
@@ -191,7 +192,7 @@ export function RequestProductLinesPage() {
             </thead>
             <tbody>
               {rows.map((row) => <tr className="hover:bg-[#fafafa]" key={String(row.id)}>{columns.map((column) => <td className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3" key={column.key}>{formatValue(row[column.key])}</td>)}</tr>)}
-              {!rows.length ? <tr><td className="py-12 text-center text-[#909399]" colSpan={columns.length}>{loading ? "加载中..." : "暂无数据"}</td></tr> : null}
+              {!rows.length ? <tr><td className="py-12 text-center text-[#909399]" colSpan={columns.length}><TableStateContent empty="暂无数据" loading={loading} /></td></tr> : null}
             </tbody>
           </table>
         </StickyTable>

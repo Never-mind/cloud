@@ -25,6 +25,7 @@ import { TableColumnMenu, type TableFilterOption, type TableSortOrder } from "./
 import { useRequestGuard } from "@/lib/table-query-client";
 import type { MaterialSyncSummary } from "@/lib/material-sync-service";
 import { Button, Input, Panel, Textarea } from "./ui";
+import { TableStateContent } from "./table-state";
 
 type Row = Record<string, string | number | boolean | null>;
 
@@ -1025,7 +1026,7 @@ export function EntityPage({
               {!rows.length && (
                 <tr>
                   <td className="py-12 text-center text-[#909399]" colSpan={visibleColumns.length + (readOnly ? 0 : 1) + (config.showSequence ? 1 : 0) + (config.batchDelete ? 1 : 0)}>
-                    {loading ? "加载中..." : "暂无数据"}
+                    <TableStateContent empty="暂无数据" loading={loading} />
                   </td>
                 </tr>
               )}

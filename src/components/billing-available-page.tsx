@@ -11,6 +11,7 @@ import { PaginationBar } from "./pagination-bar";
 import { StickyTable } from "./sticky-table";
 import { TableColumnMenu, type TableSortOrder } from "./table-column-menu";
 import { Button, Input, Panel } from "./ui";
+import { TableStateContent } from "./table-state";
 
 type Row = {
   purchaseOrderItemId: string;
@@ -362,7 +363,7 @@ export function BillingAvailablePage() {
               {!rows.length ? (
                 <tr>
                   <td className="py-12 text-center text-[#909399]" colSpan={columns.length + 2}>
-                    {loading ? "加载中..." : "暂无可生成月账单的实例"}
+                    <TableStateContent empty="暂无可生成月账单的实例" loading={loading} />
                   </td>
                 </tr>
               ) : null}

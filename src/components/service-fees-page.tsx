@@ -9,6 +9,7 @@ import { PaginationBar } from "./pagination-bar";
 import { StickyTable } from "./sticky-table";
 import { TableColumnMenu, type TableFilterOption, type TableSortOrder } from "./table-column-menu";
 import { useRequestGuard } from "@/lib/table-query-client";
+import { TableStateContent } from "./table-state";
 
 type Row = Record<string, string | number | boolean | null>;
 type ListResponse = { rows: Row[]; summary: Summary; currencySummaries?: CurrencySummary[]; total: number; page: number; pageSize: number; totalPages: number };
@@ -344,7 +345,7 @@ export function ServiceFeesPage() {
               {!rows.length ? (
                 <tr>
                   <td className="py-12 text-center text-[#909399]" colSpan={tableColumns.length}>
-                    {loading ? "加载中..." : "暂无服务费核算明细"}
+                    <TableStateContent empty="暂无服务费核算明细" loading={loading} />
                   </td>
                 </tr>
               ) : null}

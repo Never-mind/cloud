@@ -7,6 +7,7 @@ import { postWorkspaceMessage } from "@/lib/tab-workspace";
 import { calculateSettlementPurchaseAmounts, summarizeSettlementPurchases } from "@/lib/settlement-purchase-summary";
 import { calculateSettlementEntryAmounts, summarizeSettlementEntries } from "@/lib/settlement-entry-summary";
 import { AuditInfoBar, Button, Input, Panel } from "./ui";
+import { LoadingBlock } from "./table-state";
 import { PaginationBar } from "./pagination-bar";
 import { StickyTable } from "./sticky-table";
 import { TableColumnMenu, type TableFilterOption, type TableSortOrder } from "./table-column-menu";
@@ -178,7 +179,7 @@ export function SettlementProjectDetailWorkspace() {
     };
   }, [detail, tableStates]);
 
-  if (!detail) return <Panel className="p-8 text-sm text-[#909399]">{error || "加载中..."}</Panel>;
+  if (!detail) return <Panel className="p-8 text-sm text-[#909399]">{error || <LoadingBlock />}</Panel>;
 
   const project = detail.project;
   const readOnly = project.status === "closed";

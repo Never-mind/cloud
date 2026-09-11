@@ -10,6 +10,7 @@ import { PaginationBar } from "./pagination-bar";
 import { StickyTable } from "./sticky-table";
 import { TableColumnMenu, type TableFilterOption, type TableSortOrder } from "./table-column-menu";
 import { WorkspaceNavigationDialog } from "./workspace-navigation-dialog";
+import { TableStateContent } from "./table-state";
 
 type Row = Record<string, string | number | boolean | null>;
 type SnapshotListResponse = { rows: Row[]; total: number; page: number; pageSize: number; totalPages: number };
@@ -340,7 +341,7 @@ export function BillingStatementsPage() {
               {!snapshots.length ? (
                 <tr>
                   <td className="py-12 text-center text-[#909399]" colSpan={snapshotColumns.length + 1}>
-                    {loading ? "加载中..." : "暂无月账单对账单"}
+                    <TableStateContent empty="暂无月账单对账单" loading={loading} />
                   </td>
                 </tr>
               ) : null}

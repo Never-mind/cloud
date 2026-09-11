@@ -9,6 +9,7 @@ import { StickyTable } from "./sticky-table";
 import { TableColumnMenu, type TableFilterOption, type TableSortOrder } from "./table-column-menu";
 import { useRequestGuard } from "@/lib/table-query-client";
 import { Button, Input, Panel, Textarea } from "./ui";
+import { TableStateContent } from "./table-state";
 
 type Row = Record<string, string | number | boolean | null>;
 type ListResponse = { rows: Row[]; total: number; totalAmount: number; page: number; pageSize: number; totalPages: number };
@@ -229,7 +230,7 @@ export function InternalServiceFeesPage() {
             <thead className="bg-[#f5f7fa] text-[#303133]"><tr>{tableColumns.map((column) => <th className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium" key={column.key}>{renderHeader(column)}</th>)}<th className="sticky right-0 z-10 w-[236px] min-w-[236px] border-b border-[#ebeef5] bg-[#f5f7fa] px-3 py-3 text-left font-medium">操作</th></tr></thead>
             <tbody>
               {rows.map((row) => <tr className="hover:bg-[#fafafa]" key={String(row.id)}>{tableColumns.map((column) => <td className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3" key={column.key}>{formatValue(row[column.key], column.type)}</td>)}<td className="sticky right-0 z-10 w-[236px] min-w-[236px] whitespace-nowrap border-b border-[#ebeef5] bg-white px-3 py-3"><div className="flex flex-nowrap items-center gap-2"><Button className="shrink-0 whitespace-nowrap" disabled={Boolean(row.archived)} onClick={() => { setAdjustingRow(row); setAdjustmentStart(String(row.writeOffMonth ?? "")); setAdjustmentEnd(String(row.writeOffMonth ?? "")); setAdjustmentAmount(String(row.internalServiceFeeAmount ?? "")); setAdjustmentReason(""); }}><SlidersHorizontal size={15} />区间调整</Button>{String(row.adjustmentNo ?? "") && !Boolean(row.archived) ? <Button className="shrink-0 whitespace-nowrap" tone="danger" onClick={() => void cancelAdjustment(String(row.adjustmentNo))}>撤销调整</Button> : null}</div></td></tr>)}
-              {!rows.length && <tr><td className="py-12 text-center text-[#909399]" colSpan={columns.length + 1}>{loading ? "加载中..." : "暂无内部服务费明细，请先生成月账单台账后点击生成"}</td></tr>}
+              {!rows.length && <tr><td className="py-12 text-center text-[#909399]" colSpan={columns.length + 1}><TableStateContent empty="暂无内部服务费明细，请先生成月账单台账后点击生成" loading={loading} /></td></tr>}
             </tbody>
           </table>
         </StickyTable>

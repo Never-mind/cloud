@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { RefreshCw } from "lucide-react";
 import { buildServiceFeeChartSeries } from "@/lib/dashboard-workflow";
 import { formatDisplayValue } from "@/lib/display-format";
 import { Button, Panel } from "./ui";
+import { TableStateContent } from "./table-state";
 
 type ServiceFeeSummary = {
   countryCode: string;
@@ -111,7 +112,7 @@ export function HomeDashboardPanel() {
               { key: "currency", label: "币种" },
               { key: "serviceFeeTotal", label: "服务费合计", type: "number" },
             ]}
-            emptyText={loading ? "加载中..." : "暂无服务费数据"}
+            emptyText=<TableStateContent empty="暂无服务费数据" loading={loading} />
             rows={data.serviceFees}
           />
         </div>
@@ -127,7 +128,7 @@ export function HomeDashboardPanel() {
               { key: "month", label: "月份" },
               { key: "instanceQuantity", label: "新增实例数量", type: "number" },
             ]}
-            emptyText={loading ? "加载中..." : "暂无新增实例数据"}
+            emptyText=<TableStateContent empty="暂无新增实例数据" loading={loading} />
             rows={data.newInstances}
           />
         </div>
@@ -225,7 +226,7 @@ function ServiceFeeLineChart({
             </>
           ) : (
             <text fill="#909399" fontSize="14" textAnchor="middle" x={width / 2} y={height / 2}>
-              {loading ? "加载中..." : "暂无服务费趋势数据"}
+              <TableStateContent empty="暂无服务费趋势数据" loading={loading} />
             </text>
           )}
         </svg>
@@ -240,7 +241,7 @@ function SummaryTable({
   rows,
 }: {
   columns: Array<{ key: string; label: string; type?: string }>;
-  emptyText: string;
+  emptyText: ReactNode;
   rows: Array<Record<string, string | number>>;
 }) {
   return (

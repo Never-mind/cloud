@@ -10,6 +10,7 @@ import { StickyTable } from "./sticky-table";
 import { TableColumnMenu, type TableSortOrder } from "./table-column-menu";
 import { useRequestGuard } from "@/lib/table-query-client";
 import { Button, Input, Panel } from "./ui";
+import { TableStateContent } from "./table-state";
 
 type Row = Record<string, string | number | boolean | null>;
 
@@ -153,7 +154,7 @@ export function InternalServiceFeeAvailablePage() {
                   {columns.map(([key, , type]) => <td className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3" key={key}>{formatDisplayValue(row[key], type)}</td>)}
                 </tr>;
               })}
-              {!rows.length && <tr><td className="py-12 text-center text-[#909399]" colSpan={columns.length + 1}>{loading ? "加载中..." : "暂无待初始化实例"}</td></tr>}
+              {!rows.length && <tr><td className="py-12 text-center text-[#909399]" colSpan={columns.length + 1}><TableStateContent empty="暂无待初始化实例" loading={loading} /></td></tr>}
             </tbody>
           </table>
         </StickyTable>

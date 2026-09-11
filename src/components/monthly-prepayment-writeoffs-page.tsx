@@ -12,6 +12,7 @@ import { TableColumnMenu, type TableFilterOption, type TableSortOrder } from "./
 import { useRequestGuard } from "@/lib/table-query-client";
 import { buildDetailRoute, buildListRoute, getCurrentRoute, getPositiveNumber, useListScrollPosition } from "@/lib/client-list-navigation";
 import { Button, Input, Panel } from "./ui";
+import { TableStateContent } from "./table-state";
 
 type Row = Record<string, string | number | boolean | null>;
 type ListResponse = { rows: Row[]; total: number; totalAmount: number; page: number; pageSize: number; totalPages: number };
@@ -253,7 +254,7 @@ export function MonthlyPrepaymentWriteOffsPage() {
               {!rows.length ? (
                 <tr>
                   <td className="py-12 text-center text-[#909399]" colSpan={columns.length}>
-                    {loading ? "加载中..." : "暂无核销明细"}
+                    <TableStateContent empty="暂无核销明细" loading={loading} />
                   </td>
                 </tr>
               ) : null}

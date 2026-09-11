@@ -12,6 +12,7 @@ import { StickyTable } from "./sticky-table";
 import { TableColumnMenu, type TableFilterOption, type TableSortOrder } from "./table-column-menu";
 import { useRequestGuard } from "@/lib/table-query-client";
 import { Button, Input, Panel } from "./ui";
+import { TableStateContent } from "./table-state";
 
 type Row = Record<string, string | number | boolean | null>;
 function partyOptionLabel(row: Row, codeKeys: string[], nameKeys: string[]) {
@@ -659,7 +660,7 @@ export function ServiceFeeStatementsPage() {
                   </tr>
                 );
               })}
-              {!rows.length ? <tr><td className="py-12 text-center text-[#909399]" colSpan={columns.length + 1}>{loading ? "加载中..." : "暂无服务费对账单"}</td></tr> : null}
+              {!rows.length ? <tr><td className="py-12 text-center text-[#909399]" colSpan={columns.length + 1}><TableStateContent empty="暂无服务费对账单" loading={loading} /></td></tr> : null}
             </tbody>
           </table>
         </StickyTable>

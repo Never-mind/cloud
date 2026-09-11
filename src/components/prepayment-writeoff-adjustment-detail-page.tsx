@@ -13,6 +13,7 @@ import { Button, Input, Panel, Textarea } from "./ui";
 import { PaginationBar } from "./pagination-bar";
 import { StickyTable } from "./sticky-table";
 import { DEFAULT_PAGE_SIZE } from "@/lib/pagination";
+import { TableStateContent } from "./table-state";
 
 type Row = Record<string, string | number | boolean | null>;
 
@@ -313,7 +314,7 @@ export function PrepaymentWriteOffAdjustmentDetailPage({ adjustmentNo: routeAdju
                   {!searchRows.length ? (
                     <tr>
                       <td className="py-10 text-center text-[#909399]" colSpan={availableColumns.length + 1}>
-                        {loading ? "加载中..." : "请先搜索需要调整的实例或月份"}
+                        <TableStateContent empty="请先搜索需要调整的实例或月份" loading={loading} />
                       </td>
                     </tr>
                   ) : null}

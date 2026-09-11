@@ -25,6 +25,7 @@ import { useRequestGuard } from "@/lib/table-query-client";
 import { readJsonResponse } from "@/lib/client-response";
 import { postWorkspaceMessage } from "@/lib/tab-workspace";
 import { Button, Input, Panel } from "./ui";
+import { TableStateContent } from "./table-state";
 
 type Row = Record<string, string | number | boolean | null>;
 type PageMode = OrderRouteMode;
@@ -660,7 +661,7 @@ export function OrderListPage({
               {!rows.length ? (
                 <tr>
                   <td className="py-12 text-center text-[#909399]" colSpan={columnKeys.length + (canBatchDelete ? 1 : 0)}>
-                    {loading ? "加载中..." : "暂无数据"}
+                    <TableStateContent empty="暂无数据" loading={loading} />
                   </td>
                 </tr>
               ) : null}
