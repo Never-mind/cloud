@@ -9,18 +9,20 @@ export function Button({
   tone?: "default" | "primary" | "success" | "warning" | "danger";
 }) {
   const tones = {
-    default: "border border-[#dcdfe6] bg-white text-[#606266]",
-    primary: "border border-[#1890ff] bg-[#1890ff] text-white",
-    success: "border border-[#13ce66] bg-[#13ce66] text-white",
-    warning: "border border-[#ffba00] bg-[#ffba00] text-white",
-    danger: "border border-[#f56c6c] bg-[#fff0f0] text-[#f56c6c]",
+    default: "border border-[#dcdfe6] bg-white text-[#606266] hover:border-[#c6cbd4] hover:bg-[#f7f8fa]",
+    primary: "border border-[#1890ff] bg-[#1890ff] text-white hover:border-[#0f7ae0] hover:bg-[#0f7ae0]",
+    success: "border border-[#13ce66] bg-[#13ce66] text-white hover:border-[#0fb457] hover:bg-[#0fb457]",
+    // 原来的 #ffba00 配白字对比度只有 1.7:1，改成深棕文字后约 5.8:1。
+    warning: "border border-[#ffba00] bg-[#ffba00] text-[#5a3d00] hover:border-[#f0a900] hover:bg-[#f0a900]",
+    danger: "border border-[#f56c6c] bg-[#fff0f0] text-[#f56c6c] hover:border-[#f78989] hover:bg-[#fde2e2]",
   };
 
   return (
     <button
       {...props}
       className={clsx(
-        "inline-flex h-9 min-w-0 shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded px-3 text-sm transition hover:opacity-85 disabled:cursor-not-allowed disabled:opacity-50",
+        // 用背景色变化代替整体 opacity：白底按钮 hover 时不再发灰，同时补上键盘焦点样式。
+        "inline-flex h-9 min-w-0 shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded px-3 text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[#1890ff]/35 focus-visible:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-50",
         tones[tone],
         props.className,
       )}
@@ -36,7 +38,7 @@ export const Input = forwardRef<HTMLInputElement, React.InputHTMLAttributes<HTML
       ref={ref}
       {...props}
       className={clsx(
-        "h-9 min-w-0 max-w-full rounded border border-[#dcdfe6] bg-white px-3 text-sm outline-none focus:border-[#1890ff]",
+        "h-9 min-w-0 max-w-full rounded border border-[#dcdfe6] bg-white px-3 text-sm outline-none transition-colors placeholder:text-[#c0c4cc] focus:border-[#1890ff] focus:ring-2 focus:ring-[#1890ff]/20 disabled:cursor-not-allowed disabled:bg-[#f5f7fa] disabled:text-[#909399]",
         props.className,
       )}
     />
@@ -48,7 +50,7 @@ export function Textarea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement
     <textarea
       {...props}
       className={clsx(
-        "min-h-20 min-w-0 max-w-full rounded border border-[#dcdfe6] bg-white px-3 py-2 text-sm outline-none focus:border-[#1890ff]",
+        "min-h-20 min-w-0 max-w-full rounded border border-[#dcdfe6] bg-white px-3 py-2 text-sm outline-none transition-colors placeholder:text-[#c0c4cc] focus:border-[#1890ff] focus:ring-2 focus:ring-[#1890ff]/20 disabled:cursor-not-allowed disabled:bg-[#f5f7fa] disabled:text-[#909399]",
         props.className,
       )}
     />

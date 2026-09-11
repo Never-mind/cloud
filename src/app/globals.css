@@ -104,8 +104,28 @@ textarea {
   min-width: 0;
   max-width: 100%;
   overflow-x: auto;
-  scrollbar-color: #a0a7b0 #eef1f5;
+  scrollbar-color: #b8bfc9 #f0f2f5;
   scrollbar-width: thin;
+}
+
+/* 旧版 Chromium 不支持 scrollbar-width，补一套 webkit 滚动条样式。 */
+.table-scroll::-webkit-scrollbar {
+  height: 10px;
+  width: 10px;
+}
+
+.table-scroll::-webkit-scrollbar-track {
+  background: #f0f2f5;
+}
+
+.table-scroll::-webkit-scrollbar-thumb {
+  background: #b8bfc9;
+  border: 2px solid #f0f2f5;
+  border-radius: 9999px;
+}
+
+.table-scroll::-webkit-scrollbar-thumb:hover {
+  background: #9aa3ae;
 }
 
 /* Normal tables fill the content area. Their own min-width utilities still
@@ -122,7 +142,10 @@ textarea {
 
 .table-scroll > table > thead > tr > th,
 .table-scroll > table > tbody > tr > td {
-  min-width: 7rem;
+  /* 原来是 7rem，等于给每一列都强制 112px 下限，序号、数量、日期这类窄列
+     被白白撑宽，表格整体变宽并频繁出现横向滚动。降到 4rem 只保留一个防挤压
+     底线，其余交给内容决定宽度。 */
+  min-width: 4rem;
 }
 
 /* 批量选择列只放一个复选框，不受上面 7rem 最小宽度约束；40px 列宽配 16px 复选框，左右各 8px 内边距。 */
@@ -164,4 +187,15 @@ textarea {
 thead [data-cloud-power-action-column="1"] {
   z-index: 35;
   background: #f5f7fa;
+}
+
+/* 尊重系统的"减少动态效果"设置。 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
