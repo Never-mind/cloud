@@ -9,11 +9,13 @@ export function Button({
   tone?: "default" | "primary" | "success" | "warning" | "danger";
 }) {
   const tones = {
+    // 层级约定：primary / success 用实心，表示主操作；default / warning / danger 用描边，
+    // 表示次级或工具类操作。导出这类工具按钮不再用整块亮黄填充。
     default: "border border-[#dcdfe6] bg-white text-[#606266] hover:border-[#c6cbd4] hover:bg-[#f7f8fa]",
     primary: "border border-[#1890ff] bg-[#1890ff] text-white hover:border-[#0f7ae0] hover:bg-[#0f7ae0]",
     success: "border border-[#13ce66] bg-[#13ce66] text-white hover:border-[#0fb457] hover:bg-[#0fb457]",
-    // 原来的 #ffba00 配白字对比度只有 1.7:1，改成深棕文字后约 5.8:1。
-    warning: "border border-[#ffba00] bg-[#ffba00] text-[#5a3d00] hover:border-[#f0a900] hover:bg-[#f0a900]",
+    // 描边式提醒按钮：白底 + 琥珀边框 + 深琥珀文字（对比度约 6.4:1），hover 时浅琥珀底。
+    warning: "border border-[#e6a23c] bg-white text-[#8a5200] hover:border-[#d48806] hover:bg-[#fdf6ec]",
     danger: "border border-[#f56c6c] bg-[#fff0f0] text-[#f56c6c] hover:border-[#f78989] hover:bg-[#fde2e2]",
   };
 

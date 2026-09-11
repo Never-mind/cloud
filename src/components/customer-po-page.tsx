@@ -255,7 +255,7 @@ export function CustomerPoListPage({ config }: { config: EntityConfig }) {
           <Button tone="primary" className="h-8 px-3" aria-label="查询" title="查询" onClick={() => { setPage(1); setAppliedKeyword(keyword.trim()); }}><Search size={14} />查询</Button>
           <Button className="h-8 px-3" onClick={() => void load()} disabled={loading}><RefreshCw size={14} />刷新</Button>
           <Button tone="primary" className="h-8 px-3" onClick={() => openRoute("/customer-pos/new", "新建客户PO")}><Plus size={14} />新建</Button>
-          <a className="inline-flex h-8 shrink-0 items-center gap-1 whitespace-nowrap rounded border border-[#ffba00] bg-[#ffba00] px-3 text-sm text-white transition hover:opacity-85" href={`/api/entities/customer-pos/export?status=${encodeURIComponent(status)}`}><FileDown size={14} />导出 Excel</a>
+          <a className="inline-flex h-8 shrink-0 items-center gap-1 whitespace-nowrap rounded border border-[#e6a23c] bg-white px-3 text-sm text-[#8a5200] transition-colors hover:border-[#d48806] hover:bg-[#fdf6ec]" href={`/api/entities/customer-pos/export?status=${encodeURIComponent(status)}`}><FileDown size={14} />导出 Excel</a>
         </div>
         {error ? <div className="border-b border-[#fde2e2] bg-[#fef0f0] px-4 py-3 text-sm text-[#f56c6c]">{error}</div> : null}
         <StickyTable className="table-scroll overflow-auto" tableKey="customer-pos-list">

@@ -106,7 +106,7 @@ export function SettlementProjectPage() {
           </select>
           <Button tone="primary" className="h-8 px-3" onClick={() => { setPage(1); setAppliedKeyword(keyword.trim()); }}><Search size={14} />查询</Button>
           <Button className="h-8 px-3" onClick={() => void load()} disabled={loading}><RefreshCw size={14} />刷新</Button>
-          <a className="inline-flex h-8 shrink-0 items-center gap-1 whitespace-nowrap rounded border border-[#ffba00] bg-[#ffba00] px-3 text-sm text-white transition hover:opacity-85" href="/api/po/settlement-projects/export"><FileDown size={14} />导出 Excel</a>
+          <a className="inline-flex h-8 shrink-0 items-center gap-1 whitespace-nowrap rounded border border-[#e6a23c] bg-white px-3 text-sm text-[#8a5200] transition-colors hover:border-[#d48806] hover:bg-[#fdf6ec]" href="/api/po/settlement-projects/export"><FileDown size={14} />导出 Excel</a>
         </div>
         {error ? <div className="m-4 border border-[#ffb4ab] bg-[#ffdad6] px-3 py-2 text-sm text-[#93000a]">{error}<button className="ml-3 underline" onClick={() => setError("")}>关闭</button></div> : null}
         <StickyTable className="table-scroll max-h-[calc(100vh-300px)] overflow-auto" tableKey="settlement-projects">
