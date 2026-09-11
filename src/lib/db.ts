@@ -121,6 +121,8 @@ export function buildDbConfig(env: Partial<NodeJS.ProcessEnv>) {
     maxIdle: Number(env.DB_CONNECTION_LIMIT ?? 5),
     idleTimeout: 60_000,
     namedPlaceholders: true,
+    // 显式指定 utf8mb4：mysql2 默认是 utf8mb3，生产库若为 utf8mb4 会出现中文写入乱码/截断。
+    charset: "utf8mb4",
   };
 }
 

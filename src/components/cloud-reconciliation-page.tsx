@@ -53,6 +53,29 @@ export function CloudReconciliationPage() {
   const [rows, setRows] = useState<Row[]>([]);
   const [mappings, setMappings] = useState<Row[]>([]);
   const [payments, setPayments] = useState<Row[]>([]);
+  const [defaultPayerUnit, setDefaultPayerUnit] = useState<{ id: string; name: string } | null>(null);
+
+  async function loadDefaultPayerUnit() {
+    try {
+      const data = await requestJson<{ payerUnit: { id: string; name: string } | null }>("/api/cloud/supplier-payments/payer-unit");
+      setDefaultPayerUnit(data.payerUnit ?? null);
+    } catch {
+      // 默认付款单位属于辅助信息，加载失败不打断主流程
+    }
+  }
+
+  async function saveDefaultPayerUnit(undertakingUnitId: string) {
+    try {
+      const result = await requestJson<{ undertakingUnitId: string; undertakingUnitName: string; filledRows: number }>("/api/cloud/supplier-payments/payer-unit", { method: "POST", body: JSON.stringify({ undertakingUnitId }) });
+      setDefaultPayerUnit({ id: result.undertakingUnitId, name: result.undertakingUnitName });
+      setNotice(`默认付款单位已设为 ${result.undertakingUnitName}` + (result.filledRows ? `，并补齐 ${result.filledRows} 条付款记录` : ""));
+      await load();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "默认付款单位保存失败");
+    }
+  }
+
+  useEffect(() => { void loadDefaultPayerUnit(); }, []);
   const [masters, setMasters] = useState<MasterSet>({ suppliers: [], undertakingUnits: [], customers: [] });
   const [keyword, setKeyword] = useState("");
   const [period, setPeriod] = useState("");
@@ -226,7 +249,7 @@ export function CloudReconciliationPage() {
     </header>
     {notice ? <div className="flex items-center justify-between border border-[#b3d8ff] bg-[#ecf5ff] px-3 py-2 text-sm text-[#1890ff]">{notice}<button type="button" title="关闭提示" onClick={() => setNotice("")}><X size={15} /></button></div> : null}
     <Panel>
-      <div className="flex flex-wrap items-center gap-2 border-b border-[#ebeef5] p-3">{tabs.map(([key, label]) => <button className={`border-b-2 px-3 py-2 text-sm ${tab === key ? "border-[#1890ff] text-[#1890ff]" : "border-transparent text-[#606266]"}`} key={key} type="button" onClick={() => { setTab(key); setPage(1); }}>{label}</button>)}<div className="ml-auto flex flex-wrap gap-2"><Input placeholder="搜索客户、账号、批次或供应商" value={keyword} onChange={(event) => setKeyword(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { setPage(1); void load({ targetPage: 1 }); } }} /><Input className="min-w-[130px]" placeholder="账期 YYYY-MM" value={period} onChange={(event) => setPeriod(event.target.value)} /><Button onClick={() => { setPage(1); void load({ targetPage: 1 }); }}><Search size={15} />查询</Button></div></div>
+      <div className="flex flex-wrap items-center gap-2 border-b border-[#ebeef5] p-3">{tabs.map(([key, label]) => <button className={`border-b-2 px-3 py-2 text-sm ${tab === key ? "border-[#1890ff] text-[#1890ff]" : "border-transparent text-[#606266]"}`} key={key} type="button" onClick={() => { setTab(key); setPage(1); }}>{label}</button>)}<div className="ml-auto flex flex-wrap gap-2">{tab === "supplier-payments" ? <div className="w-[260px]"><PartnerSelect kind="undertakingUnits" label="默认付款单位" idValue={defaultPayerUnit?.id} nameValue={defaultPayerUnit?.name} masters={masters} onChange={(selected) => void saveDefaultPayerUnit(selected.id)} /></div> : null}<Input placeholder="搜索客户、账号、批次或供应商" value={keyword} onChange={(event) => setKeyword(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { setPage(1); void load({ targetPage: 1 }); } }} /><Input className="min-w-[130px]" placeholder="账期 YYYY-MM" value={period} onChange={(event) => setPeriod(event.target.value)} /><Button onClick={() => { setPage(1); void load({ targetPage: 1 }); }}><Search size={15} />查询</Button></div></div>
       {tab === "mapping" ? <MappingTable rows={mappings} onEdit={setMappingForm} onAdd={() => setMappingForm({ accounts: "", calculationLogic: "catalog" })} query={activeQuery} onQueryChange={updateQuery} loadOptions={(field, optionKeyword) => columnOptions("/api/cloud/mappings", field, optionKeyword)} /> : tab === "supplier-payments" ? <PaymentTable rows={payments} onUpdate={(row) => setSupplierPaymentForm(row)} onTogglePaid={(row) => void updatePayment(row, { paid: row.paid ? 0 : 1 })} onToggleInvoice={(row) => void updatePayment(row, { invoiceStatus: row.invoiceStatus === "issued" ? "not_issued" : "issued" })} query={activeQuery} onQueryChange={updateQuery} loadOptions={(field, optionKeyword) => columnOptions("/api/cloud/supplier-payments", field, optionKeyword)} /> : <RowTable rows={rows} onAttach={attachRow} onConfirm={confirmRow} onDelete={deleteRow} onToggleCollection={toggleCollection} onToggleInvoice={toggleInvoice} onEditRow={setRowForm} onEditCollection={(row) => setCollectionForm(amountFormDefaults(row, "collection"))} onEditInvoice={(row) => setInvoiceForm(amountFormDefaults(row, "invoice"))} query={activeQuery} onQueryChange={updateQuery} loadOptions={(field, optionKeyword) => columnOptions("/api/cloud/rows", field, optionKeyword)} />}
       {tab !== "mapping" ? <div className="flex items-center justify-between border-t border-[#ebeef5] px-4 py-3 text-sm text-[#909399]"><span>{busy ? "加载中..." : `共 ${total} 条`}</span><div className="flex gap-2"><Button disabled={page <= 1} onClick={() => setPage((value) => value - 1)}>上一页</Button><span className="px-2 py-2">第 {page} 页</span><Button disabled={rows.length < 20 && payments.length < 20} onClick={() => setPage((value) => value + 1)}>下一页</Button></div></div> : null}
     </Panel>

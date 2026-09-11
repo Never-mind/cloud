@@ -933,6 +933,74 @@ export type CloudSupplierPaymentSyncResult = {
  * - 账期中已不存在的供应商：没有任何实付/开票信息的汇总行直接删除，
  *   已录入过数据的行保留并清零应付金额。
  */
+const CLOUD_SUPPLIER_PAYER_UNIT_KEY = "cloud.supplierPayerUnit";
+
+export type CloudSupplierPayerUnit = { id: string; name: string };
+
+function parsePreferenceValue(value: unknown): Record<string, unknown> {
+  if (value && typeof value === "object" && !Array.isArray(value)) return value as Record<string, unknown>;
+  if (typeof value === "string" && value.trim()) {
+    try {
+      const parsed = JSON.parse(value);
+      return parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : {};
+    } catch {
+      return {};
+    }
+  }
+  return {};
+}
+
+/**
+ * 供应商付款的默认付款单位：优先取界面配置（merge_common_user_preferences 的 system 记录），
+ * 未配置时退化为"表里最近一次非空的付款单位"，都没有则返回 null（不猜）。
+ */
+export async function getCloudSupplierPayerUnitDefault(): Promise<CloudSupplierPayerUnit | null> {
+  const configured = (await queryRowsRaw<Row>(
+    "SELECT preferenceValue FROM merge_common_user_preferences WHERE userId = 'system' AND preferenceKey = :key LIMIT 1",
+    { key: CLOUD_SUPPLIER_PAYER_UNIT_KEY },
+  ))[0];
+  const parsed = parsePreferenceValue(configured?.preferenceValue);
+  const configuredId = text(parsed.undertakingUnitId);
+  if (configuredId) return { id: configuredId, name: text(parsed.undertakingUnitName) };
+
+  const latest = (await queryRowsRaw<Row>(
+    "SELECT payerUnitId, payerUnitName FROM merge_cloud_supplier_payments WHERE payerUnitId IS NOT NULL AND payerUnitId <> '' ORDER BY updatedAt DESC LIMIT 1",
+  ))[0];
+  return latest ? { id: text(latest.payerUnitId), name: text(latest.payerUnitName) } : null;
+}
+
+/** 保存默认付款单位（承接单位），并立即把付款单位为空的付款记录补齐。 */
+export async function setCloudSupplierPayerUnitDefault(undertakingUnitId: string) {
+  const reference = text(undertakingUnitId);
+  if (!reference) throw new Error("请选择默认付款单位");
+  const unit = (await queryRowsRaw<Row>(
+    "SELECT undertakingUnitId, COALESCE(NULLIF(shortName, ''), NULLIF(entityName, ''), NULLIF(name, ''), undertakingUnitCode) AS displayName FROM merge_common_undertaking_units WHERE undertakingUnitId = :reference OR undertakingUnitCode = :reference LIMIT 1",
+    { reference },
+  ))[0];
+  if (!unit) throw new Error("承接单位不存在");
+  const value = { undertakingUnitId: text(unit.undertakingUnitId), undertakingUnitName: text(unit.displayName) };
+  const existing = (await queryRowsRaw<Row>(
+    "SELECT internalId FROM merge_common_user_preferences WHERE userId = 'system' AND preferenceKey = :key LIMIT 1",
+    { key: CLOUD_SUPPLIER_PAYER_UNIT_KEY },
+  ))[0];
+  if (existing) {
+    await executeRaw(
+      "UPDATE merge_common_user_preferences SET preferenceValue = :value WHERE userId = 'system' AND preferenceKey = :key",
+      { key: CLOUD_SUPPLIER_PAYER_UNIT_KEY, value: JSON.stringify(value) },
+    );
+  } else {
+    await executeRaw(
+      "INSERT INTO merge_common_user_preferences (userId, preferenceKey, preferenceValue) VALUES ('system', :key, :value)",
+      { key: CLOUD_SUPPLIER_PAYER_UNIT_KEY, value: JSON.stringify(value) },
+    );
+  }
+  const filled = (await executeRaw(
+    "UPDATE merge_cloud_supplier_payments SET payerUnitId = :unitId, payerUnitName = :unitName WHERE payerUnitId IS NULL OR payerUnitId = ''",
+    { unitId: value.undertakingUnitId, unitName: value.undertakingUnitName },
+  )) as { affectedRows?: number };
+  return { ...value, filledRows: Number(filled?.affectedRows ?? 0) };
+}
+
 export async function syncCloudSupplierPaymentPeriods(periods: readonly string[]): Promise<CloudSupplierPaymentSyncResult> {
   const normalizedPeriods = Array.from(new Set(periods.map((period) => normalizeCloudPeriod(period)).filter(Boolean)));
   if (!normalizedPeriods.length) return { periods: [], created: 0, updated: 0, removed: 0, cleared: 0 };
@@ -953,6 +1021,7 @@ export async function syncCloudSupplierPaymentPeriods(periods: readonly string[]
   ]);
 
   const remaining = new Map<string, Row[]>();
+  const defaultPayerUnit = await getCloudSupplierPayerUnitDefault();
   for (const row of paymentRows) {
     const key = cloudSupplierPaymentMatchKey(row);
     remaining.set(key, [...(remaining.get(key) ?? []), row]);
@@ -985,20 +1054,22 @@ export async function syncCloudSupplierPaymentPeriods(periods: readonly string[]
                 supplierTaxRate = :supplierTaxRate,
                 supplierTaxAmount = :supplierTaxAmount,
                 supplierPayableTotalAmount = :supplierPayableTotalAmount
+                , payerUnitId = COALESCE(NULLIF(payerUnitId, ''), :defaultPayerUnitId)
+                , payerUnitName = COALESCE(NULLIF(payerUnitName, ''), :defaultPayerUnitName)
           WHERE id = :id`,
-        { ...payable, id: existing.id },
+        { ...payable, id: existing.id, defaultPayerUnitId: defaultPayerUnit?.id ?? null, defaultPayerUnitName: defaultPayerUnit?.name ?? null },
       );
       updated += 1;
       continue;
     }
     await executeRaw(
-      `INSERT INTO merge_cloud_supplier_payments
+        `INSERT INTO merge_cloud_supplier_payments
          (id, period, supplierId, supplierName, supplierPayableCurrency, supplierPayableNetAmount,
-          supplierTaxRate, supplierTaxAmount, supplierPayableTotalAmount)
+          supplierTaxRate, supplierTaxAmount, supplierPayableTotalAmount, payerUnitId, payerUnitName)
        VALUES
          (:id, :period, :supplierId, :supplierName, :supplierPayableCurrency, :supplierPayableNetAmount,
-          :supplierTaxRate, :supplierTaxAmount, :supplierPayableTotalAmount)`,
-      { ...payable, id: cloudSupplierPaymentRowId(period, key) },
+          :supplierTaxRate, :supplierTaxAmount, :supplierPayableTotalAmount, :defaultPayerUnitId, :defaultPayerUnitName)`,
+      { ...payable, id: cloudSupplierPaymentRowId(period, key), defaultPayerUnitId: defaultPayerUnit?.id ?? null, defaultPayerUnitName: defaultPayerUnit?.name ?? null },
     );
     created += 1;
   }
