@@ -143,6 +143,18 @@ export async function confirmPurchaseOrder(purchaseOrderIdOrPoNo: string, actor:
 
   const purchaseOrderId = String(order.purchaseOrderId ?? purchaseOrderIdOrPoNo);
 
+  // 远端已取消的需求单不允许再确认采购订单，避免对已取消需求继续下单。
+  const cancelledRequests = await queryRows<Row>(
+    `SELECT DISTINCT req.requestNo
+       FROM purchaseorderitems poi
+       JOIN requests req ON req.requestNo = poi.requestNo
+      WHERE poi.purchaseOrderId = :purchaseOrderId AND req.remoteStatus = 'Cancelled'`,
+    { purchaseOrderId },
+  );
+  if (cancelledRequests.length) {
+    throw new Error(`需求单 ${cancelledRequests.map((row: Row) => String(row.requestNo ?? "")).join("、")} 已被远端取消，请先处理后再确认采购订单`);
+  }
+
   // Pull and validate the immutable remote logistics snapshot before changing
   // the purchase order status. A remote lookup failure therefore leaves the
   // purchase order in draft instead of creating a confirmed order with blanks.

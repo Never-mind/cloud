@@ -862,6 +862,7 @@ async function persistLedgerItem(
     errorMessage?: string | null;
     changeJson?: RemoteDemandChange[] | null;
     preserveBaseline?: boolean;
+    reasonCode?: string | null;
   },
 ) {
   const { item, order } = options;
@@ -870,17 +871,18 @@ async function persistLedgerItem(
     : ", sourceModifiedAt=VALUES(sourceModifiedAt), sourceHash=VALUES(sourceHash), sourceDataJson=VALUES(sourceDataJson)";
   await connection.execute(
     `INSERT INTO ${ITEM_TABLE}
-       (sourceItemId,sourceOrderId,localRequestNo,localRequestItemId,sourceModifiedAt,sourceHash,status,errorMessage,sourceDataJson,changeJson)
-     VALUES (?,?,?,?,?,?,?,?,?,?)
+       (sourceItemId,sourceOrderId,localRequestNo,localRequestItemId,sourceModifiedAt,sourceHash,status,errorMessage,sourceDataJson,changeJson,reasonCode)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?)
      ON DUPLICATE KEY UPDATE sourceOrderId=VALUES(sourceOrderId), localRequestNo=VALUES(localRequestNo),
        localRequestItemId=VALUES(localRequestItemId), status=VALUES(status), errorMessage=VALUES(errorMessage),
-       changeJson=VALUES(changeJson)${baselineAssignments}`,
+       changeJson=VALUES(changeJson), reasonCode=VALUES(reasonCode)${baselineAssignments}`,
     [
       item.id, order.id, options.localRequestNo, options.localRequestItemId ?? null,
       item.modified || order.modified || null, sourceHash(item, order),
       options.status, options.errorMessage ? options.errorMessage.slice(0, 1000) : null,
       JSON.stringify(itemSnapshot(item, order)),
       options.changeJson && options.changeJson.length ? JSON.stringify(options.changeJson) : null,
+      options.reasonCode ?? null,
     ],
   );
 }
@@ -888,7 +890,7 @@ async function persistLedgerItem(
 async function persistBlockedItem(item: RemoteDemandItem, order: RemoteDemandOrder, _hash: string, message: string) {
   const connection = await getDb().getConnection();
   try {
-    await persistLedgerItem(connection, { item, order, localRequestNo: null, status: "blocked", errorMessage: message });
+    await persistLedgerItem(connection, { item, order, localRequestNo: null, status: "blocked", errorMessage: message, reasonCode: "blocked_mapping" });
   } finally {
     connection.release();
   }
@@ -906,7 +908,7 @@ async function persistSkippedExistingItems(connection: PoolConnection, order: Re
     // 否则"远端已变更"的提示会被下一次跳过静默清掉。
     await persistLedgerItem(connection, {
       item, order, localRequestNo: requestNo, status: "skipped_existing",
-      errorMessage: message, preserveBaseline: true,
+      errorMessage: message, preserveBaseline: true, reasonCode: "local_exists",
     });
   }
 }
@@ -932,9 +934,9 @@ async function createRequestGroup(connection: PoolConnection, order: RemoteDeman
       [line.requestItemId, requestNo, line.deviceCode, line.requestType, line.supplierId, line.undertakingUnitId, line.customerId, line.sourceItem.requestedDeliveryDate || null, line.sourceItem.quantity],
     );
     await connection.execute(
-      `INSERT INTO ${ITEM_TABLE} (sourceItemId,sourceOrderId,localRequestNo,localRequestItemId,sourceModifiedAt,sourceHash,status,errorMessage)
-       VALUES (?,?,?,?,?,?,'synced',NULL)
-       ON DUPLICATE KEY UPDATE localRequestNo=VALUES(localRequestNo), localRequestItemId=VALUES(localRequestItemId), sourceModifiedAt=VALUES(sourceModifiedAt), sourceHash=VALUES(sourceHash), status='synced', errorMessage=NULL`,
+      `INSERT INTO ${ITEM_TABLE} (sourceItemId,sourceOrderId,localRequestNo,localRequestItemId,sourceModifiedAt,sourceHash,status,errorMessage,reasonCode)
+       VALUES (?,?,?,?,?,?,'synced',NULL,'created')
+       ON DUPLICATE KEY UPDATE localRequestNo=VALUES(localRequestNo), localRequestItemId=VALUES(localRequestItemId), sourceModifiedAt=VALUES(sourceModifiedAt), sourceHash=VALUES(sourceHash), status='synced', errorMessage=NULL, reasonCode='created'`,
       [line.sourceItem.id, order.id, requestNo, line.requestItemId, line.sourceItem.modified || order.modified || null, line.sourceHash],
     );
   }
@@ -1015,7 +1017,7 @@ export async function runFrappeDemandSync({ triggerType = "manual", dryRun = fal
           if (!dryRun) {
             await persistLedgerItem(connection, {
               item: entry.item, order, localRequestNo: requestNo, status: "pending_change",
-              errorMessage: message, changeJson: entry.changes, preserveBaseline: true,
+              errorMessage: message, changeJson: entry.changes, preserveBaseline: true, reasonCode: "remote_changed",
             });
           }
         }
@@ -1105,6 +1107,7 @@ export async function runFrappeDemandSync({ triggerType = "manual", dryRun = fal
           localRequestNo: text(prior?.localRequestNo) || localRequestNo(order.customerPoNo) || null,
           status: "cancelled",
           errorMessage: `远端状态为 ${item.status}，不创建本地需求单`,
+          reasonCode: "remote_cancelled",
         });
       }
     }
@@ -1120,6 +1123,7 @@ export async function runFrappeDemandSync({ triggerType = "manual", dryRun = fal
         await persistLedgerItem(connection, {
           item, order, localRequestNo: text(prior.localRequestNo) || null, status: "out_of_scope",
           errorMessage: `远端明细状态为 ${item.status || "（空）"}，不在可同步范围内`,
+          reasonCode: "out_of_scope",
         });
       }
     }
@@ -1249,6 +1253,22 @@ async function persistRequestRemoteStatus(snapshot: RemoteSnapshot) {
       updated += 1;
       continue;
     }
+    // 远端恢复：当初跟着远端取消的本地单自动恢复为草稿；人工取消的只更新远端状态。
+    const localRow = (await queryRowsRaw<Row>(
+      `SELECT status, cancelReason FROM ${REQUEST_TABLE} WHERE requestNo = :requestNo LIMIT 1`,
+      { requestNo },
+    ))[0];
+    if (localRow && text(localRow.status) === "已取消" && text(localRow.cancelReason) === "remote_cancelled") {
+      await executeRaw(
+        `UPDATE ${REQUEST_TABLE}
+            SET status = '草稿', cancelReason = NULL, cancelledAt = NULL, cancelledByName = NULL,
+                remoteStatus = :remoteStatus, remoteStatusUpdatedAt = CURRENT_TIMESTAMP, remoteCancelledItemCount = :cancelledCount
+          WHERE requestNo = :requestNo`,
+        { remoteStatus, cancelledCount, requestNo },
+      );
+      updated += 1;
+      continue;
+    }
     const result = await executeRaw(
       `UPDATE ${REQUEST_TABLE}
           SET remoteStatus = :remoteStatus, remoteStatusUpdatedAt = CURRENT_TIMESTAMP, remoteCancelledItemCount = :cancelledCount
@@ -1342,7 +1362,7 @@ export async function listFrappeDemandSyncLedger(params: URLSearchParams) {
 /** 某张需求单在台账里的逐条明细（含远端变更 diff）。 */
 export async function listFrappeDemandSyncLedgerItems(sourceOrderId: string) {
   const rows = await queryRowsRaw<Row>(
-    `SELECT i.sourceItemId, i.localRequestNo, i.localRequestItemId, i.status, i.errorMessage, i.changeJson,
+    `SELECT i.sourceItemId, i.localRequestNo, i.localRequestItemId, i.status, i.errorMessage, i.changeJson, i.reasonCode,
             i.updatedAt, i.sourceDataJson, (r.requestNo IS NOT NULL) AS localRequestExists
        FROM ${ITEM_TABLE} i
        LEFT JOIN merge_power_requests r ON r.requestNo = i.localRequestNo
@@ -1354,6 +1374,7 @@ export async function listFrappeDemandSyncLedgerItems(sourceOrderId: string) {
     items: rows.map((row) => ({
       sourceItemId: text(row.sourceItemId),
       status: text(row.status),
+      reasonCode: row.reasonCode ? text(row.reasonCode) : null,
       errorMessage: row.errorMessage ? text(row.errorMessage) : null,
       localRequestNo: row.localRequestNo ? text(row.localRequestNo) : null,
       localRequestItemId: row.localRequestItemId ? text(row.localRequestItemId) : null,

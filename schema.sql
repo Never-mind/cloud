@@ -991,6 +991,7 @@ CREATE TABLE IF NOT EXISTS `merge_power_demand_sync_items` (
   `errorMessage` VARCHAR(1000) NULL COMMENT 'blocking or change message',
   `sourceDataJson` LONGTEXT NULL COMMENT 'remote demand item payload snapshot',
   `changeJson` TEXT NULL COMMENT 'field level remote change list',
+  `reasonCode` VARCHAR(32) NULL COMMENT 'sync skip/success reason code',
   `createdAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'created time',
   `updatedAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'update time',
   PRIMARY KEY (`sourceItemId`),

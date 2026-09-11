@@ -375,9 +375,11 @@ export async function listInstanceSettlementCandidateFilterOptions(searchParams:
   const conditions = [
     "po.status = :purchaseStatus", "(req.requestType IS NULL OR req.requestType <> :spareType)",
     "NOT EXISTS (SELECT 1 FROM balancesettlementitems existingItem INNER JOIN balancesettlements existingSettlement ON existingSettlement.settlementNo = existingItem.settlementNo WHERE existingItem.purchaseOrderItemId = poi.id AND existingItem.itemType = :instanceType AND existingSettlement.status <> :voidedStatus)",
+    "(req.status IS NULL OR req.status <> :candidateRequestCancelledStatus)",
     EQUIPMENT_ONLY_INSTANCE_CONDITION,
   ];
   if (selectedCountry) conditions.push("req.countryCode = :candidateCountry");
+  const candidateParams = { candidateRequestCancelledStatus: "已取消" };
   return listSqlFilterOptions({
     expressions,
     searchParams,
@@ -391,7 +393,7 @@ export async function listInstanceSettlementCandidateFilterOptions(searchParams:
       LEFT JOIN merge_common_customers customer ON customer.customerId = ri.customerId OR customer.customerCode = ri.customerId
       LEFT JOIN capexpricingitems anchor ON anchor.versionId = :pricingVersionId AND anchor.deviceCode = ri.deviceCode`,
     conditions,
-    params: { purchaseStatus: CONFIRMED, spareType: SPARE_PART, instanceType: INSTANCE, voidedStatus: VOIDED, pricingVersionId, ...(selectedCountry ? { candidateCountry: selectedCountry } : {}) },
+    params: { purchaseStatus: CONFIRMED, spareType: SPARE_PART, instanceType: INSTANCE, voidedStatus: VOIDED, pricingVersionId, ...(selectedCountry ? { candidateCountry: selectedCountry } : {}), ...candidateParams },
   });
 }
 

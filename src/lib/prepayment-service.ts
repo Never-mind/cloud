@@ -179,9 +179,10 @@ export async function listAvailablePrepaymentLineFilterOptions(searchParams: URL
         INNER JOIN prepaymentcontracts pc ON pc.contractNo = pci.contractNo
         WHERE pci.purchaseOrderItemId = poi.id AND pc.status IN ('草稿', '已确认')
       )`,
+      "(req.status IS NULL OR req.status <> :availableRequestCancelledStatus)",
       EQUIPMENT_ONLY_INSTANCE_CONDITION,
     ],
-    params: { availablePurchaseStatus: "%确认%", availableRequestDraftStatus: "草稿" },
+    params: { availablePurchaseStatus: "%确认%", availableRequestDraftStatus: "草稿", availableRequestCancelledStatus: "已取消" },
   });
 }
 

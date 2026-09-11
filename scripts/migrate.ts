@@ -271,6 +271,7 @@ async function ensureFrappeDemandSyncTables() {
   for (const [columnName, ddl] of [
     ["sourceDataJson", "`sourceDataJson` LONGTEXT NULL COMMENT 'remote demand item payload snapshot' AFTER `errorMessage`"],
     ["changeJson", "`changeJson` TEXT NULL COMMENT 'field level remote change list' AFTER `sourceDataJson`"],
+    ["reasonCode", "`reasonCode` VARCHAR(32) NULL COMMENT 'sync skip/success reason code' AFTER `changeJson`"],
   ] as const) {
     await addColumnIfMissing("merge_power_demand_sync_items", columnName, ddl);
   }

@@ -409,6 +409,7 @@ export async function listAvailableBillingLineFilterOptions(searchParams: URLSea
       "req.status <> :availableRequestDraftStatus",
       "NOT EXISTS (SELECT 1 FROM billinginstanceledgers occupied WHERE occupied.purchaseOrderItemId = poi.id)",
       "COALESCE(NULLIF(poi.requestType, ''), NULLIF(ri.requestType, ''), NULLIF(req.requestType, ''), '整机') <> :availableSparePartType",
+      "(req.status IS NULL OR req.status <> :availableRequestCancelledStatus)",
       EQUIPMENT_ONLY_INSTANCE_CONDITION,
     ],
     params: { availablePurchaseStatus: "%确认%", availableRequestDraftStatus: "草稿", availableRequestCancelledStatus: "已取消", availableSparePartType: "备件" },

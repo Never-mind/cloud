@@ -95,6 +95,7 @@ type LedgerRow = {
 type LedgerItem = {
   sourceItemId: string;
   status: string;
+  reasonCode: string | null;
   errorMessage: string | null;
   localRequestItemId: string | null;
   changes: Array<{ field: string; label: string; from: string; to: string }>;
@@ -149,6 +150,15 @@ function ledgerItemStatus(status: string) {
     synced: "已创建", skipped_existing: "已存在", pending_change: "远端已变更",
     blocked: "待处理", out_of_scope: "不在同步范围", reset: "待重新拉取",
   } as Record<string, string>)[status] ?? status;
+}
+
+/** 台账结构化原因的中文展示。 */
+function ledgerReasonLabel(reasonCode: string | null) {
+  if (!reasonCode) return "-";
+  return ({
+    created: "已建档", local_exists: "本地单已存在", remote_changed: "远端已变更待核对",
+    blocked_mapping: "映射未完成", remote_cancelled: "远端已取消", local_cancelled: "本地已取消", out_of_scope: "状态不在同步范围",
+  } as Record<string, string>)[reasonCode] ?? reasonCode;
 }
 
 function sourceDetails(mapping: Mapping) {
@@ -421,10 +431,11 @@ export function FrappeDemandSyncPage() {
               </tr>
               {expandedOrder === row.sourceOrderId ? <tr><td className="border-b border-[#ebeef5] bg-[#fafafa] px-4 py-3" colSpan={8}>
                 <table className="w-full min-w-[900px] border-collapse text-sm">
-                  <thead><tr>{["明细ID", "台账状态", "本地明细", "远端变更", "说明"].map((label) => <th className="border-b border-[#ebeef5] px-3 py-2 text-left font-medium text-[#606266]" key={label}>{label}</th>)}</tr></thead>
+                  <thead><tr>{["明细ID", "台账状态", "原因", "本地明细", "远端变更", "说明"].map((label) => <th className="border-b border-[#ebeef5] px-3 py-2 text-left font-medium text-[#606266]" key={label}>{label}</th>)}</tr></thead>
                   <tbody>{ledgerItems.map((item) => <tr key={item.sourceItemId}>
                     <td className="border-b border-[#ebeef5] px-3 py-2 font-mono text-xs">{item.sourceItemId}</td>
                     <td className="border-b border-[#ebeef5] px-3 py-2">{ledgerItemStatus(item.status)}</td>
+                    <td className="border-b border-[#ebeef5] px-3 py-2">{ledgerReasonLabel(item.reasonCode)}</td>
                     <td className="border-b border-[#ebeef5] px-3 py-2 font-mono text-xs">{display(item.localRequestItemId)}</td>
                     <td className="border-b border-[#ebeef5] px-3 py-2">{item.changes.length ? item.changes.map((change) => `${change.label} ${change.from || "空"} → ${change.to || "空"}`).join("；") : "-"}</td>
                     <td className="border-b border-[#ebeef5] px-3 py-2 text-[#606266]">{display(item.errorMessage)}</td>
