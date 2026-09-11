@@ -923,7 +923,7 @@ export function EntityPage({
                   <th className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium">序号</th>
                 ) : null}
                 {config.batchDelete ? (
-                  <th className="w-4 border-b border-r border-[#ebeef5] px-0 py-3 text-center font-medium [&>input]:h-3.5 [&>input]:w-3.5 [&>input]:align-middle">
+                  <th className="table-select-cell border-b border-r border-[#ebeef5] py-3 text-center font-medium [&>input]:h-3.5 [&>input]:w-3.5 [&>input]:align-middle">
                     <input aria-label="全选本页" checked={allRowsSelected} type="checkbox" onChange={toggleAllRowsSelected} />
                   </th>
                 ) : null}
@@ -953,7 +953,7 @@ export function EntityPage({
                     <td className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3">{(page - 1) * pageSize + index + 1}</td>
                   ) : null}
                   {config.batchDelete ? (
-                    <td className="w-4 border-b border-r border-[#ebeef5] px-0 py-3 text-center [&>input]:h-3.5 [&>input]:w-3.5 [&>input]:align-middle">
+                    <td className="table-select-cell border-b border-r border-[#ebeef5] py-3 text-center [&>input]:h-3.5 [&>input]:w-3.5 [&>input]:align-middle">
                       <input
                         aria-label={`选择 ${String(row[config.primaryKey] ?? "")}`}
                         checked={selectedRowIds.includes(String(row[config.primaryKey] ?? ""))}

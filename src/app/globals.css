@@ -125,6 +125,15 @@ textarea {
   min-width: 7rem;
 }
 
+/* 批量选择列只放一个复选框，不受上面 7rem 最小宽度约束；列宽与复选框同宽且无左右内边距。 */
+.table-scroll > table > thead > tr > th.table-select-cell,
+.table-scroll > table > tbody > tr > td.table-select-cell {
+  width: 0.875rem;
+  min-width: 0;
+  padding-left: 0;
+  padding-right: 0;
+}
+
 .sticky-table-region {
   position: relative;
 }

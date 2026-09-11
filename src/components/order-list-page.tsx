@@ -447,7 +447,7 @@ export function OrderListPage({
             <thead className="bg-[#f5f7fa] text-[#303133]">
               <tr>
                 {canBatchDelete ? (
-                  <th className="w-4 border-b border-r border-[#ebeef5] px-0 py-3 text-center font-medium [&>input]:h-3.5 [&>input]:w-3.5 [&>input]:align-middle">
+                  <th className="table-select-cell border-b border-r border-[#ebeef5] py-3 text-center font-medium [&>input]:h-3.5 [&>input]:w-3.5 [&>input]:align-middle">
                     <input
                       aria-label="全选当前页需求单"
                       type="checkbox"
@@ -527,7 +527,7 @@ export function OrderListPage({
                 return (
                   <tr className="hover:bg-[#fafafa]" key={id}>
                     {canBatchDelete ? (
-                      <td className="w-4 border-b border-r border-[#ebeef5] px-0 py-3 text-center [&>input]:h-3.5 [&>input]:w-3.5 [&>input]:align-middle">
+                      <td className="table-select-cell border-b border-r border-[#ebeef5] py-3 text-center [&>input]:h-3.5 [&>input]:w-3.5 [&>input]:align-middle">
                         <input
                           aria-label={`选择需求单 ${id}`}
                           type="checkbox"
