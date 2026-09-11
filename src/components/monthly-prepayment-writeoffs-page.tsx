@@ -12,6 +12,7 @@ import { TableColumnMenu, type TableFilterOption, type TableSortOrder } from "./
 import { useRequestGuard } from "@/lib/table-query-client";
 import { buildDetailRoute, buildListRoute, getCurrentRoute, getPositiveNumber, useListScrollPosition } from "@/lib/client-list-navigation";
 import { Button, Input, Panel } from "./ui";
+import { notify } from "./app-dialog";
 import { TableStateContent } from "./table-state";
 
 type Row = Record<string, string | number | boolean | null>;
@@ -152,7 +153,7 @@ export function MonthlyPrepaymentWriteOffsPage() {
       setRows([]);
       setTotal(0);
       setTotalAmount(0);
-      alert(error instanceof Error ? error.message : "预付款核销明细加载失败");
+      notify(error instanceof Error ? error.message : "预付款核销明细加载失败", "info");
     } finally {
       if (isCurrentRequest()) setLoading(false);
     }
@@ -177,7 +178,7 @@ export function MonthlyPrepaymentWriteOffsPage() {
       const data = await fetchData(1, pageSizeRef.current, true, appliedFilters);
       exportRows = data.rows ?? [];
     } catch (error) {
-      alert(error instanceof Error ? error.message : "预付款核销明细导出失败");
+      notify(error instanceof Error ? error.message : "预付款核销明细导出失败", "info");
       return;
     }
     const header = columns.map((column) => column.label);

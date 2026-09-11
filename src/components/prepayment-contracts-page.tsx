@@ -8,6 +8,7 @@ import { formatDisplayValue } from "@/lib/display-format";
 import { DEFAULT_PAGE_SIZE } from "@/lib/pagination";
 import { buildDetailRoute, buildListRoute, getCurrentRoute, useListScrollPosition } from "@/lib/client-list-navigation";
 import { Button, Input, Panel } from "./ui";
+import { confirmDialog, notify } from "./app-dialog";
 import { PaginationBar } from "./pagination-bar";
 import { StickyTable } from "./sticky-table";
 import { TableColumnMenu, type TableFilterOption, type TableSortOrder } from "./table-column-menu";
@@ -79,7 +80,7 @@ export function PrepaymentContractsPage() {
     } catch (error) {
       setRows([]);
       setTotal(0);
-      alert(error instanceof Error ? error.message : "合同加载失败");
+      notify(error instanceof Error ? error.message : "合同加载失败", "info");
     } finally {
       setLoading(false);
     }
@@ -117,22 +118,22 @@ export function PrepaymentContractsPage() {
   }
 
   async function deleteDraft(contractNo: string) {
-    if (!confirm("确认删除该预付款合同草稿？删除后已占用实例会释放回待生成列表。")) return;
+    if (!await confirmDialog("确认删除该预付款合同草稿？删除后已占用实例会释放回待生成列表。")) return;
     const response = await fetch(`/api/prepayments/contracts/${encodeURIComponent(contractNo)}`, { method: "DELETE" });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
-      alert(data.error ?? "删除失败");
+      notify(data.error ?? "删除失败", "info");
       return;
     }
     await loadData();
   }
 
   async function rollbackContract(contractNo: string) {
-    if (!confirm(`确认将合同 ${contractNo} 退回草稿？\n退回后会删除该合同已生成的 24 个月预付款核销明细，合同明细保留，可修改后重新确认。`)) return;
+    if (!await confirmDialog(`确认将合同 ${contractNo} 退回草稿？\n退回后会删除该合同已生成的 24 个月预付款核销明细，合同明细保留，可修改后重新确认。`)) return;
     const response = await fetch(`/api/prepayments/contracts/${encodeURIComponent(contractNo)}/rollback`, { method: "POST" });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
-      alert(data.error ?? "退回失败");
+      notify(data.error ?? "退回失败", "info");
       return;
     }
     await loadData();
@@ -159,7 +160,7 @@ export function PrepaymentContractsPage() {
     const hint = action === "rollback"
       ? `确认将选中的 ${selectedNos.length} 份已确认合同退回草稿？\n退回后会删除各自已生成的 24 个月预付款核销明细，合同明细保留。`
       : `确认删除选中的 ${selectedNos.length} 份预付款合同草稿？删除后已占用实例会释放回待生成列表。`;
-    if (!confirm(hint)) return;
+    if (!await confirmDialog(hint)) return;
     setBatchBusy(true);
     try {
       const response = await fetch("/api/prepayments/contracts/batch", {
@@ -172,14 +173,15 @@ export function PrepaymentContractsPage() {
       const failed: Array<{ contractNo: string; error: string }> = data.failed ?? [];
       setSelectedNos(failed.map((item) => item.contractNo));
       if (failed.length) {
-        alert(
+        notify(
           `${label}完成 ${data.succeeded?.length ?? 0} 条，失败 ${failed.length} 条：\n` +
             failed.map((item) => `${item.contractNo}：${item.error}`).join("\n"),
+          "info",
         );
       }
       await loadData();
     } catch (error) {
-      alert(error instanceof Error ? error.message : `${label}失败`);
+      notify(error instanceof Error ? error.message : `${label}失败`, "info");
     } finally {
       setBatchBusy(false);
     }
@@ -195,11 +197,11 @@ export function PrepaymentContractsPage() {
 
   async function createBlankDraft() {
     if (!newContractNo.trim()) {
-      alert("预付款合同号不能为空");
+      notify("预付款合同号不能为空", "error");
       return;
     }
     if (!newEffectiveDate) {
-      alert("合同生效日期不能为空");
+      notify("合同生效日期不能为空", "error");
       return;
     }
     setCreating(true);
@@ -219,7 +221,7 @@ export function PrepaymentContractsPage() {
       setShowCreate(false);
       router.push(`/finance/prepayment-contracts/${encodeURIComponent(String(data.contractNo))}`);
     } catch (error) {
-      alert(error instanceof Error ? error.message : "预付款合同草稿创建失败");
+      notify(error instanceof Error ? error.message : "预付款合同草稿创建失败", "info");
     } finally {
       setCreating(false);
     }

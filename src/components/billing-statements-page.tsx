@@ -6,6 +6,7 @@ import { formatDisplayValue } from "@/lib/display-format";
 import { DEFAULT_PAGE_SIZE } from "@/lib/pagination";
 import { postWorkspaceMessage } from "@/lib/tab-workspace";
 import { Button, Input, Panel } from "./ui";
+import { confirmDialog, notify } from "./app-dialog";
 import { PaginationBar } from "./pagination-bar";
 import { StickyTable } from "./sticky-table";
 import { TableColumnMenu, type TableFilterOption, type TableSortOrder } from "./table-column-menu";
@@ -85,7 +86,7 @@ export function BillingStatementsPage() {
     } catch (error) {
       setSnapshots([]);
       setTotal(0);
-      alert(error instanceof Error ? error.message : "月账单对账单加载失败");
+      notify(error instanceof Error ? error.message : "月账单对账单加载失败", "info");
     } finally {
       setLoading(false);
     }
@@ -96,7 +97,7 @@ export function BillingStatementsPage() {
     const response = await fetch(`/api/billing-statements?mode=preview&${params.toString()}`);
     const data = await response.json();
     if (!response.ok) {
-      alert(data.error ?? "预览失败");
+      notify(data.error ?? "预览失败", "info");
       return;
     }
     setPreviewRows(data.rows ?? []);
@@ -112,27 +113,27 @@ export function BillingStatementsPage() {
     const data = await response.json();
     setCreating(false);
     if (!response.ok) {
-      alert(data.error ?? "生成对账单草稿失败");
+      notify(data.error ?? "生成对账单草稿失败", "info");
       return;
     }
     setSnapshotNo(data.snapshotNo ?? "");
     setPreviewRows(data.rows ?? []);
     await loadSnapshots();
-    alert(`已生成月账单对账单草稿：${data.snapshotNo}`);
+    notify(`已生成月账单对账单草稿：${data.snapshotNo}`, "info");
   }
 
   async function changeSnapshot(snapshotNo: string, action: "confirm" | "delete") {
     const message = action === "confirm"
       ? "确认该月账单对账单？确认后不能删除或退回。"
       : "确认删除该未确认月账单对账单？其快照明细也会同时删除。";
-    if (!confirm(message)) return;
+    if (!await confirmDialog(message)) return;
     const response = await fetch(
       `/api/billing-statements/${encodeURIComponent(snapshotNo)}${action === "confirm" ? "/confirm" : ""}`,
       { method: action === "confirm" ? "POST" : "DELETE" },
     );
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
-      alert(data.error ?? (action === "confirm" ? "确认失败" : "删除失败"));
+      notify(data.error ?? (action === "confirm" ? "确认失败" : "删除失败"), "info");
       return;
     }
     await loadSnapshots();

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Check, RefreshCw, Save, ShieldOff } from "lucide-react";
 import { Button, Panel } from "./ui";
+import { notify } from "./app-dialog";
 import { StickyTable } from "./sticky-table";
 
 type Feature = {
@@ -31,7 +32,7 @@ export function ModuleFeaturesPage() {
       setFeatures(data.features ?? []);
       setIsAdmin(data.isAdmin === true);
     } catch (error) {
-      alert(error instanceof Error ? error.message : "功能模块配置加载失败");
+      notify(error instanceof Error ? error.message : "功能模块配置加载失败", "info");
     } finally {
       setLoading(false);
     }
@@ -53,7 +54,7 @@ export function ModuleFeaturesPage() {
       setFeatures(data.features ?? []);
       window.parent.postMessage({ type: "cloud-power:module-features-updated" }, window.location.origin);
     } catch (error) {
-      alert(error instanceof Error ? error.message : "功能模块状态更新失败");
+      notify(error instanceof Error ? error.message : "功能模块状态更新失败", "info");
     } finally {
       setSaving(null);
     }

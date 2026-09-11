@@ -19,6 +19,7 @@ import {
   Upload,
 } from "lucide-react";
 import { Button, Input, Panel } from "./ui";
+import { confirmDialog, notify } from "./app-dialog";
 import { LoadingBlock } from "./table-state";
 import { PaginationBar } from "./pagination-bar";
 
@@ -113,7 +114,7 @@ export function DocumentManagerPage() {
       setFilePage(Number(data.page ?? nextPage));
       setFilePageSize(Number(data.pageSize ?? nextPageSize));
     } catch (error) {
-      alert(error instanceof Error ? error.message : "读取文档失败");
+      notify(error instanceof Error ? error.message : "读取文档失败", "info");
     } finally {
       setLoading(false);
     }
@@ -135,7 +136,7 @@ export function DocumentManagerPage() {
     });
     const data = await response.json();
     if (!response.ok) {
-      alert(data.error || "新建文件夹失败");
+      notify(data.error || "新建文件夹失败", "info");
       return;
     }
     await Promise.all([loadItems(folderId), loadTree()]);
@@ -149,13 +150,13 @@ export function DocumentManagerPage() {
     const response = await fetch("/api/documents/files/upload", { method: "POST", body: formData });
     const data = await response.json();
     if (!response.ok) {
-      alert(data.error || "上传失败");
+      notify(data.error || "上传失败", "info");
       return;
     }
     const failedText = data.failed?.length
       ? `\n失败：${data.failed.map((item: { name: string; reason: string }) => `${item.name}（${item.reason}）`).join("；")}`
       : "";
-    alert(`本次导入 ${data.total} 个文件，成功 ${data.success} 个。${failedText}`);
+    notify(`本次导入 ${data.total} 个文件，成功 ${data.success} 个。${failedText}`, "info");
     if (fileInputRef.current) fileInputRef.current.value = "";
     await loadItems(folderId);
   }
@@ -179,7 +180,7 @@ export function DocumentManagerPage() {
     });
     const data = await response.json();
     if (!response.ok) {
-      alert(data.error || "重命名失败");
+      notify(data.error || "重命名失败", "info");
       return;
     }
     setRenaming(null);
@@ -188,7 +189,7 @@ export function DocumentManagerPage() {
 
   async function removeTarget(target: ContextTarget) {
     const name = target.type === "folder" ? target.item.name : target.item.originalName;
-    if (!window.confirm(`确认删除“${name}”？`)) return;
+    if (!await confirmDialog(`确认删除“${name}”？`)) return;
     const endpoint =
       target.type === "folder"
         ? `/api/documents/folders/${encodeURIComponent(target.item.folderId)}`
@@ -196,7 +197,7 @@ export function DocumentManagerPage() {
     const response = await fetch(endpoint, { method: "DELETE" });
     const data = await response.json();
     if (!response.ok) {
-      alert(data.error || "删除失败");
+      notify(data.error || "删除失败", "info");
       return;
     }
     await Promise.all([loadItems(folderId), loadTree()]);

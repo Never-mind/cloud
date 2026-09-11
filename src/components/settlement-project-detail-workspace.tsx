@@ -7,6 +7,7 @@ import { postWorkspaceMessage } from "@/lib/tab-workspace";
 import { calculateSettlementPurchaseAmounts, summarizeSettlementPurchases } from "@/lib/settlement-purchase-summary";
 import { calculateSettlementEntryAmounts, summarizeSettlementEntries } from "@/lib/settlement-entry-summary";
 import { AuditInfoBar, Button, Input, Panel } from "./ui";
+import { confirmDialog } from "./app-dialog";
 import { LoadingBlock } from "./table-state";
 import { PaginationBar } from "./pagination-bar";
 import { StickyTable } from "./sticky-table";
@@ -218,7 +219,7 @@ export function SettlementProjectDetailWorkspace() {
 
   async function changeStatus() {
     if (!nextStatus) return;
-    if (nextStatus === "closed" && !window.confirm("确认完结该项目结算？完结后主从数据将变为只读。")) return;
+    if (nextStatus === "closed" && !await confirmDialog("确认完结该项目结算？完结后主从数据将变为只读。")) return;
     await write(`/api/po/settlement-projects/${encodeURIComponent(projectId)}/status`, "POST", { status: nextStatus });
   }
 

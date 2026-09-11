@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Eye, FileDown, RefreshCw, Search, Trash2 } from "lucide-react";
 import { Button, Input, Panel } from "./ui";
+import { confirmDialog } from "./app-dialog";
 import { TableSkeleton } from "./table-state";
 import { PaginationBar } from "./pagination-bar";
 import { StickyTable } from "./sticky-table";
@@ -66,7 +67,7 @@ export function SettlementProjectPage() {
   const rows = result.items;
 
   async function deleteProject(id: string) {
-    if (!window.confirm("确认删除该项目结算？删除后会同步删除其采购、费用、销售、发票和附件明细。")) return;
+    if (!await confirmDialog("确认删除该项目结算？删除后会同步删除其采购、费用、销售、发票和附件明细。")) return;
     const response = await fetch(`/api/po/settlement-projects/${encodeURIComponent(id)}`, { method: "DELETE" });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) { setError(data.error ?? "项目结算删除失败"); return; }

@@ -10,6 +10,7 @@ import { StickyTable } from "./sticky-table";
 import { TableColumnMenu, type TableSortOrder } from "./table-column-menu";
 import { useRequestGuard } from "@/lib/table-query-client";
 import { Button, Input, Panel } from "./ui";
+import { confirmDialog, notify } from "./app-dialog";
 import { TableStateContent } from "./table-state";
 
 type Row = Record<string, string | number | boolean | null>;
@@ -63,7 +64,7 @@ export function InternalServiceFeeAvailablePage() {
       setPage(Number(data.page ?? nextPage));
     } catch (error) {
       if (!isCurrentRequest()) return;
-      alert(error instanceof Error ? error.message : "待初始化清单加载失败");
+      notify(error instanceof Error ? error.message : "待初始化清单加载失败", "info");
     } finally {
       if (isCurrentRequest()) setLoading(false);
     }
@@ -96,10 +97,10 @@ export function InternalServiceFeeAvailablePage() {
   async function initialize(ledgerIds?: string[]) {
     const targets = ledgerIds ?? selected;
     if (!targets.length) {
-      alert("请至少勾选一条待初始化实例");
+      notify("请至少勾选一条待初始化实例", "info");
       return;
     }
-    if (!confirm(`确认初始化 ${targets.length} 条内部服务费台账吗？`)) return;
+    if (!await confirmDialog(`确认初始化 ${targets.length} 条内部服务费台账吗？`)) return;
     const response = await fetch("/api/internal-service-fees", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -107,12 +108,12 @@ export function InternalServiceFeeAvailablePage() {
     });
     const data = await response.json();
     if (!response.ok) {
-      alert(data.error ?? "初始化失败");
+      notify(data.error ?? "初始化失败", "info");
       return;
     }
     setSelected((current) => current.filter((id) => !targets.includes(id)));
     await loadRows();
-    alert(`已初始化 ${data.count ?? 0} 条内部服务费台账`);
+    notify(`已初始化 ${data.count ?? 0} 条内部服务费台账`, "info");
   }
 
   return (

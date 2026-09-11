@@ -10,6 +10,7 @@ import { fetchAllEntityRows } from "@/lib/client-entity-fetch";
 import { getReturnTo } from "@/lib/client-list-navigation";
 import { postWorkspaceMessage } from "@/lib/tab-workspace";
 import { Button, Input, Panel, Textarea } from "./ui";
+import { confirmDialog, notify } from "./app-dialog";
 import { LoadingBlock } from "./table-state";
 import { StickyTable } from "./sticky-table";
 import { WorkspaceNavigationDialog } from "./workspace-navigation-dialog";
@@ -121,7 +122,7 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
     const response = await fetch(`/api/prepayments/contracts/${encodeURIComponent(contractNo)}`);
     const data = await response.json();
     if (!response.ok) {
-      alert(data.error ?? "合同不存在");
+      notify(data.error ?? "合同不存在", "info");
       router.push(returnTo);
       return;
     }
@@ -244,7 +245,7 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
       (line) => line.lineType === "fee" && !String(line.countryCode ?? "").trim(),
     );
     if (missingFeeCountry) {
-      alert("费用明细必须选择国家后才能保存");
+      notify("费用明细必须选择国家后才能保存", "info");
       return false;
     }
     setSaving(true);
@@ -259,7 +260,7 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
     const data = await response.json();
     setSaving(false);
     if (!response.ok) {
-      alert(data.error ?? "保存失败");
+      notify(data.error ?? "保存失败", "info");
       return false;
     }
     await loadData();
@@ -269,7 +270,7 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
 
   async function confirmContract() {
     if (!contract) return;
-    if (!confirm("确认后将生成24个月预付款每月核销明细，合同金额和起始月份将锁定。是否确认？")) return;
+    if (!await confirmDialog("确认后将生成24个月预付款每月核销明细，合同金额和起始月份将锁定。是否确认？")) return;
     if (editing) {
       const saved = await saveDraft();
       if (!saved) return;
@@ -283,7 +284,7 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
     setSaving(false);
     if (!response.ok) {
       setConfirming(false);
-      alert(data.error ?? "确认失败");
+      notify(data.error ?? "确认失败", "info");
       return;
     }
     setConfirming(false);
@@ -299,7 +300,7 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
   async function rollbackContract() {
     if (!contract) return;
     if (
-      !confirm(
+      !await confirmDialog(
         `确认将合同 ${contract.contractNo} 退回草稿？\n退回后会删除该合同已生成的 24 个月预付款核销明细，合同明细保留，可修改后重新确认。`,
       )
     ) {
@@ -312,7 +313,7 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
-        alert(data.error ?? "退回失败");
+        notify(data.error ?? "退回失败", "info");
         return;
       }
       setEditing(false);

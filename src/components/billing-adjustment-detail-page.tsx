@@ -14,6 +14,7 @@ import { PURCHASE_CURRENCY_OPTIONS } from "@/lib/purchase-order-form";
 import { fetchAllEntityRows } from "@/lib/client-entity-fetch";
 import { buildDetailRoute, getReturnTo } from "@/lib/client-list-navigation";
 import { Button, Input, Panel, Textarea } from "./ui";
+import { confirmDialog, notify } from "./app-dialog";
 import { StickyTable } from "./sticky-table";
 
 type Row = Record<string, string | number | boolean | null>;
@@ -116,11 +117,11 @@ export function BillingAdjustmentDetailPage({ adjustmentNo: routeAdjustmentNo }:
   async function saveDraft() {
     if (saving) return false;
     if (!adjustmentNo.trim()) {
-      alert("请填写调整单号");
+      notify("请填写调整单号", "info");
       return false;
     }
     if (!instanceContractNo.trim()) {
-      alert("请填写实例合同单号");
+      notify("请填写实例合同单号", "info");
       return false;
     }
     setSaving(true);
@@ -132,7 +133,7 @@ export function BillingAdjustmentDetailPage({ adjustmentNo: routeAdjustmentNo }:
     const data = await response.json();
     setSaving(false);
     if (!response.ok) {
-      alert(data.error ?? "保存失败");
+      notify(data.error ?? "保存失败", "info");
       return false;
     }
     if (isNew) {
@@ -142,7 +143,7 @@ export function BillingAdjustmentDetailPage({ adjustmentNo: routeAdjustmentNo }:
     setItems(data.items ?? items);
     setStatus(String(data.adjustment?.status ?? "草稿"));
     setIsEditing(false);
-    alert("实例合同调整单草稿已保存");
+    notify("实例合同调整单草稿已保存", "success");
     return true;
   }
 
@@ -156,26 +157,26 @@ export function BillingAdjustmentDetailPage({ adjustmentNo: routeAdjustmentNo }:
     });
     const data = await response.json();
     if (!response.ok) {
-      alert(data.error ?? "确认失败");
+      notify(data.error ?? "确认失败", "info");
       return;
     }
     setStatus("已确认");
-    alert("实例合同调整单已确认");
+    notify("实例合同调整单已确认", "success");
     router.push(returnTo);
   }
 
   async function rollbackAdjustment() {
-    if (!confirm(`确认将该调整单退回草稿？\n退回后会按"没有这张调整单"的口径重新计算受影响的月账单台账与内部服务费。`)) return;
+    if (!await confirmDialog(`确认将该调整单退回草稿？\n退回后会按"没有这张调整单"的口径重新计算受影响的月账单台账与内部服务费。`)) return;
     setSaving(true);
     try {
       const response = await fetch(`/api/billing/adjustments/${encodeURIComponent(adjustmentNo)}/rollback`, { method: "POST" });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
-        alert(data.error ?? "退回失败");
+        notify(data.error ?? "退回失败", "info");
         return;
       }
       setStatus("草稿");
-      alert(`已退回草稿，重算台账 ${data.updatedLedgers ?? 0} 条`);
+      notify(`已退回草稿，重算台账 ${data.updatedLedgers ?? 0} 条`, "info");
       router.push(returnTo);
     } finally {
       setSaving(false);
@@ -184,7 +185,7 @@ export function BillingAdjustmentDetailPage({ adjustmentNo: routeAdjustmentNo }:
 
   async function importItems(file: File) {
     if (!adjustmentNo.trim() || !instanceContractNo.trim()) {
-      alert("请先填写调整单号和实例合同单号");
+      notify("请先填写调整单号和实例合同单号", "error");
       return;
     }
     const formData = new FormData();
@@ -198,11 +199,11 @@ export function BillingAdjustmentDetailPage({ adjustmentNo: routeAdjustmentNo }:
     });
     const data = await response.json();
     if (!response.ok) {
-      alert(data.error ?? "导入失败");
+      notify(data.error ?? "导入失败", "info");
       return;
     }
     setItems(data.items ?? []);
-    alert(buildImportMessage(data.report as ImportReport));
+    notify(buildImportMessage(data.report as ImportReport), "info");
   }
 
   return (

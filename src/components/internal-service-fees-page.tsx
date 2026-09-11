@@ -9,6 +9,7 @@ import { StickyTable } from "./sticky-table";
 import { TableColumnMenu, type TableFilterOption, type TableSortOrder } from "./table-column-menu";
 import { useRequestGuard } from "@/lib/table-query-client";
 import { Button, Input, Panel, Textarea } from "./ui";
+import { confirmDialog, notify } from "./app-dialog";
 import { TableStateContent } from "./table-state";
 
 type Row = Record<string, string | number | boolean | null>;
@@ -100,7 +101,7 @@ export function InternalServiceFeesPage() {
       setRows([]);
       setTotal(0);
       setTotalAmount(0);
-      alert(error instanceof Error ? error.message : "内部服务费加载失败");
+      notify(error instanceof Error ? error.message : "内部服务费加载失败", "info");
     } finally {
       if (isCurrentRequest()) setLoading(false);
     }
@@ -135,12 +136,12 @@ export function InternalServiceFeesPage() {
   }
 
   async function syncLedgers() {
-    if (!confirm("将根据月账单台账、采购成本和已确认调整单生成或重算未归档内部服务费，是否继续？")) return;
+    if (!await confirmDialog("将根据月账单台账、采购成本和已确认调整单生成或重算未归档内部服务费，是否继续？")) return;
     const response = await fetch("/api/internal-service-fees", { method: "POST" });
     const data = await response.json();
-    if (!response.ok) return alert(data.error ?? "生成失败");
+    if (!response.ok) return notify(data.error ?? "生成失败", "info");
     await loadData();
-    alert(`已同步 ${data.count ?? 0} 条内部服务费台账`);
+    notify(`已同步 ${data.count ?? 0} 条内部服务费台账`, "info");
   }
 
   async function saveAdjustment() {
@@ -157,31 +158,31 @@ export function InternalServiceFeesPage() {
       }),
     });
     const data = await response.json();
-    if (!response.ok) return alert(data.error ?? "保存调整失败");
+    if (!response.ok) return notify(data.error ?? "保存调整失败", "info");
     setAdjustingRow(null);
     await loadData();
   }
 
   async function cancelAdjustment(adjustmentNo: string) {
-    if (!confirm(`确认撤销内部服务费调整单 ${adjustmentNo} 吗？系统将重新分摊所有未归档月份。`)) return;
+    if (!await confirmDialog(`确认撤销内部服务费调整单 ${adjustmentNo} 吗？系统将重新分摊所有未归档月份。`)) return;
     const response = await fetch(`/api/internal-service-fees/adjustments/${encodeURIComponent(adjustmentNo)}`, { method: "DELETE" });
     const data = await response.json();
-    if (!response.ok) return alert(data.error ?? "撤销调整失败");
+    if (!response.ok) return notify(data.error ?? "撤销调整失败", "info");
     await loadData();
   }
 
   async function archiveSelectedMonth() {
-    if (!archiveMonth) return alert("请选择归档月份");
-    if (!confirm(`确认归档 ${archiveMonth.slice(0, 7)} 的内部服务费吗？归档后该月金额不可再自动修改。`)) return;
+    if (!archiveMonth) return notify("请选择归档月份", "error");
+    if (!await confirmDialog(`确认归档 ${archiveMonth.slice(0, 7)} 的内部服务费吗？归档后该月金额不可再自动修改。`)) return;
     const response = await fetch("/api/internal-service-fees/archive", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ countryCode, archiveMonth }),
     });
     const data = await response.json();
-    if (!response.ok) return alert(data.error ?? "归档失败");
+    if (!response.ok) return notify(data.error ?? "归档失败", "info");
     await loadData();
-    alert(`已生成归档快照：${data.snapshotNo}`);
+    notify(`已生成归档快照：${data.snapshotNo}`, "info");
   }
 
   async function exportCsv() {
@@ -190,7 +191,7 @@ export function InternalServiceFeesPage() {
       const data = await fetchData(1, pageSizeRef.current, true);
       exportRows = data.rows;
     } catch (error) {
-      alert(error instanceof Error ? error.message : "内部服务费导出失败");
+      notify(error instanceof Error ? error.message : "内部服务费导出失败", "info");
       return;
     }
     const content = [columns.map((column) => column.label).join(","), ...exportRows.map((row) => columns.map((column) => `"${String(formatValue(row[column.key], column.type)).replaceAll('"', '""')}"`).join(","))].join("\n");

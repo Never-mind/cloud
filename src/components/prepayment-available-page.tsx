@@ -12,6 +12,7 @@ import { StickyTable } from "./sticky-table";
 import { TableColumnMenu, type TableSortOrder } from "./table-column-menu";
 import { useRequestGuard } from "@/lib/table-query-client";
 import { Button, Input, Panel } from "./ui";
+import { notify } from "./app-dialog";
 import { TableStateContent } from "./table-state";
 
 type Row = {
@@ -124,7 +125,7 @@ export function PrepaymentAvailablePage() {
       });
     } catch (error) {
       if (!isCurrentRequest()) return;
-      alert(error instanceof Error ? error.message : "待生成预付款实例加载失败");
+      notify(error instanceof Error ? error.message : "待生成预付款实例加载失败", "info");
     } finally {
       if (isCurrentRequest()) setLoading(false);
     }
@@ -202,7 +203,7 @@ export function PrepaymentAvailablePage() {
     if (response.ok) {
       router.push(`/finance/prepayment-contracts/${encodeURIComponent(String(data.contractNo))}`);
     } else {
-      alert(data.error ?? "生成失败");
+      notify(data.error ?? "生成失败", "info");
     }
   }
 

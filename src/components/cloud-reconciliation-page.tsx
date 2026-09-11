@@ -3,6 +3,7 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import { Check, ChevronDown, ChevronRight, Cloud, Download, FileUp, Pencil, Plus, Search, Trash2, X } from "lucide-react";
 import { Button, Input, Panel } from "./ui";
+import { confirmDialog } from "./app-dialog";
 import { StickyTable } from "./sticky-table";
 import { TableColumnMenu, type TableFilterOption, type TableSortOrder } from "./table-column-menu";
 import { calculateCloudTaxGroup, CLOUD_TAX_GROUPS, type CloudTaxField, type CloudTaxGroup } from "@/lib/cloud-tax";
@@ -184,7 +185,7 @@ export function CloudReconciliationPage() {
   }
 
   async function deleteRow(row: Row) {
-    if (!window.confirm(`确认删除 ${display(row.customer)} / ${display(row.account)} 吗？`)) return;
+    if (!await confirmDialog(`确认删除 ${display(row.customer)} / ${display(row.account)} 吗？`)) return;
     try { await requestJson(`/api/cloud/rows/${encodeURIComponent(String(row.id ?? ""))}`, { method: "DELETE" }); await load(); }
     catch (error) { setNotice(error instanceof Error ? error.message : "删除失败"); }
   }

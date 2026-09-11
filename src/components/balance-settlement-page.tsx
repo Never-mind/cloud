@@ -9,6 +9,7 @@ import { PaginationBar } from "./pagination-bar";
 import { StickyTable } from "./sticky-table";
 import { TableColumnMenu, type TableSortOrder } from "./table-column-menu";
 import { Button, Input, Panel } from "./ui";
+import { confirmDialog, notify } from "./app-dialog";
 import { TableStateContent } from "./table-state";
 
 type Value = string | number | boolean | null | undefined;
@@ -203,7 +204,7 @@ export function BalanceSettlementPage() {
       setCountries(countryRows);
       setVersions(versionData.rows ?? []);
     } catch (error) {
-      alert(error instanceof Error ? error.message : "基础数据加载失败");
+      notify(error instanceof Error ? error.message : "基础数据加载失败", "info");
     }
   }
 
@@ -229,7 +230,7 @@ export function BalanceSettlementPage() {
       setCandidatePage(Number(data.page ?? page));
       setCandidatePageSize(Number(data.pageSize ?? pageSize));
     } catch (error) {
-      alert(error instanceof Error ? error.message : "待生成实例结差加载失败");
+      notify(error instanceof Error ? error.message : "待生成实例结差加载失败", "info");
     } finally {
       setLoading(false);
     }
@@ -250,7 +251,7 @@ export function BalanceSettlementPage() {
       setSettlementPage(Number(data.page ?? page));
       setSettlementPageSize(Number(data.pageSize ?? pageSize));
     } catch (error) {
-      alert(error instanceof Error ? error.message : "结差单加载失败");
+      notify(error instanceof Error ? error.message : "结差单加载失败", "info");
     } finally {
       setLoading(false);
     }
@@ -313,10 +314,10 @@ export function BalanceSettlementPage() {
   }
 
   async function createInstanceDraft() {
-    if (!pricingVersionId) return alert("请先选择已确认的CAPEX/OPEX锚定价格版本");
-    if (!selectedIds.length) return alert("请至少勾选一条实例结差明细");
+    if (!pricingVersionId) return notify("请先选择已确认的CAPEX/OPEX锚定价格版本", "error");
+    if (!selectedIds.length) return notify("请至少勾选一条实例结差明细", "info");
     const invalid = selectedRows.filter((row) => !candidateCanGenerate(row));
-    if (invalid.length) return alert("已选明细中存在缺失CAPEX/OPEX、锚定价或结差汇率的数据");
+    if (invalid.length) return notify("已选明细中存在缺失CAPEX/OPEX、锚定价或结差汇率的数据", "info");
     setSaving(true);
     try {
       const data = await fetchJson<SettlementDetail>("/api/balance-settlements", {
@@ -334,9 +335,9 @@ export function BalanceSettlementPage() {
       setSelectedIds([]);
       setSelectedCandidateRows({});
       setSettlementRates({});
-      alert("结差草稿已生成");
+      notify("结差草稿已生成", "success");
     } catch (error) {
-      alert(error instanceof Error ? error.message : "生成结差草稿失败");
+      notify(error instanceof Error ? error.message : "生成结差草稿失败", "info");
     } finally {
       setSaving(false);
     }
@@ -346,20 +347,20 @@ export function BalanceSettlementPage() {
     try {
       setDetail(await fetchJson<SettlementDetail>(`/api/balance-settlements/${encodeURIComponent(settlementNo)}`));
     } catch (error) {
-      alert(error instanceof Error ? error.message : "结差单明细加载失败");
+      notify(error instanceof Error ? error.message : "结差单明细加载失败", "info");
     }
   }
 
   async function confirmSettlement() {
     if (!detail || detail.master.status !== DRAFT) return;
-    if (!confirm(`确认结差单 ${detail.master.settlementNo} 吗？确认后将锁定采购价格、锚定版本、汇率和计算结果。`)) return;
+    if (!await confirmDialog(`确认结差单 ${detail.master.settlementNo} 吗？确认后将锁定采购价格、锚定版本、汇率和计算结果。`)) return;
     setSaving(true);
     try {
       const data = await fetchJson<SettlementDetail>(`/api/balance-settlements/${encodeURIComponent(detail.master.settlementNo)}/confirm`, { method: "POST" });
       setDetail(data);
       await loadSettlements();
     } catch (error) {
-      alert(error instanceof Error ? error.message : "确认结差单失败");
+      notify(error instanceof Error ? error.message : "确认结差单失败", "info");
     } finally {
       setSaving(false);
     }
@@ -367,14 +368,14 @@ export function BalanceSettlementPage() {
 
   async function voidSettlement() {
     if (!detail || detail.master.status !== DRAFT) return;
-    if (!confirm(`作废结差草稿 ${detail.master.settlementNo} 吗？对应采购明细将重新回到待生成列表。`)) return;
+    if (!await confirmDialog(`作废结差草稿 ${detail.master.settlementNo} 吗？对应采购明细将重新回到待生成列表。`)) return;
     setSaving(true);
     try {
       const data = await fetchJson<SettlementDetail>(`/api/balance-settlements/${encodeURIComponent(detail.master.settlementNo)}/void`, { method: "POST" });
       setDetail(data);
       await Promise.all([loadSettlements(), loadCandidates(1)]);
     } catch (error) {
-      alert(error instanceof Error ? error.message : "作废结差草稿失败");
+      notify(error instanceof Error ? error.message : "作废结差草稿失败", "info");
     } finally {
       setSaving(false);
     }

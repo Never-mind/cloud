@@ -8,6 +8,7 @@ import { formatDisplayValue } from "@/lib/display-format";
 import { DEFAULT_PAGE_SIZE } from "@/lib/pagination";
 import { buildDetailRoute, buildListRoute, getCurrentRoute, useListScrollPosition } from "@/lib/client-list-navigation";
 import { Button, Input, Panel } from "./ui";
+import { confirmDialog, notify } from "./app-dialog";
 import { PaginationBar } from "./pagination-bar";
 import { StickyTable } from "./sticky-table";
 import { TableColumnMenu, type TableFilterOption, type TableSortOrder } from "./table-column-menu";
@@ -111,24 +112,24 @@ export function BillingAdjustmentsPage() {
   }
 
   async function confirmAdjustment(adjustmentNo: string) {
-    if (!confirm("确认后会按调整单明细更新对应月账单每月核销明细，是否继续？")) return;
+    if (!await confirmDialog("确认后会按调整单明细更新对应月账单每月核销明细，是否继续？")) return;
     const response = await fetch(`/api/billing/adjustments/${encodeURIComponent(adjustmentNo)}/confirm`, {
       method: "POST",
     });
     const data = await response.json();
     if (!response.ok) {
-      alert(data.error ?? "确认失败");
+      notify(data.error ?? "确认失败", "info");
       return;
     }
     await loadRows();
   }
 
   async function deleteDraft(adjustmentNo: string) {
-    if (!confirm("确认删除该实例合同调整单草稿？")) return;
+    if (!await confirmDialog("确认删除该实例合同调整单草稿？")) return;
     const response = await fetch(`/api/billing/adjustments/${encodeURIComponent(adjustmentNo)}`, { method: "DELETE" });
     const data = await response.json();
     if (!response.ok) {
-      alert(data.error ?? "删除失败");
+      notify(data.error ?? "删除失败", "info");
       return;
     }
     await loadRows();

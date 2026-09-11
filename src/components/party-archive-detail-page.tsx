@@ -8,6 +8,7 @@ import { fetchAllEntityRows } from "@/lib/client-entity-fetch";
 import { formatDateInputValue, formatDisplayValue } from "@/lib/display-format";
 import type { EntityConfig, EntityField } from "@/lib/modules";
 import { Button, Input, Panel, Textarea } from "./ui";
+import { confirmDialog } from "./app-dialog";
 
 type Row = Record<string, string | number | boolean | null>;
 
@@ -408,7 +409,7 @@ function RelatedSection({ config, ownerId, editing, enabled, persisted, pendingR
   }
 
   async function remove(row: Row) {
-    if (!editing || !window.confirm(`确认删除这条${config.title}吗？`)) return;
+    if (!editing || !await confirmDialog(`确认删除这条${config.title}吗？`)) return;
     if (!persisted) {
       onPendingRowsChange(visibleRows.filter((item) => String(item[config.primaryKey]) !== String(row[config.primaryKey])));
       if (editingId === String(row[config.primaryKey])) setEditingId(null);
@@ -478,7 +479,7 @@ function AttachmentsSection({ config, ownerId, attachments, editing, onAttachmen
   }
 
   async function remove(attachment: Attachment) {
-    if (!editing || !window.confirm(`确认删除附件“${attachment.fileName}”吗？`)) return;
+    if (!editing || !await confirmDialog(`确认删除附件“${attachment.fileName}”吗？`)) return;
     const response = await fetch(`/api/common/attachments/${encodeURIComponent(config.key)}/${encodeURIComponent(ownerId)}/${encodeURIComponent(attachment.attachmentId)}`, { method: "DELETE" });
     if (!response.ok) { const data = await response.json().catch(() => ({})); onError(data.error ?? "附件删除失败"); return; }
     await load();

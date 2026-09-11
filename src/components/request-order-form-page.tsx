@@ -13,6 +13,7 @@ import { buildDetailRoute, getReturnTo } from "@/lib/client-list-navigation";
 import { exportRowsToXlsx } from "@/lib/client-xlsx-export";
 import { getPartyReferenceLabel, resolvePartyReference } from "@/lib/party-reference";
 import { AuditInfoBar, Button, Input, Panel } from "./ui";
+import { notify } from "./app-dialog";
 import { StickyTable } from "./sticky-table";
 
 type Row = Record<string, string | number | boolean | null>;
@@ -208,7 +209,7 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
       if (imported.length) setDetails(imported);
       else throw new Error("工作表没有可导入的明细");
     } catch (error) {
-      alert(error instanceof Error ? error.message : "需求明细导入失败");
+      notify(error instanceof Error ? error.message : "需求明细导入失败", "info");
     }
   }
 
@@ -264,7 +265,7 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
       const data = await saveResponse.json().catch(() => ({}));
       setSaving(false);
       setConfirming(false);
-      alert(data.error ?? "保存失败");
+      notify(data.error ?? "保存失败", "info");
       return;
     }
 
@@ -280,7 +281,7 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
       setSaving(false);
       if (!response.ok) {
         setConfirming(false);
-        alert(data.error ?? "确认失败");
+        notify(data.error ?? "确认失败", "info");
         return;
       }
       setMaster((current) => ({ ...current, status }));

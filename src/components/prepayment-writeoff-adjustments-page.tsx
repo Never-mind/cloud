@@ -8,6 +8,7 @@ import { formatDisplayValue } from "@/lib/display-format";
 import { DEFAULT_PAGE_SIZE } from "@/lib/pagination";
 import { buildDetailRoute, buildListRoute, getCurrentRoute, useListScrollPosition } from "@/lib/client-list-navigation";
 import { Button, Input, Panel } from "./ui";
+import { confirmDialog, notify } from "./app-dialog";
 import { PaginationBar } from "./pagination-bar";
 import { StickyTable } from "./sticky-table";
 import { TableColumnMenu, type TableFilterOption, type TableSortOrder } from "./table-column-menu";
@@ -111,19 +112,19 @@ export function PrepaymentWriteOffAdjustmentsPage() {
   }
 
   async function deleteDraft(adjustmentNo: string) {
-    if (!confirm("确认删除该预付款核销调整单草稿？")) return;
+    if (!await confirmDialog("确认删除该预付款核销调整单草稿？")) return;
     await fetch(`/api/prepayment-adjustments/${encodeURIComponent(adjustmentNo)}`, { method: "DELETE" });
     await loadData();
   }
 
   async function confirmAdjustment(adjustmentNo: string) {
-    if (!confirm("确认后会更新对应月份的预付款月核销金额，是否继续？")) return;
+    if (!await confirmDialog("确认后会更新对应月份的预付款月核销金额，是否继续？")) return;
     const response = await fetch(`/api/prepayment-adjustments/${encodeURIComponent(adjustmentNo)}/confirm`, {
       method: "POST",
     });
     const data = await response.json();
     if (!response.ok) {
-      alert(data.error ?? "确认失败");
+      notify(data.error ?? "确认失败", "info");
       return;
     }
     await loadData();

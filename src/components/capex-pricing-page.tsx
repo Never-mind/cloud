@@ -11,6 +11,7 @@ import { PaginationBar } from "./pagination-bar";
 import { StickyTable } from "./sticky-table";
 import { TableColumnMenu, type TableSortOrder } from "./table-column-menu";
 import { Button, Input, Panel, Textarea } from "./ui";
+import { confirmDialog, notify } from "./app-dialog";
 import { TableStateContent } from "./table-state";
 
 type Country = { code: string; nameZh?: string; nameEn?: string };
@@ -241,7 +242,7 @@ export function CapexPricingPage() {
       setVersionTotal(Number(data.total ?? 0));
       setVersionPage(Number(data.page ?? nextPage));
     } catch (error) {
-      alert(error instanceof Error ? error.message : "价格版本加载失败");
+      notify(error instanceof Error ? error.message : "价格版本加载失败", "info");
     } finally {
       setLoading(false);
     }
@@ -271,7 +272,7 @@ export function CapexPricingPage() {
       setDetail(data);
       setEditor(null);
     } catch (error) {
-      alert(error instanceof Error ? error.message : "价格版本明细加载失败");
+      notify(error instanceof Error ? error.message : "价格版本明细加载失败", "info");
     }
   }
 
@@ -302,7 +303,7 @@ export function CapexPricingPage() {
       });
       setDetail(null);
     } catch (error) {
-      alert(error instanceof Error ? error.message : "默认参数加载失败");
+      notify(error instanceof Error ? error.message : "默认参数加载失败", "info");
     }
   }
 
@@ -343,7 +344,7 @@ export function CapexPricingPage() {
       const defaults = await getDefaults(editor.countryCode, "B62-A7");
       setEditor((current) => current ? { ...current, lines: [...current.lines, blankLine(defaults)] } : current);
     } catch (error) {
-      alert(error instanceof Error ? error.message : "默认参数加载失败");
+      notify(error instanceof Error ? error.message : "默认参数加载失败", "info");
     }
   }
 
@@ -369,7 +370,7 @@ export function CapexPricingPage() {
         return { ...current, lines };
       });
     } catch (error) {
-      alert(error instanceof Error ? error.message : "默认参数加载失败");
+      notify(error instanceof Error ? error.message : "默认参数加载失败", "info");
     }
   }
 
@@ -394,7 +395,7 @@ export function CapexPricingPage() {
       await Promise.all([loadVersions(), loadDetail(versionId)]);
       setEditor(null);
     } catch (error) {
-      alert(error instanceof Error ? error.message : "保存价格版本失败");
+      notify(error instanceof Error ? error.message : "保存价格版本失败", "info");
     } finally {
       setSaving(false);
     }
@@ -402,13 +403,13 @@ export function CapexPricingPage() {
 
   async function confirmDetail() {
     if (!detail || detail.version.status !== "草稿") return;
-    if (!confirm("确认后该价格版本与计算参数将锁定，是否确认？")) return;
+    if (!await confirmDialog("确认后该价格版本与计算参数将锁定，是否确认？")) return;
     setSaving(true);
     try {
       await fetchJson(`/api/capex-pricing/versions/${encodeURIComponent(detail.version.versionId)}/confirm`, { method: "POST" });
       await Promise.all([loadVersions(), loadDetail(detail.version.versionId, detail.page, detail.pageSize)]);
     } catch (error) {
-      alert(error instanceof Error ? error.message : "确认价格版本失败");
+      notify(error instanceof Error ? error.message : "确认价格版本失败", "info");
     } finally {
       setSaving(false);
     }
@@ -428,7 +429,7 @@ export function CapexPricingPage() {
       setDetail(data);
       startEditFromDetail(data);
     } catch (error) {
-      alert(error instanceof Error ? error.message : "复制价格版本失败");
+      notify(error instanceof Error ? error.message : "复制价格版本失败", "info");
     }
   }
 
@@ -450,7 +451,7 @@ export function CapexPricingPage() {
       const data = await fetchJson<CalculationData>(`/api/capex-pricing/versions/${encodeURIComponent(detail.version.versionId)}/calculation/${encodeURIComponent(item.id)}`);
       setCalculation(data);
     } catch (error) {
-      alert(error instanceof Error ? error.message : "计算逻辑加载失败");
+      notify(error instanceof Error ? error.message : "计算逻辑加载失败", "info");
     }
   }
 
@@ -473,7 +474,7 @@ export function CapexPricingPage() {
         rows,
       });
     } catch (error) {
-      alert(error instanceof Error ? error.message : "导出失败");
+      notify(error instanceof Error ? error.message : "导出失败", "info");
     }
   }
 
@@ -523,9 +524,9 @@ export function CapexPricingPage() {
       const missingB6Types = lines.filter((line) => !line.b6Type).map((line) => line.deviceCode);
       if (missingB6Types.length) throw new Error(`以下设备未填写B6类型，且实例型号未维护默认B6类型：${missingB6Types.slice(0, 10).join("、")}`);
       setEditor((current) => current ? { ...current, lines } : current);
-      alert(`已读取 ${imported.length} 条明细，请检查后保存草稿。`);
+      notify(`已读取 ${imported.length} 条明细，请检查后保存草稿。`, "info");
     } catch (error) {
-      alert(error instanceof Error ? error.message : "导入失败");
+      notify(error instanceof Error ? error.message : "导入失败", "info");
     } finally {
       event.target.value = "";
     }

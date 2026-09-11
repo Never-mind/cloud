@@ -11,6 +11,7 @@ import { PaginationBar } from "./pagination-bar";
 import { StickyTable } from "./sticky-table";
 import { TableColumnMenu, type TableSortOrder } from "./table-column-menu";
 import { Button, Input, Panel } from "./ui";
+import { notify } from "./app-dialog";
 import { TableStateContent } from "./table-state";
 
 type Row = {
@@ -235,7 +236,7 @@ export function BillingAvailablePage() {
     const data = await response.json();
     setConfirming(false);
     if (!response.ok) {
-      alert(data.error ?? "生成失败");
+      notify(data.error ?? "生成失败", "info");
       return;
     }
     router.push("/finance/monthly-billing-writeoffs");

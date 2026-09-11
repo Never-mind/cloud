@@ -12,6 +12,7 @@ import { StickyTable } from "./sticky-table";
 import { TableColumnMenu, type TableFilterOption, type TableSortOrder } from "./table-column-menu";
 import { useRequestGuard } from "@/lib/table-query-client";
 import { Button, Input, Panel } from "./ui";
+import { notify } from "./app-dialog";
 import { buildListRoute, getCurrentRoute, useListScrollPosition } from "@/lib/client-list-navigation";
 import { TableStateContent } from "./table-state";
 
@@ -107,7 +108,7 @@ export function RequestProductLinesPage() {
       if (!isCurrentRequest()) return;
       setRows([]);
       setTotal(0);
-      alert(error instanceof Error ? error.message : "需求明细加载失败");
+      notify(error instanceof Error ? error.message : "需求明细加载失败", "info");
     } finally {
       if (isCurrentRequest()) setLoading(false);
     }
@@ -131,7 +132,7 @@ export function RequestProductLinesPage() {
         fileName: "需求明细一览.xlsx",
       });
     } catch (error) {
-      alert(error instanceof Error ? error.message : "需求明细导出失败");
+      notify(error instanceof Error ? error.message : "需求明细导出失败", "info");
     }
   }
 

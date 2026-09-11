@@ -16,6 +16,7 @@ import {
   type NonInstanceImportFailure,
 } from "@/lib/non-instance-settlement-import";
 import { Button, Input, Panel, Textarea } from "./ui";
+import { notify } from "./app-dialog";
 import { StickyTable } from "./sticky-table";
 
 type Country = { code: string; nameZh?: string };
@@ -79,24 +80,24 @@ export function NonInstanceSettlementPage({ countries }: { countries: Country[] 
   }
 
   async function saveDraft() {
-    if (!countryCode || !periodStart || !periodEnd) return alert("请先填写国家和结差期间");
-    if (!lines.length) return alert("请至少新增一条明细");
+    if (!countryCode || !periodStart || !periodEnd) return notify("请先填写国家和结差期间", "error");
+    if (!lines.length) return notify("请至少新增一条明细", "info");
     const preparedLines = lines.map((line) => applyLineCalculation(expenseType, line));
     const invalid = preparedLines
       .map((line, index) => ({ index: index + 1, errors: validateNonInstanceLine(expenseType, line) }))
       .find((result) => result.errors.length);
-    if (invalid) return alert(`第 ${invalid.index} 条明细：${invalid.errors[0]}`);
+    if (invalid) return notify(`第 ${invalid.index} 条明细：${invalid.errors[0]}`, "info");
     setSaving(true);
     try {
       setLines(preparedLines);
       await postManual({ title, countryCode, currency, sourceFileName, notes, periodStart, periodEnd, items: preparedLines.map((line) => ({ ...line, itemType: "非实例费用", countryCode, settlementCurrency: currency })) });
-      alert("非实例费用结差草稿已生成，可在结差来源单中确认");
+      notify("非实例费用结差草稿已生成，可在结差来源单中确认", "success");
       setLines([createBlankNonInstanceSettlementLine(expenseType)]);
       setTitle("");
       setSourceFileName("");
       setNotes("");
     } catch (error) {
-      alert(error instanceof Error ? error.message : "保存失败");
+      notify(error instanceof Error ? error.message : "保存失败", "info");
     } finally {
       setSaving(false);
     }
@@ -137,7 +138,7 @@ export function NonInstanceSettlementPage({ countries }: { countries: Country[] 
         setSourceFileName(file.name);
       }
     } catch (error) {
-      alert(error instanceof Error ? error.message : "文件读取失败");
+      notify(error instanceof Error ? error.message : "文件读取失败", "info");
     }
   }
 

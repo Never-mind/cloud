@@ -10,6 +10,7 @@ import {
   type PrepaymentMonthlyWriteOffForAdjustment,
 } from "@/lib/prepayment-adjustment-workflow";
 import { Button, Input, Panel, Textarea } from "./ui";
+import { confirmDialog, notify } from "./app-dialog";
 import { PaginationBar } from "./pagination-bar";
 import { StickyTable } from "./sticky-table";
 import { DEFAULT_PAGE_SIZE } from "@/lib/pagination";
@@ -165,11 +166,11 @@ export function PrepaymentWriteOffAdjustmentDetailPage({ adjustmentNo: routeAdju
     if (saving) return false;
     const ids = selectedRows.map((row) => String(row.id));
     if (!adjustmentNo.trim()) {
-      alert("请填写调整单号");
+      notify("请填写调整单号", "info");
       return false;
     }
     if (!ids.length) {
-      alert("请先通过搜索添加需要调整的明细");
+      notify("请先通过搜索添加需要调整的明细", "error");
       return false;
     }
     setSaving(true);
@@ -186,17 +187,17 @@ export function PrepaymentWriteOffAdjustmentDetailPage({ adjustmentNo: routeAdju
     const data = await response.json();
     setSaving(false);
     if (!response.ok) {
-      alert(data.error ?? "保存失败");
+      notify(data.error ?? "保存失败", "info");
       return false;
     }
     if (isNew) {
       router.replace(buildDetailRoute(`/finance/prepayment-writeoff-adjustments/${encodeURIComponent(adjustmentNo)}`, returnTo), { scroll: false });
       router.refresh();
-      alert("预付款核销调整单草稿已保存");
+      notify("预付款核销调整单草稿已保存", "success");
       return true;
     }
     await loadAdjustment();
-    alert("预付款核销调整单草稿已保存");
+    notify("预付款核销调整单草稿已保存", "success");
     return true;
   }
 
@@ -208,27 +209,27 @@ export function PrepaymentWriteOffAdjustmentDetailPage({ adjustmentNo: routeAdju
     });
     const data = await response.json();
     if (!response.ok) {
-      alert(data.error ?? "确认失败");
+      notify(data.error ?? "确认失败", "info");
       return;
     }
     setStatus("已确认");
     setConfirmedItems(data.items ?? []);
-    alert("预付款核销调整单已确认");
+    notify("预付款核销调整单已确认", "success");
     router.push(returnTo);
   }
 
   async function rollbackAdjustment() {
-    if (!confirm(`确认将该调整单退回草稿？\n退回后受影响的预付款月核销金额会还原成调整前的值，相当于这张调整单从未确认。`)) return;
+    if (!await confirmDialog(`确认将该调整单退回草稿？\n退回后受影响的预付款月核销金额会还原成调整前的值，相当于这张调整单从未确认。`)) return;
     setSaving(true);
     try {
       const response = await fetch(`/api/prepayment-adjustments/${encodeURIComponent(adjustmentNo)}/rollback`, { method: "POST" });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
-        alert(data.error ?? "退回失败");
+        notify(data.error ?? "退回失败", "info");
         return;
       }
       setStatus("草稿");
-      alert("已退回草稿，月核销金额已还原");
+      notify("已退回草稿，月核销金额已还原", "success");
       router.push(returnTo);
     } finally {
       setSaving(false);

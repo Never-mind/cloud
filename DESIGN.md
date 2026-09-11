@@ -411,6 +411,34 @@ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
 - 表单校验错误：字段下方红色提示。
 - 删除：必须弹确认框，说明删除对象。
 
+### 8.4 确认框与轻提示（实现约定）
+
+统一由 `src/components/app-dialog.tsx` 提供，宿主 `<AppDialogHost />` 挂在 `AppShell` 上。**禁止再使用浏览器原生 `confirm()` / `alert()`**，原生弹窗样式无法定制、与系统风格脱节。
+
+```tsx
+// 确认框：返回 Promise<boolean>，注意加 await
+if (!(await confirmDialog("确认删除该记录？"))) return;
+
+await confirmDialog({
+  title: "退回草稿",
+  message: "退回后会删除已生成的 24 个月核销明细。",
+  tone: "warning",
+  confirmText: "退回",
+});
+
+// 轻提示：非阻塞，4 秒后自动消失
+notify("保存成功", "success");
+notify(error instanceof Error ? error.message : "保存失败", "error");
+```
+
+约定：
+
+- 确认框三种语气 `primary` / `warning` / `danger`，删除类操作用 `danger`，退回/覆盖类用 `warning`。
+- 确认文案要写清"操作对象 + 后果 + 是否继续"，不要只写"确定吗？"。
+- 轻提示按语义选 `success` / `error` / `info`；错误提示必须带上可读原因。
+- 确认框支持 Esc 取消、Enter 确定；同时打开多个确认会排队，不会互相覆盖。
+- 内嵌标签页是独立文档，宿主在每个文档里各挂一份，改动 `AppShell` 时不要漏掉内嵌分支。
+
 ## 9. 页面模式
 
 ### 9.1 首页
@@ -614,14 +642,15 @@ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
 | 表格行区分 | ✅ 加轻微斑马纹（`#fafbfd`）与悬停高亮（`#eef4fd`），锁定列与固定操作列同步 |
 | 加载态 | ✅ 新增 `TableSkeleton` 骨架屏，替换 28 处"加载中..."纯文字 |
 | 空状态 | ✅ 新增 `EmptyState`（图标 + 主文案 + 补充说明），统一 24 个列表页 |
+| 导出按钮 | ✅ 由亮黄实心改为白底琥珀描边，按钮层级收敛为主操作实心 / 工具操作描边 |
+| 原生弹窗 | ✅ 新增 `confirmDialog` + `notify`，替换 52 处 `confirm` 与 160 处 `alert` |
 
 ### 13.3 待整改
 
 1. 约 2,500 处硬编码颜色按模块渐进替换为语义类。
 2. `Panel` 圆角与控件圆角统一（需先处理结差页 `sticky bottom-4` 浮动条与 `overflow: hidden` 的冲突）。
-3. 原生 `confirm()` / `alert()` 替换为统一确认弹窗组件。
-4. 约 125 个符号导出后只在自身文件内使用，可去掉 `export` 收缩模块对外接口。
-5. 下拉浮层、图表区域等非表格位置的加载态，改用 `LoadingBlock`。
+3. 约 125 个符号导出后只在自身文件内使用，可去掉 `export` 收缩模块对外接口。
+4. 下拉浮层、图表区域等非表格位置的加载态，改用 `LoadingBlock`。
 
 ## 14. 可访问性
 

@@ -3,6 +3,7 @@
 import { Fragment, useEffect, useState } from "react";
 import { DatabaseZap, FileSearch, Pencil, Play, RefreshCw, Save, X } from "lucide-react";
 import { Button, Input, Panel } from "./ui";
+import { confirmDialog } from "./app-dialog";
 import { TableStateContent } from "./table-state";
 import { StickyTable } from "./sticky-table";
 import { PaginationBar } from "./pagination-bar";
@@ -291,7 +292,7 @@ export function FrappeDemandSyncPage() {
 
   async function rebuildSelectedOrders() {
     if (!selectedOrders.length) return;
-    if (!window.confirm(`将从远端重新拉取并创建 ${selectedOrders.length} 张需求单草稿（本地已存在或状态不在可同步范围的会被跳过），是否继续？`)) return;
+    if (!await confirmDialog(`将从远端重新拉取并创建 ${selectedOrders.length} 张需求单草稿（本地已存在或状态不在可同步范围的会被跳过），是否继续？`)) return;
     setBusy(true);
     try {
       const result = await requestJson<{ requested: string[]; results: SyncResult[] }>("/api/integrations/frappe-demand-sync/ledger/rebuild", {
@@ -314,7 +315,7 @@ export function FrappeDemandSyncPage() {
 
   /** 人工核对后接受远端当前内容：清除该需求单的"远端已变更"提示。 */
   async function acceptOrderChanges(sourceOrderId: string) {
-    if (!window.confirm(`确认已核对 ${sourceOrderId} 的远端变更，并按当前远端内容更新比对基线？`)) return;
+    if (!await confirmDialog(`确认已核对 ${sourceOrderId} 的远端变更，并按当前远端内容更新比对基线？`)) return;
     setBusy(true);
     try {
       const result = await requestJson<{ accepted: number }>("/api/integrations/frappe-demand-sync/ledger/accept", {
@@ -350,7 +351,7 @@ export function FrappeDemandSyncPage() {
   }
 
   async function runSync(dryRun: boolean) {
-    if (!dryRun && !window.confirm("将创建映射完整的本地需求草稿，是否继续？")) return;
+    if (!dryRun && !await confirmDialog("将创建映射完整的本地需求草稿，是否继续？")) return;
     setBusy(true);
     try {
       const result = await requestJson<{ dryRun: boolean; createdRequests: number; createdItems: number; blockedItems: number; skippedExisting: number; changedItems: number }>("/api/integrations/frappe-demand-sync", {

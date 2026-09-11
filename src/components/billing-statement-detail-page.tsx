@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { getReturnTo } from "@/lib/client-list-navigation";
 import { formatDisplayValue } from "@/lib/display-format";
 import { Button, Panel } from "./ui";
+import { notify } from "./app-dialog";
 import { LoadingBlock } from "./table-state";
 import { StickyTable } from "./sticky-table";
 
@@ -61,7 +62,7 @@ export function BillingStatementDetailPage({ snapshotNo }: { snapshotNo: string 
       } catch (error) {
         if (!cancelled) {
           setData(null);
-          alert(error instanceof Error ? error.message : "月账单对账单加载失败");
+          notify(error instanceof Error ? error.message : "月账单对账单加载失败", "info");
         }
       } finally {
         if (!cancelled) setLoading(false);

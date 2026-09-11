@@ -26,6 +26,7 @@ import { TableColumnMenu, type TableFilterOption, type TableSortOrder } from "./
 import { StickyTable } from "./sticky-table";
 import { StatusTag } from "./status-tag";
 import { AuditInfoBar, Button, Input, Panel, Textarea } from "./ui";
+import { confirmDialog } from "./app-dialog";
 import { TableSkeleton } from "./table-state";
 
 type Value = string | number | boolean | null | undefined;
@@ -188,7 +189,7 @@ export function CustomerPoListPage({ config }: { config: EntityConfig }) {
   }
 
   async function deletePo(id: string, poNo: string) {
-    if (!window.confirm(`确认删除客户PO ${poNo || ""}？删除后会同步删除产品明细。`)) return;
+    if (!await confirmDialog(`确认删除客户PO ${poNo || ""}？删除后会同步删除产品明细。`)) return;
     setError("");
     try {
       const response = await fetch(`/api/entities/customer-pos/${encodeURIComponent(id)}`, { method: "DELETE" });
@@ -496,7 +497,7 @@ export function CustomerPoDetailPage({ config, id }: { config: EntityConfig; id:
 
   async function confirmPo() {
     if (isNew || confirmed || confirming) return;
-    if (!confirm("确认该客户PO吗？确认后主单和明细不可再修改。")) return;
+    if (!await confirmDialog("确认该客户PO吗？确认后主单和明细不可再修改。")) return;
     setConfirming(true);
     setError("");
     try {

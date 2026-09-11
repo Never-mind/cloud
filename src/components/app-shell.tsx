@@ -45,6 +45,7 @@ import {
   type WorkspaceTab,
 } from "@/lib/tab-workspace";
 import { hasPermission, type PermissionState } from "@/lib/permission-definitions";
+import { AppDialogHost, notify } from "./app-dialog";
 
 const WORKSPACE_STORAGE_KEY = "cloud-power-workspace-tabs";
 const SIDEBAR_OPEN_GROUPS_STORAGE_KEY = "cloud-power-sidebar-open-groups";
@@ -296,9 +297,10 @@ export function AppShell({
 
   if (isEmbedded) {
     if (currentModuleKey && !isModuleFeatureEnabled(currentModuleKey, moduleFeatureState)) {
-      return <main className="min-h-screen bg-canvas p-5" data-app-shell="inner"><div className="border border-[#ebeef5] bg-white p-6"><h1 className="text-lg font-medium text-[#303133]">功能模块暂未启用</h1><p className="mt-2 text-sm text-[#606266]">请联系管理员在“功能模块管理”中启用该功能。</p></div></main>;
+      return <main className="min-h-screen bg-canvas p-5" data-app-shell="inner"><div className="border border-[#ebeef5] bg-white p-6"><h1 className="text-lg font-medium text-[#303133]">功能模块暂未启用</h1><p className="mt-2 text-sm text-[#606266]">请联系管理员在“功能模块管理”中启用该功能。</p></div><AppDialogHost /></main>;
     }
-    return <main className="app-embedded-page min-h-screen bg-canvas p-4 sm:p-5" data-app-shell="inner">{children}</main>;
+    // 每个内嵌标签页是独立文档，弹窗宿主必须在各自文档里挂载一份。
+    return <main className="app-embedded-page min-h-screen bg-canvas p-4 sm:p-5" data-app-shell="inner">{children}<AppDialogHost /></main>;
   }
 
   if (!workspaceReady) {
@@ -356,7 +358,7 @@ export function AppShell({
     });
     if (!response.ok) {
       const data = await response.json().catch(() => ({}));
-      alert(data.error ?? "目录排序保存失败，请重新登录后再试");
+      notify(data.error ?? "目录排序保存失败，请重新登录后再试", "info");
     }
   };
 
@@ -375,6 +377,7 @@ export function AppShell({
 
   return (
     <div className="app-shell min-h-screen" data-app-shell="outer">
+      <AppDialogHost />
       <aside className="app-sidebar fixed inset-y-0 left-0 z-20 flex flex-col bg-[var(--color-sidebar)] text-[#bfcbd9]">
         <div className="flex h-[54px] min-w-0 shrink-0 items-center gap-2 px-5 text-white">
           <Boxes className="shrink-0" size={19} />

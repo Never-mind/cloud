@@ -12,6 +12,7 @@ import { StickyTable } from "./sticky-table";
 import { TableColumnMenu, type TableFilterOption, type TableSortOrder } from "./table-column-menu";
 import { StatusTag } from "./status-tag";
 import { AuditInfoBar, Button, Input, Panel, Textarea } from "./ui";
+import { confirmDialog } from "./app-dialog";
 import { LoadingBlock, TableSkeleton } from "./table-state";
 import { ProductMasterPicker } from "./customer-po-page";
 
@@ -160,7 +161,7 @@ export function QuotationListPage({ config }: { config: EntityConfig }) {
   }
 
   async function deleteQuotation(id: string, quotationNo: string) {
-    if (!window.confirm(`确认删除报价单 ${quotationNo || ""}？删除后会同步删除报价明细。`)) return;
+    if (!await confirmDialog(`确认删除报价单 ${quotationNo || ""}？删除后会同步删除报价明细。`)) return;
     setError("");
     try {
       const response = await fetch(`/api/entities/quotations/${encodeURIComponent(id)}`, { method: "DELETE" });

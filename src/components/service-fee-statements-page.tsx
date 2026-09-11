@@ -12,6 +12,7 @@ import { StickyTable } from "./sticky-table";
 import { TableColumnMenu, type TableFilterOption, type TableSortOrder } from "./table-column-menu";
 import { useRequestGuard } from "@/lib/table-query-client";
 import { Button, Input, Panel } from "./ui";
+import { confirmDialog, notify } from "./app-dialog";
 import { TableStateContent } from "./table-state";
 
 type Row = Record<string, string | number | boolean | null>;
@@ -116,7 +117,7 @@ export function ServiceFeeStatementsPage() {
       if (!isCurrentRequest()) return;
       setRows([]);
       setTotal(0);
-      alert(error instanceof Error ? error.message : "服务费对账单加载失败");
+      notify(error instanceof Error ? error.message : "服务费对账单加载失败", "info");
     } finally {
       if (isCurrentRequest()) setLoading(false);
     }
@@ -238,7 +239,7 @@ export function ServiceFeeStatementsPage() {
       setRepaymentDraft(null);
       await loadData();
     } catch (error) {
-      alert(error instanceof Error ? error.message : "回款信息保存失败");
+      notify(error instanceof Error ? error.message : "回款信息保存失败", "info");
     } finally {
       setBusyNo("");
     }
@@ -266,7 +267,7 @@ export function ServiceFeeStatementsPage() {
       setInvoiceDraft(null);
       await loadData();
     } catch (error) {
-      alert(error instanceof Error ? error.message : "发票信息保存失败");
+      notify(error instanceof Error ? error.message : "发票信息保存失败", "info");
     } finally {
       setBusyNo("");
     }
@@ -276,21 +277,21 @@ export function ServiceFeeStatementsPage() {
     const prompt = action === "confirm"
       ? "确认该服务费对账单？确认后金额和明细将冻结，不能删除或退回。"
       : "确认删除该未确认服务费对账单？对账单明细和已上传附件将同时删除。";
-    if (!confirm(prompt)) return;
+    if (!await confirmDialog(prompt)) return;
     setBusyNo(snapshotNo);
     const endpoint = `/api/service-fees/snapshots/${encodeURIComponent(snapshotNo)}${action === "confirm" ? "/confirm" : ""}`;
     const response = await fetch(endpoint, { method: action === "confirm" ? "POST" : "DELETE" });
     const data = await response.json().catch(() => ({}));
     setBusyNo("");
     if (!response.ok) {
-      alert(data.error ?? (action === "confirm" ? "确认失败" : "删除失败"));
+      notify(data.error ?? (action === "confirm" ? "确认失败" : "删除失败"), "info");
       return;
     }
     await loadData();
   }
 
   async function setInvoiceState(snapshotNo: string, nextStatus: "未开票" | "已开票", ask = false) {
-    if (ask && !confirm(`确认将该服务费对账单标记为“${nextStatus}”？`)) return false;
+    if (ask && !await confirmDialog(`确认将该服务费对账单标记为“${nextStatus}”？`)) return false;
     setBusyNo(snapshotNo);
     try {
       const response = await fetch(`/api/service-fees/snapshots/${encodeURIComponent(snapshotNo)}`, {
@@ -300,7 +301,7 @@ export function ServiceFeeStatementsPage() {
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
-        alert(data.error ?? "开票状态更新失败");
+        notify(data.error ?? "开票状态更新失败", "info");
         return false;
       }
       setRows((current) => current.map((row) => (
@@ -308,7 +309,7 @@ export function ServiceFeeStatementsPage() {
       )));
       return true;
     } catch (error) {
-      alert(error instanceof Error ? error.message : "开票状态更新失败");
+      notify(error instanceof Error ? error.message : "开票状态更新失败", "info");
       return false;
     } finally {
       setBusyNo("");
@@ -338,14 +339,14 @@ export function ServiceFeeStatementsPage() {
       if (!response.ok) throw new Error(data.error ?? "回款状态更新失败");
       setRows((current) => current.map((item) => String(item.snapshotNo ?? "") === snapshotNo ? { ...item, repaymentStatus: nextStatus } : item));
     } catch (error) {
-      alert(error instanceof Error ? error.message : "回款状态更新失败");
+      notify(error instanceof Error ? error.message : "回款状态更新失败", "info");
     } finally {
       setBusyNo("");
     }
   }
 
-  function chooseInvoice(row: Row) {
-    if (row.invoiceOriginalName && !confirm("该对账单已有发票附件，继续上传将替换原附件。是否继续？")) return;
+  async function chooseInvoice(row: Row) {
+    if (row.invoiceOriginalName && !await confirmDialog("该对账单已有发票附件，继续上传将替换原附件。是否继续？")) return;
     uploadTargetRef.current = {
       snapshotNo: String(row.snapshotNo ?? ""),
       invoiceStatus: String(row.invoiceStatus ?? "未开票"),
@@ -368,7 +369,7 @@ export function ServiceFeeStatementsPage() {
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
-        alert(data.error ?? "发票附件上传失败");
+        notify(data.error ?? "发票附件上传失败", "info");
         return;
       }
       setRows((current) => current.map((row) => (
@@ -377,13 +378,13 @@ export function ServiceFeeStatementsPage() {
           : row
       )));
     } catch (error) {
-      alert(error instanceof Error ? error.message : "发票附件上传失败");
+      notify(error instanceof Error ? error.message : "发票附件上传失败", "info");
       return;
     } finally {
       setBusyNo("");
     }
     if (target?.invoiceStatus !== "已开票") {
-      if (confirm("发票附件已上传，是否将开票状态更新为“已开票”？")) {
+      if (await confirmDialog("发票附件已上传，是否将开票状态更新为“已开票”？")) {
         await setInvoiceState(snapshotNo, "已开票");
       }
     }
@@ -391,13 +392,13 @@ export function ServiceFeeStatementsPage() {
 
   async function deleteInvoice(row: Row) {
     const snapshotNo = String(row.snapshotNo ?? "");
-    if (!confirm("确认删除该发票附件？")) return;
+    if (!await confirmDialog("确认删除该发票附件？")) return;
     setBusyNo(snapshotNo);
     try {
       const response = await fetch(`/api/service-fees/snapshots/${encodeURIComponent(snapshotNo)}/invoice`, { method: "DELETE" });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
-        alert(data.error ?? "发票附件删除失败");
+        notify(data.error ?? "发票附件删除失败", "info");
         return;
       }
       setRows((current) => current.map((currentRow) => (
@@ -406,13 +407,13 @@ export function ServiceFeeStatementsPage() {
           : currentRow
       )));
     } catch (error) {
-      alert(error instanceof Error ? error.message : "发票附件删除失败");
+      notify(error instanceof Error ? error.message : "发票附件删除失败", "info");
       return;
     } finally {
       setBusyNo("");
     }
     if (String(row.invoiceStatus ?? "") === "已开票") {
-      if (confirm("发票附件已删除，是否将开票状态更新为“未开票”？")) {
+      if (await confirmDialog("发票附件已删除，是否将开票状态更新为“未开票”？")) {
         await setInvoiceState(snapshotNo, "未开票");
       }
     }

@@ -5,6 +5,7 @@ import { CheckCircle2, FileDown, RefreshCw, Search } from "lucide-react";
 import { formatDisplayValue } from "@/lib/display-format";
 import { DEFAULT_PAGE_SIZE } from "@/lib/pagination";
 import { Button, Input, Panel } from "./ui";
+import { notify } from "./app-dialog";
 import { PaginationBar } from "./pagination-bar";
 import { StickyTable } from "./sticky-table";
 import { TableColumnMenu, type TableFilterOption, type TableSortOrder } from "./table-column-menu";
@@ -146,7 +147,7 @@ export function ServiceFeesPage() {
       setRows([]);
       setSummary(emptySummary);
       setTotal(0);
-      alert(error instanceof Error ? error.message : "服务费数据加载失败");
+      notify(error instanceof Error ? error.message : "服务费数据加载失败", "info");
     } finally {
       if (isCurrentRequest() && requestControllerRef.current === controller) {
         requestControllerRef.current = null;
@@ -172,19 +173,19 @@ export function ServiceFeesPage() {
 
   async function createStatementDraft() {
     if (!countryCode.trim()) {
-      alert("生成服务费对账单前请选择国家");
+      notify("生成服务费对账单前请选择国家", "error");
       return;
     }
     if (!startMonth || !endMonth) {
-      alert("请在上方选择起始月份和结束月份");
+      notify("请在上方选择起始月份和结束月份", "info");
       return;
     }
     if (!currency.trim()) {
-      alert("生成服务费对账单前请输入币种");
+      notify("生成服务费对账单前请输入币种", "error");
       return;
     }
     if (startMonth !== endMonth) {
-      alert("服务费对账单仅能按单一核销月份生成，请将起始月份与结束月份选为同一个月");
+      notify("服务费对账单仅能按单一核销月份生成，请将起始月份与结束月份选为同一个月", "info");
       return;
     }
     setConfirming(true);
@@ -199,11 +200,11 @@ export function ServiceFeesPage() {
     const data = await response.json();
     setConfirming(false);
     if (!response.ok) {
-      alert(data.error ?? "服务费对账单草稿生成失败");
+      notify(data.error ?? "服务费对账单草稿生成失败", "info");
       return;
     }
     setSnapshotNo(data.snapshotNo ?? "");
-    alert(`已生成服务费对账单草稿：${data.snapshotNo}`);
+    notify(`已生成服务费对账单草稿：${data.snapshotNo}`, "info");
   }
 
   async function exportCsv() {
@@ -212,7 +213,7 @@ export function ServiceFeesPage() {
       const data = await fetchData(1, pageSizeRef.current, true);
       exportRows = data.rows;
     } catch (error) {
-      alert(error instanceof Error ? error.message : "服务费导出失败");
+      notify(error instanceof Error ? error.message : "服务费导出失败", "info");
       return;
     }
     const header = columns.map((column) => column.label);

@@ -10,6 +10,7 @@ import { PaginationBar } from "./pagination-bar";
 import { StickyTable } from "./sticky-table";
 import { TableColumnMenu, type TableSortOrder } from "./table-column-menu";
 import { Button, Input, Panel, Textarea } from "./ui";
+import { confirmDialog, notify } from "./app-dialog";
 import { TableStateContent } from "./table-state";
 
 type Row = Record<string, unknown>;
@@ -100,12 +101,12 @@ export function BalanceFinalSettlementPage() {
   useEffect(() => {
     void Promise.all([fetchAllEntityRows<Country>("countries"), loadFinals()])
       .then(([countryRows]) => setCountries(countryRows))
-      .catch((error) => alert(error instanceof Error ? error.message : "结差结算单加载失败"));
+      .catch((error) => notify(error instanceof Error ? error.message : "结差结算单加载失败", "info"));
   }, []);
 
   async function searchSources(page = sourcePage, pageSize = sourcePageSize, queryState = { sortField: sourceSortField, sortOrder: sourceSortOrder, filters: sourceFilters }) {
     if (!countryCode || !periodStart || !periodEnd) {
-      alert("请先选择国家和完整的结差期间");
+      notify("请先选择国家和完整的结差期间", "error");
       return;
     }
     setLoading(true);
@@ -118,7 +119,7 @@ export function BalanceFinalSettlementPage() {
       setSourceTotal(Number(data.total ?? 0)); setSourcePage(Number(data.page ?? page)); setSourcePageSize(Number(data.pageSize ?? pageSize));
       setSelectedSourcesByNo((current) => Object.assign({}, current, Object.fromEntries((data.rows ?? []).filter((row) => selectedNos.includes(text(row.settlementNo))).map((row) => [text(row.settlementNo), row]))));
     } catch (error) {
-      alert(error instanceof Error ? error.message : "可汇总来源单加载失败");
+      notify(error instanceof Error ? error.message : "可汇总来源单加载失败", "info");
     } finally {
       setLoading(false);
     }
@@ -128,7 +129,7 @@ export function BalanceFinalSettlementPage() {
   function updateFinalQuery(key: string, next: { order?: TableSortOrder; values?: string[] }) { const state = { sortField: next.order !== undefined ? (next.order ? key : "") : finalSortField, sortOrder: next.order ?? finalSortOrder, filters: next.values ? { ...finalFilters, [key]: next.values } : finalFilters }; setFinalSortField(state.sortField); setFinalSortOrder(state.sortOrder); setFinalFilters(state.filters); setFinalPage(1); void loadFinals(1, finalPageSize, state); }
 
   async function createDraft() {
-    if (!selectedNos.length) return alert("请至少选择一张结差来源单");
+    if (!selectedNos.length) return notify("请至少选择一张结差来源单", "info");
     setSaving(true);
     try {
       const data = await fetchJson<FinalDetail>("/api/balance-settlements/finals", {
@@ -143,9 +144,9 @@ export function BalanceFinalSettlementPage() {
       setSelectedNos([]);
       setSelectedSourcesByNo({});
       await loadFinals(1);
-      alert("结差结算草稿已生成，来源单已被保留");
+      notify("结差结算草稿已生成，来源单已被保留", "success");
     } catch (error) {
-      alert(error instanceof Error ? error.message : "结差结算草稿生成失败");
+      notify(error instanceof Error ? error.message : "结差结算草稿生成失败", "info");
     } finally {
       setSaving(false);
     }
@@ -155,19 +156,19 @@ export function BalanceFinalSettlementPage() {
     try {
       setDetail(await fetchJson<FinalDetail>(`/api/balance-settlements/finals/${encodeURIComponent(finalSettlementNo)}`));
     } catch (error) {
-      alert(error instanceof Error ? error.message : "结差结算单明细加载失败");
+      notify(error instanceof Error ? error.message : "结差结算单明细加载失败", "info");
     }
   }
 
   async function confirmFinal() {
     if (!detail || detail.master.status !== DRAFT) return;
-    if (!confirm(`确认结差结算单 ${detail.master.finalSettlementNo} 吗？确认后将锁定来源快照。`)) return;
+    if (!await confirmDialog(`确认结差结算单 ${detail.master.finalSettlementNo} 吗？确认后将锁定来源快照。`)) return;
     setSaving(true);
     try {
       setDetail(await fetchJson<FinalDetail>(`/api/balance-settlements/finals/${encodeURIComponent(detail.master.finalSettlementNo)}/confirm`, { method: "POST" }));
       await loadFinals();
     } catch (error) {
-      alert(error instanceof Error ? error.message : "确认失败");
+      notify(error instanceof Error ? error.message : "确认失败", "info");
     } finally {
       setSaving(false);
     }
@@ -175,14 +176,14 @@ export function BalanceFinalSettlementPage() {
 
   async function voidFinal() {
     if (!detail || detail.master.status !== DRAFT) return;
-    if (!confirm(`作废草稿 ${detail.master.finalSettlementNo} 吗？来源单会重新回到可汇总列表。`)) return;
+    if (!await confirmDialog(`作废草稿 ${detail.master.finalSettlementNo} 吗？来源单会重新回到可汇总列表。`)) return;
     setSaving(true);
     try {
       setDetail(await fetchJson<FinalDetail>(`/api/balance-settlements/finals/${encodeURIComponent(detail.master.finalSettlementNo)}/void`, { method: "POST" }));
       await loadFinals();
       await searchSources();
     } catch (error) {
-      alert(error instanceof Error ? error.message : "作废失败");
+      notify(error instanceof Error ? error.message : "作废失败", "info");
     } finally {
       setSaving(false);
     }

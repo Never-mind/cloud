@@ -25,6 +25,7 @@ import { useRequestGuard } from "@/lib/table-query-client";
 import { readJsonResponse } from "@/lib/client-response";
 import { postWorkspaceMessage } from "@/lib/tab-workspace";
 import { Button, Input, Panel } from "./ui";
+import { confirmDialog, notify } from "./app-dialog";
 import { TableStateContent } from "./table-state";
 
 type Row = Record<string, string | number | boolean | null>;
@@ -203,7 +204,7 @@ export function OrderListPage({
       setRows([]);
       setTotal(0);
       setStatusCounts({ draft: 0, confirmed: 0 });
-      alert(error instanceof Error ? error.message : "订单列表加载失败");
+      notify(error instanceof Error ? error.message : "订单列表加载失败", "info");
     } finally {
       if (isCurrentRequest()) setLoading(false);
     }
@@ -244,7 +245,7 @@ export function OrderListPage({
       mode === "requests"
         ? `确认删除需求单 ${id} 吗？未生成月账单和预付款时，将同步删除该需求单明细及关联采购草稿。`
         : `确认删除采购单 ${id} 吗？未生成月账单和预付款时，将同步删除采购明细及物流草稿。`;
-    if (!confirm(message)) return;
+    if (!await confirmDialog(message)) return;
     setDeletingId(id);
     const response = await fetch(`/api/entities/${masterConfig.key}/${encodeURIComponent(id)}`, {
       method: "DELETE",
@@ -252,7 +253,7 @@ export function OrderListPage({
     const data = await response.json().catch(() => ({}));
     setDeletingId("");
     if (!response.ok) {
-      alert(data.error ?? "删除失败");
+      notify(data.error ?? "删除失败", "info");
       return;
     }
     setSelectedRequestNos((current) => {
@@ -267,7 +268,7 @@ export function OrderListPage({
   async function deleteSelectedRequests() {
     const requestNos = [...selectedRequestNos];
     if (mode !== "requests" || statusTab !== "draft" || !requestNos.length) return;
-    if (!confirm(`确认批量删除选中的 ${requestNos.length} 条需求单吗？未生成月账单和预付款时，将同步删除需求单明细及关联采购草稿。`)) return;
+    if (!await confirmDialog(`确认批量删除选中的 ${requestNos.length} 条需求单吗？未生成月账单和预付款时，将同步删除需求单明细及关联采购草稿。`)) return;
 
     setBatchDeleting(true);
     try {
@@ -285,13 +286,13 @@ export function OrderListPage({
           .map((item) => `${item.requestNo ?? ""}: ${item.reason ?? "删除被阻止"}`)
           .filter(Boolean)
           .join("\n");
-        alert([data.error ?? "批量删除失败", blocked].filter(Boolean).join("\n"));
+        notify([data.error ?? "批量删除失败", blocked].filter(Boolean).join("\n"), "info");
         return;
       }
       setSelectedRequestNos(new Set());
       await loadData(page, pageSizeRef.current);
     } catch (error) {
-      alert(error instanceof Error ? error.message : "批量删除失败");
+      notify(error instanceof Error ? error.message : "批量删除失败", "info");
     } finally {
       setBatchDeleting(false);
     }
@@ -303,7 +304,7 @@ export function OrderListPage({
       const data = await fetchData(1, pageSizeRef.current, statusTab, appliedKeyword, appliedCountryCode, true);
       exportRows = data.rows;
     } catch (error) {
-      alert(error instanceof Error ? error.message : "订单导出失败");
+      notify(error instanceof Error ? error.message : "订单导出失败", "info");
       return;
     }
     const columns: Array<[string, string, string?]> =

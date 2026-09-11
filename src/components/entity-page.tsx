@@ -25,6 +25,7 @@ import { TableColumnMenu, type TableFilterOption, type TableSortOrder } from "./
 import { useRequestGuard } from "@/lib/table-query-client";
 import type { MaterialSyncSummary } from "@/lib/material-sync-service";
 import { Button, Input, Panel, Textarea } from "./ui";
+import { confirmDialog, notify } from "./app-dialog";
 import { TableStateContent } from "./table-state";
 
 type Row = Record<string, string | number | boolean | null>;
@@ -219,7 +220,7 @@ export function EntityPage({
       if (!isCurrentRequest()) return;
       setRows([]);
       setTotal(0);
-      alert(error instanceof Error ? error.message : "数据加载失败");
+      notify(error instanceof Error ? error.message : "数据加载失败", "info");
     } finally {
       if (isCurrentRequest()) setLoading(false);
     }
@@ -496,7 +497,7 @@ export function EntityPage({
   }
 
   async function saveRow(formData: FormData) {
-    if (config.key === "billing-ledgers" && !confirm("确认调整该月账单台账吗？调整后会重新生成对应的每月核销明细。")) {
+    if (config.key === "billing-ledgers" && !await confirmDialog("确认调整该月账单台账吗？调整后会重新生成对应的每月核销明细。")) {
       return;
     }
     const body: Row = {
@@ -551,7 +552,7 @@ export function EntityPage({
     });
     if (!response.ok) {
       const data = await response.json().catch(() => ({}));
-      alert(data.error ?? "保存失败");
+      notify(data.error ?? "保存失败", "info");
       return;
     }
     setShowForm(false);
@@ -562,23 +563,23 @@ export function EntityPage({
   }
 
   async function syncConfirmedPurchaseOrderShipments() {
-    if (!confirm("将为所有已确认采购订单补生成物流记录，并仅为历史物流补抓远端快照。已存在的远端物流快照不会被覆盖，是否继续？")) {
+    if (!await confirmDialog("将为所有已确认采购订单补生成物流记录，并仅为历史物流补抓远端快照。已存在的远端物流快照不会被覆盖，是否继续？")) {
       return;
     }
     const response = await fetch("/api/procurement/shipments/sync", { method: "POST" });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
-      alert(data.error ?? "同步物流数据失败");
+      notify(data.error ?? "同步物流数据失败", "info");
       return;
     }
     const errors = Array.isArray(data.errors) ? data.errors : [];
-    alert(`已同步 ${data.orderCount ?? 0} 张已确认采购订单：新增 ${data.created ?? 0} 条物流数据，更新 ${data.updated ?? 0} 条物流数据，写入 ${data.remoteSnapshots ?? 0} 条远端快照。${errors.length ? `\n${errors.length} 张采购订单未处理：${errors.map((item: { error?: string }) => item.error ?? "未知原因").join("；")}` : ""}`);
+    notify(`已同步 ${data.orderCount ?? 0} 张已确认采购订单：新增 ${data.created ?? 0} 条物流数据，更新 ${data.updated ?? 0} 条物流数据，写入 ${data.remoteSnapshots ?? 0} 条远端快照。${errors.length ? `\n${errors.length} 张采购订单未处理：${errors.map((item: { error?: string }) => item.error ?? "未知原因").join("；")}` : ""}`, "info");
     await loadRows();
   }
 
   async function refreshShipmentRemoteLogistics(row: Row) {
     const shipmentId = String(row.shipmentId ?? "").trim();
-    if (!shipmentId || !confirm(`重新从远端拉取物流 ${shipmentId} 的机房、地址和收件人信息吗？这会覆盖该物流记录当前的远端快照。`)) return;
+    if (!shipmentId || !await confirmDialog(`重新从远端拉取物流 ${shipmentId} 的机房、地址和收件人信息吗？这会覆盖该物流记录当前的远端快照。`)) return;
     setRefreshingShipmentId(shipmentId);
     try {
       const response = await fetch(`/api/shipments/${encodeURIComponent(shipmentId)}/remote-logistics`, { method: "POST" });
@@ -586,7 +587,7 @@ export function EntityPage({
       if (!response.ok) throw new Error(data.error ?? "远端物流信息重新拉取失败");
       await loadRows();
     } catch (error) {
-      alert(error instanceof Error ? error.message : "远端物流信息重新拉取失败");
+      notify(error instanceof Error ? error.message : "远端物流信息重新拉取失败", "info");
     } finally {
       setRefreshingShipmentId(null);
     }
@@ -624,7 +625,7 @@ export function EntityPage({
   }
 
   async function syncRemoteMaterials(dryRun = false) {
-    if (!dryRun && !confirm("将读取远端 Material 数据并新增缺失的实例型号，不会修改已有档案，是否继续？")) return;
+    if (!dryRun && !await confirmDialog("将读取远端 Material 数据并新增缺失的实例型号，不会修改已有档案，是否继续？")) return;
     setMaterialSyncing(true);
     try {
       const response = await fetch("/api/integrations/material-sync", {
@@ -634,14 +635,14 @@ export function EntityPage({
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
-        alert(data.error ?? "Material 同步失败");
+        notify(data.error ?? "Material 同步失败", "info");
         return;
       }
       setLatestMaterialSync(data as MaterialSyncSummary);
-      alert(materialSyncReport(data as MaterialSyncSummary));
+      notify(materialSyncReport(data as MaterialSyncSummary), "info");
       if (!dryRun) await loadRows();
     } catch (error) {
-      alert(error instanceof Error ? error.message : "Material 同步失败");
+      notify(error instanceof Error ? error.message : "Material 同步失败", "info");
     } finally {
       setMaterialSyncing(false);
     }
@@ -652,11 +653,11 @@ export function EntityPage({
       config.key === "billing-ledgers"
         ? `确认删除月账单台账 ${String(row[config.primaryKey])} 吗？删除后对应的每月核销明细也会同步删除。`
         : `确认删除 ${String(row[config.primaryKey])}？`;
-    if (!confirm(message)) return;
+    if (!await confirmDialog(message)) return;
     const response = await fetch(`/api/entities/${config.key}/${row[config.primaryKey]}`, { method: "DELETE" });
     if (!response.ok) {
       const data = await response.json().catch(() => ({}));
-      alert(data.error ?? "删除失败");
+      notify(data.error ?? "删除失败", "info");
       return;
     }
     await loadRows();
@@ -677,7 +678,7 @@ export function EntityPage({
 
   async function runBatchDelete() {
     if (!selectedRowIds.length) return;
-    if (!confirm(`确认退回选中的 ${selectedRowIds.length} 条月账单台账？\n退回后对应的每月核销明细会同步删除，实例回到「待生成月账单」。`)) return;
+    if (!await confirmDialog(`确认退回选中的 ${selectedRowIds.length} 条月账单台账？\n退回后对应的每月核销明细会同步删除，实例回到「待生成月账单」。`)) return;
     setBatchBusy(true);
     try {
       const response = await fetch(`/api/entities/${config.key}/batch`, {
@@ -690,14 +691,15 @@ export function EntityPage({
       const failed: Array<{ id: string; error: string }> = data.failed ?? [];
       setSelectedRowIds(failed.map((item) => item.id));
       if (failed.length) {
-        alert(
+        notify(
           `批量退回完成 ${data.succeeded?.length ?? 0} 条，失败 ${failed.length} 条：\n` +
             failed.map((item) => `${item.id}：${item.error}`).join("\n"),
+          "info",
         );
       }
       await loadRows();
     } catch (error) {
-      alert(error instanceof Error ? error.message : "批量退回失败");
+      notify(error instanceof Error ? error.message : "批量退回失败", "info");
     } finally {
       setBatchBusy(false);
     }
@@ -714,13 +716,13 @@ export function EntityPage({
       const response = await fetch(`/api/entities/${config.key}/import`, { method: "POST", body: formData });
       const result = (await response.json().catch(() => ({}))) as ImportReport | { error?: string };
       if (!response.ok) {
-        alert(`导入失败：${"error" in result ? result.error : "文件处理失败"}`);
+        notify(`导入失败：${"error" in result ? result.error : "文件处理失败"}`, "info");
         return;
       }
-      alert(buildImportMessage(result as ImportReport));
+      notify(buildImportMessage(result as ImportReport), "info");
       await loadRows();
     } catch (error) {
-      alert(`导入失败：${error instanceof Error ? error.message : "网络或文件处理失败"}`);
+      notify(`导入失败：${error instanceof Error ? error.message : "网络或文件处理失败"}`, "info");
     } finally {
       setImporting(false);
     }

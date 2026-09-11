@@ -7,6 +7,7 @@ import { DEFAULT_PAGE_SIZE } from "@/lib/pagination";
 import { PaginationBar } from "./pagination-bar";
 import { StickyTable } from "./sticky-table";
 import { Button, Panel } from "./ui";
+import { confirmDialog, notify } from "./app-dialog";
 
 type ImportTarget = {
   key: string;
@@ -106,7 +107,7 @@ export function ImportCenterPage() {
     const data = await response.json();
     setUploading(false);
     if (!response.ok) {
-      alert(data.error ?? "上传失败");
+      notify(data.error ?? "上传失败", "info");
       return;
     }
     setPreview(data);
@@ -117,7 +118,7 @@ export function ImportCenterPage() {
   async function confirmImport() {
     if (!preview) return;
     const allowConfirmed = preview.strategy === "overwrite-all";
-    if (allowConfirmed && !window.confirm("将覆盖已确认单据及其明细。此操作会直接刷新已确认数据，是否继续？")) return;
+    if (allowConfirmed && !await confirmDialog("将覆盖已确认单据及其明细。此操作会直接刷新已确认数据，是否继续？")) return;
     setConfirming(true);
     const response = await fetch("/api/import-center/confirm", {
       method: "POST",
@@ -127,13 +128,14 @@ export function ImportCenterPage() {
     const data = await response.json();
     setConfirming(false);
     if (!response.ok) {
-      alert(data.error ?? "确认导入失败");
+      notify(data.error ?? "确认导入失败", "info");
       return;
     }
     const shipmentSync = data.job?.shipmentSync;
     if (shipmentSync && preview.targetKey === "purchase-orders") {
-      alert(
+      notify(
         `采购订单导入完成。已确认采购订单同步 ${shipmentSync.orderCount ?? 0} 张，新增 ${shipmentSync.created ?? 0} 条物流数据，更新 ${shipmentSync.updated ?? 0} 条物流数据。`,
+        "info",
       );
     }
     setPreview(null);
