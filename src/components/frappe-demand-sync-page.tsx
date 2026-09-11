@@ -61,11 +61,25 @@ const tabs: Array<[Tab, string]> = [
 
 const ledgerCategories: Array<[string, string]> = [
   ["", "全部分类"],
+  ["unhandled", "待处理（远端变更/阻断）"],
   ["local_exists", "本地已存在"],
   ["local_deleted", "本地已删除"],
   ["remote_changed", "远端已变更"],
   ["out_of_scope", "含状态变化明细"],
 ];
+
+/** 未处理数量徽标（红底白字圆形），0 时不显示。 */
+function UnhandledBadge({ count }: { count: number }) {
+  if (!count) return null;
+  return (
+    <span
+      className="ml-1 inline-flex h-4 min-w-[16px] items-center justify-center rounded-full bg-[#f56c6c] px-1 text-[10px] font-medium leading-none text-white"
+      title={`${count} 条未处理`}
+    >
+      {count > 99 ? "99+" : count}
+    </span>
+  );
+}
 
 type LedgerRow = {
   sourceOrderId: string;
@@ -163,6 +177,7 @@ export function FrappeDemandSyncPage() {
   const [total, setTotal] = useState(0);
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [materialTypeCounts, setMaterialTypeCounts] = useState<Record<string, number>>({});
+  const [unhandled, setUnhandled] = useState<{ mappings: Record<string, number>; ledger: number }>({ mappings: {}, ledger: 0 });
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const [editing, setEditing] = useState<Mapping | null>(null);
@@ -178,6 +193,15 @@ export function FrappeDemandSyncPage() {
 
   const visibleMappings = mappings;
   const latestRun = syncRuns[0];
+
+  async function loadUnhandled() {
+    try {
+      const data = await requestJson<{ mappings?: Record<string, number>; ledger?: number }>("/api/integrations/frappe-demand-sync/summary");
+      setUnhandled({ mappings: data.mappings ?? {}, ledger: Number(data.ledger ?? 0) });
+    } catch {
+      // 徽标属于辅助信息，加载失败不打断主流程
+    }
+  }
 
   async function load(options: { page?: number; pageSize?: number; materialType?: string } = {}) {
     const targetPage = options.page ?? page;
@@ -269,13 +293,32 @@ export function FrappeDemandSyncPage() {
       setSelectedOrders([]);
       await loadLedger({ page: 1 });
       await loadSyncRuns();
+      await loadUnhandled();
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "重新拉取失败");
     } finally {
       setBusy(false);
     }
   }
-  useEffect(() => { void loadSyncRuns(); }, []);
+
+  /** 人工核对后接受远端当前内容：清除该需求单的"远端已变更"提示。 */
+  async function acceptOrderChanges(sourceOrderId: string) {
+    if (!window.confirm(`确认已核对 ${sourceOrderId} 的远端变更，并按当前远端内容更新比对基线？`)) return;
+    setBusy(true);
+    try {
+      const result = await requestJson<{ accepted: number }>("/api/integrations/frappe-demand-sync/ledger/accept", {
+        method: "POST", body: JSON.stringify({ sourceOrderId }),
+      });
+      setNotice(`${sourceOrderId} 已核对：接受 ${result.accepted} 条明细的当前远端内容`);
+      await loadLedger({ page: ledgerPage });
+      await loadUnhandled();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "接受远端变更失败");
+    } finally {
+      setBusy(false);
+    }
+  }
+  useEffect(() => { void loadSyncRuns(); void loadUnhandled(); }, []);
   useEffect(() => {
     void requestJson<MasterSet>("/api/integrations/frappe-demand-sync/master-data").then(setMasters)
       .catch((error: unknown) => setNotice(error instanceof Error ? error.message : "本地档案加载失败"));
@@ -287,6 +330,7 @@ export function FrappeDemandSyncPage() {
       const result = await requestJson<{ demandItems: number; demandOrders: number }>("/api/integrations/frappe-demand-sync/mappings/refresh", { method: "POST", body: JSON.stringify({}) });
       setNotice(`远端数据已刷新：${result.demandOrders} 张需求单、${result.demandItems} 条明细`);
       await load();
+      await loadUnhandled();
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "远端数据刷新失败");
     } finally {
@@ -304,6 +348,7 @@ export function FrappeDemandSyncPage() {
       setNotice(`${result.dryRun ? "试运行完成" : "同步完成"}：新建 ${result.createdRequests} 张需求单、${result.createdItems} 条明细；已跳过 ${result.skippedExisting} 条明细；待处理 ${result.blockedItems} 条；待核对 ${result.changedItems} 条。下方可查看逐单结果。`);
       await load();
       await loadSyncRuns();
+      await loadUnhandled();
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "需求同步失败");
     } finally {
@@ -337,7 +382,7 @@ export function FrappeDemandSyncPage() {
     </Panel> : null}
     <Panel>
       <div className="flex flex-wrap items-center gap-2 border-b border-[#ebeef5] p-3">
-        {tabs.map(([key, label]) => <button className={`border-b-2 px-3 py-2 text-sm ${tab === key ? "border-[#1890ff] text-[#1890ff]" : "border-transparent text-[#606266]"}`} type="button" key={key} onClick={() => { setTab(key); setStatus(""); }}>{label}{key === "ledger" ? null : <span className="ml-1 text-xs text-[#909399]">{counts[key] ?? 0}</span>}</button>)}
+        {tabs.map(([key, label]) => <button className={`border-b-2 px-3 py-2 text-sm ${tab === key ? "border-[#1890ff] text-[#1890ff]" : "border-transparent text-[#606266]"}`} type="button" key={key} onClick={() => { setTab(key); setStatus(""); }}>{label}{key === "ledger" ? null : <span className="ml-1 text-xs text-[#909399]">{counts[key] ?? 0}</span>}<UnhandledBadge count={key === "ledger" ? unhandled.ledger : unhandled.mappings[key] ?? 0} /></button>)}
         <div className="ml-auto flex flex-wrap gap-2">
           {tab === "ledger" ? <>
             <select className="h-9 rounded border border-[#dcdfe6] bg-white px-3 text-sm" value={ledgerCategory} onChange={(event) => setLedgerCategory(event.target.value)}>
@@ -372,7 +417,7 @@ export function FrappeDemandSyncPage() {
                 <td className="border-b border-r border-[#ebeef5] px-3 py-3">{row.localExists ? <span className="text-[#13ce66]">已存在</span> : <span className="text-[#f56c6c]">已删除</span>}</td>
                 <td className="border-b border-r border-[#ebeef5] px-3 py-3">{row.changedCount ? <span className="text-[#e6a23c]">已变更 {row.changedCount} 条</span> : row.outOfScopeCount ? <span className="text-[#909399]">{row.outOfScopeCount} 条状态变化</span> : "-"}</td>
                 <td className="border-b border-r border-[#ebeef5] px-3 py-3 text-xs text-[#909399]">{formatRunTime(row.lastSyncedAt)}</td>
-                <td className="border-b border-[#ebeef5] px-3 py-3"><Button onClick={() => void toggleLedgerOrder(row.sourceOrderId)}>{expandedOrder === row.sourceOrderId ? "收起明细" : "查看明细"}</Button></td>
+                <td className="border-b border-[#ebeef5] px-3 py-3"><div className="flex flex-wrap gap-1"><Button onClick={() => void toggleLedgerOrder(row.sourceOrderId)}>{expandedOrder === row.sourceOrderId ? "收起明细" : "查看明细"}</Button>{row.changedCount ? <Button disabled={busy} tone="primary" onClick={() => void acceptOrderChanges(row.sourceOrderId)}>已核对</Button> : null}</div></td>
               </tr>
               {expandedOrder === row.sourceOrderId ? <tr><td className="border-b border-[#ebeef5] bg-[#fafafa] px-4 py-3" colSpan={8}>
                 <table className="w-full min-w-[900px] border-collapse text-sm">
@@ -407,7 +452,7 @@ export function FrappeDemandSyncPage() {
       />
       </>}
     </Panel>
-    {editing ? <MappingDialog mapping={editing} masters={masters} onCancel={() => setEditing(null)} onSave={async (body) => { try { await requestJson(`/api/integrations/frappe-demand-sync/mappings/${encodeURIComponent(editing.mappingId)}`, { method: "PATCH", body: JSON.stringify(body) }); setEditing(null); setNotice("映射已保存"); await load(); } catch (error) { setNotice(error instanceof Error ? error.message : "映射保存失败"); } }} /> : null}
+    {editing ? <MappingDialog mapping={editing} masters={masters} onCancel={() => setEditing(null)} onSave={async (body) => { try { await requestJson(`/api/integrations/frappe-demand-sync/mappings/${encodeURIComponent(editing.mappingId)}`, { method: "PATCH", body: JSON.stringify(body) }); setEditing(null); setNotice("映射已保存"); await load(); await loadUnhandled(); } catch (error) { setNotice(error instanceof Error ? error.message : "映射保存失败"); } }} /> : null}
   </div>;
 }
 

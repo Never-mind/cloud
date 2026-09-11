@@ -677,9 +677,25 @@ function sourceHash(item: RemoteDemandItem, order: RemoteDemandOrder) {
   })).digest("hex");
 }
 
+/** 可建档状态：远端履约流程里除取消以外的全部状态。 */
+const DEFAULT_SYNC_STATUSES = ["Issued to Supplier", "Confirmed", "Committed", "Handed Over", "Shipped", "Arrived", "Received"];
+const DEFAULT_CANCELLED_STATUSES = ["Cancelled"];
+
+function statusList(value: string | undefined, fallback: readonly string[]) {
+  const configured = text(value).split(",").map(normalized).filter(Boolean);
+  return configured.length ? configured : fallback.map(normalized);
+}
+
+/** 需要创建本地需求单草稿的远端状态。 */
 function hasEligibleStatus(status: string) {
-  const allowed = text(process.env.FRAPPE_DEMAND_ELIGIBLE_STATUS || "Committed").split(",").map(normalized).filter(Boolean);
-  return allowed.includes(normalized(status));
+  // 兼容旧配置名 FRAPPE_DEMAND_ELIGIBLE_STATUS，未配置时默认放开除取消外的全部状态。
+  const configured = process.env.FRAPPE_DEMAND_SYNC_STATUSES || process.env.FRAPPE_DEMAND_ELIGIBLE_STATUS;
+  return statusList(configured, DEFAULT_SYNC_STATUSES).includes(normalized(status));
+}
+
+/** 取消状态：写入台账但不建档，也不计入待处理。 */
+function isCancelledStatus(status: string) {
+  return statusList(process.env.FRAPPE_DEMAND_CANCELLED_STATUSES, DEFAULT_CANCELLED_STATUSES).includes(normalized(status));
 }
 
 export function localRequestNo(customerPoNo: unknown) {
@@ -885,7 +901,12 @@ async function requestExists(connection: PoolConnection, requestNo: string) {
 async function persistSkippedExistingItems(connection: PoolConnection, order: RemoteDemandOrder, items: RemoteDemandItem[], requestNo: string) {
   const message = "本地需求单已存在，未覆盖";
   for (const item of items) {
-    await persistLedgerItem(connection, { item, order, localRequestNo: requestNo, status: "skipped_existing", errorMessage: message });
+    // 跳过一律保留变更基线：基线只在"建档/重新拉取"时更新，
+    // 否则"远端已变更"的提示会被下一次跳过静默清掉。
+    await persistLedgerItem(connection, {
+      item, order, localRequestNo: requestNo, status: "skipped_existing",
+      errorMessage: message, preserveBaseline: true,
+    });
   }
 }
 
@@ -1068,9 +1089,26 @@ export async function runFrappeDemandSync({ triggerType = "manual", dryRun = fal
     }
     // 状态已不在可同步范围的明细：只对台账里已跟踪过的明细更新轨迹，
     // 避免给"从未进入同步范围"的明细凭空建记录。
+    // 取消明细：写入台账保留轨迹，但绝不建档，也不计入待处理/变更。
+    if (!dryRun) {
+      for (const item of snapshot.items) {
+        if (!isCancelledStatus(item.status)) continue;
+        const order = snapshot.orders.get(item.demandOrderId);
+        if (!order) continue;
+        const prior = existingById.get(item.id);
+        if (text(prior?.status) === "cancelled" && text(prior?.sourceHash) === sourceHash(item, order)) continue;
+        await persistLedgerItem(connection, {
+          item, order,
+          localRequestNo: text(prior?.localRequestNo) || localRequestNo(order.customerPoNo) || null,
+          status: "cancelled",
+          errorMessage: `远端状态为 ${item.status}，不创建本地需求单`,
+        });
+      }
+    }
     if (!dryRun) {
       for (const item of snapshot.items) {
         if (hasEligibleStatus(item.status)) continue;
+        if (isCancelledStatus(item.status)) continue;
         const prior = existingById.get(item.id);
         if (!prior) continue;
         const order = snapshot.orders.get(item.demandOrderId);
@@ -1120,6 +1158,32 @@ function parseSyncResults(value: unknown): FrappeDemandSyncResult[] {
   }
 }
 
+/**
+ * 未处理数量汇总，用于标签上的红色徽标：
+ * 映射 = 待处理(pending) + 冲突(conflict)；台账 = 存在待核对(pending_change)或被阻断(blocked)明细的需求单。
+ */
+export async function getFrappeDemandSyncUnhandledSummary() {
+  const [mappingRows, ledgerRows] = await Promise.all([
+    queryRowsRaw<{ sourceType: string; total: number }>(
+      `SELECT sourceType, COUNT(*) AS total FROM ${MAPPING_TABLE}
+        WHERE sourceSystem = :sourceSystem AND status IN ('pending', 'conflict')
+        GROUP BY sourceType`,
+      { sourceSystem: SOURCE_SYSTEM },
+    ),
+    queryRowsRaw<{ total: number }>(
+      `SELECT COUNT(*) AS total FROM (
+         SELECT i.sourceOrderId FROM ${ITEM_TABLE} i
+          GROUP BY i.sourceOrderId
+         HAVING SUM(i.status IN ('pending_change', 'blocked')) > 0
+       ) unhandledOrders`,
+    ),
+  ]);
+  return {
+    mappings: Object.fromEntries(mappingRows.map((row) => [text(row.sourceType), Number(row.total ?? 0)])),
+    ledger: Number(ledgerRows[0]?.total ?? 0),
+  };
+}
+
 function parseChanges(value: unknown): RemoteDemandChange[] {
   if (typeof value !== "string" || !value.trim()) return [];
   try {
@@ -1145,6 +1209,7 @@ export async function listFrappeDemandSyncLedger(params: URLSearchParams) {
     values.keyword = `%${keyword}%`;
   }
   const having: string[] = [];
+  if (category === "unhandled") having.push("SUM(i.status IN ('pending_change', 'blocked')) > 0");
   if (category === "local_exists") having.push("MAX(r.requestNo IS NOT NULL) = 1");
   if (category === "local_deleted") having.push("MAX(r.requestNo IS NOT NULL) = 0");
   if (category === "remote_changed") having.push("SUM(i.status = 'pending_change') > 0");
@@ -1167,11 +1232,18 @@ export async function listFrappeDemandSyncLedger(params: URLSearchParams) {
               MAX(r.requestNo IS NOT NULL) AS localExists,
               MAX(i.updatedAt) AS lastSyncedAt
        ${from}
-       ORDER BY lastSyncedAt DESC
+       ORDER BY (SUM(i.status IN ('pending_change', 'blocked')) > 0) DESC, lastSyncedAt DESC
        LIMIT :limit OFFSET :offset`,
       values,
     ),
   ]);
+  const unhandledRows = await queryRowsRaw<{ total: number }>(
+    `SELECT COUNT(*) AS total FROM (
+       SELECT i.sourceOrderId FROM ${ITEM_TABLE} i
+        GROUP BY i.sourceOrderId
+       HAVING SUM(i.status IN ('pending_change', 'blocked')) > 0
+     ) unhandledOrders`,
+  );
   return {
     items: rows.map((row) => ({
       sourceOrderId: text(row.sourceOrderId),
@@ -1184,6 +1256,7 @@ export async function listFrappeDemandSyncLedger(params: URLSearchParams) {
       lastSyncedAt: row.lastSyncedAt ?? null,
     })),
     total: Number(countRows[0]?.total ?? 0),
+    unhandledTotal: Number(unhandledRows[0]?.total ?? 0),
     page,
     pageSize,
   };
@@ -1220,6 +1293,46 @@ export async function listFrappeDemandSyncLedgerItems(sourceOrderId: string) {
  * 再跑一次同步按远端重新创建草稿（已存在、映射不完整、状态不在范围的情况不会被重建）。
  */
 export async function rebuildFrappeDemandOrders(sourceOrderIds: readonly string[], actor: OperationActor | null) {
+  return rebuildOrders(sourceOrderIds, actor);
+}
+
+/**
+ * 人工确认"远端变更我已核对"：把该需求单所有 pending_change 明细的比对基线刷新为当前远端内容，
+ * 并清除变更提示（否则提示会一直挂着，只能靠重新拉取消除）。
+ */
+export async function acceptFrappeDemandChanges(sourceOrderId: string) {
+  const id = text(sourceOrderId);
+  if (!id) throw new Error("请指定需求单");
+  const priorRows = await queryRowsRaw<Row>(
+    `SELECT sourceItemId FROM ${ITEM_TABLE} WHERE sourceOrderId = :id AND status = 'pending_change'`,
+    { id },
+  );
+  if (!priorRows.length) return { accepted: 0 };
+  const snapshot = await loadRemoteSnapshot();
+  const order = snapshot.orders.get(id);
+  if (!order) throw new Error(`远端需求单 ${id} 不存在`);
+  const itemsById = new Map(snapshot.items.map((item) => [item.id, item]));
+  const connection = await getDb().getConnection();
+  let accepted = 0;
+  try {
+    for (const row of priorRows) {
+      const item = itemsById.get(text(row.sourceItemId));
+      if (!item) continue;
+      await persistLedgerItem(connection, {
+        item, order,
+        localRequestNo: localRequestNo(order.customerPoNo) || null,
+        status: "skipped_existing",
+        errorMessage: "人工核对后接受远端内容",
+      });
+      accepted += 1;
+    }
+  } finally {
+    connection.release();
+  }
+  return { accepted };
+}
+
+async function rebuildOrders(sourceOrderIds: readonly string[], actor: OperationActor | null) {
   const ids = Array.from(new Set(sourceOrderIds.map(text).filter(Boolean)));
   if (!ids.length) throw new Error("请至少选择一张需求单");
   if (ids.length > 100) throw new Error("单次最多重新拉取 100 张需求单");
