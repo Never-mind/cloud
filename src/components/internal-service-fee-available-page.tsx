@@ -132,7 +132,7 @@ export function InternalServiceFeeAvailablePage() {
           <table className="w-full min-w-[1560px] border-collapse text-sm">
             <thead className="bg-[#f5f7fa] text-[#303133]">
               <tr>
-                <th className="w-7 border-b border-r border-[#ebeef5] px-1.5 py-3 text-center font-medium [&>input]:h-3.5 [&>input]:w-3.5 [&>input]:align-middle"><input type="checkbox" checked={allSelected} onChange={toggleCurrentPageSelection} /></th>
+                <th className="w-4 border-b border-r border-[#ebeef5] px-0 py-3 text-center font-medium [&>input]:h-3.5 [&>input]:w-3.5 [&>input]:align-middle"><input type="checkbox" checked={allSelected} onChange={toggleCurrentPageSelection} /></th>
                 {columns.map(([key, label]) => <th className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium" key={key}>
                   <TableColumnMenu
                     column={{ key, label, sortable: true, filterable: true }}
@@ -149,7 +149,7 @@ export function InternalServiceFeeAvailablePage() {
               {rows.map((row) => {
                 const id = String(row.ledgerId);
                 return <tr className="hover:bg-[#fafafa]" key={id}>
-                  <td className="w-7 border-b border-r border-[#ebeef5] px-1.5 py-3 text-center [&>input]:h-3.5 [&>input]:w-3.5 [&>input]:align-middle"><input type="checkbox" checked={selected.includes(id)} onChange={() => toggleRow(id)} /></td>
+                  <td className="w-4 border-b border-r border-[#ebeef5] px-0 py-3 text-center [&>input]:h-3.5 [&>input]:w-3.5 [&>input]:align-middle"><input type="checkbox" checked={selected.includes(id)} onChange={() => toggleRow(id)} /></td>
                   {columns.map(([key, , type]) => <td className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3" key={key}>{formatDisplayValue(row[key], type)}</td>)}
                 </tr>;
               })}
