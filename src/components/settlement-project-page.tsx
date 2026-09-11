@@ -101,7 +101,7 @@ export function SettlementProjectPage() {
             <Input className="h-8 w-full" value={keyword} placeholder="项目单号、报价单号、客户" onChange={(event) => setKeyword(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { setPage(1); setAppliedKeyword(keyword.trim()); } }} />
           </div>
           <select className="h-8 min-w-[132px] rounded border border-[#dcdfe6] bg-white px-3 text-sm outline-none focus:border-[#1890ff]" value={status} onChange={(event) => { setPage(1); setStatus(event.target.value); }}>
-            <option value="">全部状态</option><option value="purchasing">采购中</option><option value="procurement_completed">采购完成</option><option value="accepting">验收中</option><option value="closed">已完结</option>
+            <option value="">全部状态</option><option value="purchasing">采购中</option><option value="procurement_completed">采购完成</option><option value="accepting">验收中</option><option value="acceptance_completed">验收完成</option><option value="closed">已完结</option>
           </select>
           <Button tone="primary" className="h-8 px-3" onClick={() => { setPage(1); setAppliedKeyword(keyword.trim()); }}><Search size={14} />查询</Button>
           <Button className="h-8 px-3" onClick={() => void load()} disabled={loading}><RefreshCw size={14} />刷新</Button>
@@ -127,5 +127,5 @@ export function SettlementProjectPage() {
 
 function money(value: number) { return Number(value || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
 function formatDate(value: string) { return value ? String(value).slice(0, 16).replace("T", " ") : "-"; }
-function statusLabel(status: string) { return ({ purchasing: "采购中", procurement_completed: "采购完成", accepting: "验收中", closed: "已完结" } as Record<string, string>)[status] || status || "-"; }
+function statusLabel(status: string) { return ({ purchasing: "采购中", procurement_completed: "采购完成", accepting: "验收中", acceptance_completed: "验收完成", closed: "已完结" } as Record<string, string>)[status] || status || "-"; }
 function statusClass(status: string) { return status === "closed" ? "bg-[#dcfce7] text-[#166534]" : status === "accepting" ? "bg-[#e0e7ff] text-[#4338ca]" : status === "procurement_completed" ? "bg-[#dbeafe] text-[#1d4ed8]" : "bg-[#fef3c7] text-[#92400e]"; }

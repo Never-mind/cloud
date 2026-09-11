@@ -297,7 +297,7 @@ function formatFilterOptionLabel(field: string, value: unknown) {
   const raw = text(value);
   if (field === "type") return raw === "income" ? "收入" : raw === "cost" ? "成本" : raw;
   if (field === "projectStatus") {
-    return ({ purchasing: "采购中", procurement_completed: "采购完成", accepting: "验收中", closed: "已完结" } as Record<string, string>)[raw] ?? raw;
+    return ({ purchasing: "采购中", procurement_completed: "采购完成", accepting: "验收中", acceptance_completed: "验收完成", closed: "已完结" } as Record<string, string>)[raw] ?? raw;
   }
   if (field === "isPaid" || field === "isInvoiced") return numeric(value) === 0 ? "否" : "是";
   return raw;

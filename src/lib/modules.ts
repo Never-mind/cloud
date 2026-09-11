@@ -1721,6 +1721,7 @@ entityConfigs.push({
       { label: "采购中", value: "purchasing" },
       { label: "采购完成", value: "procurement_completed" },
       { label: "验收中", value: "accepting" },
+      { label: "验收完成", value: "acceptance_completed" },
       { label: "已完结", value: "closed" },
     ] },
   ],

@@ -197,7 +197,7 @@ function formatValue(value: unknown, type?: Column["type"]) {
 }
 
 function statusLabel(status: string) {
-  return (({ purchasing: "采购中", procurement_completed: "采购完成", accepting: "验收中", closed: "已完结" } as Record<string, string>)[status] ?? status) || "-";
+  return (({ purchasing: "采购中", procurement_completed: "采购完成", accepting: "验收中", acceptance_completed: "验收完成", closed: "已完结" } as Record<string, string>)[status] ?? status) || "-";
 }
 
 function money(value: number) {
