@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, CheckCircle2, Pencil, Plus, Save, Trash2 } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Pencil, Plus, RotateCcw, Save, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useSearchParams } from "next/navigation";
 import { formatDateInputValue, formatDisplayValue } from "@/lib/display-format";
@@ -295,6 +295,32 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
     });
   }
 
+  async function rollbackContract() {
+    if (!contract) return;
+    if (
+      !confirm(
+        `确认将合同 ${contract.contractNo} 退回草稿？\n退回后会删除该合同已生成的 24 个月预付款核销明细，合同明细保留，可修改后重新确认。`,
+      )
+    ) {
+      return;
+    }
+    setSaving(true);
+    try {
+      const response = await fetch(`/api/prepayments/contracts/${encodeURIComponent(contract.contractNo)}/rollback`, {
+        method: "POST",
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        alert(data.error ?? "退回失败");
+        return;
+      }
+      setEditing(false);
+      await loadData();
+    } finally {
+      setSaving(false);
+    }
+  }
+
   function handleEditButton() {
     if (!editing) {
       setEditing(true);
@@ -327,6 +353,12 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
             <CheckCircle2 size={15} />
             {editState.confirmButtonLabel}
           </Button>
+          {editState.confirmed ? (
+            <Button disabled={saving} tone="warning" onClick={() => void rollbackContract()}>
+              <RotateCcw size={15} />
+              退回草稿
+            </Button>
+          ) : null}
         </div>
       </div>
 

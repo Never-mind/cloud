@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { CheckCircle2, Plus, RefreshCw, Save, Search, Trash2 } from "lucide-react";
+import { CheckCircle2, Plus, RefreshCw, RotateCcw, Save, Search, Trash2 } from "lucide-react";
 import { formatDisplayValue } from "@/lib/display-format";
 import { buildDetailRoute, getReturnTo } from "@/lib/client-list-navigation";
 import {
@@ -216,6 +216,24 @@ export function PrepaymentWriteOffAdjustmentDetailPage({ adjustmentNo: routeAdju
     router.push(returnTo);
   }
 
+  async function rollbackAdjustment() {
+    if (!confirm(`确认将该调整单退回草稿？\n退回后受影响的预付款月核销金额会还原成调整前的值，相当于这张调整单从未确认。`)) return;
+    setSaving(true);
+    try {
+      const response = await fetch(`/api/prepayment-adjustments/${encodeURIComponent(adjustmentNo)}/rollback`, { method: "POST" });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        alert(data.error ?? "退回失败");
+        return;
+      }
+      setStatus("草稿");
+      alert("已退回草稿，月核销金额已还原");
+      router.push(returnTo);
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <div className="space-y-5">
       <div>
@@ -336,7 +354,18 @@ export function PrepaymentWriteOffAdjustmentDetailPage({ adjustmentNo: routeAdju
             />
           </>
         ) : (
-          <ConfirmedTable rows={confirmedItems} />
+          <>
+            <div className="flex flex-wrap items-center gap-4 border-b border-[#ebeef5] bg-[#fafafa] p-4 text-sm text-[#606266]">
+              <span>已确认 {confirmedItems.length} 条</span>
+              <div className="ml-auto flex gap-2">
+                <Button disabled={saving} tone="warning" onClick={() => void rollbackAdjustment()}>
+                  <RotateCcw size={15} />
+                  退回草稿
+                </Button>
+              </div>
+            </div>
+            <ConfirmedTable rows={confirmedItems} />
+          </>
         )}
       </Panel>
     </div>

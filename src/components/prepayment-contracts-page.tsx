@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Plus, RefreshCw, Search, Trash2, X } from "lucide-react";
+import { Plus, RefreshCw, RotateCcw, Search, Trash2, X } from "lucide-react";
 import { formatDisplayValue } from "@/lib/display-format";
 import { DEFAULT_PAGE_SIZE } from "@/lib/pagination";
 import { buildDetailRoute, buildListRoute, getCurrentRoute, useListScrollPosition } from "@/lib/client-list-navigation";
@@ -45,6 +45,8 @@ export function PrepaymentContractsPage() {
   const [newEffectiveDate, setNewEffectiveDate] = useState("");
   const [newCurrency, setNewCurrency] = useState("USD");
   const [creating, setCreating] = useState(false);
+  const [selectedNos, setSelectedNos] = useState<string[]>([]);
+  const [batchBusy, setBatchBusy] = useState(false);
   const pageSizeRef = useRef(pageSize);
   const queryMountedRef = useRef(false);
   const currentRoute = getCurrentRoute(pathname, searchParams.toString());
@@ -115,8 +117,71 @@ export function PrepaymentContractsPage() {
 
   async function deleteDraft(contractNo: string) {
     if (!confirm("确认删除该预付款合同草稿？删除后已占用实例会释放回待生成列表。")) return;
-    await fetch(`/api/prepayments/contracts/${encodeURIComponent(contractNo)}`, { method: "DELETE" });
+    const response = await fetch(`/api/prepayments/contracts/${encodeURIComponent(contractNo)}`, { method: "DELETE" });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      alert(data.error ?? "删除失败");
+      return;
+    }
     await loadData();
+  }
+
+  async function rollbackContract(contractNo: string) {
+    if (!confirm(`确认将合同 ${contractNo} 退回草稿？\n退回后会删除该合同已生成的 24 个月预付款核销明细，合同明细保留，可修改后重新确认。`)) return;
+    const response = await fetch(`/api/prepayments/contracts/${encodeURIComponent(contractNo)}/rollback`, { method: "POST" });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      alert(data.error ?? "退回失败");
+      return;
+    }
+    await loadData();
+  }
+
+  function toggleSelected(contractNo: string) {
+    setSelectedNos((current) =>
+      current.includes(contractNo) ? current.filter((value) => value !== contractNo) : [...current, contractNo],
+    );
+  }
+
+  const visibleNos = rows.map((row) => String(row.contractNo ?? "")).filter(Boolean);
+  const allVisibleSelected = visibleNos.length > 0 && visibleNos.every((value) => selectedNos.includes(value));
+
+  function toggleAllVisible() {
+    setSelectedNos((current) =>
+      allVisibleSelected ? current.filter((value) => !visibleNos.includes(value)) : Array.from(new Set([...current, ...visibleNos])),
+    );
+  }
+
+  async function runBatch(action: "rollback" | "delete-draft") {
+    if (!selectedNos.length) return;
+    const label = action === "rollback" ? "批量退回草稿" : "批量删除草稿";
+    const hint = action === "rollback"
+      ? `确认将选中的 ${selectedNos.length} 份已确认合同退回草稿？\n退回后会删除各自已生成的 24 个月预付款核销明细，合同明细保留。`
+      : `确认删除选中的 ${selectedNos.length} 份预付款合同草稿？删除后已占用实例会释放回待生成列表。`;
+    if (!confirm(hint)) return;
+    setBatchBusy(true);
+    try {
+      const response = await fetch("/api/prepayments/contracts/batch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, contractNos: selectedNos }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error ?? `${label}失败`);
+      const failed: Array<{ contractNo: string; error: string }> = data.failed ?? [];
+      setSelectedNos(failed.map((item) => item.contractNo));
+      if (failed.length) {
+        alert(
+          `${label}完成 ${data.succeeded?.length ?? 0} 条，失败 ${failed.length} 条：\n` +
+            failed.map((item) => `${item.contractNo}：${item.error}`).join("\n"),
+        );
+      }
+      await loadData();
+    } catch (error) {
+      alert(error instanceof Error ? error.message : `${label}失败`);
+    } finally {
+      setBatchBusy(false);
+    }
   }
 
   function openCreateDialog() {
@@ -168,13 +233,13 @@ export function PrepaymentContractsPage() {
 
       <Panel>
         <div className="flex items-center gap-2 border-b border-[#ebeef5] bg-[#fafafa] p-3">
-          <Button tone={statusTab === "draft" ? "primary" : "default"} onClick={() => { setStatusTab("draft"); setPage(1); void loadData(1, pageSizeRef.current, "draft"); }}>
+          <Button tone={statusTab === "draft" ? "primary" : "default"} onClick={() => { setStatusTab("draft"); setSelectedNos([]); setPage(1); void loadData(1, pageSizeRef.current, "draft"); }}>
             草稿
             <span className="ml-1 rounded bg-white/35 px-1.5 text-xs">
               {statusTab === "draft" ? total : ""}
             </span>
           </Button>
-          <Button tone={statusTab === "confirmed" ? "primary" : "default"} onClick={() => { setStatusTab("confirmed"); setPage(1); void loadData(1, pageSizeRef.current, "confirmed"); }}>
+          <Button tone={statusTab === "confirmed" ? "primary" : "default"} onClick={() => { setStatusTab("confirmed"); setSelectedNos([]); setPage(1); void loadData(1, pageSizeRef.current, "confirmed"); }}>
             已确认
             <span className="ml-1 rounded bg-white/35 px-1.5 text-xs">
               {statusTab === "confirmed" ? total : ""}
@@ -192,6 +257,25 @@ export function PrepaymentContractsPage() {
             <RefreshCw size={15} />
             刷新
           </Button>
+          {selectedNos.length ? (
+            <div className="flex items-center gap-2 rounded border border-[#d9ecff] bg-[#ecf5ff] px-3 py-1.5">
+              <span className="text-sm text-[#1890ff]">已选 {selectedNos.length} 条</span>
+              {statusTab === "confirmed" ? (
+                <Button disabled={batchBusy} tone="warning" onClick={() => void runBatch("rollback")}>
+                  <RotateCcw size={15} />
+                  批量退回草稿
+                </Button>
+              ) : (
+                <Button disabled={batchBusy} tone="danger" onClick={() => void runBatch("delete-draft")}>
+                  <Trash2 size={15} />
+                  批量删除草稿
+                </Button>
+              )}
+              <button className="text-sm text-[#909399] hover:text-[#303133]" onClick={() => setSelectedNos([])} type="button">
+                清空选择
+              </button>
+            </div>
+          ) : null}
           <Button className="ml-auto" onClick={openCreateDialog}>
             <Plus size={15} />
             新建空白合同
@@ -205,6 +289,9 @@ export function PrepaymentContractsPage() {
           <table className="min-w-full border-collapse text-sm">
             <thead className="bg-[#f5f7fa] text-[#303133]">
               <tr>
+                <th className="w-12 border-b border-r border-[#ebeef5] px-3 py-3 text-left">
+                  <input aria-label="全选本页预付款合同" checked={allVisibleSelected} type="checkbox" onChange={toggleAllVisible} />
+                </th>
                 {columns.map((column) => (
                   <th className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium" key={column.key}>
                     {renderHeader(column)}
@@ -219,6 +306,14 @@ export function PrepaymentContractsPage() {
                 const confirmed = String(row.status ?? "") === "已确认";
                 return (
                   <tr className="hover:bg-[#fafafa]" key={contractNo}>
+                    <td className="border-b border-r border-[#ebeef5] px-3 py-3">
+                      <input
+                        aria-label={`选择 ${contractNo}`}
+                        checked={selectedNos.includes(contractNo)}
+                        type="checkbox"
+                        onChange={() => toggleSelected(contractNo)}
+                      />
+                    </td>
                     {columns.map((column) => (
                       <td className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3" key={column.key}>
                         {column.key === "contractNo" ? (
@@ -239,6 +334,10 @@ export function PrepaymentContractsPage() {
                           <Trash2 size={15} />
                           删除草稿
                         </Button>
+                        <Button disabled={!confirmed} tone="warning" onClick={() => void rollbackContract(contractNo)}>
+                          <RotateCcw size={15} />
+                          退回草稿
+                        </Button>
                       </div>
                     </td>
                   </tr>
@@ -246,7 +345,7 @@ export function PrepaymentContractsPage() {
               })}
               {!rows.length ? (
                 <tr>
-                  <td className="py-12 text-center text-[#909399]" colSpan={columns.length + 1}>
+                  <td className="py-12 text-center text-[#909399]" colSpan={columns.length + 2}>
                     {loading ? "加载中..." : "暂无数据"}
                   </td>
                 </tr>

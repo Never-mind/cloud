@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { CheckCircle2, FileDown, Pencil, Plus, Save, Trash2, Upload } from "lucide-react";
+import { CheckCircle2, FileDown, Pencil, Plus, RotateCcw, Save, Trash2, Upload } from "lucide-react";
 import {
   applyBillingAdjustmentDeviceAutofill,
   getBillingAdjustmentEditState,
@@ -164,6 +164,24 @@ export function BillingAdjustmentDetailPage({ adjustmentNo: routeAdjustmentNo }:
     router.push(returnTo);
   }
 
+  async function rollbackAdjustment() {
+    if (!confirm(`确认将该调整单退回草稿？\n退回后会按"没有这张调整单"的口径重新计算受影响的月账单台账与内部服务费。`)) return;
+    setSaving(true);
+    try {
+      const response = await fetch(`/api/billing/adjustments/${encodeURIComponent(adjustmentNo)}/rollback`, { method: "POST" });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        alert(data.error ?? "退回失败");
+        return;
+      }
+      setStatus("草稿");
+      alert(`已退回草稿，重算台账 ${data.updatedLedgers ?? 0} 条`);
+      router.push(returnTo);
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function importItems(file: File) {
     if (!adjustmentNo.trim() || !instanceContractNo.trim()) {
       alert("请先填写调整单号和实例合同单号");
@@ -264,10 +282,16 @@ export function BillingAdjustmentDetailPage({ adjustmentNo: routeAdjustmentNo }:
               </Button>
             </>
           ) : (
-            <Button disabled tone="success">
-              <CheckCircle2 size={15} />
-              已确认
-            </Button>
+            <>
+              <Button disabled tone="success">
+                <CheckCircle2 size={15} />
+                已确认
+              </Button>
+              <Button disabled={saving} tone="warning" onClick={() => void rollbackAdjustment()}>
+                <RotateCcw size={15} />
+                退回草稿
+              </Button>
+            </>
           )}
         </div>
 

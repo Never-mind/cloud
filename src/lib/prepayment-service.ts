@@ -417,7 +417,60 @@ export async function confirmPrepaymentContract(contractNo: string) {
 export async function rollbackPrepaymentContract(contractNo: string) {
   const { contract } = await getPrepaymentContract(contractNo);
   if (!contract) throw new Error("预付款合同不存在");
-  throw new Error("已确认的预付款合同不能删除或退回；如需更正，请通过预付款核销调整单处理");
+  if (String(contract.status) !== "已确认") throw new Error("只有已确认的预付款合同可以退回草稿");
+
+  await assertPrepaymentContractRollbackAllowed(contractNo);
+
+  // 退回草稿 = 撤销确认：清掉已生成的 24 个月预付款核销明细，合同与明细回到草稿可再次修改确认。
+  await withTransaction(async (connection) => {
+    await executeInTransaction(
+      connection,
+      "DELETE FROM monthlyprepaymentwriteoffs WHERE contractNo = :contractNo",
+      { contractNo },
+    );
+    await executeInTransaction(
+      connection,
+      `UPDATE prepaymentcontracts SET status = '草稿', confirmedAt = NULL WHERE contractNo = :contractNo`,
+      { contractNo },
+    );
+  });
+
+  return getPrepaymentContract(contractNo);
+}
+
+/**
+ * 退回前检查下游占用：
+ *   1. 预付款核销调整单（任何状态）都依赖本合同的月核销明细，退回会删掉这些明细；
+ *   2. 服务费对账单已引用本合同的核销明细或合同号时，金额已经进入对账口径。
+ * 命中任一情况都阻断，提示先处理对应单据。
+ */
+export async function assertPrepaymentContractRollbackAllowed(contractNo: string) {
+  const adjustments = await queryRows<Row>(
+    "SELECT adjustmentNo, status FROM prepaymentwriteoffadjustments WHERE contractNo = :contractNo ORDER BY adjustmentNo",
+    { contractNo },
+  );
+  if (adjustments.length) {
+    const detail = adjustments.map((row) => `${row.adjustmentNo}（${row.status}）`).join("、");
+    throw new Error(`该合同已被预付款核销调整单 ${detail} 占用，请先删除或处理后再退回`);
+  }
+
+  const [snapshot] = await queryRows<Row>(
+    `
+      SELECT COUNT(*) AS total
+      FROM servicefeesnapshotitems item
+      WHERE FIND_IN_SET(:contractNo, COALESCE(item.prepaymentContractNos, '')) > 0
+         OR EXISTS (
+           SELECT 1
+           FROM monthlyprepaymentwriteoffs writeOff
+           WHERE writeOff.contractNo = :contractNo
+             AND FIND_IN_SET(writeOff.id, COALESCE(item.prepaymentSourceIds, '')) > 0
+         )
+    `,
+    { contractNo },
+  );
+  if (Number(snapshot?.total ?? 0) > 0) {
+    throw new Error("该合同已被服务费对账单引用，请先处理对应服务费对账单后再退回");
+  }
 }
 
 export async function assertPrepaymentInstanceOwnership(lines: Array<Pick<PrepaymentContractLineDraft, "contractNo" | "lineType" | "purchaseOrderItemId">>) {

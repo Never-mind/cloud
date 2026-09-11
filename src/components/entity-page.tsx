@@ -93,6 +93,8 @@ export function EntityPage({
   const [b6TypeConfigs, setB6TypeConfigs] = useState<Row[]>([]);
   const [instanceContracts, setInstanceContracts] = useState<Row[]>([]);
   const [refreshingShipmentId, setRefreshingShipmentId] = useState<string | null>(null);
+  const [selectedRowIds, setSelectedRowIds] = useState<string[]>([]);
+  const [batchBusy, setBatchBusy] = useState(false);
   const [countryDefaultLookups, setCountryDefaultLookups] = useState<Record<"undertaking-units" | "customers", Row[]>>({ "undertaking-units": [], customers: [] });
   const [customerPoProducts, setCustomerPoProducts] = useState<Row[]>([]);
   const [customerPoProduct, setCustomerPoProduct] = useState<Row | null>(null);
@@ -659,6 +661,47 @@ export function EntityPage({
     await loadRows();
   }
 
+  function toggleRowSelected(id: string) {
+    setSelectedRowIds((current) => (current.includes(id) ? current.filter((value) => value !== id) : [...current, id]));
+  }
+
+  const selectableRowIds = rows.map((row) => String(row[config.primaryKey] ?? "")).filter(Boolean);
+  const allRowsSelected = selectableRowIds.length > 0 && selectableRowIds.every((id) => selectedRowIds.includes(id));
+
+  function toggleAllRowsSelected() {
+    setSelectedRowIds((current) =>
+      allRowsSelected ? current.filter((id) => !selectableRowIds.includes(id)) : Array.from(new Set([...current, ...selectableRowIds])),
+    );
+  }
+
+  async function runBatchDelete() {
+    if (!selectedRowIds.length) return;
+    if (!confirm(`确认退回选中的 ${selectedRowIds.length} 条月账单台账？\n退回后对应的每月核销明细会同步删除，实例回到「待生成月账单」。`)) return;
+    setBatchBusy(true);
+    try {
+      const response = await fetch(`/api/entities/${config.key}/batch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: selectedRowIds }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error ?? "批量退回失败");
+      const failed: Array<{ id: string; error: string }> = data.failed ?? [];
+      setSelectedRowIds(failed.map((item) => item.id));
+      if (failed.length) {
+        alert(
+          `批量退回完成 ${data.succeeded?.length ?? 0} 条，失败 ${failed.length} 条：\n` +
+            failed.map((item) => `${item.id}：${item.error}`).join("\n"),
+        );
+      }
+      await loadRows();
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "批量退回失败");
+    } finally {
+      setBatchBusy(false);
+    }
+  }
+
   async function importFile(file: File) {
     setImporting(true);
     try {
@@ -829,6 +872,18 @@ export function EntityPage({
               字段设置
             </Button>
           ) : null}
+          {config.batchDelete && selectedRowIds.length ? (
+            <div className="flex items-center gap-2 rounded border border-[#d9ecff] bg-[#ecf5ff] px-3 py-1.5">
+              <span className="text-sm text-[#1890ff]">已选 {selectedRowIds.length} 条</span>
+              <Button disabled={batchBusy} tone="danger" onClick={() => void runBatchDelete()}>
+                <Trash2 size={15} />
+                批量退回
+              </Button>
+              <button className="text-sm text-[#909399] hover:text-[#303133]" onClick={() => setSelectedRowIds([])} type="button">
+                清空选择
+              </button>
+            </div>
+          ) : null}
           {!hideCreateImportTemplate ? (
             <input
               ref={fileRef}
@@ -867,6 +922,11 @@ export function EntityPage({
                 {config.showSequence ? (
                   <th className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium">序号</th>
                 ) : null}
+                {config.batchDelete ? (
+                  <th className="w-12 border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium">
+                    <input aria-label="全选本页" checked={allRowsSelected} type="checkbox" onChange={toggleAllRowsSelected} />
+                  </th>
+                ) : null}
                 {visibleColumns.map((column) => (
                   <th className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium" key={column.key}>
                     <TableColumnMenu
@@ -891,6 +951,16 @@ export function EntityPage({
                 <tr className="hover:bg-[#fafafa]" key={String(row[config.primaryKey])}>
                   {config.showSequence ? (
                     <td className="whitespace-nowrap border-b border-r border-[#ebeef5] px-3 py-3">{(page - 1) * pageSize + index + 1}</td>
+                  ) : null}
+                  {config.batchDelete ? (
+                    <td className="border-b border-r border-[#ebeef5] px-3 py-3">
+                      <input
+                        aria-label={`选择 ${String(row[config.primaryKey] ?? "")}`}
+                        checked={selectedRowIds.includes(String(row[config.primaryKey] ?? ""))}
+                        type="checkbox"
+                        onChange={() => toggleRowSelected(String(row[config.primaryKey] ?? ""))}
+                      />
+                    </td>
                   ) : null}
                   {visibleColumns.map((column) => (
                     <td className={`max-w-[260px] border-b border-r border-[#ebeef5] px-3 py-3 ${isPartyArchive ? "align-top" : "truncate"}`} key={column.key}>
@@ -954,7 +1024,7 @@ export function EntityPage({
               ))}
               {!rows.length && (
                 <tr>
-                  <td className="py-12 text-center text-[#909399]" colSpan={visibleColumns.length + (readOnly ? 0 : 1) + (config.showSequence ? 1 : 0)}>
+                  <td className="py-12 text-center text-[#909399]" colSpan={visibleColumns.length + (readOnly ? 0 : 1) + (config.showSequence ? 1 : 0) + (config.batchDelete ? 1 : 0)}>
                     {loading ? "加载中..." : "暂无数据"}
                   </td>
                 </tr>

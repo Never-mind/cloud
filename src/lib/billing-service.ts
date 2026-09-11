@@ -862,29 +862,7 @@ export async function confirmBillingAdjustment(adjustmentNo: string) {
   if (!adjustment) throw new Error("调整单不存在");
   if (!items.length) throw new Error("调整单明细不能为空");
 
-  const ledgerIds = new Set<string>();
-  for (const item of items) {
-    const ledgers = await queryRows<Row>(
-      `
-        SELECT *
-        FROM billinginstanceledgers
-        WHERE countryCode = :countryCode
-          AND batchName = :batchName
-          AND requestNo = :requestNo
-          AND deviceCode = :deviceCode
-      `,
-      {
-        countryCode: item.countryCode,
-        batchName: item.batchName,
-        requestNo: item.requestNo,
-        deviceCode: item.deviceCode,
-      },
-    );
-    if (!ledgers.length) {
-      throw new Error(`未找到匹配的月账单台账：${item.countryCode}/${item.batchName}/${item.deviceCode}`);
-    }
-    ledgers.forEach((ledger) => ledgerIds.add(String(ledger.ledgerId)));
-  }
+  const ledgerIds = await findBillingAdjustmentLedgerIds(items, true);
 
   if (String(adjustment.status) !== "已确认") {
     await execute(
@@ -898,15 +876,74 @@ export async function confirmBillingAdjustment(adjustmentNo: string) {
     );
   }
 
-  for (const ledgerId of ledgerIds) {
-    const ledger = await getBillingLedgerDraft(ledgerId);
-    if (ledger) {
-      await replaceMonthlyBillingRows(ledgerId, await buildMonthlyBillingRowsWithConfirmedAdjustments(ledger));
-      await regenerateInternalServiceLedger(ledgerId);
-    }
-  }
+  await rebuildBillingLedgersWithAdjustments(ledgerIds);
 
   return { adjustmentNo, updatedLedgers: ledgerIds.size };
+}
+
+/**
+ * 退回草稿：把调整单状态回退后，按"没有这张调整单"的口径重算受影响的月账单台账与内部服务费。
+ */
+export async function rollbackBillingAdjustment(adjustmentNo: string) {
+  const { adjustment, items } = await getBillingAdjustment(adjustmentNo);
+  if (!adjustment) throw new Error("调整单不存在");
+  if (String(adjustment.status) !== "已确认") throw new Error("只有已确认的调整单可以退回草稿");
+  if (!items.length) throw new Error("调整单明细不能为空");
+
+  // 退回时台账可能已被删除，缺台账不应阻断退回，只跳过重算。
+  const ledgerIds = await findBillingAdjustmentLedgerIds(items, false);
+
+  await execute(
+    `
+      UPDATE billingadjustments
+      SET status = '草稿',
+          confirmedAt = NULL
+      WHERE adjustmentNo = :adjustmentNo
+    `,
+    { adjustmentNo },
+  );
+
+  await rebuildBillingLedgersWithAdjustments(ledgerIds);
+
+  return { adjustmentNo, updatedLedgers: ledgerIds.size };
+}
+
+async function findBillingAdjustmentLedgerIds(items: Row[], strict: boolean) {
+  const ledgerIds = new Set<string>();
+  for (const item of items) {
+    const ledgers = await queryRows<Row>(
+      `
+        SELECT ledgerId
+        FROM billinginstanceledgers
+        WHERE countryCode = :countryCode
+          AND batchName = :batchName
+          AND requestNo = :requestNo
+          AND deviceCode = :deviceCode
+      `,
+      {
+        countryCode: item.countryCode,
+        batchName: item.batchName,
+        requestNo: item.requestNo,
+        deviceCode: item.deviceCode,
+      },
+    );
+    if (!ledgers.length && strict) {
+      throw new Error(`未找到匹配的月账单台账：${item.countryCode}/${item.batchName}/${item.deviceCode}`);
+    }
+    ledgers.forEach((ledger) => ledgerIds.add(String(ledger.ledgerId)));
+  }
+  return ledgerIds;
+}
+
+async function rebuildBillingLedgersWithAdjustments(ledgerIds: Set<string>) {
+  for (const ledgerId of ledgerIds) {
+    const ledger = await getBillingLedgerDraft(ledgerId);
+    if (!ledger) continue;
+    // buildMonthlyBillingRowsWithConfirmedAdjustments 只认 confirmedAt 不为空的调整单，
+    // 所以退回草稿后再重算，结果等同这张调整单从未存在。
+    await replaceMonthlyBillingRows(ledgerId, await buildMonthlyBillingRowsWithConfirmedAdjustments(ledger));
+    await regenerateInternalServiceLedger(ledgerId);
+  }
 }
 
 async function insertBillingLedger(ledger: BillingLedgerDraft) {
@@ -933,39 +970,39 @@ async function getBillingLedgerDraft(ledgerId: string) {
   const rows = await queryRows<BillingLedgerDraft>(
     `
       SELECT
-        ledgerId,
-        purchaseOrderItemId,
-        countryCode,
-        batchName,
-        requestNo,
-        poNo,
-        deviceCode,
+        ledger.ledgerId,
+        ledger.purchaseOrderItemId,
+        ledger.countryCode,
+        ledger.batchName,
+        ledger.requestNo,
+        ledger.poNo,
+        ledger.deviceCode,
         COALESCE(NULLIF(purchaseItem.requestType, ''), NULLIF(ri.requestType, ''), NULLIF(req.requestType, ''), '整机') AS requestType,
-        modelCode,
-        nameEn,
-        supplierId,
-        undertakingUnitId,
-        customerId,
-        quantity,
-        actualCurrency,
-        actualUnitPrice,
-        taxExcludedUnitPrice,
-        taxSurcharge,
-        vatRate,
-        selfCalculatedUnitPrice,
-        instanceContractNo,
-        contractCurrency,
-        first24MonthPrice,
-        next36MonthPrice,
-        differenceUnitPrice,
-        differenceTotalPrice,
-        DATE_FORMAT(startMonth, '%Y-%m-%d') AS startMonth,
-        status
-      FROM billinginstanceledgers
-      LEFT JOIN purchaseorderitems AS purchaseItem ON purchaseItem.id = billinginstanceledgers.purchaseOrderItemId
+        ledger.modelCode,
+        ledger.nameEn,
+        ledger.supplierId,
+        ledger.undertakingUnitId,
+        ledger.customerId,
+        ledger.quantity,
+        ledger.actualCurrency,
+        ledger.actualUnitPrice,
+        ledger.taxExcludedUnitPrice,
+        ledger.taxSurcharge,
+        ledger.vatRate,
+        ledger.selfCalculatedUnitPrice,
+        ledger.instanceContractNo,
+        ledger.contractCurrency,
+        ledger.first24MonthPrice,
+        ledger.next36MonthPrice,
+        ledger.differenceUnitPrice,
+        ledger.differenceTotalPrice,
+        DATE_FORMAT(ledger.startMonth, '%Y-%m-%d') AS startMonth,
+        ledger.status
+      FROM billinginstanceledgers AS ledger
+      LEFT JOIN purchaseorderitems AS purchaseItem ON purchaseItem.id = ledger.purchaseOrderItemId
       LEFT JOIN requestitems AS ri ON ri.id = purchaseItem.requestItemId
-      LEFT JOIN requests AS req ON req.requestNo = COALESCE(NULLIF(purchaseItem.requestNo, ''), NULLIF(ri.requestNo, ''), billinginstanceledgers.requestNo)
-      WHERE ledgerId = :ledgerId
+      LEFT JOIN requests AS req ON req.requestNo = COALESCE(NULLIF(purchaseItem.requestNo, ''), NULLIF(ri.requestNo, ''), ledger.requestNo)
+      WHERE ledger.ledgerId = :ledgerId
       LIMIT 1
     `,
     { ledgerId },

@@ -1,4 +1,4 @@
-import { execute, queryRows, type Row } from "./db";
+import { execute, executeInTransaction, queryRows, withTransaction, type Row } from "./db";
 import { firstDayOfMonth } from "./prepayment-workflow";
 import { appendTableFilterOptionConditions, appendTableInFilter, getTableFilterOptionsOrderBy, getTableSort } from "./table-query";
 import {
@@ -279,6 +279,49 @@ export async function confirmPrepaymentWriteOffAdjustment(adjustmentNo: string) 
     `,
     { adjustmentNo },
   );
+
+  return getPrepaymentWriteOffAdjustment(adjustmentNo);
+}
+
+/**
+ * 退回草稿：撤销确认，把该调整单改过的月核销金额还原成调整前的值，
+ * 并清掉来源标记，效果等同这张调整单从未确认。调整单本身保留为草稿可继续修改。
+ */
+export async function rollbackPrepaymentWriteOffAdjustment(adjustmentNo: string) {
+  const { adjustment, items } = await getPrepaymentWriteOffAdjustment(adjustmentNo);
+  if (!adjustment) throw new Error("调整单不存在");
+  if (String(adjustment.status) !== "已确认") throw new Error("只有已确认的调整单可以退回草稿");
+
+  await withTransaction(async (connection) => {
+    for (const item of items) {
+      await executeInTransaction(
+        connection,
+        `
+          UPDATE monthlyprepaymentwriteoffs
+          SET monthlyAmount = :monthlyAmount,
+              sourceType = NULL,
+              adjustmentNo = NULL
+          WHERE id = :id
+            AND adjustmentNo = :adjustmentNo
+        `,
+        {
+          id: String(item.monthlyWriteOffId ?? ""),
+          adjustmentNo,
+          monthlyAmount: Number(item.originalMonthlyAmount ?? 0),
+        },
+      );
+    }
+    await executeInTransaction(
+      connection,
+      `
+        UPDATE prepaymentwriteoffadjustments
+        SET status = '草稿',
+            confirmedAt = NULL
+        WHERE adjustmentNo = :adjustmentNo
+      `,
+      { adjustmentNo },
+    );
+  });
 
   return getPrepaymentWriteOffAdjustment(adjustmentNo);
 }

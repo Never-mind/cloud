@@ -38,6 +38,8 @@ export type EntityConfig = {
   filters: EntityField[];
   defaultSort?: string;
   showSequence?: boolean;
+  /** 开启后列表支持勾选行并批量操作（目前仅月账单台账使用批量删除退回）。 */
+  batchDelete?: boolean;
 };
 
 export type NavGroup = {
@@ -650,6 +652,7 @@ export const entityConfigs: EntityConfig[] = [
     navGroup: "财务管理",
     route: "/finance/billing-ledgers",
     description: "查看已确认月账单实例的合同价格锁定信息。",
+    batchDelete: true,
     filters: [
       { key: "keyword", label: "月账单台账", placeholder: "请输入国家、批次、需求单、PO或实例编码" },
       { key: "requestType", label: "类型", type: "select", options: REQUEST_TYPE_OPTIONS },
