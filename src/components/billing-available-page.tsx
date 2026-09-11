@@ -295,7 +295,7 @@ export function BillingAvailablePage() {
           <table className="min-w-full border-collapse text-sm">
             <thead className="bg-[#f5f7fa] text-[#303133]">
               <tr>
-                <th className="w-12 border-b border-r border-[#ebeef5] px-3 py-3 text-left">
+                <th className="w-8 border-b border-r border-[#ebeef5] px-2 py-3 text-center font-medium">
                 <input checked={allVisibleSelected} type="checkbox" onChange={toggleAllVisible} />
                 </th>
                 {columns.map((column) => (
@@ -316,7 +316,7 @@ export function BillingAvailablePage() {
             <tbody>
               {rows.map((row) => (
                 <tr className="hover:bg-[#fafafa]" key={row.purchaseOrderItemId}>
-                  <td className="border-b border-r border-[#ebeef5] px-3 py-3">
+                  <td className="w-8 border-b border-r border-[#ebeef5] px-2 py-3 text-center">
                     <input checked={selectedIds.includes(row.purchaseOrderItemId)} disabled={!row.instanceContractNo || !row.contractCurrency} type="checkbox" onChange={() => toggleSelected(row)} />
                   </td>
                   {columns.map((column) => (

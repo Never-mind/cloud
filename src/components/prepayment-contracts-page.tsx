@@ -289,7 +289,7 @@ export function PrepaymentContractsPage() {
           <table className="min-w-full border-collapse text-sm">
             <thead className="bg-[#f5f7fa] text-[#303133]">
               <tr>
-                <th className="w-12 border-b border-r border-[#ebeef5] px-3 py-3 text-left">
+                <th className="w-8 border-b border-r border-[#ebeef5] px-2 py-3 text-center font-medium">
                   <input aria-label="全选本页预付款合同" checked={allVisibleSelected} type="checkbox" onChange={toggleAllVisible} />
                 </th>
                 {columns.map((column) => (
@@ -306,7 +306,7 @@ export function PrepaymentContractsPage() {
                 const confirmed = String(row.status ?? "") === "已确认";
                 return (
                   <tr className="hover:bg-[#fafafa]" key={contractNo}>
-                    <td className="border-b border-r border-[#ebeef5] px-3 py-3">
+                    <td className="w-8 border-b border-r border-[#ebeef5] px-2 py-3 text-center">
                       <input
                         aria-label={`选择 ${contractNo}`}
                         checked={selectedNos.includes(contractNo)}
