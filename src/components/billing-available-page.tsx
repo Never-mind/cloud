@@ -295,7 +295,7 @@ export function BillingAvailablePage() {
           <table className="min-w-full border-collapse text-sm">
             <thead className="bg-[#f5f7fa] text-[#303133]">
               <tr>
-                <th className="table-select-cell border-b border-r border-[#ebeef5] py-3 text-center font-medium [&>input]:h-3.5 [&>input]:w-3.5 [&>input]:align-middle">
+                <th className="table-select-cell border-b border-r border-[#ebeef5] py-3 text-center font-medium [&>input]:h-4 [&>input]:w-4 [&>input]:align-middle">
                 <input checked={allVisibleSelected} type="checkbox" onChange={toggleAllVisible} />
                 </th>
                 {columns.map((column) => (
@@ -316,7 +316,7 @@ export function BillingAvailablePage() {
             <tbody>
               {rows.map((row) => (
                 <tr className="hover:bg-[#fafafa]" key={row.purchaseOrderItemId}>
-                  <td className="table-select-cell border-b border-r border-[#ebeef5] py-3 text-center [&>input]:h-3.5 [&>input]:w-3.5 [&>input]:align-middle">
+                  <td className="table-select-cell border-b border-r border-[#ebeef5] py-3 text-center [&>input]:h-4 [&>input]:w-4 [&>input]:align-middle">
                     <input checked={selectedIds.includes(row.purchaseOrderItemId)} disabled={!row.instanceContractNo || !row.contractCurrency} type="checkbox" onChange={() => toggleSelected(row)} />
                   </td>
                   {columns.map((column) => (

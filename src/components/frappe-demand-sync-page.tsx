@@ -414,13 +414,13 @@ export function FrappeDemandSyncPage() {
       <StickyTable className="max-h-[calc(100vh-280px)] overflow-auto" tableKey="frappe-demand-sync-ledger">
         <table className="min-w-[1100px] border-collapse text-sm">
           <thead className="bg-[#f5f7fa]"><tr>
-            <th className="table-select-cell border-b border-r border-[#ebeef5] py-3 text-center font-medium [&>input]:h-3.5 [&>input]:w-3.5 [&>input]:align-middle"><input aria-label="全选需求单" checked={ledger.length > 0 && selectedOrders.length === ledger.length} type="checkbox" onChange={(event) => setSelectedOrders(event.target.checked ? ledger.map((row) => row.sourceOrderId) : [])} /></th>
+            <th className="table-select-cell border-b border-r border-[#ebeef5] py-3 text-center font-medium [&>input]:h-4 [&>input]:w-4 [&>input]:align-middle"><input aria-label="全选需求单" checked={ledger.length > 0 && selectedOrders.length === ledger.length} type="checkbox" onChange={(event) => setSelectedOrders(event.target.checked ? ledger.map((row) => row.sourceOrderId) : [])} /></th>
             {["远端需求单号", "本地需求单号", "明细数", "本地状态", "远端变更", "最后同步", "操作"].map((label) => <th className="border-b border-r border-[#ebeef5] px-3 py-3 text-left font-medium" key={label}>{label}</th>)}
           </tr></thead>
           <tbody>
             {ledger.map((row) => <Fragment key={row.sourceOrderId}>
               <tr className="hover:bg-[#fafafa]">
-                <td className="table-select-cell border-b border-r border-[#ebeef5] py-3 text-center [&>input]:h-3.5 [&>input]:w-3.5 [&>input]:align-middle"><input aria-label={`选择 ${row.sourceOrderId}`} checked={selectedOrders.includes(row.sourceOrderId)} type="checkbox" onChange={() => setSelectedOrders((current) => current.includes(row.sourceOrderId) ? current.filter((id) => id !== row.sourceOrderId) : [...current, row.sourceOrderId])} /></td>
+                <td className="table-select-cell border-b border-r border-[#ebeef5] py-3 text-center [&>input]:h-4 [&>input]:w-4 [&>input]:align-middle"><input aria-label={`选择 ${row.sourceOrderId}`} checked={selectedOrders.includes(row.sourceOrderId)} type="checkbox" onChange={() => setSelectedOrders((current) => current.includes(row.sourceOrderId) ? current.filter((id) => id !== row.sourceOrderId) : [...current, row.sourceOrderId])} /></td>
                 <td className="border-b border-r border-[#ebeef5] px-3 py-3 font-mono text-xs">{row.sourceOrderId}</td>
                 <td className="border-b border-r border-[#ebeef5] px-3 py-3 font-mono text-xs">{display(row.localRequestNo)}</td>
                 <td className="border-b border-r border-[#ebeef5] px-3 py-3 text-right">{row.itemCount}</td>
