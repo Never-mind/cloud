@@ -8,6 +8,7 @@ import { formatDisplayValue } from "@/lib/display-format";
 import { DEFAULT_PAGE_SIZE } from "@/lib/pagination";
 import { buildDetailRoute, buildListRoute, getCurrentRoute, useListScrollPosition } from "@/lib/client-list-navigation";
 import { Button, Input, Panel } from "./ui";
+import { Modal } from "./modal";
 import { confirmDialog, notify } from "./app-dialog";
 import { PaginationBar } from "./pagination-bar";
 import { StickyTable } from "./sticky-table";
@@ -359,39 +360,35 @@ export function PrepaymentContractsPage() {
         <PaginationBar page={page} pageSize={pageSize} total={total} onPageChange={(next) => { setPage(next); void loadData(next, pageSizeRef.current); }} onPageSizeChange={(next) => { pageSizeRef.current = next; setPageSize(next); setPage(1); void loadData(1, next); }} />
       </Panel>
       {showCreate ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 p-4">
-          <div className="w-full max-w-xl border border-line bg-white shadow-xl">
-            <div className="flex items-center border-b border-line-soft px-5 py-4">
-              <div>
-                <h2 className="font-medium text-ink">新建空白预付款合同</h2>
-                <p className="mt-1 text-xs text-ink-3">适用于没有实例、仅登记费用明细的预付款合同。</p>
-              </div>
-              <button className="ml-auto text-ink-3 hover:text-ink" onClick={() => setShowCreate(false)} type="button">
-                <X size={18} />
-              </button>
-            </div>
-            <div className="grid gap-4 p-5 sm:grid-cols-2">
-              <label className="sm:col-span-2">
-                <span className="mb-1 block text-sm text-ink-2">预付款合同号</span>
-                <Input className="w-full" value={newContractNo} onChange={(event) => setNewContractNo(event.target.value)} />
-              </label>
-              <label>
-                <span className="mb-1 block text-sm text-ink-2">合同币种</span>
-                <select className="h-9 w-full rounded border border-line bg-white px-3 text-sm" value={newCurrency} onChange={(event) => setNewCurrency(event.target.value)}>
-                  {["CNY", "MXN", "CLP", "USD", "BRL"].map((currency) => <option key={currency} value={currency}>{currency}</option>)}
-                </select>
-              </label>
-              <label>
-                <span className="mb-1 block text-sm text-ink-2">生效日期</span>
-                <Input className="w-full" type="date" value={newEffectiveDate} onChange={(event) => setNewEffectiveDate(event.target.value)} />
-              </label>
-            </div>
-            <div className="flex justify-end gap-2 border-t border-line-soft px-5 py-4">
+        <Modal
+          description="适用于没有实例、仅登记费用明细的预付款合同。"
+          footer={
+            <>
               <Button disabled={creating} onClick={() => setShowCreate(false)}>取消</Button>
               <Button disabled={creating} tone="primary" onClick={() => void createBlankDraft()}>{creating ? "创建中" : "创建并进入明细"}</Button>
-            </div>
+            </>
+          }
+          onClose={() => setShowCreate(false)}
+          title="新建空白预付款合同"
+          widthClass="max-w-xl"
+        >
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className="sm:col-span-2">
+              <span className="mb-1 block text-sm text-ink-2">预付款合同号</span>
+              <Input className="w-full" value={newContractNo} onChange={(event) => setNewContractNo(event.target.value)} />
+            </label>
+            <label>
+              <span className="mb-1 block text-sm text-ink-2">合同币种</span>
+              <select className="h-9 w-full rounded border border-line bg-white px-3 text-sm" value={newCurrency} onChange={(event) => setNewCurrency(event.target.value)}>
+                {["CNY", "MXN", "CLP", "USD", "BRL"].map((currency) => <option key={currency} value={currency}>{currency}</option>)}
+              </select>
+            </label>
+            <label>
+              <span className="mb-1 block text-sm text-ink-2">生效日期</span>
+              <Input className="w-full" type="date" value={newEffectiveDate} onChange={(event) => setNewEffectiveDate(event.target.value)} />
+            </label>
           </div>
-        </div>
+        </Modal>
       ) : null}
     </div>
   );

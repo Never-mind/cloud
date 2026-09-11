@@ -362,6 +362,25 @@ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
 - 标题左上，关闭按钮右上。
 - 弹窗内容超过视口高度时内部滚动。
 
+**实现约定**：统一使用 `src/components/modal.tsx` 的 `Modal`，不要各页面手写浮层。历史上 16 个弹层写过 4 种遮罩浓度（`bg-black/20`~`/45`）、8 种层级（`z-50`/`z-[60]`~`z-[130]`）、两套标题区（扁平 `p-6` 与分段带边框），导致弹窗叠弹窗时层级不可预测。
+
+```tsx
+<Modal
+  title="新建合同"
+  description="可选补充说明"
+  widthClass="max-w-xl"
+  onClose={close}
+  footer={<><Button onClick={close}>取消</Button><Button tone="primary" onClick={save}>保存</Button></>}
+>
+  …表单字段…
+</Modal>
+```
+
+- 遮罩统一 `bg-black/40`，面板统一 `rounded border border-line-soft`，标题区带下边框、底部按钮区带上边框。
+- 层级约定：普通弹窗 `z-[100]`、确认框 `z-[90]`、轻提示 `z-[95]`、工作区导航 `z-[130]`。
+- 内置 Esc 关闭与 `role="dialog" aria-modal="true"`。
+- 需要整块作为表单提交时传 `panelAs="form"` 与 `panelProps={{ action: saveRow }}`。
+
 ### 7.2 表单布局
 
 表单优先使用两列布局。
@@ -661,12 +680,24 @@ notify(error instanceof Error ? error.message : "保存失败", "error");
 | 原生弹窗 | ✅ 新增 `confirmDialog` + `notify`，替换 52 处 `confirm` 与 160 处 `alert` |
 | 容器圆角 | ✅ `Panel` 补齐 4px 圆角与裁切，与控件一致；清理 8 处冗余 `overflow-hidden` |
 | 硬编码颜色 | ✅ 2,547 处 → 169 处，工具类下沉到语义令牌，新增 12 个状态色变体令牌 |
+| 弹窗外壳 | 🟡 新增 `Modal` 组件并统一遮罩/层级/圆角规范，已改造 1/16 处，其余待迁移 |
 
 ### 13.3 待整改
 
 1. 剩余 169 处硬编码颜色：其中约 40 处在 SVG 属性与 JS `style` 对象里（`home-dashboard-panel` 图表、`sticky-table`、`table-column-menu`），其余是使用 1~6 次的长尾色值，可按需继续收敛或合并。
 2. 约 125 个符号导出后只在自身文件内使用，可去掉 `export` 收缩模块对外接口。
 3. 下拉浮层、图表区域等非表格位置的加载态，改用 `LoadingBlock`。
+4. 其余 15 个手写弹层迁移到 `Modal`（客户 PO、华为云对账 ×4、通用实体页表单、物流字段设置、结差公式说明、内部服务费、CAPEX 锚定价格等）。
+
+### 13.5 关于表格类名重复（暂不处理）
+
+`border-b border-r border-line-soft` 这类组合在页面里重复出现约 400 次，但**不建议为此做全局替换**：
+
+- 颜色已经通过令牌集中控制，改色只改 `@theme` 一处。
+- 结构性调整（去纵线、加斑马纹）已在 `globals.css` 用过层规则覆盖实现，`globals.css` 里未分层的规则优先级高于 Tailwind 工具类，照样能一处改全局。
+- 如果把边框和内边距下沉为公共样式，反而会和页面里已有的 `px-2`、`py-2`、`border-t` 等特例冲突，造成难以察觉的视觉回归。
+
+因此保留现状，只有当某个页面的表格结构确实需要独立抽象时再处理。
 
 ### 13.4 状态色令牌对照
 
