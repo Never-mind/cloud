@@ -215,12 +215,18 @@ textarea {
   background-color: #eef4fd;
 }
 
-/* 锁定列与固定操作列自带白底，需要跟着斑马纹和悬停同步，否则会出现白块。 */
+/* 固定列（右侧操作列、锁定列）自带白底，会盖住行的斑马纹与悬停底色，
+   表现为"悬停时一行里有一段空白"。这里让固定列单元格跟随行底色。
+   下面选择器同时覆盖两种写法：
+   - 类名式：页面直接写 `sticky right-0 ... bg-white`（历史上 13 个页面这样用）
+   - 属性式：`data-cloud-power-action-column="1"` / `data-cloud-power-locked="1"` */
+.table-scroll > table > tbody > tr:nth-child(even) > td.sticky,
 .table-scroll > table > tbody > tr:nth-child(even) > [data-cloud-power-locked="1"],
 .table-scroll > table > tbody > tr:nth-child(even) > [data-cloud-power-action-column="1"] {
   background-color: #fafbfd;
 }
 
+.table-scroll > table > tbody > tr:hover > td.sticky,
 .table-scroll > table > tbody > tr:hover > [data-cloud-power-locked="1"],
 .table-scroll > table > tbody > tr:hover > [data-cloud-power-action-column="1"] {
   background-color: #eef4fd;
