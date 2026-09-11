@@ -57,14 +57,6 @@ export function getPurchasePriceReferenceKey(countryCode: unknown, deviceCode: u
   return `${normalizeCountryCode(countryCode)}::${String(deviceCode ?? "").trim()}`;
 }
 
-export function buildPurchasePriceReferenceMap(references: PurchasePriceReference[]) {
-  return new Map(
-    references
-      .filter((reference) => String(reference.contractNo ?? "").trim())
-      .map((reference) => [getPurchasePriceReferenceKey(reference.countryCode, reference.deviceCode), reference]),
-  );
-}
-
 function normalizeCountryCode(value: unknown) {
   const source = String(value ?? "").trim().toUpperCase();
   if (source === "墨西哥") return "MX";

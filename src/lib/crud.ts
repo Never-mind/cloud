@@ -1252,11 +1252,6 @@ export async function deleteEntityRow(config: EntityConfig, id: string) {
   if (previousBody) await syncPrimaryContact(config, previousBody);
 }
 
-export async function replaceEntityRows(config: EntityConfig, rows: Row[]) {
-  for (const row of rows) {
-    await upsertEntityRow(config, row);
-  }
-}
 
 export async function upsertEntityRow(config: EntityConfig, row: Row) {
   const identity = getRowIdentity(config, row);

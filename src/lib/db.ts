@@ -95,15 +95,6 @@ export function physicalTableName(tableName: string) {
   return `${DB_TABLE_PREFIX}${normalizedTableName}`;
 }
 
-export function legacyPhysicalTableName(tableName: string) {
-  const normalizedTableName = tableName.toLowerCase();
-  if (LEGACY_DB_TABLE_PREFIXES.some((prefix) => normalizedTableName.startsWith(prefix))) {
-    return tableName;
-  }
-  if (!LOGICAL_TABLE_SET.has(normalizedTableName)) return tableName;
-  return `power_${normalizedTableName}`;
-}
-
 export function rewriteSqlTables(sql: string) {
   return sql
     .replace(LEGACY_TABLE_PATTERN, (tableName) => physicalTableName(tableName))
@@ -161,10 +152,6 @@ export async function hasTableColumn(tableName: string, columnName: string) {
   const present = Array.isArray(rows) && rows.length > 0;
   schemaColumnCache.set(cacheKey, present);
   return present;
-}
-
-export function clearDbMetadataCache() {
-  schemaColumnCache.clear();
 }
 
 export async function queryRows<T extends Row>(sql: string, params: Row = {}): Promise<T[]> {

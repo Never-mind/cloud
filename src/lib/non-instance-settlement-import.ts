@@ -23,8 +23,6 @@ export const NON_INSTANCE_EXPENSE_TYPES = [
 
 export const NON_INSTANCE_SETTLEMENT_CURRENCIES = ["USD", "CNY", "BRL", "MXN", "CLP"] as const;
 
-export type NonInstanceExpenseType = (typeof NON_INSTANCE_EXPENSE_TYPES)[number];
-
 export type NonInstanceCalculationResult = {
   values: Record<string, number | string>;
   formula: string;

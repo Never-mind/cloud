@@ -2,8 +2,6 @@ import { randomUUID } from "node:crypto";
 import { execute, queryRows, type Row } from "./db";
 import { appendTableInFilter, formatTableDateExpression, getTableSort, listSqlFilterOptions } from "./table-query";
 
-export const CAPEX_PRICING_STATUSES = ["草稿", "已确认", "已废止"] as const;
-
 export type CapexPricingLineInput = {
   id?: string;
   deviceCode: string;
@@ -603,42 +601,4 @@ export async function getCapexPricingCalculation(versionId: string, itemId: stri
     { countryCode: item.countryCode, deviceCode: item.deviceCode, b6Type: item.b6Type },
   );
   return { item, history };
-}
-
-export function capexPricingTemplateColumns() {
-  return [
-    ["deviceCode", "设备编码"], ["b6Type", "B6类型"], ["baseCapexPrice", "整机价格（不含VAT）"],
-    ["priceCurrency", "整机价格币种"], ["contractCurrency", "SL合同币种"], ["exchangeRate", "整机价转合同汇率"],
-    ["deviceVatRate", "当地设备VAT"], ["serviceVatRate", "当地服务VAT"], ["onsiteRmaRate", "Onsite+RMA费率"],
-    ["fundingAnnualRate", "资金占用年利率"], ["fundingMonths", "资金占用月数"], ["transportClearanceRate", "运保清关费率"],
-    ["handlingRate", "总代过手费率"], ["otherTaxRate", "其他税费率"], ["brazilServiceTaxRate", "巴西服务税率"],
-  ] as const;
-}
-
-export function buildCapexPricingTemplateRow(countryCode: string) {
-  const brazil = isBrazil(countryCode);
-  return {
-    deviceCode: "",
-    b6Type: "B62-A7",
-    baseCapexPrice: "",
-    priceCurrency: "CNY",
-    contractCurrency: "USD",
-    exchangeRate: DEFAULT_EXCHANGE_RATE,
-    deviceVatRate: brazil ? 0 : "",
-    serviceVatRate: brazil ? 0 : "",
-    onsiteRmaRate: 0,
-    fundingAnnualRate: 0.04,
-    fundingMonths: 0,
-    transportClearanceRate: brazil ? 0.16 : 0.02,
-    handlingRate: brazil ? 0.09 : 0,
-    otherTaxRate: brazil ? 0.57 : 0,
-    brazilServiceTaxRate: brazil ? 0.029 : 0,
-  };
-}
-
-export function formatCapexPricingItemForExport(item: Row) {
-  return {
-    ...item,
-    effectiveDate: normalizeDate(item.effectiveDate),
-  };
 }

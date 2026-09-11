@@ -25,14 +25,6 @@ type PurchaseLineRow = BillingPurchaseLine & {
   requestStatus?: string | null;
 };
 
-export type AvailableBillingLine = BillingPurchaseLine & {
-  instanceContractNo: string;
-  contractCurrency: string;
-  first24MonthPrice: number;
-  next36MonthPrice: number;
-  startMonth: string;
-};
-
 export type BillingAdjustmentDetail = {
   id?: string;
   adjustmentNo?: string;

@@ -210,10 +210,6 @@ type ProjectQuotationItem = {
   revenueUsd: number | null;
 };
 
-const PROJECT_COLUMNS = [
-  "projectNo", "projectName", "remark", "exchangeRateUsd", "exchangeRateMxn",
-] as const;
-
 function text(value: unknown) {
   return value === null || value === undefined ? "" : String(value).trim();
 }
@@ -1157,5 +1153,3 @@ export async function importUnpurchasedSettlementItems(projectId: string, source
   if (success) await touchAndRecalculate(projectId, actor);
   return { total: sourceRows.length, success, failed };
 }
-
-export const settlementProjectWritableColumns = PROJECT_COLUMNS;

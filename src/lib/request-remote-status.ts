@@ -1,17 +1,4 @@
 /** 远端履约状态（Frappe Demand Order Item.status）与本地展示名的映射。 */
-export const REQUEST_REMOTE_STATUS_VALUES = [
-  "Issued to Supplier",
-  "Confirmed",
-  "Committed",
-  "Handed Over",
-  "Shipped",
-  "Arrived",
-  "Received",
-  "Cancelled",
-] as const;
-
-export type RequestRemoteStatus = (typeof REQUEST_REMOTE_STATUS_VALUES)[number];
-
 export const REQUEST_REMOTE_STATUS_OPTIONS = [
   { label: "采履下发供应商", value: "Issued to Supplier" },
   { label: "采履已确认", value: "Confirmed" },

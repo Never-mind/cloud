@@ -384,10 +384,6 @@ export function getRoutePermission(pathname: string, method = "GET") {
   return matched ? { moduleKey: matched.moduleKey, action: getMethodAction(normalizedPath, method) } : null;
 }
 
-export function permissionBit(action: PermissionAction) {
-  return ACTION_BITS[action];
-}
-
 export function permissionMask(flags: Partial<PermissionFlags>) {
   return PERMISSION_ACTIONS.reduce((mask, action) => {
     const key = `can${action[0].toUpperCase()}${action.slice(1)}` as keyof PermissionFlags;

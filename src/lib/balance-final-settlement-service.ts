@@ -403,14 +403,3 @@ export async function voidFinalBalanceSettlement(finalSettlementNo: string) {
   );
   return getFinalBalanceSettlement(finalSettlementNo);
 }
-
-export async function getFinalBalanceSettlementSummary({ countryCode = "" }: { countryCode?: string }) {
-  return queryRows<Row>(
-    `
-      SELECT * FROM balancesettlementfinals
-      WHERE status = :status ${text(countryCode) ? "AND countryCode = :countryCode" : ""}
-      ORDER BY periodEnd DESC, confirmedAt DESC, createdAt DESC
-    `,
-    text(countryCode) ? { status: CONFIRMED, countryCode: text(countryCode) } : { status: CONFIRMED },
-  );
-}

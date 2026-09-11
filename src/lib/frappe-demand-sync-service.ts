@@ -1481,5 +1481,4 @@ export async function listFrappeDemandSyncRuns() {
   };
 }
 
-export const frappeDemandMappingTypes = activeMappingSourceTypes;
 export { requestItemType, sourceHash };

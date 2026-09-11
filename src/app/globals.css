@@ -163,6 +163,9 @@ textarea {
      被白白撑宽，表格整体变宽并频繁出现横向滚动。降到 4rem 只保留一个防挤压
      底线，其余交给内容决定宽度。 */
   min-width: 4rem;
+  /* 去掉单元格纵向分隔线：字段多的表格纵向线条太密，横向阅读容易串行。
+     保留横向分隔线，配合下面的斑马纹已经足够区分行。 */
+  border-right-width: 0;
 }
 
 /* 批量选择列只放一个复选框，不受上面 7rem 最小宽度约束；40px 列宽配 16px 复选框，左右各 8px 内边距。 */
@@ -188,8 +191,25 @@ textarea {
   background: #ffffff;
 }
 
-.table-scroll tbody tr:hover > [data-cloud-power-locked="1"] {
-  background: #fafafa;
+/* 斑马纹与悬停：整体很淡，只用来辅助横向看行。
+   底色加在 tr 上，带自定义底色的单元格（状态标记等）仍会覆盖它。 */
+.table-scroll > table > tbody > tr:nth-child(even) {
+  background-color: #fafbfd;
+}
+
+.table-scroll > table > tbody > tr:hover {
+  background-color: #eef4fd;
+}
+
+/* 锁定列与固定操作列自带白底，需要跟着斑马纹和悬停同步，否则会出现白块。 */
+.table-scroll > table > tbody > tr:nth-child(even) > [data-cloud-power-locked="1"],
+.table-scroll > table > tbody > tr:nth-child(even) > [data-cloud-power-action-column="1"] {
+  background-color: #fafbfd;
+}
+
+.table-scroll > table > tbody > tr:hover > [data-cloud-power-locked="1"],
+.table-scroll > table > tbody > tr:hover > [data-cloud-power-action-column="1"] {
+  background-color: #eef4fd;
 }
 
 /* Keep every table's action column available while its other columns scroll. */
