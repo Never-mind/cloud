@@ -73,7 +73,7 @@ export function normalizeEntityImportRow(config: EntityConfig, row: Row): Row {
  * 物流导入的额外字段：地址ID 与收件人ID 不在表单字段里，但历史模板按这两列填写，
  * 需要放行到 mergeShipmentImportRow 去解析成档案或展示文本。
  */
-const SHIPMENT_EXTRA_IMPORT_FIELDS = ["destinationLocationId", "recipientContactId"] as const;
+const SHIPMENT_EXTRA_IMPORT_FIELDS = ["destinationLocationId", "recipientContactId", "dcCode"] as const;
 
 /**
  * Maps spreadsheet headers to the internal field names used by an entity.

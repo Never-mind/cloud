@@ -86,8 +86,15 @@ export function mergeShipmentImportRow({
   }
 
   const importedDcCode = normalizeText(imported.dcCode);
-  if (importedDcCode && datacenter?.nameZh && isBlankImportValue(imported.dcNameZh)) {
-    merged.dcNameZh = datacenter.nameZh;
+  if (importedDcCode && !datacenter) {
+    // 填的是机房名称文本、匹配不到机房档案时，按展示名称写入，保留原机房编码。
+    merged.dcCode = normalizeText(existing?.dcCode);
+    merged.dcNameZh = importedDcCode;
+  } else if (importedDcCode && datacenter) {
+    merged.dcCode = datacenter.dcCode;
+    if (datacenter.nameZh && isBlankImportValue(imported.dcNameZh)) {
+      merged.dcNameZh = datacenter.nameZh;
+    }
   } else {
     applyFallback(merged, "dcNameZh", datacenter?.nameZh);
   }
