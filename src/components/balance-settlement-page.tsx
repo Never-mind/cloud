@@ -10,6 +10,7 @@ import { StickyTable } from "./sticky-table";
 import { TableColumnMenu, type TableSortOrder } from "./table-column-menu";
 import { Button, Input, Panel } from "./ui";
 import { Modal } from "./modal";
+import { NumberInput } from "./number-input";
 import { confirmDialog, notify } from "./app-dialog";
 import { TableStateContent } from "./table-state";
 
@@ -438,7 +439,7 @@ export function BalanceSettlementPage() {
                       <td className="table-select-cell border-b border-r border-line-soft py-3 text-center [&>input]:h-4 [&>input]:w-4 [&>input]:align-middle"><input type="checkbox" disabled={!canGenerate} checked={selectedIds.includes(row.id)} onChange={() => toggleCandidate(row)} /></td>
                       {[["countryCode"], ["batchName"], ["requestNo"], ["poNo"], ["deviceCode"], ["modelCode"], ["nameEn"], ["undertakingUnitCode"], ["supplierCode"], ["customerCode"], ["quantity", "number"], ["procurementCurrency"], ["capexUnitPrice", "money"], ["opexUnitPrice", "money"]].map(([key, kind]) => <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3" key={key}>{formatValue(row[key], kind as "money" | "number")}</td>)}
                       <td className="border-b border-r border-line-soft px-3 py-2">
-                        {asText(row.procurementCurrency).toUpperCase() === "USD" ? <span>1.000000</span> : <input className="h-8 w-28 rounded border border-line px-2 text-sm" type="number" min="0" step="0.000001" value={settlementRates[row.id] ?? ""} onChange={(event) => setSettlementRates((current) => ({ ...current, [row.id]: event.target.value }))} />}
+                        {asText(row.procurementCurrency).toUpperCase() === "USD" ? <span>1.000000</span> : <NumberInput bare className="h-8 w-28 rounded border border-line px-2 text-sm" min="0" step="0.000001" value={settlementRates[row.id] ?? ""} onChange={(text) => setSettlementRates((current) => ({ ...current, [row.id]: text }))} />}
                       </td>
                       <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3">{formatMoney(row.anchorCapexUnitPrice)}</td>
                       <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3">{formatMoney(row.anchorOpexUnitPrice)}</td>

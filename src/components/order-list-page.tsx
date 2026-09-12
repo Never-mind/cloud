@@ -220,11 +220,17 @@ export function OrderListPage({
 
   async function confirmRequestOrder(requestNo: string) {
     setConfirmingId(requestNo);
-    await fetch("/api/procurement/from-request", {
+    const response = await fetch("/api/procurement/from-request", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ requestNo }),
     });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      setConfirmingId("");
+      notify(data.error ?? "确认需求单失败", "error");
+      return;
+    }
     await loadData(1, pageSizeRef.current, "confirmed");
     setConfirmingId("");
     setStatusTab("confirmed");
@@ -233,9 +239,15 @@ export function OrderListPage({
 
   async function confirmPurchaseOrder(poNo: string) {
     setConfirmingId(poNo);
-    await fetch(`/api/procurement/${encodeURIComponent(poNo)}/confirm`, {
+    const response = await fetch(`/api/procurement/${encodeURIComponent(poNo)}/confirm`, {
       method: "POST",
     });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      setConfirmingId("");
+      notify(data.error ?? "确认采购订单失败", "error");
+      return;
+    }
     await loadData(page, pageSizeRef.current);
     setConfirmingId("");
   }
@@ -631,7 +643,7 @@ export function OrderListPage({
                               onClick={() => void confirmRequestOrder(id)}
                             >
                               <CheckCircle2 size={15} />
-                              {confirmed || confirmingId === id ? "已确认" : "确认需求单"}
+                              {confirmed ? "已确认" : confirmingId === id ? "确认中..." : "确认需求单"}
                             </Button>
                             <Button disabled={batchDeleting || deletingId === id} tone="danger" onClick={() => void deleteOrder(id)}>
                               <Trash2 size={15} />
@@ -646,7 +658,7 @@ export function OrderListPage({
                               onClick={() => void confirmPurchaseOrder(id)}
                             >
                               <CheckCircle2 size={15} />
-                              {confirmed || confirmingId === id ? "已确认" : "确认采购"}
+                              {confirmed ? "已确认" : confirmingId === id ? "确认中..." : "确认采购"}
                             </Button>
                             <Button disabled={deletingId === id} tone="danger" onClick={() => void deleteOrder(id)}>
                               <Trash2 size={15} />

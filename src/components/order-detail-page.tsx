@@ -17,6 +17,8 @@ import { PurchaseOrderDemandPlanTabs } from "./purchase-order-demand-plan-tabs";
 import { getReturnTo } from "@/lib/client-list-navigation";
 import { readJsonResponse } from "@/lib/client-response";
 import { AuditInfoBar, Button, Input, Panel } from "./ui";
+import { NumberInput as NumberField } from "./number-input";
+import { notify } from "./app-dialog";
 import { StickyTable } from "./sticky-table";
 import { PowerPriceCalculationDrawer } from "./power-price-calculation-drawer";
 
@@ -146,7 +148,9 @@ export function OrderDetailPage({
       method: "POST",
     });
     if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
       setConfirming(false);
+      notify(data.error ?? "确认采购订单失败", "error");
       return;
     }
     await loadData();
@@ -314,7 +318,7 @@ export function OrderDetailPage({
                   onClick={() => void confirmPurchaseOrder()}
                 >
                   <CheckCircle2 size={15} />
-                  {String(master.status ?? "") === "已确认" || confirming ? "已确认" : "确认采购"}
+                  {String(master.status ?? "") === "已确认" ? "已确认" : confirming ? "确认中..." : "确认采购"}
                 </Button>
               </>
             )}
@@ -361,7 +365,7 @@ export function OrderDetailPage({
             ))}
             <label>
               <span className="mb-1 block text-xs text-ink-3">整机价转合同汇率（CNY → USD）</span>
-              <Input className="w-full min-w-0" step="0.000000000000001" type="number" value={formatNumericInputValue(Number(masterDraft.usdRate ?? 0))} onChange={(event) => updateMasterDraft("usdRate", parseNumericInputValue(event.target.value))} />
+              <NumberField className="w-full min-w-0" step="0.000000000000001" value={masterDraft.usdRate as string | number | null | undefined} onChange={(text) => updateMasterDraft("usdRate", parseNumericInputValue(text))} />
             </label>
             <Info label="总数量" value={totalQuantity} />
             {mode === "purchase" ? <Info label="采购总金额" value={purchaseTotalAmount} type="money" /> : null}
@@ -477,12 +481,11 @@ function Info({ label, value, type }: { label: string; value: unknown; type?: st
 
 function NumberInput({ onChange, value }: { onChange: (value: number) => void; value: number }) {
   return (
-    <Input
+    <NumberField
       className="w-28 min-w-0"
       step="0.0001"
-      type="number"
-      value={formatNumericInputValue(value)}
-      onChange={(event) => onChange(parseNumericInputValue(event.target.value))}
+      value={value}
+      onChange={(text) => onChange(parseNumericInputValue(text))}
     />
   );
 }

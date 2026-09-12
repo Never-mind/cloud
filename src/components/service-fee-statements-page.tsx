@@ -12,6 +12,7 @@ import { StickyTable } from "./sticky-table";
 import { TableColumnMenu, type TableFilterOption, type TableSortOrder } from "./table-column-menu";
 import { useRequestGuard } from "@/lib/table-query-client";
 import { Button, Input, Panel } from "./ui";
+import { NumberInput } from "./number-input";
 import { Modal } from "./modal";
 import { confirmDialog, notify } from "./app-dialog";
 import { TableStateContent } from "./table-state";
@@ -726,13 +727,13 @@ export function ServiceFeeStatementsPage() {
                 </select>
               </RepaymentField>
               <RepaymentField label="回款未税金额">
-                <Input className="w-full min-w-0" type="number" step="0.01" value={repaymentDraft.repaymentAmountExcludingTax} onChange={(event) => updateRepaymentTaxField("excludingTax", event.target.value)} />
+                <NumberInput className="w-full min-w-0" step="0.01" value={repaymentDraft.repaymentAmountExcludingTax} onChange={(text) => updateRepaymentTaxField("excludingTax", text)} />
               </RepaymentField>
               <RepaymentField label="回款税率（%）">
-                <Input className="w-full min-w-0" type="number" min="0" step="0.01" value={repaymentDraft.repaymentVatRate} onChange={(event) => updateRepaymentTaxField("vatRate", event.target.value)} />
+                <NumberInput className="w-full min-w-0" min="0" step="0.01" value={repaymentDraft.repaymentVatRate} onChange={(text) => updateRepaymentTaxField("vatRate", text)} />
               </RepaymentField>
               <RepaymentField label="回款含税金额">
-                <Input className="w-full min-w-0" type="number" step="0.01" value={repaymentDraft.repaymentAmount} onChange={(event) => updateRepaymentTaxField("includingTax", event.target.value)} />
+                <NumberInput className="w-full min-w-0" step="0.01" value={repaymentDraft.repaymentAmount} onChange={(text) => updateRepaymentTaxField("includingTax", text)} />
               </RepaymentField>
               <RepaymentField label="回款日期">
                 <Input className="w-full min-w-0" type="date" value={repaymentDraft.repaymentDate} onChange={(event) => setRepaymentDraft((current) => current ? { ...current, repaymentDate: event.target.value } : current)} />
@@ -773,13 +774,13 @@ export function ServiceFeeStatementsPage() {
                 <Input className="w-full min-w-0" value={invoiceDraft.invoiceCurrency} placeholder="例如 USD、CNY" onChange={(event) => setInvoiceDraft((current) => current ? { ...current, invoiceCurrency: event.target.value.toUpperCase() } : current)} />
               </RepaymentField>
               <RepaymentField label="发票未税金额">
-                <Input className="w-full min-w-0" type="number" step="0.01" value={invoiceDraft.invoiceAmountExcludingTax} onChange={(event) => updateInvoiceTaxField("excludingTax", event.target.value)} />
+                <NumberInput className="w-full min-w-0" step="0.01" value={invoiceDraft.invoiceAmountExcludingTax} onChange={(text) => updateInvoiceTaxField("excludingTax", text)} />
               </RepaymentField>
               <RepaymentField label="发票税率（%）">
-                <Input className="w-full min-w-0" type="number" min="0" step="0.01" value={invoiceDraft.invoiceVatRate} onChange={(event) => updateInvoiceTaxField("vatRate", event.target.value)} />
+                <NumberInput className="w-full min-w-0" min="0" step="0.01" value={invoiceDraft.invoiceVatRate} onChange={(text) => updateInvoiceTaxField("vatRate", text)} />
               </RepaymentField>
               <RepaymentField label="发票含税金额">
-                <Input className="w-full min-w-0" type="number" step="0.01" value={invoiceDraft.invoiceAmountIncludingTax} onChange={(event) => updateInvoiceTaxField("includingTax", event.target.value)} />
+                <NumberInput className="w-full min-w-0" step="0.01" value={invoiceDraft.invoiceAmountIncludingTax} onChange={(text) => updateInvoiceTaxField("includingTax", text)} />
               </RepaymentField>
               <RepaymentField label="应收日期">
                 <Input className="w-full min-w-0" type="date" value={invoiceDraft.receivableDate} onChange={(event) => setInvoiceDraft((current) => current ? { ...current, receivableDate: event.target.value } : current)} />

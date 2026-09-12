@@ -9,6 +9,7 @@ import { StickyTable } from "./sticky-table";
 import { TableColumnMenu, type TableFilterOption, type TableSortOrder } from "./table-column-menu";
 import { useRequestGuard } from "@/lib/table-query-client";
 import { Button, Input, Panel, Textarea } from "./ui";
+import { NumberInput } from "./number-input";
 import { confirmDialog, notify } from "./app-dialog";
 import { TableStateContent } from "./table-state";
 
@@ -239,7 +240,7 @@ export function InternalServiceFeesPage() {
       </Panel>
       {adjustingRow && <Panel className="fixed inset-x-0 bottom-5 z-50 mx-auto w-[min(720px,calc(100vw-32px))] shadow-xl">
         <div className="border-b border-line-soft px-4 py-3 font-medium text-ink">内部服务费区间调整：{String(adjustingRow.deviceCode ?? "")}</div>
-        <div className="grid gap-3 p-4 sm:grid-cols-2"><Input type="month" value={adjustmentStart} onChange={(event) => setAdjustmentStart(event.target.value)} /><Input type="month" value={adjustmentEnd} onChange={(event) => setAdjustmentEnd(event.target.value)} /><Input type="number" step="0.01" placeholder="每月内部服务费（未税）" value={adjustmentAmount} onChange={(event) => setAdjustmentAmount(event.target.value)} /><Textarea className="min-h-9" placeholder="调整原因" value={adjustmentReason} onChange={(event) => setAdjustmentReason(event.target.value)} /></div>
+        <div className="grid gap-3 p-4 sm:grid-cols-2"><Input type="month" value={adjustmentStart} onChange={(event) => setAdjustmentStart(event.target.value)} /><Input type="month" value={adjustmentEnd} onChange={(event) => setAdjustmentEnd(event.target.value)} /><NumberInput step="0.01" placeholder="每月内部服务费（未税）" value={adjustmentAmount} onChange={(text) => setAdjustmentAmount(text)} /><Textarea className="min-h-9" placeholder="调整原因" value={adjustmentReason} onChange={(event) => setAdjustmentReason(event.target.value)} /></div>
         <div className="flex justify-end gap-2 border-t border-line-soft p-3"><Button onClick={() => setAdjustingRow(null)}>取消</Button><Button tone="primary" onClick={() => void saveAdjustment()}>确认调整并重算剩余月份</Button></div>
       </Panel>}
     </div>

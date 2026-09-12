@@ -10,6 +10,7 @@ import {
   type PrepaymentMonthlyWriteOffForAdjustment,
 } from "@/lib/prepayment-adjustment-workflow";
 import { Button, Input, Panel } from "./ui";
+import { NumberInput } from "./number-input";
 import { AutoGrowTextarea } from "./auto-grow-textarea";
 import { confirmDialog, notify } from "./app-dialog";
 import { PaginationBar } from "./pagination-bar";
@@ -411,12 +412,11 @@ function AdjustmentTable({
                   </td>
                 ))}
                 <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3">
-                  <Input
+                  <NumberInput
                     className="min-w-[120px]"
-                    type="number"
                     step="0.0001"
                     value={adjustedAmounts[id] ?? ""}
-                    onChange={(event) => onAmountChange(id, event.target.value)}
+                    onChange={(text) => onAmountChange(id, text)}
                   />
                 </td>
                 <td className="sticky right-0 whitespace-nowrap border-b border-line-soft bg-white px-3 py-3">

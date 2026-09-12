@@ -13,6 +13,7 @@ import { buildDetailRoute, getReturnTo } from "@/lib/client-list-navigation";
 import { exportRowsToXlsx } from "@/lib/client-xlsx-export";
 import { getPartyReferenceLabel, resolvePartyReference } from "@/lib/party-reference";
 import { AuditInfoBar, Button, Input, Panel } from "./ui";
+import { NumberInput as NumberField } from "./number-input";
 import { notify } from "./app-dialog";
 import { StickyTable } from "./sticky-table";
 
@@ -504,13 +505,12 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
                       />
                     </td>
                     <td className="border-b border-r border-line-soft px-3 py-3">
-                      <Input
+                      <NumberField
                         className="w-28 min-w-0"
                         min={0}
                         disabled={!canEdit}
-                        type="number"
-                        value={formatNumericInputValue(detail.quantity)}
-                        onChange={(event) => updateDetail(index, { quantity: parseNumericInputValue(event.target.value) })}
+                        value={detail.quantity}
+                        onChange={(text) => updateDetail(index, { quantity: parseNumericInputValue(text) })}
                       />
                     </td>
                   </tr>

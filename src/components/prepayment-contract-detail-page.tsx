@@ -10,6 +10,7 @@ import { fetchAllEntityRows } from "@/lib/client-entity-fetch";
 import { getReturnTo } from "@/lib/client-list-navigation";
 import { postWorkspaceMessage } from "@/lib/tab-workspace";
 import { Button, Input, Panel, Textarea } from "./ui";
+import { NumberInput } from "./number-input";
 import { confirmDialog, notify } from "./app-dialog";
 import { LoadingBlock } from "./table-state";
 import { StickyTable } from "./sticky-table";
@@ -406,10 +407,10 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
                     <Input className="w-24 min-w-0" disabled={!canEdit} value={line.contractCurrency ?? ""} onChange={(event) => updateLine(line.id, { contractCurrency: event.target.value })} />
                   </td>
                   <td className="border-b border-r border-line-soft px-3 py-3">
-                    <Input className="w-28 min-w-0" disabled={!canEdit} type="number" value={line.contractUnitPrice} onChange={(event) => updateLine(line.id, { contractUnitPrice: Number(event.target.value) })} />
+                    <NumberInput className="w-28 min-w-0" disabled={!canEdit} value={line.contractUnitPrice} onChange={(text) => updateLine(line.id, { contractUnitPrice: Number(text) || 0 })} />
                   </td>
                   <td className="border-b border-r border-line-soft px-3 py-3">
-                    <Input className="w-32 min-w-0" disabled={!canEdit} type="number" value={line.contractTotalAmount} onChange={(event) => updateLine(line.id, { contractTotalAmount: Number(event.target.value) })} />
+                    <NumberInput className="w-32 min-w-0" disabled={!canEdit} value={line.contractTotalAmount} onChange={(text) => updateLine(line.id, { contractTotalAmount: Number(text) || 0 })} />
                   </td>
                   <td className="border-b border-r border-line-soft px-3 py-3">
                     <Input className="w-40 min-w-0" disabled={!canEdit} type="date" value={formatDateInputValue(line.writeOffStartMonth)} onChange={(event) => updateLine(line.id, { writeOffStartMonth: event.target.value })} />
@@ -502,7 +503,7 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
                     <Input className="w-24 min-w-0" disabled={!canEdit} value={line.contractCurrency ?? ""} onChange={(event) => updateLine(line.id, { contractCurrency: event.target.value })} />
                   </td>
                   <td className="border-b border-r border-line-soft px-3 py-3">
-                    <Input className="w-32 min-w-0" disabled={!canEdit} type="number" value={line.contractTotalAmount} onChange={(event) => updateLine(line.id, { contractTotalAmount: Number(event.target.value), contractUnitPrice: Number(event.target.value) })} />
+                    <NumberInput className="w-32 min-w-0" disabled={!canEdit} value={line.contractTotalAmount} onChange={(text) => updateLine(line.id, { contractTotalAmount: Number(text) || 0, contractUnitPrice: Number(text) || 0 })} />
                   </td>
                   <td className="border-b border-r border-line-soft px-3 py-3">
                     <Input className="w-40 min-w-0" disabled={!canEdit} type="date" value={formatDateInputValue(line.writeOffStartMonth)} onChange={(event) => updateLine(line.id, { writeOffStartMonth: event.target.value })} />

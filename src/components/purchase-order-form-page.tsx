@@ -11,6 +11,7 @@ import { buildAutoPurchaseOrderId, buildAutoPurchaseOrderNo, normalizeRequestNos
 import { fetchAllEntityRows } from "@/lib/client-entity-fetch";
 import { DEFAULT_POWER_CONTRACT_EXCHANGE_RATE, buildPowerPricingSnapshot, refreshPowerPricingSnapshot, serializePowerPricingSnapshot, type PowerPriceContext, type PowerPricingSnapshot } from "@/lib/power-price-calculator";
 import { Button, Input, Panel } from "./ui";
+import { NumberInput as NumberField } from "./number-input";
 import { PowerPriceCalculationDrawer } from "./power-price-calculation-drawer";
 import { StickyTable } from "./sticky-table";
 
@@ -444,14 +445,23 @@ function Field({
         {required ? <span className="text-danger">*</span> : null}
         {label}
       </span>
-      <Input
-        className="w-full"
-        required={required}
-        step={step ?? (type === "number" ? "0.0001" : undefined)}
-        type={type}
-        value={type === "date" ? formatDateInputValue(value) : value}
-        onChange={(event) => onChange(event.target.value)}
-      />
+      {type === "number" ? (
+        <NumberField
+          className="w-full"
+          required={required}
+          step={step ?? "0.0001"}
+          value={value}
+          onChange={onChange}
+        />
+      ) : (
+        <Input
+          className="w-full"
+          required={required}
+          type={type}
+          value={type === "date" ? formatDateInputValue(value) : value}
+          onChange={(event) => onChange(event.target.value)}
+        />
+      )}
     </label>
   );
 }
@@ -467,12 +477,11 @@ function Info({ label, value, type }: { label: string; value: unknown; type?: st
 
 function NumberInput({ onChange, value }: { onChange: (value: number) => void; value: number }) {
   return (
-    <Input
+    <NumberField
       className="w-32 min-w-[8rem] shrink-0"
       step="0.0001"
-      type="number"
-      value={formatNumericInputValue(value)}
-      onChange={(event) => onChange(parseNumericInputValue(event.target.value))}
+      value={value}
+      onChange={(text) => onChange(parseNumericInputValue(text))}
     />
   );
 }

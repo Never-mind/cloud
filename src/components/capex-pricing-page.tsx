@@ -11,6 +11,7 @@ import { PaginationBar } from "./pagination-bar";
 import { StickyTable } from "./sticky-table";
 import { TableColumnMenu, type TableSortOrder } from "./table-column-menu";
 import { Button, Input, Panel, Textarea } from "./ui";
+import { NumberInput } from "./number-input";
 import { Modal } from "./modal";
 import { confirmDialog, notify } from "./app-dialog";
 import { TableStateContent } from "./table-state";
@@ -638,10 +639,10 @@ function CalculationDialog({ data, onClose }: { data: CalculationData; onClose: 
 }
 
 function EditorField({ label, children }: { label: string; children: React.ReactNode }) { return <label className="grid gap-1 text-xs text-ink-2"><span>{label}</span>{children}</label>; }
-function NumericInput({ value, onChange }: { value: number | string; onChange: (value: number | string) => void }) { return <Input className="min-w-[112px]" type="number" value={value} onChange={(event) => onChange(event.target.value === "" ? "" : numberValue(event.target.value))} />; }
+function NumericInput({ value, onChange }: { value: number | string; onChange: (value: number | string) => void }) { return <NumberInput className="min-w-[112px]" value={value} onChange={(text) => onChange(text === "" ? "" : numberValue(text))} />; }
 function PercentageInput({ value, onChange }: { value: number | string; onChange: (value: number | string) => void }) {
   return <div className="relative min-w-[108px]">
-    <Input className="min-w-0 w-full pr-7 text-right" type="number" step="0.0001" value={percentageInput(value)} onChange={(event) => onChange(parsePercentage(event.target.value))} />
+    <NumberInput className="min-w-0 w-full pr-7 text-right" step="0.0001" value={percentageInput(value)} onChange={(text) => onChange(parsePercentage(text))} />
     <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm text-ink-3">%</span>
   </div>;
 }

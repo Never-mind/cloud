@@ -12,6 +12,7 @@ import { StickyTable } from "./sticky-table";
 import { TableColumnMenu, type TableFilterOption, type TableSortOrder } from "./table-column-menu";
 import { StatusTag } from "./status-tag";
 import { AuditInfoBar, Button, Input, Panel, Textarea } from "./ui";
+import { NumberInput } from "./number-input";
 import { confirmDialog } from "./app-dialog";
 import { LoadingBlock, TableSkeleton } from "./table-state";
 import { ProductMasterPicker } from "./customer-po-page";
@@ -530,9 +531,10 @@ export function QuotationDetailPage({ id }: { id: string }) {
     const type = ["quantity", "purchaseUnitPrice", "markupRate", "unitPrice"].includes(field.key) ? "number" : "text";
     const step = field.key === "quantity" ? "1" : type === "number" ? "0.0001" : undefined;
     if (field.key === "markupRate" || field.key === "unitPrice") {
-      return <Input className="h-8 w-32" type="number" min={field.key === "markupRate" ? "-100" : "0"} step={step} value={String(value)} onChange={(event) => updatePricingDraft(itemId, field.key as "markupRate" | "unitPrice", event.target.value)} />;
+      return <NumberInput className="h-8 w-32" min={field.key === "markupRate" ? "-100" : "0"} step={step} value={String(value)} onChange={(text) => updatePricingDraft(itemId, field.key as "markupRate" | "unitPrice", text)} />;
     }
-    return <Input className={type === "number" ? "h-8 w-32" : "h-8 w-40"} type={type} min={field.key === "quantity" ? "1" : undefined} step={step} value={String(value)} onChange={(event) => updateItemDraft(itemId, field.key, event.target.value)} />;
+    if (type === "number") return <NumberInput className="h-8 w-32" min={field.key === "quantity" ? "1" : undefined} step={step} value={String(value)} onChange={(text) => updateItemDraft(itemId, field.key, text)} />;
+    return <Input className="h-8 w-40" type="text" value={String(value)} onChange={(event) => updateItemDraft(itemId, field.key, event.target.value)} />;
   }
 
   if (loading) return <LoadingBlock />;
@@ -574,7 +576,7 @@ export function QuotationDetailPage({ id }: { id: string }) {
       {editing ? <Panel>
         <div className="border-b border-line-soft px-4 py-3 font-medium text-ink">报价参数</div>
         <div className="grid gap-3 p-4 md:grid-cols-4 lg:grid-cols-6">
-          {editableQuotationFields.map((field) => <label key={field.key}><span className="mb-1 block text-xs text-ink-2">{field.label}</span><Input className="w-full" type="number" step="0.0001" value={String(draft[field.key] ?? "")} onChange={(event) => setDraft((current) => ({ ...current, [field.key]: event.target.value === "" ? null : Number(event.target.value) }))} /></label>)}
+          {editableQuotationFields.map((field) => <label key={field.key}><span className="mb-1 block text-xs text-ink-2">{field.label}</span><NumberInput className="w-full" step="0.0001" value={draft[field.key] as string | number | null} onChange={(text) => setDraft((current) => ({ ...current, [field.key]: text === "" ? null : Number(text) }))} /></label>)}
           <label className="md:col-span-3 lg:col-span-4"><span className="mb-1 block text-xs text-ink-2">备注</span><Textarea className="w-full" value={String(draft.remark ?? "")} onChange={(event) => setDraft((current) => ({ ...current, remark: event.target.value }))} /></label>
         </div>
       </Panel> : null}
