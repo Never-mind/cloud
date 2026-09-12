@@ -170,7 +170,7 @@ export function AppDialogHost() {
 
 function confirmToneIconClass(tone: ConfirmOptions["tone"]) {
   if (tone === "danger") return "text-danger";
-  if (tone === "warning") return "text-[#d48806]";
+  if (tone === "warning") return "text-warning-border";
   return "text-primary";
 }
 

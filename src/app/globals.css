@@ -39,8 +39,26 @@
   --color-success-border: #c2e7b0;
   --color-warning-deep: #e6a23c;
   --color-warning-soft: #fdf6ec;
+  --color-warning-border: #d48806;
+  --color-warning-ink: #8a5200;
   --color-danger-strong: #ff4949;
   --color-danger-border: #fde2e2;
+
+  /* 状态徽标：浅底 + 深字，五种业务状态需要彼此可区分，因此保留这套配色，
+     但收敛成令牌。对比度均在 4.5:1 以上（#fef3c7/#92400e ≈ 7:1）。 */
+  --color-tag-amber: #fef3c7;
+  --color-tag-amber-fg: #92400e;
+  --color-tag-blue: #dbeafe;
+  --color-tag-blue-fg: #1d4ed8;
+  --color-tag-indigo: #e0e7ff;
+  --color-tag-indigo-fg: #4338ca;
+  --color-tag-sky: #e0f2fe;
+  --color-tag-sky-fg: #0369a1;
+  --color-tag-green: #dcfce7;
+  --color-tag-green-fg: #166534;
+  --color-tag-red: #ffdad6;
+  --color-tag-red-fg: #93000a;
+  --color-tag-red-border: #ffb4ab;
 
   /* 左侧导航 */
   --color-sidebar: #304156;

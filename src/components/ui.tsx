@@ -15,7 +15,7 @@ export function Button({
     primary: "border border-primary bg-primary text-white hover:border-primary-dark hover:bg-primary-dark",
     success: "border border-success bg-success text-white hover:border-success-dark hover:bg-success-dark",
     // 描边式提醒按钮：白底 + 琥珀边框 + 深琥珀文字（对比度约 6.4:1），hover 时浅琥珀底。
-    warning: "border border-warning-deep bg-white text-[#8a5200] hover:border-[#d48806] hover:bg-warning-soft",
+    warning: "border border-warning-deep bg-white text-warning-ink hover:border-warning-border hover:bg-warning-soft",
     danger: "border border-danger bg-danger-soft text-danger hover:border-[#f78989] hover:bg-danger-border",
   };
 

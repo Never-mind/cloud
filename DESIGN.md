@@ -725,6 +725,21 @@ notify(error instanceof Error ? error.message : "保存失败", "error");
 | 提醒底 / 加深 | `bg-warning-soft` / `text-warning-deep` | `#fdf6ec` / `#e6a23c` |
 | 危险底 / 描边 / 加深 | `bg-danger-soft` / `border-danger-border` / `text-danger-strong` | `#fff0f0` / `#fde2e2` / `#ff4949` |
 
+**状态徽标（tag）**：项目结算有 5 种状态，需要彼此可区分，因此单独保留一套"浅底 + 深字"的徽标色，
+对比度都在 4.5:1 以上（例如 `#fef3c7` / `#92400e` ≈ 7:1）。写徽标一律用这套令牌，不要再写色值：
+
+| 用途 | 背景 | 文字 |
+| --- | --- | --- |
+| 待处理 / 进行中 | `bg-tag-amber` | `text-tag-amber-fg` |
+| 采购完成 | `bg-tag-blue` | `text-tag-blue-fg` |
+| 验收中 | `bg-tag-indigo` | `text-tag-indigo-fg` |
+| 验收完成 | `bg-tag-sky` | `text-tag-sky-fg` |
+| 已完结 | `bg-tag-green` | `text-tag-green-fg` |
+| 异常 / 取消 | `bg-tag-red` + `border-tag-red-border` | `text-tag-red-fg` |
+
+提醒色家族另有 `text-warning-ink`（深琥珀文字）、`border-warning-border`、`bg-warning-soft` 三个令牌，
+用于导出按钮、提醒型按钮和提示块。
+
 ## 14. 可访问性
 
 ### 14.1 键盘焦点

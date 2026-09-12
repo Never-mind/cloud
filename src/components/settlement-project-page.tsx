@@ -107,9 +107,9 @@ export function SettlementProjectPage() {
           </select>
           <Button tone="primary" className="h-8 px-3" onClick={() => { setPage(1); setAppliedKeyword(keyword.trim()); }}><Search size={14} />查询</Button>
           <Button className="h-8 px-3" onClick={() => void load()} disabled={loading}><RefreshCw size={14} />刷新</Button>
-          <a className="inline-flex h-8 shrink-0 items-center gap-1 whitespace-nowrap rounded border border-warning-deep bg-white px-3 text-sm text-[#8a5200] transition-colors hover:border-[#d48806] hover:bg-warning-soft" href="/api/po/settlement-projects/export"><FileDown size={14} />导出 Excel</a>
+          <a className="inline-flex h-8 shrink-0 items-center gap-1 whitespace-nowrap rounded border border-warning-deep bg-white px-3 text-sm text-warning-ink transition-colors hover:border-warning-border hover:bg-warning-soft" href="/api/po/settlement-projects/export"><FileDown size={14} />导出 Excel</a>
         </div>
-        {error ? <div className="m-4 border border-[#ffb4ab] bg-[#ffdad6] px-3 py-2 text-sm text-[#93000a]">{error}<button className="ml-3 underline" onClick={() => setError("")}>关闭</button></div> : null}
+        {error ? <div className="m-4 border border-tag-red-border bg-tag-red px-3 py-2 text-sm text-tag-red-fg">{error}<button className="ml-3 underline" onClick={() => setError("")}>关闭</button></div> : null}
         <StickyTable className="table-scroll max-h-[calc(100vh-300px)] overflow-auto" tableKey="settlement-projects">
          <table className="min-w-[2400px] border-collapse text-sm">
             <thead className="bg-canvas"><tr>{columns.map(([field, label]) => <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium" key={field}><TableColumnMenu column={{ key: field, label, sortable: true, filterable: true }} sortOrder={sortField === field ? sortOrder : ""} filterValues={columnFilters[field] ?? []} loadOptions={(optionKeyword) => loadOptions(field, optionKeyword)} onSort={(order) => { setPage(1); setSortField(order ? field : ""); setSortOrder(order); }} onFilter={(values) => { setPage(1); setColumnFilters((current) => ({ ...current, [field]: values })); }} /></th>)}<th className="border-b border-line-soft px-3 py-3 text-left font-medium">操作</th></tr></thead>
@@ -130,4 +130,4 @@ export function SettlementProjectPage() {
 function money(value: number) { return Number(value || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
 function formatDate(value: string) { return value ? String(value).slice(0, 16).replace("T", " ") : "-"; }
 function statusLabel(status: string) { return ({ purchasing: "采购中", procurement_completed: "采购完成", accepting: "验收中", acceptance_completed: "验收完成", closed: "已完结" } as Record<string, string>)[status] || status || "-"; }
-function statusClass(status: string) { return status === "closed" ? "bg-[#dcfce7] text-[#166534]" : status === "accepting" ? "bg-[#e0e7ff] text-[#4338ca]" : status === "procurement_completed" ? "bg-[#dbeafe] text-[#1d4ed8]" : "bg-[#fef3c7] text-[#92400e]"; }
+function statusClass(status: string) { return status === "closed" ? "bg-tag-green text-tag-green-fg" : status === "accepting" ? "bg-tag-indigo text-tag-indigo-fg" : status === "procurement_completed" ? "bg-tag-blue text-tag-blue-fg" : "bg-tag-amber text-tag-amber-fg"; }
