@@ -266,14 +266,14 @@ export function ServiceFeesPage() {
 
       <Panel>
         <div className="flex flex-wrap items-center gap-2 border-b border-line-soft p-4">
-          <Input placeholder="国家/批次/需求单/PO/实例编码" value={keyword} onChange={(event) => setKeyword(event.target.value)} />
-          <label className="text-xs text-ink-2">起始月份<Input className="ml-2" type="month" value={startMonth} onChange={(event) => setStartMonth(event.target.value)} /></label>
-          <label className="text-xs text-ink-2">结束月份<Input className="ml-2" type="month" value={endMonth} onChange={(event) => setEndMonth(event.target.value)} /></label>
-          <Input placeholder="国家" value={countryCode} onChange={(event) => setCountryCode(event.target.value)} />
-          <Input placeholder="批次" value={batchName} onChange={(event) => setBatchName(event.target.value)} />
-          <Input placeholder="币种，如 USD / CNY" value={currency} onChange={(event) => setCurrency(event.target.value)} />
+          <Input className="w-[208px]" placeholder="国家/批次/需求单/PO/实例编码" value={keyword} onChange={(event) => setKeyword(event.target.value)} />
+          <label className="whitespace-nowrap text-xs text-ink-2">起始月份<Input className="ml-1.5 w-[122px]" type="month" value={startMonth} onChange={(event) => setStartMonth(event.target.value)} /></label>
+          <label className="whitespace-nowrap text-xs text-ink-2">结束月份<Input className="ml-1.5 w-[122px]" type="month" value={endMonth} onChange={(event) => setEndMonth(event.target.value)} /></label>
+          <Input className="w-[78px]" placeholder="国家" value={countryCode} onChange={(event) => setCountryCode(event.target.value)} />
+          <Input className="w-[88px]" placeholder="批次" value={batchName} onChange={(event) => setBatchName(event.target.value)} />
+          <Input className="w-[132px]" placeholder="币种，如 USD / CNY" value={currency} onChange={(event) => setCurrency(event.target.value)} />
           <select
-            className="h-9 rounded border border-line bg-white px-3 text-sm outline-none focus:border-primary"
+            className="h-9 w-[104px] rounded border border-line bg-white px-2 text-sm outline-none focus:border-primary"
             value={lineType}
             onChange={(event) => setLineType(event.target.value)}
           >
@@ -282,7 +282,7 @@ export function ServiceFeesPage() {
             <option value="fee">非实例费用</option>
           </select>
           <select
-            className="h-9 rounded border border-line bg-white px-3 text-sm outline-none focus:border-primary"
+            className="h-9 w-[96px] rounded border border-line bg-white px-2 text-sm outline-none focus:border-primary"
             value={requestType}
             onChange={(event) => setRequestType(event.target.value)}
           >
@@ -290,7 +290,7 @@ export function ServiceFeesPage() {
             <option value="整机">整机</option>
             <option value="备件">备件</option>
           </select>
-          <Button tone="primary" onClick={() => { setPage(1); void loadData(1, pageSizeRef.current); }}>
+          <Button tone="secondary" onClick={() => { setPage(1); void loadData(1, pageSizeRef.current); }}>
             <Search size={15} />
             查询
           </Button>

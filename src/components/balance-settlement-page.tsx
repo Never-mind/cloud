@@ -420,7 +420,7 @@ export function BalanceSettlementPage() {
                 {versionOptions.map((version) => <option key={version.versionId} value={version.versionId}>{version.countryCode} / {version.versionNo} / {formatDate(version.effectiveDate)}</option>)}
               </select>
               <Input className="min-w-[240px]" placeholder="搜索批次、需求单、PO、实例编码或英文名称" value={candidateKeyword} onChange={(event) => setCandidateKeyword(event.target.value)} />
-              <Button tone="primary" onClick={() => void loadCandidates(1)}><Search size={15} />查询</Button>
+              <Button tone="secondary" onClick={() => void loadCandidates(1)}><Search size={15} />查询</Button>
               <Button onClick={() => void loadCandidates(1)}><RefreshCw size={15} />刷新</Button>
             </div>
             <StickyTable className="table-scroll overflow-auto" tableKey="balance-settlement-available">
@@ -473,7 +473,7 @@ export function BalanceSettlementPage() {
               <select className="h-9 min-w-[130px] rounded border border-line bg-white px-2 text-sm" value={settlementCountry} onChange={(event) => setSettlementCountry(event.target.value)}><option value="">全部国家</option>{countries.map((country) => <option key={country.code} value={country.code}>{country.code}</option>)}</select>
               <select className="h-9 min-w-[120px] rounded border border-line bg-white px-2 text-sm" value={settlementStatus} onChange={(event) => setSettlementStatus(event.target.value)}><option value="">全部状态</option>{[DRAFT, CONFIRMED, VOIDED].map((status) => <option key={status} value={status}>{status}</option>)}</select>
               <Input placeholder="搜索结差来源单号、名称或锚定版本" value={settlementKeyword} onChange={(event) => setSettlementKeyword(event.target.value)} />
-              <Button tone="primary" onClick={() => void loadSettlements()}><Search size={15} />查询</Button><Button onClick={() => void loadSettlements()}><RefreshCw size={15} />刷新</Button>
+              <Button tone="secondary" onClick={() => void loadSettlements()}><Search size={15} />查询</Button><Button onClick={() => void loadSettlements()}><RefreshCw size={15} />刷新</Button>
               <Button onClick={() => exportRows(SETTLEMENT_EXPORT_COLUMNS, settlements, "结差来源单.xlsx", "结差来源单")}><Download size={15} />导出</Button>
             </div>
             <StickyTable className="table-scroll overflow-auto" tableKey="balance-settlements"><table className="w-full min-w-[1460px] border-collapse text-sm"><thead className="bg-canvas text-ink"><tr>{[["settlementNo", "结差来源单号"], ["title", "结差单名称"], ["itemTypes", "来源类型"], ["countryCode", "国家"], ["pricingVersionNo", "锚定价格版本"], ["currency", "币种"], ["status", "状态"], ["itemCount", "明细数量"], ["capexDifferenceTotal", "CAPEX结差总额"], ["opexDifferenceTotal", "OPEX结差总额"], ["differenceTotal", "结差合计"], ["confirmedAt", "确认日期"], ["createdAt", "创建日期"], ["updatedAt", "更新日期"]].map(([key, label]) => <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium" key={key}>{columnMenu(key, label, { sortField: settlementSortField, sortOrder: settlementSortOrder, filters: settlementFilters }, "/api/balance-settlements", updateSettlementQuery)}</th>)}</tr></thead><tbody>

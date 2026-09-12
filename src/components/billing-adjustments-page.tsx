@@ -160,7 +160,7 @@ export function BillingAdjustmentsPage() {
 
         <div className="flex flex-wrap items-center gap-2 border-b border-line-soft p-4">
           <Input placeholder="搜索调整单/合同号/国家/批次/实例编码" value={keyword} onChange={(event) => setKeyword(event.target.value)} />
-          <Button tone="primary" onClick={() => { setAppliedKeyword(keyword); setPage(1); void loadRows(1, pageSizeRef.current, statusTab, keyword); }}>
+          <Button tone="secondary" onClick={() => { setAppliedKeyword(keyword); setPage(1); void loadRows(1, pageSizeRef.current, statusTab, keyword); }}>
             <Search size={15} />
             查询
           </Button>

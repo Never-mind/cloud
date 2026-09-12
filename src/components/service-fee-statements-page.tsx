@@ -467,7 +467,7 @@ export function ServiceFeeStatementsPage() {
               </button>
             ))}
           </div>
-          <Button tone="primary" onClick={() => { setPage(1); void loadData(1); }}><Search size={15} />查询</Button>
+          <Button tone="secondary" onClick={() => { setPage(1); void loadData(1); }}><Search size={15} />查询</Button>
           <Button onClick={() => void loadData()}><RefreshCw size={15} />刷新</Button>
           <a className="ml-auto" href={`/api/entities/service-fee-snapshots/export?${exportParams}`}>
             <Button tone="warning"><FileDown size={15} />导出 Excel</Button>

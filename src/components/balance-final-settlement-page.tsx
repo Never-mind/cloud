@@ -213,7 +213,7 @@ export function BalanceFinalSettlementPage() {
         <Input placeholder="结算单名称（可选）" value={title} onChange={(event) => setTitle(event.target.value)} />
         <select className="h-9 rounded border border-line bg-white px-2 text-sm" value={countryCode} onChange={(event) => { setCountryCode(event.target.value); setSources([]); setSelectedNos([]); }}><option value="">选择国家</option>{countries.map((country) => <option key={country.code} value={country.code}>{country.code} {country.nameZh ? `- ${country.nameZh}` : ""}</option>)}</select>
         <select className="h-9 rounded border border-line bg-white px-2 text-sm" value={currency} onChange={(event) => { setCurrency(event.target.value); setSources([]); setSelectedNos([]); }}>{CURRENCIES.map((item) => <option key={item} value={item}>{item}</option>)}</select>
-        <Button tone="primary" onClick={() => { setSourcePage(1); void searchSources(1); }}><Search size={15} />查询可汇总来源单</Button>
+        <Button tone="secondary" onClick={() => { setSourcePage(1); void searchSources(1); }}><Search size={15} />查询可汇总来源单</Button>
         <label className="grid gap-1 text-xs text-ink-2"><span>结差期间开始</span><Input type="date" value={periodStart} onChange={(event) => { setPeriodStart(event.target.value); setSources([]); }} /></label>
         <label className="grid gap-1 text-xs text-ink-2"><span>结差期间结束</span><Input type="date" value={periodEnd} onChange={(event) => { setPeriodEnd(event.target.value); setSources([]); }} /></label>
         <Textarea className="min-h-9 xl:col-span-2" placeholder="备注（可选）" value={notes} onChange={(event) => setNotes(event.target.value)} />

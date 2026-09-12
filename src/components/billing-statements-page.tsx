@@ -282,7 +282,7 @@ export function BillingStatementsPage() {
             <option value="未确认">未确认</option>
             <option value="已确认">已确认</option>
           </select>
-          <Button tone="primary" onClick={() => void loadSnapshots()}>
+          <Button tone="secondary" onClick={() => void loadSnapshots()}>
             <Search size={15} />
             查询
           </Button>

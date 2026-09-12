@@ -105,7 +105,7 @@ AppShell
 
 ### 3.1 主色
 
-- Primary Blue：`#1890ff`，用于查询、主要提交、当前按钮。
+- Primary Blue：`#1890ff`，用于新建、主要提交、当前按钮；查询按钮使用同色的描边样式（白底蓝框蓝字）。
 - Success Green：`#13ce66` 或 `#42b983`，用于导入、激活标签、成功状态。
 - Warning Yellow：`#ffba00`，用于导出 Excel、提醒型操作。
 - Danger Red：`#f56c6c`，用于删除、危险操作。
@@ -226,12 +226,14 @@ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
 
 | 层级 | 外观 | 适用 | `tone` |
 | --- | --- | --- | --- |
-| 主操作 | 实心填充 | 查询、新建、确认、批量导入 | `primary` / `success` |
+| 主操作 | 实心填充 | 新建、确认、批量导入 | `primary` / `success` |
+| 查询类次级主操作 | 白底 + 蓝框 + 蓝字 | 查询、搜索 | `secondary` |
 | 次级与工具 | 白底描边 + 彩色文字 | 导出、下载模板、刷新、重置、退回 | `warning` / `default` / `danger` |
 
 具体约定：
 
-- 查询/搜索、新建：蓝色实心（`primary`）。
+- 查询/搜索：白底蓝框蓝字（`secondary`）。**不要再用蓝色实心**：同一工具栏里"查询"和"新建"都是蓝实心时无法区分主次，用户会分不清哪个是页面主操作。
+- 新建：蓝色实心（`primary`）。
 - 批量导入、确认类：绿色实心（`success`）。
 - 导出 Excel：**白底 + 琥珀描边 + 深琥珀文字**（`warning`），不再使用整块亮黄填充。两个手写的导出链接（客户 PO、项目结算）也要保持同样写法。
 - 退回草稿一类的提醒型操作也用 `warning`，与导出同一外观。
@@ -596,7 +598,7 @@ notify(error instanceof Error ? error.message : "保存失败", "error");
 补充约定：
 
 - 按钮、输入框、文本域统一用 `src/components/ui.tsx` 里的 `Button` / `Input` / `Textarea` / `Panel`，不要在业务页面里手写一套。
-- 按钮类型只选 `default` / `primary` / `success` / `warning` / `danger`，hover 与焦点态由组件内部处理，业务页面不要再写 `hover:opacity-*`。
+- 按钮类型只选 `default` / `primary` / `secondary` / `success` / `warning` / `danger`（其中 `secondary` 专用于查询/搜索按钮），hover 与焦点态由组件内部处理，业务页面不要再写 `hover:opacity-*`。
 - 弹窗、抽屉、下拉浮层一律用公共组件（`Modal` / `Drawer` / 表格列筛选菜单），不要在业务页面里手写浮层。公共组件内部用 `fixed` 定位挂到视口，避免被父容器的 `overflow: hidden` 裁切。
 - 组件容器如果要加 `overflow: hidden`，先确认里面没有 `position: sticky` 子元素（例如结差页的浮动汇总条），否则 sticky 会失效。
 
@@ -653,7 +655,7 @@ notify(error instanceof Error ? error.message : "保存失败", "error");
 - 列表页以筛选栏、按钮组、宽表格和分页为核心。
 - 报价和物流页面字段极多，应把横向滚动和固定操作列作为基础能力。
 - 新建报价使用大弹窗、双列表单和英文分组标题。
-- 操作按钮颜色层级明确：蓝色查询/新建、绿色导入、黄色导出、红色删除。
+- 操作按钮颜色层级明确：蓝色实心新建、蓝色描边查询、绿色导入、琥珀描边导出、淡红删除。
 - 配置类页面比业务页面更轻，但仍沿用同一工具栏和表格体系。
 
 ### 13.1 2026-09-11 实测现状与差距
@@ -691,6 +693,8 @@ notify(error instanceof Error ? error.message : "保存失败", "error");
 | 容器圆角 | ✅ `Panel` 补齐 4px 圆角与裁切，与控件一致；清理 8 处冗余 `overflow-hidden` |
 | 硬编码颜色 | ✅ 2,547 处 → 169 处，工具类下沉到语义令牌，新增 12 个状态色变体令牌 |
 | 弹窗外壳 | ✅ 新增 `Modal` / `Drawer` 组件；16 处弹层、2 处右侧抽屉全部完成结构迁移，页面不再手写 `fixed inset-0` 外壳 |
+| 查询按钮 | ✅ 新增 `secondary` 色阶（白底蓝框蓝字），25 处"查询"由蓝色实心改为描边，与蓝实心的"新建"区分开 |
+| 完结项目只读 | ✅ 项目结算完结后，其他成本费用/销售收入明细的新增表单整块禁用，行内修改/删除按钮改为灰化样式 |
 
 ### 13.3 待整改
 

@@ -253,7 +253,7 @@ export function PrepaymentContractsPage() {
 
         <div className="flex flex-wrap items-center gap-2 border-b border-line-soft p-4">
           <Input placeholder="搜索合同号/状态/币种" value={keyword} onChange={(event) => setKeyword(event.target.value)} />
-          <Button tone="primary" onClick={() => { setAppliedKeyword(keyword); setPage(1); void loadData(1, pageSizeRef.current, statusTab, keyword); }}>
+          <Button tone="secondary" onClick={() => { setAppliedKeyword(keyword); setPage(1); void loadData(1, pageSizeRef.current, statusTab, keyword); }}>
             <Search size={15} />
             查询
           </Button>

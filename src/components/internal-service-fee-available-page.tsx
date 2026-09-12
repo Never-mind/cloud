@@ -125,7 +125,7 @@ export function InternalServiceFeeAvailablePage() {
       <Panel>
         <div className="flex flex-wrap items-center gap-2 border-b border-line-soft p-4">
           <Input placeholder="搜索批次、需求单、PO或实例编码" value={keyword} onChange={(event) => setKeyword(event.target.value)} />
-          <Button tone="primary" onClick={() => { setPage(1); void loadRows(1, pageSizeRef.current); }}><Search size={15} />查询</Button>
+          <Button tone="secondary" onClick={() => { setPage(1); void loadRows(1, pageSizeRef.current); }}><Search size={15} />查询</Button>
           <Button onClick={() => void loadRows()}><RefreshCw size={15} />刷新</Button>
           <Button tone="success" onClick={() => void initialize()}><CheckSquare size={15} />初始化已选（{selected.length}）</Button>
           <Button tone="primary" onClick={() => void initialize(currentPageIds)}>初始化本页（{rows.length}）</Button>

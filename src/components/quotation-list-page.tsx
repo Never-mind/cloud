@@ -231,7 +231,7 @@ export function QuotationListPage({ config }: { config: EntityConfig }) {
             <span className="sr-only">搜索报价单</span>
             <Input className="h-8 w-full" value={keyword} placeholder="搜索报价单号、客户、承接单位或来源PO" onChange={(event) => setKeyword(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { setPage(1); setAppliedKeyword(keyword.trim()); } }} />
           </div>
-          <Button tone="primary" size="sm" aria-label="查询" title="查询" onClick={() => { setPage(1); setAppliedKeyword(keyword.trim()); }}><Search size={14} />查询</Button>
+          <Button tone="secondary" size="sm" aria-label="查询" title="查询" onClick={() => { setPage(1); setAppliedKeyword(keyword.trim()); }}><Search size={14} />查询</Button>
           <Button size="sm" onClick={() => void load()} disabled={loading}><RefreshCw size={14} />刷新</Button>
           <Button tone="warning" size="sm" onClick={() => download(`/api/entities/quotations/export?status=${encodeURIComponent(status)}`)}><FileDown size={14} />导出 Excel</Button>
         </div>

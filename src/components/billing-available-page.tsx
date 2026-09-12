@@ -276,7 +276,7 @@ export function BillingAvailablePage() {
             <option value="备件">备件（不参与月账单）</option>
           </select>
           <Button
-            tone="primary"
+            tone="secondary"
             onClick={() => {
               setAppliedKeyword(keyword);
               setAppliedCountryCode(countryCode);

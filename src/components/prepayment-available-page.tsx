@@ -248,7 +248,7 @@ export function PrepaymentAvailablePage() {
             <option value="备件">备件</option>
           </select>
           <Button
-            tone="primary"
+            tone="secondary"
             onClick={() => {
               setAppliedKeyword(keyword);
               setAppliedCountryCode(countryCode);

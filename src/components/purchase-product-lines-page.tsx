@@ -163,7 +163,7 @@ export function PurchaseProductLinesPage() {
               .sort((left, right) => left.code.localeCompare(right.code))
               .map((country) => <option key={country.code} value={country.code}>{country.nameZh ? `${country.code} - ${country.nameZh}` : country.code}</option>)}
           </select>
-          <Button tone="primary" onClick={() => { setAppliedKeyword(keyword); setAppliedCountryCode(countryCode); setPage(1); void loadData(1, pageSizeRef.current, countryCode, keyword); }}>
+          <Button tone="secondary" onClick={() => { setAppliedKeyword(keyword); setAppliedCountryCode(countryCode); setPage(1); void loadData(1, pageSizeRef.current, countryCode, keyword); }}>
             <Search size={15} />
             查询
           </Button>

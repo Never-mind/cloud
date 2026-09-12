@@ -216,7 +216,7 @@ export function InternalServiceFeesPage() {
           <Input placeholder="批次" value={batchName} onChange={(event) => setBatchName(event.target.value)} />
           <Input type="date" value={startMonth} onChange={(event) => setStartMonth(event.target.value)} />
           <Input type="date" value={endMonth} onChange={(event) => setEndMonth(event.target.value)} />
-          <Button tone="primary" onClick={() => { setPage(1); void loadData(1, pageSizeRef.current); }}><Search size={15} />查询</Button>
+          <Button tone="secondary" onClick={() => { setPage(1); void loadData(1, pageSizeRef.current); }}><Search size={15} />查询</Button>
           <Button onClick={() => void loadData()}><RefreshCw size={15} />刷新</Button>
           <Button tone="success" onClick={() => void syncLedgers()}><RefreshCw size={15} />生成/重算未归档</Button>
           <Button className="ml-auto" tone="warning" onClick={() => void exportCsv()}><FileDown size={15} />导出</Button>

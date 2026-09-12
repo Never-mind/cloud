@@ -270,7 +270,7 @@ export function PrepaymentWriteOffAdjustmentDetailPage({ adjustmentNo: routeAdju
               <Input placeholder="批次" value={batchName} onChange={(event) => setBatchName(event.target.value)} />
               <Input placeholder="预付款合同号" value={contractNo} onChange={(event) => setContractNo(event.target.value)} />
               <Input placeholder="实例编码" value={deviceCode} onChange={(event) => setDeviceCode(event.target.value)} />
-              <Button tone="primary" onClick={() => { setSearchPage(1); void loadSearchRows(1, searchPageSizeRef.current); }}>
+              <Button tone="secondary" onClick={() => { setSearchPage(1); void loadSearchRows(1, searchPageSizeRef.current); }}>
                 <Search size={15} />
                 查询
               </Button>

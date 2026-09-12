@@ -214,7 +214,7 @@ export function MonthlyPrepaymentWriteOffsPage() {
             <option value="整机">整机</option>
             <option value="备件">备件</option>
           </select>
-          <Button tone="primary" onClick={() => { const filters = { keyword, countryCode, batchName, startMonth, endMonth, requestType }; setAppliedFilters(filters); setPage(1); void loadData(1, pageSizeRef.current, filters); }}>
+          <Button tone="secondary" onClick={() => { const filters = { keyword, countryCode, batchName, startMonth, endMonth, requestType }; setAppliedFilters(filters); setPage(1); void loadData(1, pageSizeRef.current, filters); }}>
             <Search size={15} />
             查询
           </Button>

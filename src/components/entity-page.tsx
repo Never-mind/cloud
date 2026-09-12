@@ -793,7 +793,7 @@ export function EntityPage({
               )
             ))}
           <Button
-            tone="primary"
+            tone="secondary"
             onClick={() => {
               setAppliedKeyword(keyword);
               setAppliedFilterValues(filterValues);

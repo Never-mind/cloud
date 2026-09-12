@@ -406,7 +406,7 @@ export function OrderListPage({
               </option>
             ))}
           </select>
-          <Button tone="primary" onClick={() => {
+          <Button tone="secondary" onClick={() => {
             setAppliedKeyword(keyword);
             setAppliedCountryCode(countryCode);
             setPage(1);
