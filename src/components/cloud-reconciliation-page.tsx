@@ -4,11 +4,13 @@ import { Fragment, useEffect, useRef, useState } from "react";
 import { Check, ChevronDown, ChevronRight, Cloud, Download, FileUp, Pencil, Plus, Search, Trash2, X } from "lucide-react";
 import { Button, Input, Panel } from "./ui";
 import { Modal } from "./modal";
+import { PaginationBar } from "./pagination-bar";
 import { NumberInput } from "./number-input";
 import { confirmDialog } from "./app-dialog";
 import { StickyTable } from "./sticky-table";
 import { TableColumnMenu, type TableFilterOption, type TableSortOrder } from "./table-column-menu";
 import { calculateCloudTaxGroup, CLOUD_TAX_GROUPS, type CloudTaxField, type CloudTaxGroup } from "@/lib/cloud-tax";
+import { DEFAULT_PAGE_SIZE } from "@/lib/pagination";
 import { fetchTableFilterOptions } from "@/lib/table-query-client";
 
 type Tab = "reconciliation" | "mapping" | "collections" | "supplier-payments";
@@ -83,6 +85,7 @@ export function CloudReconciliationPage() {
   const [keyword, setKeyword] = useState("");
   const [period, setPeriod] = useState("");
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [total, setTotal] = useState(0);
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
@@ -105,17 +108,17 @@ export function CloudReconciliationPage() {
     setBusy(true);
     try {
       if (targetTab === "mapping") {
-        const params = new URLSearchParams({ keyword, page: String(targetPage) });
+        const params = new URLSearchParams({ keyword, page: String(targetPage), pageSize: String(pageSize) });
         appendQueryParams(params, targetQuery);
         const data = await requestJson<{ items: Row[] }>(`/api/cloud/mappings?${params}`);
         setMappings(data.items);
       } else if (targetTab === "supplier-payments") {
-        const params = new URLSearchParams({ keyword, period, page: String(targetPage) });
+        const params = new URLSearchParams({ keyword, period, page: String(targetPage), pageSize: String(pageSize) });
         appendQueryParams(params, targetQuery);
         const data = await requestJson<{ items: Row[]; total: number }>(`/api/cloud/supplier-payments?${params}`);
         setPayments(data.items); setTotal(data.total);
       } else {
-        const params = new URLSearchParams({ keyword, period, page: String(targetPage) });
+        const params = new URLSearchParams({ keyword, period, page: String(targetPage), pageSize: String(pageSize) });
         appendQueryParams(params, targetQuery);
         const data = await requestJson<{ items: Row[]; total: number }>(`/api/cloud/rows?${params}`);
         setRows(data.items); setTotal(data.total);
@@ -124,7 +127,7 @@ export function CloudReconciliationPage() {
     finally { setBusy(false); }
   }
 
-  useEffect(() => { void load(); }, [tab, page, period, queries]);
+  useEffect(() => { void load(); }, [tab, page, pageSize, period, queries]);
   useEffect(() => { void requestJson<typeof masters>("/api/cloud/master-data").then(setMasters).catch(() => undefined); }, []);
 
   async function importWorkbook() {
@@ -254,7 +257,7 @@ export function CloudReconciliationPage() {
     <Panel>
       <div className="flex flex-wrap items-center gap-2 border-b border-line-soft p-3">{tabs.map(([key, label]) => <button className={`border-b-2 px-3 py-2 text-sm ${tab === key ? "border-primary text-primary" : "border-transparent text-ink-2"}`} key={key} type="button" onClick={() => { setTab(key); setPage(1); }}>{label}</button>)}<div className="ml-auto flex flex-wrap gap-2">{tab === "supplier-payments" ? <div className="w-[260px]"><PartnerSelect kind="undertakingUnits" label="默认付款单位" idValue={defaultPayerUnit?.id} nameValue={defaultPayerUnit?.name} masters={masters} onChange={(selected) => void saveDefaultPayerUnit(selected.id)} /></div> : null}<Input placeholder="搜索客户、账号、批次或供应商" value={keyword} onChange={(event) => setKeyword(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { setPage(1); void load({ targetPage: 1 }); } }} /><Input className="min-w-[130px]" placeholder="账期 YYYY-MM" value={period} onChange={(event) => setPeriod(event.target.value)} /><Button onClick={() => { setPage(1); void load({ targetPage: 1 }); }}><Search size={15} />查询</Button></div></div>
       {tab === "mapping" ? <MappingTable rows={mappings} onEdit={setMappingForm} onAdd={() => setMappingForm({ accounts: "", calculationLogic: "catalog" })} query={activeQuery} onQueryChange={updateQuery} loadOptions={(field, optionKeyword) => columnOptions("/api/cloud/mappings", field, optionKeyword)} /> : tab === "supplier-payments" ? <PaymentTable rows={payments} onUpdate={(row) => setSupplierPaymentForm(row)} onTogglePaid={(row) => void updatePayment(row, { paid: row.paid ? 0 : 1 })} onToggleInvoice={(row) => void updatePayment(row, { invoiceStatus: row.invoiceStatus === "issued" ? "not_issued" : "issued" })} query={activeQuery} onQueryChange={updateQuery} loadOptions={(field, optionKeyword) => columnOptions("/api/cloud/supplier-payments", field, optionKeyword)} /> : <RowTable rows={rows} onAttach={attachRow} onConfirm={confirmRow} onDelete={deleteRow} onToggleCollection={toggleCollection} onToggleInvoice={toggleInvoice} onEditRow={setRowForm} onEditCollection={(row) => setCollectionForm(amountFormDefaults(row, "collection"))} onEditInvoice={(row) => setInvoiceForm(amountFormDefaults(row, "invoice"))} query={activeQuery} onQueryChange={updateQuery} loadOptions={(field, optionKeyword) => columnOptions("/api/cloud/rows", field, optionKeyword)} />}
-      {tab !== "mapping" ? <div className="flex items-center justify-between border-t border-line-soft px-4 py-3 text-sm text-ink-3"><span>{busy ? "加载中..." : `共 ${total} 条`}</span><div className="flex gap-2"><Button disabled={page <= 1} onClick={() => setPage((value) => value - 1)}>上一页</Button><span className="px-2 py-2">第 {page} 页</span><Button disabled={rows.length < 20 && payments.length < 20} onClick={() => setPage((value) => value + 1)}>下一页</Button></div></div> : null}
+      {tab !== "mapping" ? <PaginationBar page={page} pageSize={pageSize} total={total} onPageChange={setPage} onPageSizeChange={(next) => { setPageSize(next); setPage(1); }} /> : null}
     </Panel>
     {mappingForm ? <MappingForm value={mappingForm} masters={masters} onChange={setMappingForm} onCancel={() => setMappingForm(null)} onSave={() => void saveMapping()} /> : null}
     {rowForm ? <CloudRowForm value={rowForm} masters={masters} onChange={setRowForm} onCancel={() => setRowForm(null)} onSave={() => void saveRow()} /> : null}

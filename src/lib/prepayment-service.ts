@@ -577,8 +577,10 @@ export async function listMonthlyPrepaymentWriteOffs(searchParams: URLSearchPara
           FROM requestitems
         ) AS ri ON ri.linkedRequestItemId = contractItem.linkedRequestItemId
         LEFT JOIN (
-          SELECT requestNo AS keyRequestNo, deviceCode AS keyDeviceCode, supplierId AS fallbackSupplierId, undertakingUnitId AS fallbackUndertakingUnitId, customerId AS fallbackCustomerId
+          SELECT requestNo AS keyRequestNo, deviceCode AS keyDeviceCode, MAX(supplierId) AS fallbackSupplierId, MAX(undertakingUnitId) AS fallbackUndertakingUnitId, MAX(customerId) AS fallbackCustomerId
           FROM requestitems
+          WHERE requestNo IS NOT NULL AND deviceCode IS NOT NULL
+          GROUP BY requestNo, deviceCode
         ) AS riByBusinessKey ON riByBusinessKey.keyRequestNo = mpw.requestNo AND riByBusinessKey.keyDeviceCode = mpw.deviceCode
         ${where}
       `,
@@ -680,7 +682,7 @@ export async function listMonthlyPrepaymentWriteOffFilterOptions(searchParams: U
       LEFT JOIN (SELECT id AS linkedContractLineId, requestItemId AS linkedRequestItemId, purchaseOrderItemId AS linkedPurchaseOrderItemId FROM prepaymentcontractitems) AS contractItem ON contractItem.linkedContractLineId = mpw.contractLineId
       LEFT JOIN purchaseorderitems AS purchaseItem ON purchaseItem.id = contractItem.linkedPurchaseOrderItemId
       LEFT JOIN (SELECT id AS linkedRequestItemId, supplierId AS linkedSupplierId, undertakingUnitId AS linkedUndertakingUnitId, customerId AS linkedCustomerId FROM requestitems) AS ri ON ri.linkedRequestItemId = contractItem.linkedRequestItemId
-      LEFT JOIN (SELECT requestNo AS keyRequestNo, deviceCode AS keyDeviceCode, supplierId AS fallbackSupplierId, undertakingUnitId AS fallbackUndertakingUnitId, customerId AS fallbackCustomerId FROM requestitems) AS riByBusinessKey ON riByBusinessKey.keyRequestNo = mpw.requestNo AND riByBusinessKey.keyDeviceCode = mpw.deviceCode
+      LEFT JOIN (SELECT requestNo AS keyRequestNo, deviceCode AS keyDeviceCode, MAX(supplierId) AS fallbackSupplierId, MAX(undertakingUnitId) AS fallbackUndertakingUnitId, MAX(customerId) AS fallbackCustomerId FROM requestitems WHERE requestNo IS NOT NULL AND deviceCode IS NOT NULL GROUP BY requestNo, deviceCode) AS riByBusinessKey ON riByBusinessKey.keyRequestNo = mpw.requestNo AND riByBusinessKey.keyDeviceCode = mpw.deviceCode
       WHERE ${where.join(" AND ")}
     ) AS optionValues
     GROUP BY optionValues.value

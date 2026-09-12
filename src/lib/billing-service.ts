@@ -588,7 +588,7 @@ export async function listMonthlyBillingWriteOffs(searchParams: URLSearchParams)
         LEFT JOIN purchaseorderitems AS purchaseItem ON purchaseItem.id = ledger.purchaseOrderItemId
         LEFT JOIN requestitems AS ri ON ri.id = purchaseItem.requestItemId
         LEFT JOIN requests AS req ON req.requestNo = COALESCE(NULLIF(purchaseItem.requestNo, ''), NULLIF(ri.requestNo, ''), mbw.requestNo)
-        LEFT JOIN requestitems AS riByBusinessKey ON riByBusinessKey.requestNo = mbw.requestNo AND riByBusinessKey.deviceCode = mbw.deviceCode
+        LEFT JOIN requestitems AS riByBusinessKey ON riByBusinessKey.id = (SELECT candidate.id FROM requestitems AS candidate WHERE candidate.requestNo = mbw.requestNo AND candidate.deviceCode = mbw.deviceCode ORDER BY candidate.id LIMIT 1)
         ${where}
       `,
       params,
@@ -639,7 +639,7 @@ export async function listMonthlyBillingWriteOffs(searchParams: URLSearchParams)
       LEFT JOIN purchaseorderitems AS purchaseItem ON purchaseItem.id = ledger.purchaseOrderItemId
       LEFT JOIN requestitems AS ri ON ri.id = purchaseItem.requestItemId
       LEFT JOIN requests AS req ON req.requestNo = COALESCE(NULLIF(purchaseItem.requestNo, ''), NULLIF(ri.requestNo, ''), mbw.requestNo)
-      LEFT JOIN requestitems AS riByBusinessKey ON riByBusinessKey.requestNo = mbw.requestNo AND riByBusinessKey.deviceCode = mbw.deviceCode
+      LEFT JOIN requestitems AS riByBusinessKey ON riByBusinessKey.id = (SELECT candidate.id FROM requestitems AS candidate WHERE candidate.requestNo = mbw.requestNo AND candidate.deviceCode = mbw.deviceCode ORDER BY candidate.id LIMIT 1)
       ${where}
       ${getTableSort(searchParams, filterExpressions) || "ORDER BY mbw.writeOffMonth DESC, mbw.ledgerId"}
       ${exportAll ? "" : "LIMIT :limit OFFSET :offset"}
@@ -825,7 +825,7 @@ export async function listMonthlyBillingWriteOffFilterOptions(searchParams: URLS
     LEFT JOIN purchaseorderitems AS purchaseItem ON purchaseItem.id = ledger.purchaseOrderItemId
     LEFT JOIN requestitems AS ri ON ri.id = purchaseItem.requestItemId
     LEFT JOIN requests AS req ON req.requestNo = COALESCE(NULLIF(purchaseItem.requestNo, ''), NULLIF(ri.requestNo, ''), mbw.requestNo)
-    LEFT JOIN requestitems AS riByBusinessKey ON riByBusinessKey.requestNo = mbw.requestNo AND riByBusinessKey.deviceCode = mbw.deviceCode
+    LEFT JOIN requestitems AS riByBusinessKey ON riByBusinessKey.id = (SELECT candidate.id FROM requestitems AS candidate WHERE candidate.requestNo = mbw.requestNo AND candidate.deviceCode = mbw.deviceCode ORDER BY candidate.id LIMIT 1)
   `);
 }
 

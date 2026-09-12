@@ -153,7 +153,7 @@ export function PoInvoiceSummaryPage() {
       </div>
       <Panel>
         <div className="flex flex-wrap items-end gap-3 border-b border-line-soft p-4">
-          <label className="min-w-[280px] flex-1">
+          <label className="w-[360px] max-w-full shrink-0">
             <span className="sr-only">搜索发票</span>
             <div className="flex gap-2">
               <Input className="h-10 w-full" value={keyword} placeholder="搜索项目单号、报价单号、客户、项目名称或发票号" onChange={(event) => setKeyword(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") applySearch(); }} />
@@ -163,7 +163,7 @@ export function PoInvoiceSummaryPage() {
           <label className="w-32 text-sm text-ink-2"><span className="mb-1 block text-xs text-ink-3">类型</span><select className="h-10 w-full rounded border border-line bg-white px-3 outline-none focus:border-primary" value={type} onChange={(event) => { setPage(1); setType(event.target.value); }}><option value="">全部类型</option><option value="income">收入</option><option value="cost">成本</option></select></label>
           <label className="text-sm text-ink-2"><span className="mb-1 block text-xs text-ink-3">账期开始</span><Input className="h-10" type="date" value={accountPeriodStart} onChange={(event) => { setPage(1); setAccountPeriodStart(event.target.value); }} /></label>
           <label className="text-sm text-ink-2"><span className="mb-1 block text-xs text-ink-3">账期结束</span><Input className="h-10" type="date" value={accountPeriodEnd} onChange={(event) => { setPage(1); setAccountPeriodEnd(event.target.value); }} /></label>
-          <span className="text-sm text-ink-3">共 {result.total} 条</span>
+          <span className="ml-auto text-sm text-ink-3">共 {result.total} 条</span>
         </div>
         {error ? <div className="border-b border-danger-border bg-danger-soft px-4 py-3 text-sm text-danger">{error}</div> : null}
         <StickyTable className="table-scroll max-h-[calc(100vh-340px)] overflow-auto" tableKey="po-invoice-summary">
