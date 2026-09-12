@@ -27,7 +27,7 @@ import { StickyTable } from "./sticky-table";
 import { StatusTag } from "./status-tag";
 import { AuditInfoBar, Button, Input, Panel, Textarea } from "./ui";
 import { confirmDialog } from "./app-dialog";
-import { TableSkeleton } from "./table-state";
+import { LoadingBlock, TableSkeleton } from "./table-state";
 
 type Value = string | number | boolean | null | undefined;
 type Row = Record<string, Value>;
@@ -660,7 +660,7 @@ function PartySearchSelect({ kind, label, required, value, selectedLabel, disabl
     window.setTimeout(() => inputRef.current?.select(), 0);
   }
 
-  return <div className="relative" ref={wrapperRef}><span className="mb-1 block text-xs text-ink-2">{label}{required ? <b className="text-danger"> *</b> : null}</span><div className="relative"><Input ref={inputRef} className="w-full pr-8 disabled:bg-canvas" disabled={disabled} value={open ? query : selectedLabel || value} placeholder={`请选择${label}`} onFocus={openPicker} onChange={(event) => { setQuery(event.target.value); setOpen(true); }} /><ListFilter className="pointer-events-none absolute right-2 top-2 text-ink-3" size={15} /></div>{open ? <div className="absolute left-0 right-0 top-[62px] z-30 max-h-60 overflow-auto border border-line bg-white shadow-lg">{loading ? <div className="px-3 py-4 text-center text-xs text-ink-3">加载中...</div> : options.map((option) => <button className="block w-full truncate px-3 py-2 text-left text-sm hover:bg-info-soft" key={option.value} type="button" onClick={() => { onChange(option); setQuery(option.shortName); setOpen(false); }}>{option.label}</button>)}{!loading && !options.length ? <div className="px-3 py-4 text-center text-xs text-ink-3">暂无匹配伙伴</div> : null}</div> : null}</div>;
+  return <div className="relative" ref={wrapperRef}><span className="mb-1 block text-xs text-ink-2">{label}{required ? <b className="text-danger"> *</b> : null}</span><div className="relative"><Input ref={inputRef} className="w-full pr-8 disabled:bg-canvas" disabled={disabled} value={open ? query : selectedLabel || value} placeholder={`请选择${label}`} onFocus={openPicker} onChange={(event) => { setQuery(event.target.value); setOpen(true); }} /><ListFilter className="pointer-events-none absolute right-2 top-2 text-ink-3" size={15} /></div>{open ? <div className="absolute left-0 right-0 top-[62px] z-30 max-h-60 overflow-auto border border-line bg-white shadow-lg">{loading ? <LoadingBlock text="加载中…" /> : options.map((option) => <button className="block w-full truncate px-3 py-2 text-left text-sm hover:bg-info-soft" key={option.value} type="button" onClick={() => { onChange(option); setQuery(option.shortName); setOpen(false); }}>{option.label}</button>)}{!loading && !options.length ? <div className="px-3 py-4 text-center text-xs text-ink-3">暂无匹配伙伴</div> : null}</div> : null}</div>;
 }
 
 export function ProductMasterPicker({ disabled, value, label, onChange }: { disabled: boolean; value: string; label: string; onChange: (product: ProductOption | null) => void }) {
@@ -734,7 +734,7 @@ export function ProductMasterPicker({ disabled, value, label, onChange }: { disa
 
   const dropdown = open && typeof document !== "undefined" ? createPortal(
     <div ref={panelRef} className="fixed z-[100] max-h-60 overflow-auto border border-line bg-white shadow-lg" style={{ top: position.top, left: position.left, width: position.width }}>
-      {loading ? <div className="px-3 py-4 text-center text-xs text-ink-3">加载中...</div> : options.map((option) => <button className="block w-full truncate px-3 py-2 text-left text-sm hover:bg-info-soft" key={String(option.productCode)} type="button" onClick={() => { onChange(option); setQuery(String(option.productCode ?? "")); setOpen(false); }}>{String(option.productCode ?? "")} - {String(option.productName ?? "")}</button>)}
+      {loading ? <LoadingBlock text="加载中…" /> : options.map((option) => <button className="block w-full truncate px-3 py-2 text-left text-sm hover:bg-info-soft" key={String(option.productCode)} type="button" onClick={() => { onChange(option); setQuery(String(option.productCode ?? "")); setOpen(false); }}>{String(option.productCode ?? "")} - {String(option.productName ?? "")}</button>)}
       {!loading && !options.length ? <div className="px-3 py-4 text-center text-xs text-ink-3">暂无匹配产品</div> : null}
     </div>,
     document.body,

@@ -5,6 +5,7 @@ import { Check, RefreshCw, Save, ShieldOff } from "lucide-react";
 import { Button, Panel } from "./ui";
 import { notify } from "./app-dialog";
 import { StickyTable } from "./sticky-table";
+import { TableSkeleton } from "./table-state";
 
 type Feature = {
   key: string;
@@ -79,7 +80,7 @@ export function ModuleFeaturesPage() {
             <td className="border-b border-line-soft px-4 py-3"><Button disabled={!isAdmin || saving === feature.key} onClick={() => void toggle(feature)}>{saving === feature.key ? <RefreshCw className="animate-spin" size={15} /> : <Save size={15} />}{feature.enabled ? "停用" : "启用"}</Button></td>
           </tr>)}
           {!loading && !features.length ? <tr><td className="py-10 text-center text-ink-3" colSpan={6}>无数据</td></tr> : null}
-          {loading ? <tr><td className="py-10 text-center text-ink-3" colSpan={6}>加载中</td></tr> : null}
+          {loading ? <tr><td className="py-10" colSpan={6}><TableSkeleton /></td></tr> : null}
         </tbody>
       </table>
     </StickyTable>

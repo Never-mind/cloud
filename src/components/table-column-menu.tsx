@@ -4,6 +4,7 @@ import { createPortal } from "react-dom";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowDownAZ, ArrowUpAZ, Check, ListFilter, Lock, Search, Unlock, X } from "lucide-react";
 import { Input } from "./ui";
+import { LoadingBlock } from "./table-state";
 
 export type TableFilterOption = {
   value: string;
@@ -352,7 +353,7 @@ export function TableColumnMenu({
               />
               全选
             </label>
-            {loading ? <div className="py-6 text-center text-xs text-ink-3">加载中...</div> : null}
+            {loading ? <LoadingBlock text="加载中…" /> : null}
             {!loading && !options.length ? <div className="py-6 text-center text-xs text-ink-3">暂无可选值</div> : null}
             {!loading ? options.map((option) => (
               <label className="flex cursor-pointer items-center gap-2 px-1 py-1.5 text-sm hover:bg-canvas" key={option.value} title={option.label ?? option.value}>
