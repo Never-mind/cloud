@@ -96,6 +96,7 @@ export function EntityPage({
   const [b6TypeConfigs, setB6TypeConfigs] = useState<Row[]>([]);
   const [instanceContracts, setInstanceContracts] = useState<Row[]>([]);
   const [refreshingShipmentId, setRefreshingShipmentId] = useState<string | null>(null);
+  const [fillingPendingShipments, setFillingPendingShipments] = useState(false);
   const [selectedRowIds, setSelectedRowIds] = useState<string[]>([]);
   const [batchBusy, setBatchBusy] = useState(false);
   const [countryDefaultLookups, setCountryDefaultLookups] = useState<Record<"undertaking-units" | "customers", Row[]>>({ "undertaking-units": [], customers: [] });
@@ -574,8 +575,35 @@ export function EntityPage({
       return;
     }
     const errors = Array.isArray(data.errors) ? data.errors : [];
-    notify(`已同步 ${data.orderCount ?? 0} 张已确认采购订单：新增 ${data.created ?? 0} 条物流数据，更新 ${data.updated ?? 0} 条物流数据，写入 ${data.remoteSnapshots ?? 0} 条远端快照。${errors.length ? `\n${errors.length} 张采购订单未处理：${errors.map((item: { error?: string }) => item.error ?? "未知原因").join("；")}` : ""}`, "info");
+    notify(`已同步 ${data.orderCount ?? 0} 张已确认采购订单：新增 ${data.created ?? 0} 条物流数据，更新 ${data.updated ?? 0} 条物流数据，写入 ${data.remoteSnapshots ?? 0} 条远端快照。${data.pending ? `\n仍有 ${data.pending} 条物流待远端补全。` : ""}${errors.length ? `\n${errors.length} 张采购订单未处理：${errors.map((item: { error?: string }) => item.error ?? "未知原因").join("；")}` : ""}`, errors.length ? "error" : "success");
     await loadRows();
+  }
+
+  async function fillPendingShipmentLogistics() {
+    if (!await confirmDialog("将为所有“待远端补全”的物流重新拉取远端机房、收货地址与收件人。远端仍未恢复的会保留待补全状态，是否继续？")) {
+      return;
+    }
+    setFillingPendingShipments(true);
+    try {
+      const response = await fetch("/api/procurement/shipments/pending-logistics", { method: "POST" });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error ?? "补齐待补全物流失败");
+      const errors = Array.isArray(data.errors) ? data.errors : [];
+      const changes = Array.isArray(data.changes) ? data.changes : [];
+      const head = data.scanned
+        ? `待补全 ${data.scanned} 条，成功补全 ${data.updated ?? 0} 条，仍未取到远端数据 ${data.skipped ?? 0} 条。`
+        : "当前没有待补全的物流。";
+      const detail = [
+        changes.length ? `补全明细：\n${changes.slice(0, 10).join("\n")}${changes.length > 10 ? `\n…共 ${changes.length} 项` : ""}` : "",
+        errors.length ? `仍失败：${errors.slice(0, 5).join("；")}` : "",
+      ].filter(Boolean).join("\n");
+      notify(detail ? `${head}\n${detail}` : head, data.updated ? "success" : errors.length ? "error" : "info");
+      await loadRows();
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "补齐待补全物流失败", "error");
+    } finally {
+      setFillingPendingShipments(false);
+    }
   }
 
   async function refreshShipmentRemoteLogistics(row: Row) {
@@ -586,6 +614,10 @@ export function EntityPage({
       const response = await fetch(`/api/shipments/${encodeURIComponent(shipmentId)}/remote-logistics`, { method: "POST" });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error ?? "远端物流信息重新拉取失败");
+      const changes = Array.isArray(data.changes) ? data.changes : [];
+      if (changes.length) {
+        notify(`物流 ${shipmentId} 已更新：\n${changes.join("\n")}`, "success");
+      }
       await loadRows();
     } catch (error) {
       notify(error instanceof Error ? error.message : "远端物流信息重新拉取失败", "info");
@@ -853,10 +885,16 @@ export function EntityPage({
             </Button>
           </a>
           {config.key === "shipments" ? (
-            <Button onClick={() => void syncConfirmedPurchaseOrderShipments()}>
-              <RefreshCw size={15} />
-              同步已确认采购订单
-            </Button>
+            <>
+              <Button onClick={() => void syncConfirmedPurchaseOrderShipments()}>
+                <RefreshCw size={15} />
+                同步已确认采购订单
+              </Button>
+              <Button disabled={fillingPendingShipments} tone="success" onClick={() => void fillPendingShipmentLogistics()}>
+                <RefreshCw size={15} />
+                {fillingPendingShipments ? "补齐中..." : "补齐待补全物流"}
+              </Button>
+            </>
           ) : null}
           {config.key === "instance-models" ? (
             <>

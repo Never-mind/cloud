@@ -576,7 +576,7 @@ export const entityConfigs: EntityConfig[] = [
       { key: "snapshotRecipientPhone", label: "收件电话" },
       { key: "snapshotDestinationAddress", label: "交付地址快照", defaultVisible: false },
       { key: "snapshotRecipientName", label: "收件人快照", defaultVisible: false },
-      { key: "remoteLogisticsSourceStatus", label: "物流数据来源", type: "select", options: [{ label: "远端快照", value: "remote" }, { label: "历史本地资料", value: "legacy" }], defaultVisible: false },
+      { key: "remoteLogisticsSourceStatus", label: "物流数据来源", type: "select", options: [{ label: "远端快照", value: "remote" }, { label: "待远端补全", value: "pending" }, { label: "历史本地资料", value: "legacy" }], defaultVisible: false },
       { key: "logisticsSnapshotAt", label: "远端拉取时间", type: "datetime", defaultVisible: false },
       { key: "transportMode", label: "运输方式" },
       { key: "isReceived", label: "是否签收", type: "boolean" },

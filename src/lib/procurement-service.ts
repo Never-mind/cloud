@@ -38,6 +38,10 @@ type ShipmentSyncResult = {
   created: number;
   updated: number;
   remoteSnapshots: number;
+  /** 本次未能取到远端快照、标记为待补全的物流条数。 */
+  pending: number;
+  /** 远端拉取失败的原因（tolerateRemoteFailure 为 true 时不再中断流程）。 */
+  remoteErrors: string[];
 };
 
 type ExistingShipmentRow = Row & {
@@ -67,6 +71,25 @@ export function shipmentRemoteLogisticsFields(snapshot: FrappeDemandLogisticsSna
     remoteLogisticsModifiedAt: snapshot.remoteModifiedAt,
     logisticsSnapshotJson: snapshot.snapshotJson,
     logisticsSnapshotAt: snapshot.snapshotAt,
+  };
+}
+
+/**
+ * 远端不可用时先生成物流单：远端字段留空，标记为 pending（待远端补全）。
+ * 远端恢复后由「补齐待补全物流」或「同步已确认采购订单」重新拉取并改回 remote。
+ */
+export function pendingShipmentRemoteLogisticsFields(): Row {
+  return {
+    dcCode: null,
+    dcNameZh: null,
+    remoteDemandOrderId: null,
+    remoteDatacenterId: null,
+    remoteDeliveryLocationId: null,
+    remoteRecipientListId: null,
+    remoteLogisticsSourceStatus: "pending",
+    remoteLogisticsModifiedAt: null,
+    logisticsSnapshotJson: null,
+    logisticsSnapshotAt: null,
   };
 }
 
@@ -155,10 +178,9 @@ export async function confirmPurchaseOrder(purchaseOrderIdOrPoNo: string, actor:
     throw new Error(`需求单 ${cancelledRequests.map((row: Row) => String(row.requestNo ?? "")).join("、")} 已被远端取消，请先处理后再确认采购订单`);
   }
 
-  // Pull and validate the immutable remote logistics snapshot before changing
-  // the purchase order status. A remote lookup failure therefore leaves the
-  // purchase order in draft instead of creating a confirmed order with blanks.
-  const result = await synchronizePurchaseOrderShipments(purchaseOrderId);
+  // 远端不稳定时不再阻断确认：物流单先生成，远端字段标记为 pending，
+  // 等远端恢复后再用「补齐待补全物流」拉回机房、收货地址与收件人。
+  const result = await synchronizePurchaseOrderShipments(purchaseOrderId, { tolerateRemoteFailure: true });
 
   await execute(`UPDATE purchaseorders
     SET status = :status, confirmedByUserId = :confirmedByUserId, confirmedByName = :confirmedByName,
@@ -173,14 +195,17 @@ export async function confirmPurchaseOrder(purchaseOrderIdOrPoNo: string, actor:
   });
 
   await markPurchaseOrderRequestsAsOrdered(order, actor);
-  return result.shipments;
+  return result;
 }
 
 /**
  * Synchronize shipment source fields from one purchase order without replacing logistics-entered fields.
  * Repeated calls update by purchase detail ID, so imports can safely be retried.
  */
-async function synchronizePurchaseOrderShipments(purchaseOrderIdOrPoNo: string): Promise<ShipmentSyncResult> {
+async function synchronizePurchaseOrderShipments(
+  purchaseOrderIdOrPoNo: string,
+  options: { tolerateRemoteFailure?: boolean } = {},
+): Promise<ShipmentSyncResult> {
   const rows = await queryRows<PurchaseOrderRow>(
     "SELECT purchaseOrderId, poNo, requestNo, sourceRequestNos, status FROM purchaseorders WHERE purchaseOrderId = :id OR poNo = :id LIMIT 1",
     { id: purchaseOrderIdOrPoNo },
@@ -245,17 +270,30 @@ async function synchronizePurchaseOrderShipments(purchaseOrderIdOrPoNo: string):
     const existing = existingByLine.get(index);
     return !existing || String(existing.remoteLogisticsSourceStatus ?? "").trim() !== "remote";
   });
-  const remoteFieldsByRequestNo = await loadRemoteShipmentFields(remoteLines);
+  const remoteFieldsByRequestNo = new Map<string, Row>();
+  const remoteErrors: string[] = [];
+  if (remoteLines.length) {
+    try {
+      for (const [requestNo, fields] of await loadRemoteShipmentFields(remoteLines)) {
+        remoteFieldsByRequestNo.set(requestNo, fields);
+      }
+    } catch (error) {
+      if (!options.tolerateRemoteFailure) throw error;
+      remoteErrors.push(error instanceof Error ? error.message : String(error));
+    }
+  }
 
   let created = 0;
   let updated = 0;
   let remoteSnapshots = 0;
+  let pending = 0;
   const persistedShipments: Row[] = [];
   for (const [index, shipment] of shipments.entries()) {
     const line = shipmentLines[index];
     const existing = existingByLine.get(index);
     const remoteFields = remoteFieldsByRequestNo.get(String(line.requestNo ?? "").trim());
-    const nextShipment = { ...shipment, ...(remoteFields ?? {}) };
+    const pendingRemote = remoteLines.includes(line) && !remoteFields;
+    const nextShipment = { ...shipment, ...(remoteFields ?? (pendingRemote ? pendingShipmentRemoteLogisticsFields() : {})) };
 
     if (existing) {
       const remoteAssignments = remoteFields
@@ -274,7 +312,9 @@ async function synchronizePurchaseOrderShipments(purchaseOrderIdOrPoNo: string):
               remoteLogisticsModifiedAt = :remoteLogisticsModifiedAt,
               logisticsSnapshotJson = :logisticsSnapshotJson,
               logisticsSnapshotAt = :logisticsSnapshotAt`
-        : "";
+        : pendingRemote
+          ? ", remoteLogisticsSourceStatus = :remoteLogisticsSourceStatus"
+          : "";
       await execute(
         `
           UPDATE shipments
@@ -291,6 +331,7 @@ async function synchronizePurchaseOrderShipments(purchaseOrderIdOrPoNo: string):
       );
       updated += 1;
       if (remoteFields) remoteSnapshots += 1;
+      if (pendingRemote) pending += 1;
       persistedShipments.push({ ...nextShipment, shipmentId: existing.shipmentId });
       continue;
     }
@@ -311,11 +352,12 @@ async function synchronizePurchaseOrderShipments(purchaseOrderIdOrPoNo: string):
       nextShipment,
     );
     created += 1;
-    remoteSnapshots += 1;
+    if (remoteFields) remoteSnapshots += 1;
+    if (pendingRemote) pending += 1;
     persistedShipments.push(nextShipment);
   }
 
-  return { shipments: persistedShipments, created, updated, remoteSnapshots };
+  return { shipments: persistedShipments, created, updated, remoteSnapshots, pending, remoteErrors };
 }
 
 async function loadRemoteShipmentFields(lines: ShipmentLineRow[]) {
@@ -345,7 +387,8 @@ export async function refreshShipmentRemoteLogistics(shipmentId: string) {
   const rows = await queryRows<Row>(
     `
       SELECT s.shipmentId,
-             COALESCE(NULLIF(poi.requestNo, ''), ri.requestNo) AS requestNo
+             COALESCE(NULLIF(poi.requestNo, ''), ri.requestNo) AS requestNo,
+             s.dcNameZh, s.snapshotDestinationAddress, s.snapshotRecipientName, s.snapshotRecipientPhone
         FROM shipments s
         LEFT JOIN purchaseorderitems poi ON poi.id = s.purchaseOrderItemId
         LEFT JOIN requestitems ri ON ri.id = poi.requestItemId
@@ -362,6 +405,29 @@ export async function refreshShipmentRemoteLogistics(shipmentId: string) {
   const remoteFields = await loadRemoteShipmentFields([{ purchaseOrderItemId: shipmentId, requestNo, batchName: null, deviceCode: null, nameEn: null, supplierId: null, undertakingUnitId: null }]);
   const fields = remoteFields.get(requestNo);
   if (!fields) throw new Error("远端物流信息不存在");
+  const changes = describeRemoteChanges(shipment, fields);
+  await applyRemoteLogisticsFields(shipmentId, fields);
+  return { shipmentId, ...fields, changes };
+}
+
+/** 远端快照里会覆盖本地展示的字段，用于生成"补齐前后差异"提示。 */
+const REMOTE_DIFF_FIELDS: Array<[string, string]> = [
+  ["dcNameZh", "机房"],
+  ["snapshotDestinationAddress", "收货地址"],
+  ["snapshotRecipientName", "收件人"],
+  ["snapshotRecipientPhone", "收件电话"],
+];
+
+function describeRemoteChanges(current: Row, next: Row) {
+  return REMOTE_DIFF_FIELDS.flatMap(([key, label]) => {
+    const before = String(current[key] ?? "").trim();
+    const after = String(next[key] ?? "").trim();
+    if (!after || before === after) return [];
+    return [`${label}：${before || "（空）"} → ${after}`];
+  });
+}
+
+async function applyRemoteLogisticsFields(shipmentId: string, fields: Row) {
   await execute(
     `
       UPDATE shipments
@@ -384,7 +450,67 @@ export async function refreshShipmentRemoteLogistics(shipmentId: string) {
     `,
     { shipmentId, ...fields },
   );
-  return { shipmentId, ...fields };
+}
+
+/**
+ * 补齐待补全物流：确认采购时远端不可用而留空的物流行，按需求单号统一重拉远端快照。
+ * 命中即写入机房/地址/收件人并把来源改回 remote，未命中则保留 pending 并回报原因。
+ */
+export async function synchronizePendingRemoteLogistics() {
+  const rows = await queryRows<Row>(
+    `
+      SELECT s.shipmentId,
+             COALESCE(NULLIF(poi.requestNo, ''), ri.requestNo) AS requestNo,
+             s.dcNameZh, s.snapshotDestinationAddress, s.snapshotRecipientName, s.snapshotRecipientPhone
+        FROM shipments s
+        LEFT JOIN purchaseorderitems poi ON poi.id = s.purchaseOrderItemId
+        LEFT JOIN requestitems ri ON ri.id = poi.requestItemId
+       WHERE s.remoteLogisticsSourceStatus = :pendingStatus
+       ORDER BY s.shipmentId
+    `,
+    { pendingStatus: "pending" },
+  );
+  if (!rows.length) {
+    return { scanned: 0, updated: 0, skipped: 0, changes: [] as string[], errors: [] as string[] };
+  }
+
+  const requestNos = Array.from(new Set(rows.map((row) => String(row.requestNo ?? "").trim()).filter(Boolean)));
+  // 远端整体不可用时不要抛错：批量补齐是"尽力而为"，把结果如实回报给用户即可。
+  let lookup;
+  try {
+    lookup = await getFrappeDemandLogistics(requestNos);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { scanned: rows.length, updated: 0, skipped: rows.length, changes: [] as string[], errors: [message] };
+  }
+  const changes: string[] = [];
+  const errors = requestNos.flatMap((requestNo) => {
+    const message = lookup.errorsByRequestNo.get(requestNo);
+    return message ? [`需求单 ${requestNo}：${message}`] : [];
+  });
+
+  let updated = 0;
+  let skipped = 0;
+  for (const row of rows) {
+    const shipmentId = String(row.shipmentId);
+    const requestNo = String(row.requestNo ?? "").trim();
+    if (!requestNo) {
+      skipped += 1;
+      errors.push(`物流 ${shipmentId} 未关联需求单，无法补全`);
+      continue;
+    }
+    const snapshot = lookup.snapshotsByRequestNo.get(requestNo);
+    if (!snapshot) {
+      skipped += 1;
+      continue;
+    }
+    const fields = shipmentRemoteLogisticsFields(snapshot);
+    for (const change of describeRemoteChanges(row, fields)) changes.push(`${shipmentId} ${change}`);
+    await applyRemoteLogisticsFields(shipmentId, fields);
+    updated += 1;
+  }
+
+  return { scanned: rows.length, updated, skipped, changes, errors };
 }
 
 export async function synchronizeConfirmedPurchaseOrderShipments(purchaseOrderIds?: string[]) {
@@ -401,19 +527,24 @@ export async function synchronizeConfirmedPurchaseOrderShipments(purchaseOrderId
   let created = 0;
   let updated = 0;
   let remoteSnapshots = 0;
+  let pending = 0;
   const errors: Array<{ purchaseOrderId: string; error: string }> = [];
   for (const order of orders) {
     try {
-      const result = await synchronizePurchaseOrderShipments(order.purchaseOrderId);
+      const result = await synchronizePurchaseOrderShipments(order.purchaseOrderId, { tolerateRemoteFailure: true });
       await markPurchaseOrderRequestsAsOrdered(order);
       created += result.created;
       updated += result.updated;
       remoteSnapshots += result.remoteSnapshots;
+      pending += result.pending;
+      for (const message of result.remoteErrors) {
+        errors.push({ purchaseOrderId: order.purchaseOrderId, error: message });
+      }
     } catch (error) {
       errors.push({ purchaseOrderId: order.purchaseOrderId, error: error instanceof Error ? error.message : String(error) });
     }
   }
-  return { orderCount: orders.length, created, updated, remoteSnapshots, errors };
+  return { orderCount: orders.length, created, updated, remoteSnapshots, pending, errors };
 }
 
 async function markPurchaseOrderRequestsAsOrdered(order: Pick<PurchaseOrderRow, "requestNo" | "sourceRequestNos">, actor: OperationActor | null = null) {

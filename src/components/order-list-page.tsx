@@ -248,6 +248,11 @@ export function OrderListPage({
       notify(data.error ?? "确认采购订单失败", "error");
       return;
     }
+    const pendingCount = Number(data.pending ?? 0);
+    if (pendingCount) {
+      const reason = Array.isArray(data.remoteErrors) && data.remoteErrors.length ? String(data.remoteErrors[0]) : "远端暂不可用";
+      notify(`采购订单已确认，物流已生成；其中 ${pendingCount} 条待远端补全（${reason}）。远端恢复后可在物流列表点"补齐待补全物流"。`, "info");
+    }
     await loadData(page, pageSizeRef.current);
     setConfirmingId("");
   }
