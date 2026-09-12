@@ -13,7 +13,8 @@ import { buildImportMessage, type ImportReport } from "@/lib/entity-import";
 import { PURCHASE_CURRENCY_OPTIONS } from "@/lib/purchase-order-form";
 import { fetchAllEntityRows } from "@/lib/client-entity-fetch";
 import { buildDetailRoute, getReturnTo } from "@/lib/client-list-navigation";
-import { Button, Input, Panel, Textarea } from "./ui";
+import { Button, Input, Panel } from "./ui";
+import { AutoGrowTextarea } from "./auto-grow-textarea";
 import { confirmDialog, notify } from "./app-dialog";
 import { StickyTable } from "./sticky-table";
 
@@ -229,7 +230,7 @@ export function BillingAdjustmentDetailPage({ adjustmentNo: routeAdjustmentNo }:
           </label>
           <label>
             <span className="mb-1 block text-sm font-medium text-ink-2">调整原因</span>
-            <Textarea className="w-full" disabled={!canEdit} value={reason} onChange={(event) => setReason(event.target.value)} />
+            <AutoGrowTextarea disabled={!canEdit} value={reason} onChange={(event) => setReason(event.target.value)} />
           </label>
         </div>
 

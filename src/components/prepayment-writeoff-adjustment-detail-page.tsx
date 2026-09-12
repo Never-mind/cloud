@@ -9,7 +9,8 @@ import {
   mergePrepaymentAdjustmentSelection,
   type PrepaymentMonthlyWriteOffForAdjustment,
 } from "@/lib/prepayment-adjustment-workflow";
-import { Button, Input, Panel, Textarea } from "./ui";
+import { Button, Input, Panel } from "./ui";
+import { AutoGrowTextarea } from "./auto-grow-textarea";
 import { confirmDialog, notify } from "./app-dialog";
 import { PaginationBar } from "./pagination-bar";
 import { StickyTable } from "./sticky-table";
@@ -255,7 +256,7 @@ export function PrepaymentWriteOffAdjustmentDetailPage({ adjustmentNo: routeAdju
           </label>
           <label className="md:col-span-2">
             <span className="mb-1 block text-sm font-medium text-ink-2">调整原因</span>
-            <Textarea className="w-full" disabled={confirmed} value={reason} onChange={(event) => setReason(event.target.value)} />
+            <AutoGrowTextarea disabled={confirmed} value={reason} onChange={(event) => setReason(event.target.value)} />
           </label>
         </div>
 
