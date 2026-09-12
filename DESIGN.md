@@ -362,7 +362,7 @@ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
 - 标题左上，关闭按钮右上。
 - 弹窗内容超过视口高度时内部滚动。
 
-**实现约定**：统一使用 `src/components/modal.tsx` 的 `Modal`，不要各页面手写浮层。历史上 16 个弹层写过 4 种遮罩浓度（`bg-black/20`~`/45`）、8 种层级（`z-50`/`z-[60]`~`z-[130]`）、两套标题区（扁平 `p-6` 与分段带边框），导致弹窗叠弹窗时层级不可预测。
+**实现约定**：统一使用 `src/components/modal.tsx` 的 `Modal`，不要各页面手写浮层。历史上 16 个弹层写过 4 种遮罩浓度（`bg-black/20`~`/45`）、8 种层级（`z-50`/`z-[60]`~`z-[130]`）、两套标题区（扁平 `p-6` 与分段带边框），导致弹窗叠弹窗时层级不可预测。**16 个业务弹层已全部完成结构迁移**，页面里不再手写 `fixed inset-0` 的弹窗外壳。
 
 ```tsx
 <Modal
@@ -378,8 +378,17 @@ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
 
 - 遮罩统一 `bg-black/40`，面板统一 `rounded border border-line-soft`，标题区带下边框、底部按钮区带上边框。
 - 层级约定：普通弹窗 `z-[100]`、确认框 `z-[90]`、轻提示 `z-[95]`、工作区导航 `z-[130]`。
+- 需要偏离默认层级时传 `zClass`（仅工作区导航用 `z-[130]`），不要在业务页里复制外壳。
 - 内置 Esc 关闭与 `role="dialog" aria-modal="true"`。
 - 需要整块作为表单提交时传 `panelAs="form"` 与 `panelProps={{ action: saveRow }}`。
+
+### 7.1.1 右侧抽屉
+
+右侧抽屉统一使用 `src/components/drawer.tsx` 的 `Drawer`，用于"不离开当前列表就能查看/编辑一条明细"的场景（如算力服务费测算）。
+
+- 遮罩 `z-[90]`、面板 `z-[100]`：**面板层级必须高于遮罩**，否则点击会被遮罩吃掉。历史上有 1 处写反（面板 `z-50` < 遮罩 `z-[90]`）。
+- 面板从右侧贴边，`inset-y-0`，宽度用 `widthClass` 控制，内容区独立滚动，底部固定按钮区。
+- 内置 Esc 关闭与 `role="dialog" aria-modal="true"`。
 
 ### 7.2 表单布局
 
@@ -544,7 +553,8 @@ notify(error instanceof Error ? error.message : "保存失败", "error");
 - `VisitedTabs`：页面标签。
 - `SearchToolbar`：筛选表单 + 操作按钮。
 - `DataTable`：宽表格、固定列、分页、空态。
-- `CrudDialog`：新建/编辑弹窗。
+- `Modal`：新建/编辑弹窗（已实现，见 7.1）。
+- `Drawer`：右侧明细/测算抽屉（已实现，见 7.1.1）。
 - `ConfirmDelete`：删除确认。
 - `ImportDialog`：导入文件、模板下载、导入结果。
 - `OperationLogDialog`：操作日志。
@@ -587,7 +597,7 @@ notify(error instanceof Error ? error.message : "保存失败", "error");
 
 - 按钮、输入框、文本域统一用 `src/components/ui.tsx` 里的 `Button` / `Input` / `Textarea` / `Panel`，不要在业务页面里手写一套。
 - 按钮类型只选 `default` / `primary` / `success` / `warning` / `danger`，hover 与焦点态由组件内部处理，业务页面不要再写 `hover:opacity-*`。
-- 弹窗、抽屉、下拉浮层用 `createPortal` 挂到 `body`，避免被父容器的 `overflow: hidden` 裁切。
+- 弹窗、抽屉、下拉浮层一律用公共组件（`Modal` / `Drawer` / 表格列筛选菜单），不要在业务页面里手写浮层。公共组件内部用 `fixed` 定位挂到视口，避免被父容器的 `overflow: hidden` 裁切。
 - 组件容器如果要加 `overflow: hidden`，先确认里面没有 `position: sticky` 子元素（例如结差页的浮动汇总条），否则 sticky 会失效。
 
 **迁移节奏**：现有代码里还有约 2500 处硬编码颜色，按模块渐进替换，不要一次性全局搜索替换。改到哪个页面就顺手把该页面的颜色换成语义类，配合页面回归验证。
@@ -680,14 +690,14 @@ notify(error instanceof Error ? error.message : "保存失败", "error");
 | 原生弹窗 | ✅ 新增 `confirmDialog` + `notify`，替换 52 处 `confirm` 与 160 处 `alert` |
 | 容器圆角 | ✅ `Panel` 补齐 4px 圆角与裁切，与控件一致；清理 8 处冗余 `overflow-hidden` |
 | 硬编码颜色 | ✅ 2,547 处 → 169 处，工具类下沉到语义令牌，新增 12 个状态色变体令牌 |
-| 弹窗外壳 | 🟡 新增 `Modal` 组件；16 处弹层的遮罩浓度、层级、面板圆角已统一，1 处完成结构迁移 |
+| 弹窗外壳 | ✅ 新增 `Modal` / `Drawer` 组件；16 处弹层、2 处右侧抽屉全部完成结构迁移，页面不再手写 `fixed inset-0` 外壳 |
 
 ### 13.3 待整改
 
 1. 剩余 169 处硬编码颜色：其中约 40 处在 SVG 属性与 JS `style` 对象里（`home-dashboard-panel` 图表、`sticky-table`、`table-column-menu`），其余是使用 1~6 次的长尾色值，可按需继续收敛或合并。
 2. 约 125 个符号导出后只在自身文件内使用，可去掉 `export` 收缩模块对外接口。
 3. 下拉浮层、图表区域等非表格位置的加载态，改用 `LoadingBlock`。
-4. 其余 15 个手写弹层的**结构**迁移到 `Modal`（标题区/内容区/按钮区三段式）。遮罩、层级、圆角已经统一，这一步只是把重复的容器标记换成组件。
+4. 弹层结构迁移已完成（16 个 `Modal` + 2 个 `Drawer`）。后续新增弹窗一律直接用组件，不要复制 `fixed inset-0` 外壳。
 
 ### 13.5 关于表格类名重复（暂不处理）
 

@@ -13,6 +13,7 @@ import {
 } from "@/lib/power-price-calculator";
 import type { InstanceContractPriceReference } from "@/lib/purchase-power-pricing-service";
 import { Button, Input } from "./ui";
+import { Drawer } from "./drawer";
 
 type PriceContextResponse = {
   history?: InstanceContractPriceReference[];
@@ -136,18 +137,18 @@ export function PowerPriceCalculationDrawer({
   }
 
   return (
-    <>
-<button aria-label="关闭价格测算" className="fixed inset-0 z-[90] bg-black/40" type="button" onClick={onClose} />
-      <aside className="fixed inset-y-0 right-0 z-50 flex w-full max-w-[760px] flex-col border-l border-line bg-white shadow-2xl">
-        <div className="flex items-start justify-between border-b border-line-soft px-5 py-4">
-          <div>
-            <div className="flex items-center gap-2 text-lg font-medium text-ink"><Calculator className="text-primary" size={19} />算力服务费测算</div>
-            <div className="mt-1 text-xs text-ink-3">{context.deviceCode} · {defaults.countryName} · 采购币种 {context.purchaseCurrency || "未填写"} · 合同币种 USD</div>
-          </div>
-          <button aria-label="关闭" className="text-ink-3 hover:text-ink" title="关闭" type="button" onClick={onClose}><X size={19} /></button>
-        </div>
-
-        <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-5">
+    <Drawer
+      description={<>{context.deviceCode} · {defaults.countryName} · 采购币种 {context.purchaseCurrency || "未填写"} · 合同币种 USD</>}
+      footer={
+        <>
+          <Button type="button" onClick={onClose}>取消</Button>
+          <Button tone="primary" type="button" disabled={storageReady === false} onClick={apply}>应用到采购明细</Button>
+        </>
+      }
+      onClose={onClose}
+      title={<><Calculator className="text-primary" size={19} />算力服务费测算</>}
+      widthClass="max-w-[760px]"
+    >
           <section>
             <div className="mb-2 flex items-center justify-between"><SectionTitle title="本次算力服务价格" /><span className="text-xs text-ink-3">默认自动计算，可手工调整</span></div>
             <div className="grid grid-cols-2 gap-3">
@@ -169,10 +170,7 @@ export function PowerPriceCalculationDrawer({
 
           <section className="border border-line-soft"><button className="flex w-full items-center justify-between px-3 py-3 text-left text-sm font-medium text-ink hover:bg-surface-2" type="button" onClick={() => setShowFormula((value) => !value)}><span className="flex items-center gap-2"><Info className="text-ink-3" size={15} />计算公式</span>{showFormula ? <ChevronUp size={16} /> : <ChevronDown size={16} />}</button>{showFormula ? <div className="space-y-2 border-t border-line-soft bg-surface-2 px-3 py-3 text-xs leading-5 text-ink-2"><div>1. CNY采购：CAPEX不含VAT = 不含税单价 + 税费加成金额。</div><div>2. USD采购：CAPEX不含VAT =（不含税单价 + 税费加成金额）÷ 整机价转合同汇率。</div><div>3. 资金占用费 = CAPEX不含VAT × 年资金费率 × 资金占用月数 ÷ 12。</div><div>4. CAPEX合计 = CAPEX不含VAT ×（1 + Onsite/RMA费率）+ 资金占用费。</div><div>5. DDP价格 = CAPEX合计 ×（1 + 运保清关费率）×（1 + 总代过手费率 + 其他税费率）。</div><div>6. OPEX = DDP价格 - CAPEX合计；OPEX全部平均分摊到前24个月。</div><div>7. 前24/后36个月服务费按模板整机基准价和对应基准服务费比例计算，再转为合同币种并加入当地服务VAT。</div></div> : null}</section>
           {storageReady === false ? <div className="border border-[#f5dab1] bg-warning-soft px-3 py-2 text-xs text-warning-deep">数据库尚未创建算力服务费测算字段。可以继续预览，但应用结果前请先执行本次迁移 SQL。</div> : null}
-        </div>
-        <div className="flex justify-end gap-2 border-t border-line-soft px-5 py-3"><Button type="button" onClick={onClose}>取消</Button><Button tone="primary" type="button" disabled={storageReady === false} onClick={apply}>应用到采购明细</Button></div>
-      </aside>
-    </>
+    </Drawer>
   );
 }
 

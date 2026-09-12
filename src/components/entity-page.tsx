@@ -25,6 +25,7 @@ import { TableColumnMenu, type TableFilterOption, type TableSortOrder } from "./
 import { useRequestGuard } from "@/lib/table-query-client";
 import type { MaterialSyncSummary } from "@/lib/material-sync-service";
 import { Button, Input, Panel, Textarea } from "./ui";
+import { Modal } from "./modal";
 import { confirmDialog, notify } from "./app-dialog";
 import { TableStateContent } from "./table-state";
 
@@ -1052,26 +1053,36 @@ export function EntityPage({
       </Panel>
 
       {showForm && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 p-4">
-          <form
-            action={saveRow}
-            className="max-h-[88vh] w-[820px] overflow-auto rounded border border-line-soft bg-white p-6 shadow-xl"
-          >
-            <div className="mb-5 flex items-center">
-              <h2 className="text-lg text-ink">{editing ? `编辑${config.title}` : `新建${config.title}`}</h2>
-              <button
-                className="ml-auto text-xl text-ink-3"
-                type="button"
+        <Modal
+          footer={
+            <>
+              <Button
                 onClick={() => {
                   setShowForm(false);
                   setEditing(null);
                   setInstanceContractDeviceCode("");
                   setBillingContractNo("");
                 }}
+                type="button"
               >
-                x
-              </button>
-            </div>
+                取消
+              </Button>
+              <Button tone="primary" type="submit">
+                确定
+              </Button>
+            </>
+          }
+          onClose={() => {
+            setShowForm(false);
+            setEditing(null);
+            setInstanceContractDeviceCode("");
+            setBillingContractNo("");
+          }}
+          panelAs="form"
+          panelProps={{ action: saveRow }}
+          title={editing ? `编辑${config.title}` : `新建${config.title}`}
+          widthClass="max-w-[820px]"
+        >
             <div className="grid grid-cols-2 gap-x-8 gap-y-4">
               {config.formFields.filter((field) => !field.hidden).map((field) => (
                 <label className={field.type === "textarea" ? "col-span-2" : ""} key={field.key}>
@@ -1346,45 +1357,26 @@ export function EntityPage({
               </datalist>
             ) : null}
             {config.key === "shipments" ? <ShipmentTimelinePreview /> : null}
-            <div className="mt-6 flex justify-end gap-2">
-              <Button
-                type="button"
-                onClick={() => {
-                  setShowForm(false);
-                  setEditing(null);
-                  setInstanceContractDeviceCode("");
-                  setBillingContractNo("");
-                }}
-              >
-                取消
-              </Button>
-              <Button tone="primary" type="submit">
-                确定
-              </Button>
-            </div>
-          </form>
-        </div>
+        </Modal>
       )}
 
       {showFieldSettings && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 p-4">
-          <div className="w-[720px] rounded border border-line-soft bg-white p-6 shadow-xl">
-            <div className="mb-4 flex items-center">
-              <div>
-                <h2 className="text-lg text-ink">物流字段设置</h2>
-                <p className="mt-1 text-sm text-ink-3">
-                  勾选需要在物流列表中显示的字段，隐藏字段仍会在这里集中展示。
-                </p>
-              </div>
-              <button
-                className="ml-auto text-xl text-ink-3"
-                type="button"
-                onClick={() => setShowFieldSettings(false)}
-              >
-                x
-              </button>
-            </div>
-
+        <Modal
+          description="勾选需要在物流列表中显示的字段，隐藏字段仍会在这里集中展示。"
+          footer={
+            <>
+              <Button onClick={() => setVisibility(mergeColumnVisibility(config.listFields, {}))}>
+                恢复默认
+              </Button>
+              <Button tone="primary" onClick={() => setShowFieldSettings(false)}>
+                确定
+              </Button>
+            </>
+          }
+          onClose={() => setShowFieldSettings(false)}
+          title="物流字段设置"
+          widthClass="max-w-[720px]"
+        >
             <div className="mb-4 grid grid-cols-2 gap-4">
               <FieldSettingsSection
                 columns={columnSettingGroups.visible}
@@ -1406,17 +1398,7 @@ export function EntityPage({
               当前隐藏字段：
               {hiddenColumns.length ? hiddenColumns.map((field) => field.label).join("、") : "无"}
             </div>
-
-            <div className="mt-5 flex justify-end gap-2">
-              <Button onClick={() => setVisibility(mergeColumnVisibility(config.listFields, {}))}>
-                恢复默认
-              </Button>
-              <Button tone="primary" onClick={() => setShowFieldSettings(false)}>
-                确定
-              </Button>
-            </div>
-          </div>
-        </div>
+        </Modal>
       )}
     </div>
   );

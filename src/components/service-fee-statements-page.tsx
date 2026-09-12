@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { CheckCircle2, FileDown, FileText, Pencil, RefreshCw, Search, Trash2, Upload, X } from "lucide-react";
+import { CheckCircle2, FileDown, FileText, Pencil, RefreshCw, Search, Trash2, Upload } from "lucide-react";
 import { fetchAllEntityRows } from "@/lib/client-entity-fetch";
 import { formatDisplayValue } from "@/lib/display-format";
 import { DEFAULT_PAGE_SIZE } from "@/lib/pagination";
@@ -12,6 +12,7 @@ import { StickyTable } from "./sticky-table";
 import { TableColumnMenu, type TableFilterOption, type TableSortOrder } from "./table-column-menu";
 import { useRequestGuard } from "@/lib/table-query-client";
 import { Button, Input, Panel } from "./ui";
+import { Modal } from "./modal";
 import { confirmDialog, notify } from "./app-dialog";
 import { TableStateContent } from "./table-state";
 
@@ -674,16 +675,19 @@ export function ServiceFeeStatementsPage() {
         />
       </Panel>
       {repaymentDraft ? (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 p-4" role="dialog" aria-modal="true" aria-label="登记回款信息">
-          <div className="w-full max-w-[680px] rounded border border-line-soft bg-white shadow-xl">
-            <div className="flex items-center border-b border-line-soft px-5 py-4">
-              <div>
-                <h2 className="font-medium text-ink">登记回款信息</h2>
-                <p className="mt-1 text-xs text-ink-3">{repaymentDraft.snapshotNo}</p>
-              </div>
-              <button className="ml-auto text-ink-3 hover:text-ink" type="button" title="关闭" onClick={() => setRepaymentDraft(null)}><X size={18} /></button>
-            </div>
-            <div className="grid grid-cols-2 gap-4 p-5">
+        <Modal
+          description={repaymentDraft.snapshotNo}
+          footer={
+            <>
+              <Button onClick={() => setRepaymentDraft(null)}>取消</Button>
+              <Button tone="primary" disabled={busyNo === repaymentDraft.snapshotNo} onClick={() => void saveRepayment()}>保存回款信息</Button>
+            </>
+          }
+          onClose={() => setRepaymentDraft(null)}
+          title="登记回款信息"
+          widthClass="max-w-[680px]"
+        >
+          <div className="grid grid-cols-2 gap-4">
               <RepaymentField label="是否回款">
                 <button
                   aria-checked={repaymentDraft.repaymentStatus === "已回款"}
@@ -733,25 +737,23 @@ export function ServiceFeeStatementsPage() {
               <RepaymentField label="回款日期">
                 <Input className="w-full min-w-0" type="date" value={repaymentDraft.repaymentDate} onChange={(event) => setRepaymentDraft((current) => current ? { ...current, repaymentDate: event.target.value } : current)} />
               </RepaymentField>
-            </div>
-            <div className="flex justify-end gap-2 border-t border-line-soft px-5 py-4">
-              <Button onClick={() => setRepaymentDraft(null)}>取消</Button>
-              <Button tone="primary" disabled={busyNo === repaymentDraft.snapshotNo} onClick={() => void saveRepayment()}>保存回款信息</Button>
-            </div>
           </div>
-        </div>
+        </Modal>
       ) : null}
       {invoiceDraft ? (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 p-4" role="dialog" aria-modal="true" aria-label="编辑发票信息">
-          <div className="w-full max-w-[680px] rounded border border-line-soft bg-white shadow-xl">
-            <div className="flex items-center border-b border-line-soft px-5 py-4">
-              <div>
-                <h2 className="font-medium text-ink">编辑发票信息</h2>
-                <p className="mt-1 text-xs text-ink-3">{invoiceDraft.snapshotNo}</p>
-              </div>
-              <button className="ml-auto text-ink-3 hover:text-ink" type="button" title="关闭" onClick={() => setInvoiceDraft(null)}><X size={18} /></button>
-            </div>
-            <div className="grid grid-cols-2 gap-4 p-5">
+        <Modal
+          description={invoiceDraft.snapshotNo}
+          footer={
+            <>
+              <Button onClick={() => setInvoiceDraft(null)}>取消</Button>
+              <Button tone="primary" disabled={busyNo === invoiceDraft.snapshotNo} onClick={() => void saveInvoiceInfo()}>保存发票信息</Button>
+            </>
+          }
+          onClose={() => setInvoiceDraft(null)}
+          title="编辑发票信息"
+          widthClass="max-w-[680px]"
+        >
+          <div className="grid grid-cols-2 gap-4">
               <RepaymentField label="承接单位">
                 <select className="h-9 w-full rounded border border-line bg-white px-3 text-sm" value={invoiceDraft.invoiceReceivingUnitId} onChange={(event) => setInvoiceDraft((current) => current ? { ...current, invoiceReceivingUnitId: event.target.value } : current)}>
                   <option value="">请选择承接单位</option>
@@ -782,13 +784,8 @@ export function ServiceFeeStatementsPage() {
               <RepaymentField label="应收日期">
                 <Input className="w-full min-w-0" type="date" value={invoiceDraft.receivableDate} onChange={(event) => setInvoiceDraft((current) => current ? { ...current, receivableDate: event.target.value } : current)} />
               </RepaymentField>
-            </div>
-            <div className="flex justify-end gap-2 border-t border-line-soft px-5 py-4">
-              <Button onClick={() => setInvoiceDraft(null)}>取消</Button>
-              <Button tone="primary" disabled={busyNo === invoiceDraft.snapshotNo} onClick={() => void saveInvoiceInfo()}>保存发票信息</Button>
-            </div>
           </div>
-        </div>
+        </Modal>
       ) : null}
     </div>
   );

@@ -24,6 +24,8 @@ type ModalProps = {
   onClose: () => void;
   /** 面板宽度，例如 max-w-xl / w-[820px] */
   widthClass?: string;
+  /** 层级，默认与普通弹窗一致；工作区导航等场景可覆盖 */
+  zClass?: string;
   children: ReactNode;
   footer?: ReactNode;
   panelAs?: "div" | "form";
@@ -35,6 +37,7 @@ export function Modal({
   description,
   onClose,
   widthClass = "max-w-2xl",
+  zClass = MODAL_Z_INDEX,
   children,
   footer,
   panelAs = "div",
@@ -73,7 +76,7 @@ export function Modal({
   return (
     <div
       aria-modal="true"
-      className={`fixed inset-0 ${MODAL_Z_INDEX} flex items-center justify-center bg-black/40 p-4`}
+      className={`fixed inset-0 ${zClass} flex items-center justify-center bg-black/40 p-4`}
       role="dialog"
     >
       {panelAs === "form" ? (

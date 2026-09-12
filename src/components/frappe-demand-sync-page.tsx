@@ -3,6 +3,7 @@
 import { Fragment, useEffect, useState } from "react";
 import { DatabaseZap, FileSearch, Pencil, Play, RefreshCw, Save, X } from "lucide-react";
 import { Button, Input, Panel } from "./ui";
+import { Modal } from "./modal";
 import { confirmDialog } from "./app-dialog";
 import { TableStateContent } from "./table-state";
 import { StickyTable } from "./sticky-table";
@@ -479,13 +480,19 @@ function MappingDialog({ mapping, masters, onCancel, onSave }: { mapping: Mappin
   const canSave = !shouldSelectTarget || Boolean(localEntityId);
   const title = mapping.status === "pending" || mapping.status === "conflict" ? "选择本地档案并确认" : "修改映射";
 
-  return <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 p-4">
-    <div className="w-full max-w-2xl rounded border border-line-soft bg-white shadow-xl">
-      <div className="flex items-center justify-between border-b border-line-soft px-5 py-4">
-        <h2 className="text-lg font-medium text-ink">{title}</h2>
-        <button type="button" title="关闭" onClick={onCancel}><X size={17} /></button>
-      </div>
-      <div className="space-y-4 p-5">
+  return (
+    <Modal
+      footer={
+        <>
+          <Button disabled={saving} onClick={onCancel}>取消</Button>
+          <Button tone="primary" disabled={saving || !canSave} onClick={() => { setSaving(true); void onSave({ status, localEntityId }).finally(() => setSaving(false)); }}><Save size={15} />保存</Button>
+        </>
+      }
+      onClose={onCancel}
+      title={title}
+      widthClass="max-w-2xl"
+    >
+      <div className="space-y-4">
         <div className="border border-line-soft bg-surface-2 p-3 text-sm text-ink-2">
           <div className="font-medium text-ink">{sourceTypeLabel(mapping.sourceType)}：{mapping.sourceId}</div>
           <div className="mt-2">{display(mapping.sourceCode)} {mapping.sourceName ? `- ${mapping.sourceName}` : ""}</div>
@@ -513,10 +520,6 @@ function MappingDialog({ mapping, masters, onCancel, onSave }: { mapping: Mappin
           </label>
         </> : null}
       </div>
-      <div className="flex justify-end gap-2 border-t border-line-soft px-5 py-4">
-        <Button disabled={saving} onClick={onCancel}>取消</Button>
-        <Button tone="primary" disabled={saving || !canSave} onClick={() => { setSaving(true); void onSave({ status, localEntityId }).finally(() => setSaving(false)); }}><Save size={15} />保存</Button>
-      </div>
-    </div>
-  </div>;
+    </Modal>
+  );
 }
