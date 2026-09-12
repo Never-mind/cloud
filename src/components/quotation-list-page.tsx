@@ -2,9 +2,10 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, CheckCircle2, Download, Edit3, Eye, FileDown, FileUp, RefreshCw, Save, Search, Trash2, X } from "lucide-react";
-import { useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { formatDisplayValue } from "@/lib/display-format";
 import { summarizeQuotationDetails } from "@/lib/quotation-detail-summary";
+import { buildDetailRoute, getCurrentRoute } from "@/lib/client-list-navigation";
 import { postWorkspaceMessage } from "@/lib/tab-workspace";
 import type { EntityConfig, EntityField } from "@/lib/modules";
 import { PaginationBar } from "./pagination-bar";
@@ -111,6 +112,8 @@ const editableQuotationFields: EntityField[] = [
 ];
 
 export function QuotationListPage({ config }: { config: EntityConfig }) {
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [keyword, setKeyword] = useState("");
   const [appliedKeyword, setAppliedKeyword] = useState("");
   const [status, setStatus] = useState("");
@@ -124,6 +127,8 @@ export function QuotationListPage({ config }: { config: EntityConfig }) {
   const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+
+  const currentListRoute = getCurrentRoute(pathname, searchParams.toString());
 
   async function load() {
     setLoading(true);
@@ -178,6 +183,11 @@ export function QuotationListPage({ config }: { config: EntityConfig }) {
 
   function openRoute(route: string, title: string) {
     postWorkspaceMessage({ type: "cloud-power:open-tab", route, title });
+  }
+
+  /** 打开明细时带上当前列表路由（含筛选与 embed），明细页才能原样返回。 */
+  function openQuotationDetail(id: string) {
+    openRoute(buildDetailRoute(`/quotation/list/${encodeURIComponent(id)}`, currentListRoute), "报价单明细");
   }
 
   async function loadOptions(field: string, optionKeyword: string): Promise<TableFilterOption[]> {
@@ -253,10 +263,10 @@ export function QuotationListPage({ config }: { config: EntityConfig }) {
                 const id = String(row[config.primaryKey] ?? "");
                 return <tr className="hover:bg-surface-2" key={id}>
                   {config.listFields.map((field, index) => <td className="max-w-[250px] truncate whitespace-nowrap border-b border-r border-line-soft px-3 py-3" key={field.key}>
-                    {index === 0 ? <button className="text-primary hover:underline" type="button" onClick={() => openRoute(`/quotation/list/${encodeURIComponent(id)}?returnTo=%2Fquotation%2Flist`, "报价单明细")}>{formatQuotationValue(row[field.key], field.type)}</button> : field.key === "status" ? <StatusTag status={String(row[field.key] ?? "draft")} label={formatQuotationValue(row[field.key], field.type)} /> : formatQuotationValue(row[field.key], field.type)}
+                    {index === 0 ? <button className="text-primary hover:underline" type="button" onClick={() => openQuotationDetail(id)}>{formatQuotationValue(row[field.key], field.type)}</button> : field.key === "status" ? <StatusTag status={String(row[field.key] ?? "draft")} label={formatQuotationValue(row[field.key], field.type)} /> : formatQuotationValue(row[field.key], field.type)}
                   </td>)}
                   <td className="sticky right-0 whitespace-nowrap border-b border-line-soft bg-white px-3 py-3">
-                    <button className="inline-flex h-8 w-8 items-center justify-center text-ink-2 hover:text-primary" type="button" aria-label="查看" title="查看" onClick={() => openRoute(`/quotation/list/${encodeURIComponent(id)}?returnTo=%2Fquotation%2Flist`, "报价单明细")}><Eye size={16} /></button>
+                    <button className="inline-flex h-8 w-8 items-center justify-center text-ink-2 hover:text-primary" type="button" aria-label="查看" title="查看" onClick={() => openQuotationDetail(id)}><Eye size={16} /></button>
                     <button className="ml-2 inline-flex h-8 w-8 items-center justify-center text-ink-2 hover:text-primary" type="button" aria-label="导出" title="导出报价单" onClick={() => download(`/api/entities/quotations/export?filter.quotationNo=${encodeURIComponent(String(row.quotationNo ?? ""))}`)}><FileDown size={16} /></button>
                     {String(row.status ?? "draft") !== "confirmed" ? <button className="ml-2 inline-flex h-8 w-8 items-center justify-center text-danger hover:text-danger-strong" type="button" aria-label="删除" title="删除草稿" onClick={() => void deleteQuotation(id, String(row.quotationNo ?? ""))}><Trash2 size={16} /></button> : null}
                   </td>
@@ -273,6 +283,7 @@ export function QuotationListPage({ config }: { config: EntityConfig }) {
 }
 
 export function QuotationDetailPage({ id }: { id: string }) {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const returnTo = searchParams.get("returnTo")?.startsWith("/") ? searchParams.get("returnTo")! : "/quotation/list";
   const [quotation, setQuotation] = useState<Row | null>(null);
@@ -538,7 +549,7 @@ export function QuotationDetailPage({ id }: { id: string }) {
   }
 
   if (loading) return <LoadingBlock />;
-  if (!quotation) return <div className="space-y-4 p-5"><Button onClick={() => postWorkspaceMessage({ type: "cloud-power:route", route: returnTo, title: "报价列表" })}><ArrowLeft size={15} />返回报价列表</Button><Panel><div className="p-6 text-sm text-danger">{error || "报价单不存在"}</div></Panel></div>;
+  if (!quotation) return <div className="space-y-4 p-5"><Button onClick={() => router.push(returnTo)}><ArrowLeft size={15} />返回报价列表</Button><Panel><div className="p-6 text-sm text-danger">{error || "报价单不存在"}</div></Panel></div>;
 
   const totalQuantity = items.reduce((sum, row) => sum + Number(row.quantity ?? 0), 0);
   const quotationSummary = summarizeQuotationDetails(visibleItems);
@@ -554,7 +565,7 @@ export function QuotationDetailPage({ id }: { id: string }) {
   return (
     <div className="space-y-4 p-5">
       <div className="flex flex-wrap items-center gap-3">
-        <Button onClick={() => postWorkspaceMessage({ type: "cloud-power:route", route: returnTo, title: "报价列表" })}><ArrowLeft size={15} />返回报价列表</Button>
+        <Button onClick={() => router.push(returnTo)}><ArrowLeft size={15} />返回报价列表</Button>
         <div className="mr-auto"><h1 className="text-xl font-medium text-ink">{String(quotation.quotationNo ?? "报价单详情")}</h1><p className="mt-1 text-sm text-ink-3">报价单主单与产品明细。</p></div>
         {String(quotation.status ?? "") === "draft" ? <>{editing ? <><Button onClick={cancelEditing} disabled={saving}><X size={15} />取消</Button><Button tone="primary" onClick={() => void saveQuotation()} disabled={saving}><Save size={15} />{saving ? "保存中..." : "保存"}</Button></> : <Button onClick={startEditing}><Edit3 size={15} />修改</Button>}<Button tone="success" disabled={confirming || editing} onClick={() => void confirmQuotation()}><CheckCircle2 size={15} />{confirming ? "确认中" : "确认报价单"}</Button></> : null}
         {String(quotation.status ?? "") === "draft" ? <>

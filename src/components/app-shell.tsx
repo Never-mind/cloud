@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import {
   Boxes,
@@ -97,6 +97,7 @@ export function AppShell({
   const [readyTabIds, setReadyTabIds] = useState<Set<string>>(() => new Set());
   const [displayedTabId, setDisplayedTabId] = useState<string | null>(null);
   const [tabFrameRoutes, setTabFrameRoutes] = useState<Record<string, string>>({});
+  const [tabFrameVersions, setTabFrameVersions] = useState<Record<string, number>>({});
   const activeRouteRef = useRef(workspace.activeRoute);
   const workspaceRef = useRef(workspace);
   const readyTabIdsRef = useRef(readyTabIds);
@@ -136,6 +137,42 @@ export function AppShell({
   useEffect(() => {
     readyTabIdsRef.current = readyTabIds;
   }, [readyTabIds]);
+
+  /**
+   * 读取某个标签页 iframe 当前真正停留的路由。
+   *
+   * 内嵌页面会在 iframe 内部自己导航（返回列表、列表进明细等），父窗口记录的
+   * tabFrameRoutes 会随之过期；要判断"这个页签是否真的停在目标路由上"，只能问 iframe 本身。
+   */
+  const getTabFrameRoute = useCallback((tabId: string) => {
+    const frame = Array.from(document.querySelectorAll<HTMLIFrameElement>("iframe[data-workspace-tab-id]"))
+      .find((candidate) => candidate.dataset.workspaceTabId === tabId);
+    if (!frame) return null;
+    try {
+      const location = frame.contentWindow?.location;
+      return location ? `${location.pathname}${location.search}` : null;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  /**
+   * 让标签页 iframe 真正加载目标路由。
+   *
+   * 只写 tabFrameRoutes 是不够的：iframe 曾经自己导航到别处时，src 属性没变，
+   * React 不会重新设置它，于是出现"页签切过去还是旧页面、关掉页签才好"的现象。
+   * 检测到这种过期状态就递增版本号，让 iframe 重新挂载并加载目标路由。
+   */
+  const ensureTabFrameRoute = useCallback((tabId: string, route: string) => {
+    const target = getEmbeddedRoute(route);
+    const actual = getTabFrameRoute(tabId);
+    if (actual !== null && actual !== target) {
+      setTabFrameRoutes((current) => ({ ...current, [tabId]: route }));
+      setTabFrameVersions((current) => ({ ...current, [tabId]: (current[tabId] ?? 0) + 1 }));
+      return;
+    }
+    setTabFrameRoutes((current) => (current[tabId] ? current : { ...current, [tabId]: route }));
+  }, [getTabFrameRoute]);
 
   useEffect(() => {
     if (isEmbedded || pathname === "/login") return;
@@ -259,7 +296,7 @@ export function AppShell({
         const tabId = getWorkspaceTabId(existing ?? { route, title, closable: true });
         activeRouteRef.current = route;
         setLoadedTabIds((current) => new Set(current).add(tabId));
-        setTabFrameRoutes((current) => current[tabId] ? current : { ...current, [tabId]: route });
+        ensureTabFrameRoute(tabId, route);
         if (readyTabIdsRef.current.has(tabId)) setDisplayedTabId(tabId);
         setWorkspace((current) => openWorkspaceTab(current, { route, title, closable: true }));
         return;
@@ -278,7 +315,7 @@ export function AppShell({
 
     window.addEventListener("message", handleWorkspaceMessage);
     return () => window.removeEventListener("message", handleWorkspaceMessage);
-  }, [isEmbedded]);
+  }, [ensureTabFrameRoute, isEmbedded]);
 
   useEffect(() => {
     if (isEmbedded || workspace.activeRoute === "/") return;
@@ -317,7 +354,7 @@ export function AppShell({
     activeRouteRef.current = tab.route;
     setLoadedTabIds((current) => new Set(current).add(tabId));
     if (tab.route !== "/") {
-      setTabFrameRoutes((current) => current[tabId] ? current : { ...current, [tabId]: tab.route });
+      ensureTabFrameRoute(tabId, tab.route);
     }
     if (tab.route === "/") setDisplayedTabId(null);
     else if (readyTabIdsRef.current.has(tabId)) setDisplayedTabId(tabId);
@@ -552,7 +589,7 @@ export function AppShell({
                 <iframe
                   className={isDisplayed ? "block h-full w-full border-0" : isTarget ? "pointer-events-none absolute inset-0 block h-full w-full border-0 opacity-0" : "hidden"}
                   data-workspace-tab-id={tabId}
-                  key={tabId}
+                  key={`${tabId}:${tabFrameVersions[tabId] ?? 0}`}
                   onLoad={() => {
                     setReadyTabIds((current) => new Set(current).add(tabId));
                     if (activeRouteRef.current === tab.route) {
