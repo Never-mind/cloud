@@ -4,9 +4,12 @@ import { forwardRef } from "react";
 export function Button({
   children,
   tone = "default",
+  size = "default",
   ...props
 }: React.ButtonHTMLAttributes<HTMLButtonElement> & {
   tone?: "default" | "primary" | "success" | "warning" | "danger";
+  /** default = 常规按钮（36px），sm = 表格行内与工具栏小按钮（32px）。 */
+  size?: "default" | "sm";
 }) {
   const tones = {
     // 层级约定：primary / success 用实心，表示主操作；default / warning / danger 用描边，
@@ -18,13 +21,18 @@ export function Button({
     warning: "border border-warning-deep bg-white text-warning-ink hover:border-warning-border hover:bg-warning-soft",
     danger: "border border-danger bg-danger-soft text-danger hover:border-[#f78989] hover:bg-danger-border",
   };
+  const sizes = {
+    default: "h-9 gap-1 px-3 text-sm",
+    sm: "h-8 gap-1 px-2.5 text-xs",
+  };
 
   return (
     <button
       {...props}
       className={clsx(
         // 用背景色变化代替整体 opacity：白底按钮 hover 时不再发灰，同时补上键盘焦点样式。
-        "inline-flex h-9 min-w-0 shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded px-3 text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary/35 focus-visible:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-50",
+        "inline-flex min-w-0 shrink-0 items-center justify-center whitespace-nowrap rounded outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary/35 focus-visible:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-50",
+        sizes[size],
         tones[tone],
         props.className,
       )}

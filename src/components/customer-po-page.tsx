@@ -240,7 +240,7 @@ export function CustomerPoListPage({ config }: { config: EntityConfig }) {
             <Button
               key={value}
               tone={status === value ? "primary" : "default"}
-              className="h-8 px-3"
+              size="sm"
               onClick={() => { setPage(1); setStatus((current) => current === value ? "" : String(value)); }}
             >
               {label}
@@ -253,9 +253,9 @@ export function CustomerPoListPage({ config }: { config: EntityConfig }) {
             <span className="sr-only">搜索客户PO</span>
             <Input className="h-8 w-full" value={keyword} placeholder="搜索PO号、客户或承接单位编码/简称" onChange={(event) => setKeyword(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { setPage(1); setAppliedKeyword(keyword.trim()); } }} />
           </div>
-          <Button tone="primary" className="h-8 px-3" aria-label="查询" title="查询" onClick={() => { setPage(1); setAppliedKeyword(keyword.trim()); }}><Search size={14} />查询</Button>
-          <Button className="h-8 px-3" onClick={() => void load()} disabled={loading}><RefreshCw size={14} />刷新</Button>
-          <Button tone="primary" className="h-8 px-3" onClick={() => openRoute("/customer-pos/new", "新建客户PO")}><Plus size={14} />新建</Button>
+          <Button tone="primary" size="sm" aria-label="查询" title="查询" onClick={() => { setPage(1); setAppliedKeyword(keyword.trim()); }}><Search size={14} />查询</Button>
+          <Button size="sm" onClick={() => void load()} disabled={loading}><RefreshCw size={14} />刷新</Button>
+          <Button tone="primary" size="sm" onClick={() => openRoute("/customer-pos/new", "新建客户PO")}><Plus size={14} />新建</Button>
           <a className="inline-flex h-8 shrink-0 items-center gap-1 whitespace-nowrap rounded border border-warning-deep bg-white px-3 text-sm text-warning-ink transition-colors hover:border-warning-border hover:bg-warning-soft" href={`/api/entities/customer-pos/export?status=${encodeURIComponent(status)}`}><FileDown size={14} />导出 Excel</a>
         </div>
         {error ? <div className="border-b border-danger-border bg-danger-soft px-4 py-3 text-sm text-danger">{error}</div> : null}

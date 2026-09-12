@@ -105,8 +105,8 @@ export function SettlementProjectPage() {
           <select className="h-8 min-w-[132px] rounded border border-line bg-white px-3 text-sm outline-none focus:border-primary" value={status} onChange={(event) => { setPage(1); setStatus(event.target.value); }}>
             <option value="">全部状态</option><option value="purchasing">采购中</option><option value="procurement_completed">采购完成</option><option value="accepting">验收中</option><option value="acceptance_completed">验收完成</option><option value="closed">已完结</option>
           </select>
-          <Button tone="primary" className="h-8 px-3" onClick={() => { setPage(1); setAppliedKeyword(keyword.trim()); }}><Search size={14} />查询</Button>
-          <Button className="h-8 px-3" onClick={() => void load()} disabled={loading}><RefreshCw size={14} />刷新</Button>
+          <Button tone="primary" size="sm" onClick={() => { setPage(1); setAppliedKeyword(keyword.trim()); }}><Search size={14} />查询</Button>
+          <Button size="sm" onClick={() => void load()} disabled={loading}><RefreshCw size={14} />刷新</Button>
           <a className="inline-flex h-8 shrink-0 items-center gap-1 whitespace-nowrap rounded border border-warning-deep bg-white px-3 text-sm text-warning-ink transition-colors hover:border-warning-border hover:bg-warning-soft" href="/api/po/settlement-projects/export"><FileDown size={14} />导出 Excel</a>
         </div>
         {error ? <div className="m-4 border border-tag-red-border bg-tag-red px-3 py-2 text-sm text-tag-red-fg">{error}<button className="ml-3 underline" onClick={() => setError("")}>关闭</button></div> : null}
