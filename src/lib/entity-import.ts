@@ -53,11 +53,27 @@ export function normalizeEntityImportRow(config: EntityConfig, row: Row): Row {
     }),
   );
 
+  // 物流的地址ID / 收件人ID 不在表单字段里，但历史模板就是按这两列导入的，
+  // 这里补回来，否则"收货地址/收件人"两列会被整列丢弃。
+  if (config.key === "shipments") {
+    for (const key of SHIPMENT_EXTRA_IMPORT_FIELDS) {
+      if (!(key in row)) continue;
+      const value = row[key];
+      normalized[key] = value === "" || value === undefined ? null : value;
+    }
+  }
+
   if (config.key === "instance-models") {
     normalized.instanceType = normalizeInstanceModelType(normalized.instanceType);
   }
   return normalized;
 }
+
+/**
+ * 物流导入的额外字段：地址ID 与收件人ID 不在表单字段里，但历史模板按这两列填写，
+ * 需要放行到 mergeShipmentImportRow 去解析成档案或展示文本。
+ */
+const SHIPMENT_EXTRA_IMPORT_FIELDS = ["destinationLocationId", "recipientContactId"] as const;
 
 /**
  * Maps spreadsheet headers to the internal field names used by an entity.
@@ -99,10 +115,16 @@ export function mapEntityImportRow(config: EntityConfig, row: Record<string, unk
     }
   }
 
+  // 物流的地址与收件人历史模板填的是档案 ID/编码，但这两列不在表单字段里，
+  // 直接过滤会把"收货地址/收件人"整列丢掉（导入显示成功却没写进去）。
+  const extraImportFields = config.key === "shipments"
+    ? new Set<string>(SHIPMENT_EXTRA_IMPORT_FIELDS)
+    : null;
+
   return Object.fromEntries(
     Object.entries(row)
       .map(([header, value]) => [fieldByHeader.get(normalizeImportHeader(header)) ?? header, value])
-      .filter(([field]) => config.formFields.some((item) => item.key === field)),
+      .filter(([field]) => extraImportFields?.has(String(field)) || config.formFields.some((item) => item.key === field)),
   );
 }
 

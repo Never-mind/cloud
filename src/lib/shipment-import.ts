@@ -56,14 +56,23 @@ export function mergeShipmentImportRow({
   applyFallback(merged, "nameEn", purchaseLine?.nameEn);
 
   const importedLocationId = normalizeText(imported.destinationLocationId);
-  if (importedLocationId && location?.fullAddress && isBlankImportValue(imported.snapshotDestinationAddress)) {
+  if (importedLocationId && !location) {
+    // 文件里填的是地址文本、匹配不到交付地址档案：按展示地址写入快照，
+    // 否则这段文本会停在地址ID列里，被"待补充"之类的快照值盖住看不见。
+    merged.destinationLocationId = normalizeText(existing?.destinationLocationId);
+    merged.snapshotDestinationAddress = importedLocationId;
+  } else if (importedLocationId && location?.fullAddress && isBlankImportValue(imported.snapshotDestinationAddress)) {
     merged.snapshotDestinationAddress = location.fullAddress;
   } else {
     applyFallback(merged, "snapshotDestinationAddress", location?.fullAddress);
   }
 
   const importedContactId = normalizeText(imported.recipientContactId);
-  if (importedContactId && contact) {
+  if (importedContactId && !contact) {
+    // 同上：填的是收件人姓名文本时写入姓名快照，不要让文本占着收件人ID。
+    merged.recipientContactId = normalizeText(existing?.recipientContactId);
+    merged.snapshotRecipientName = importedContactId;
+  } else if (importedContactId && contact) {
     if (contact.name && isBlankImportValue(imported.snapshotRecipientName)) {
       merged.snapshotRecipientName = contact.name;
     }

@@ -64,4 +64,50 @@ describe("shipment import", () => {
       isReceived: false,
     });
   });
+
+  it("treats an unresolved address or recipient as display text instead of an id", () => {
+    const row = mergeShipmentImportRow({
+      imported: {
+        shipmentId: "SHP-PO-900-001",
+        poNo: "PO-900",
+        // 历史订单：这些物流不在远端系统，文件里直接写地址和收件人文本
+        destinationLocationId: "Rua A, 100, São Paulo",
+        recipientContactId: "João",
+      },
+      existing: {
+        shipmentId: "SHP-PO-900-001",
+        poNo: "PO-900",
+        destinationLocationId: "",
+        recipientContactId: "",
+        // 本地先生成的物流行带占位值，导入的文本必须能盖住它
+        snapshotDestinationAddress: "待补充",
+        snapshotRecipientName: "待补充",
+        remoteLogisticsSourceStatus: "pending",
+      },
+      location: null,
+      contact: null,
+    });
+
+    expect(row).toMatchObject({
+      destinationLocationId: "",
+      recipientContactId: "",
+      snapshotDestinationAddress: "Rua A, 100, São Paulo",
+      snapshotRecipientName: "João",
+      remoteLogisticsSourceStatus: "pending",
+    });
+  });
+
+  it("keeps the existing address id when a text address is imported over it", () => {
+    const row = mergeShipmentImportRow({
+      imported: { shipmentId: "SHP-1", destinationLocationId: "Rua B, 200" },
+      existing: { shipmentId: "SHP-1", destinationLocationId: "BR-SP-WH1", snapshotDestinationAddress: "Av. Paulista 1000" },
+      location: null,
+      contact: null,
+    });
+
+    expect(row).toMatchObject({
+      destinationLocationId: "BR-SP-WH1",
+      snapshotDestinationAddress: "Rua B, 200",
+    });
+  });
 });
