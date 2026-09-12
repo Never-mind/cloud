@@ -19,7 +19,7 @@ type ShipmentLine = {
   undertakingUnitId?: string | null;
 };
 
-export type PurchaseDraft = {
+type PurchaseDraft = {
   order: {
     purchaseOrderId: string;
     poNo: string;

@@ -1,4 +1,4 @@
-export type DocumentFileCategory = "pdf" | "word" | "spreadsheet" | "image" | "archive" | "other";
+type DocumentFileCategory = "pdf" | "word" | "spreadsheet" | "image" | "archive" | "other";
 
 const unsafeFileNameChars = /[<>:"/\\|?*\u0000-\u001f]/g;
 

@@ -1,23 +1,23 @@
 import type { Row } from "./db";
 
-export type ShipmentLocationLookup = {
+type ShipmentLocationLookup = {
   locationId: string;
   fullAddress?: string | null;
 };
 
-export type ShipmentContactLookup = {
+type ShipmentContactLookup = {
   contactId: string;
   locationId?: string | null;
   name?: string | null;
   phone?: string | null;
 };
 
-export type ShipmentDatacenterLookup = {
+type ShipmentDatacenterLookup = {
   dcCode: string;
   nameZh?: string | null;
 };
 
-export type ShipmentPurchaseLineLookup = {
+type ShipmentPurchaseLineLookup = {
   poNo?: string | null;
   purchaseOrderItemId?: string | null;
   batchName?: string | null;
@@ -25,7 +25,7 @@ export type ShipmentPurchaseLineLookup = {
   nameEn?: string | null;
 };
 
-export type MergeShipmentImportRowInput = {
+type MergeShipmentImportRowInput = {
   imported: Row;
   existing?: Row | null;
   location?: ShipmentLocationLookup | null;

@@ -13,26 +13,26 @@ export type DashboardNewInstanceSource = {
   quantity?: number | string | null;
 };
 
-export type DashboardServiceFeeSummary = {
+type DashboardServiceFeeSummary = {
   countryCode: string;
   month: string;
   currency: string;
   serviceFeeTotal: number;
 };
 
-export type DashboardNewInstanceSummary = {
+type DashboardNewInstanceSummary = {
   countryCode: string;
   month: string;
   instanceQuantity: number;
 };
 
-export type ServiceFeeChartSeries = {
+type ServiceFeeChartSeries = {
   key: string;
   label: string;
   values: Array<number | null>;
 };
 
-export type ServiceFeeChartData = {
+type ServiceFeeChartData = {
   months: string[];
   series: ServiceFeeChartSeries[];
 };

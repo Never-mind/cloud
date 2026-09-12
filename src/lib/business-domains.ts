@@ -1,8 +1,8 @@
 import { Boxes, Cloud, ShoppingCart, type LucideIcon } from "lucide-react";
 
-export type BusinessDomainKey = "power" | "po" | "cloud";
+type BusinessDomainKey = "power" | "po" | "cloud";
 
-export type BusinessDomain = {
+type BusinessDomain = {
   key: BusinessDomainKey;
   title: string;
   description: string;

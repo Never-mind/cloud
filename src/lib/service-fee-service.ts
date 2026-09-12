@@ -22,7 +22,7 @@ import {
   type ServiceFeeRow,
 } from "./service-fee-workflow";
 
-export type ServiceFeeFilters = {
+type ServiceFeeFilters = {
   keyword?: string;
   startMonth?: string;
   endMonth?: string;
@@ -33,7 +33,7 @@ export type ServiceFeeFilters = {
   requestType?: string;
 };
 
-export type ServiceFeeStatementFilters = {
+type ServiceFeeStatementFilters = {
   keyword?: string;
   writeOffMonth?: string;
   countryCode?: string;

@@ -11,7 +11,7 @@ export function formatTableDateTimeExpression(expression: string) {
   return `DATE_FORMAT(${expression}, '%Y-%m-%d %H:%i')`;
 }
 
-export function getTableFilterValues(searchParams: URLSearchParams, field: string, queryPrefix = "filter") {
+function getTableFilterValues(searchParams: URLSearchParams, field: string, queryPrefix = "filter") {
   return Array.from(new Set(searchParams.getAll(`${queryPrefix}.${field}`).map((value) => value.trim()).filter(Boolean)));
 }
 

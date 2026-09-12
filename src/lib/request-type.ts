@@ -1,6 +1,6 @@
-export const REQUEST_TYPE_VALUES = ["整机", "备件", "整机+备件"] as const;
+const REQUEST_TYPE_VALUES = ["整机", "备件", "整机+备件"] as const;
 
-export type RequestType = (typeof REQUEST_TYPE_VALUES)[number];
+type RequestType = (typeof REQUEST_TYPE_VALUES)[number];
 
 export const REQUEST_TYPE_OPTIONS = REQUEST_TYPE_VALUES.map((value) => ({ label: value, value }));
 

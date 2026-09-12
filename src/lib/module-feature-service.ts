@@ -10,7 +10,7 @@ import {
   type ModuleFeatureState,
 } from "./module-feature-definitions";
 
-export type ModuleFeatureRecord = {
+type ModuleFeatureRecord = {
   key: string;
   title: string;
   groupTitle: string;
@@ -84,7 +84,7 @@ function getAllModuleFeatureDefinitions() {
   }));
 }
 
-export function getModuleFeatureDefinitions() {
+function getModuleFeatureDefinitions() {
   return getAllModuleFeatureDefinitions().filter((definition) => isModuleFeatureToggleable(definition.key));
 }
 

@@ -4,7 +4,7 @@ export type BillingAdjustmentInstanceModel = {
   nameEn?: string | null;
 };
 
-export type BillingAdjustmentLineDraft = {
+type BillingAdjustmentLineDraft = {
   deviceCode?: string | number | boolean | null;
   modelCode?: string | number | boolean | null;
   nameEn?: string | number | boolean | null;
@@ -47,7 +47,7 @@ export function getBillingAdjustmentEditState({
   };
 }
 
-export function isConfirmedBillingAdjustmentStatus(status: unknown) {
+function isConfirmedBillingAdjustmentStatus(status: unknown) {
   const value = String(status ?? "");
   return value === "已确认" || value.includes("确认") || value.includes("纭") || value.includes("茬");
 }

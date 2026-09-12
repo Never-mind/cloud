@@ -6,16 +6,16 @@ import type { OperationActor } from "./operation-actor";
 import { appendTableInFilter, getTableSort, listSqlFilterOptions } from "./table-query";
 import { customerDisplaySql } from "./customer-display";
 
-export const SETTLEMENT_CURRENCIES = ["CNY", "USD", "MXN"] as const;
-export type SettlementCurrency = (typeof SETTLEMENT_CURRENCIES)[number];
-export const SETTLEMENT_PRICE_TYPES = ["tax_included", "tax_excluded"] as const;
-export type SettlementPriceType = (typeof SETTLEMENT_PRICE_TYPES)[number];
-export const SETTLEMENT_STATUSES = ["purchasing", "procurement_completed", "accepting", "acceptance_completed", "closed"] as const;
-export type SettlementProjectStatus = (typeof SETTLEMENT_STATUSES)[number];
-export type SettlementExpenseType = "first_mile_freight" | "customs_fee" | "labor_fee" | "equipment_service_fee" | "other";
-export type SettlementInvoiceType = "income" | "cost";
+const SETTLEMENT_CURRENCIES = ["CNY", "USD", "MXN"] as const;
+type SettlementCurrency = (typeof SETTLEMENT_CURRENCIES)[number];
+const SETTLEMENT_PRICE_TYPES = ["tax_included", "tax_excluded"] as const;
+type SettlementPriceType = (typeof SETTLEMENT_PRICE_TYPES)[number];
+const SETTLEMENT_STATUSES = ["purchasing", "procurement_completed", "accepting", "acceptance_completed", "closed"] as const;
+type SettlementProjectStatus = (typeof SETTLEMENT_STATUSES)[number];
+type SettlementExpenseType = "first_mile_freight" | "customs_fee" | "labor_fee" | "equipment_service_fee" | "other";
+type SettlementInvoiceType = "income" | "cost";
 
-export type SettlementProject = {
+type SettlementProject = {
   id: string;
   projectNo: string;
   quotationId: string;
@@ -49,7 +49,7 @@ export type SettlementProject = {
   updatedAt: string;
 };
 
-export type SettlementItem = {
+type SettlementItem = {
   id: string;
   projectId: string;
   quotationItemId: string;
@@ -73,7 +73,7 @@ export type SettlementItem = {
   updatedAt: string;
 };
 
-export type SettlementExpense = {
+type SettlementExpense = {
   id: string;
   projectId: string;
   type: SettlementExpenseType;
@@ -88,7 +88,7 @@ export type SettlementExpense = {
   updatedAt: string;
 };
 
-export type SettlementSale = {
+type SettlementSale = {
   id: string;
   projectId: string;
   description: string | null;
@@ -104,7 +104,7 @@ export type SettlementSale = {
   updatedAt: string;
 };
 
-export type SettlementInvoice = {
+type SettlementInvoice = {
   id: string;
   projectId: string;
   type: SettlementInvoiceType;
@@ -133,7 +133,7 @@ export type SettlementInvoice = {
   updatedAt: string;
 };
 
-export type SettlementAttachment = {
+type SettlementAttachment = {
   id: string;
   projectId: string;
   invoiceId: string | null;
@@ -160,7 +160,7 @@ export type SettlementDetail = {
   attachments: SettlementAttachment[];
 };
 
-export type SettlementPage<T> = {
+type SettlementPage<T> = {
   items: T[];
   total: number;
   page: number;
@@ -239,7 +239,7 @@ export function normalizeSettlementStatus(value: unknown): SettlementProjectStat
     : "purchasing";
 }
 
-export function settlementStatusLabel(value: unknown) {
+function settlementStatusLabel(value: unknown) {
   return {
     purchasing: "采购中",
     procurement_completed: "采购完成",

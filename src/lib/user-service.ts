@@ -4,7 +4,7 @@ import { createPasswordSalt, hashPassword, type AuthUser } from "./auth";
 import { entityConfigs } from "./modules";
 import { getPermissionDefinitions, type PermissionDefinition } from "./permission-definitions";
 
-export type UserPermission = {
+type UserPermission = {
   moduleKey: string;
   title?: string;
   level?: 1 | 2 | 3;

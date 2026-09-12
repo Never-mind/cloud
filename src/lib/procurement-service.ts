@@ -33,7 +33,7 @@ type PurchaseOrderRow = Row & {
   status: string | null;
 };
 
-export type ShipmentSyncResult = {
+type ShipmentSyncResult = {
   shipments: Row[];
   created: number;
   updated: number;
@@ -180,7 +180,7 @@ export async function confirmPurchaseOrder(purchaseOrderIdOrPoNo: string, actor:
  * Synchronize shipment source fields from one purchase order without replacing logistics-entered fields.
  * Repeated calls update by purchase detail ID, so imports can safely be retried.
  */
-export async function synchronizePurchaseOrderShipments(purchaseOrderIdOrPoNo: string): Promise<ShipmentSyncResult> {
+async function synchronizePurchaseOrderShipments(purchaseOrderIdOrPoNo: string): Promise<ShipmentSyncResult> {
   const rows = await queryRows<PurchaseOrderRow>(
     "SELECT purchaseOrderId, poNo, requestNo, sourceRequestNos, status FROM purchaseorders WHERE purchaseOrderId = :id OR poNo = :id LIMIT 1",
     { id: purchaseOrderIdOrPoNo },

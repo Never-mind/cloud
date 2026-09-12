@@ -1,4 +1,4 @@
-export type InstanceModelOption = {
+type InstanceModelOption = {
   deviceCode: string;
   modelCode?: string | null;
   nameEn?: string | null;

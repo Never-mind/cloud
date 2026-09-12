@@ -1,4 +1,4 @@
-export const INSTANCE_MODEL_TYPE_VALUES = ["Equipment", "Material", "Component"] as const;
+const INSTANCE_MODEL_TYPE_VALUES = ["Equipment", "Material", "Component"] as const;
 
 export type InstanceModelType = (typeof INSTANCE_MODEL_TYPE_VALUES)[number];
 
@@ -35,7 +35,7 @@ export function normalizeInstanceModelType(value: unknown, fallback: string = DE
   return INSTANCE_MODEL_TYPE_LABELS[normalized.toLowerCase()] ?? INSTANCE_MODEL_TYPE_LABELS[normalized] ?? normalized;
 }
 
-export function isInstanceModelType(value: unknown): value is InstanceModelType {
+function isInstanceModelType(value: unknown): value is InstanceModelType {
   return INSTANCE_MODEL_TYPE_VALUES.includes(String(value ?? "").trim() as InstanceModelType);
 }
 

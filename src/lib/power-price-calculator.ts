@@ -23,7 +23,7 @@ export type PowerPriceContext = {
   exchangeRate?: number;
 };
 
-export type PowerPriceDefaults = {
+type PowerPriceDefaults = {
   countryCode: string;
   countryName: string;
   autoCapexSupported: boolean;
@@ -31,7 +31,7 @@ export type PowerPriceDefaults = {
   inputs: PowerPriceInputs;
 };
 
-export type PowerPriceCalculation = {
+type PowerPriceCalculation = {
   fundingCostCny: number;
   capexTotalCny: number;
   ddpPriceCny: number;
@@ -113,7 +113,7 @@ const COUNTRY_NAMES: Record<string, string> = {
   BR: "巴西",
 };
 
-export const POWER_PRICE_INPUT_KEYS = [
+const POWER_PRICE_INPUT_KEYS = [
   "capexWithoutVatCny",
   "onsiteRmaRate",
   "fundingAnnualRate",
@@ -128,7 +128,7 @@ export const POWER_PRICE_INPUT_KEYS = [
   "next36BaseFeeCny",
 ] as const satisfies ReadonlyArray<keyof PowerPriceInputs>;
 
-export function normalizePowerCountryCode(value: unknown) {
+function normalizePowerCountryCode(value: unknown) {
   const source = String(value ?? "").trim().toUpperCase();
   if (source === "墨西哥") return "MX";
   if (source === "智利") return "CL";

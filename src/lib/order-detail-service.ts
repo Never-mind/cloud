@@ -2,7 +2,7 @@ import { queryRows, type Row } from "./db";
 
 export type OrderDetailType = "requests" | "purchase-orders";
 
-export type OrderDetailData = {
+type OrderDetailData = {
   master: Row | null;
   details: Row[];
   requestItems: Row[];

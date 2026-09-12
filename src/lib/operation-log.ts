@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { execute } from "./db";
 import { getOperationActor, type OperationActor } from "./operation-actor";
 
-export type OperationLogAction =
+type OperationLogAction =
   | "create"
   | "update"
   | "delete"
@@ -17,7 +17,7 @@ export type OperationLogAction =
   | "status_change"
   | (string & {});
 
-export type OperationLogInput = {
+type OperationLogInput = {
   actor?: OperationActor | null;
   domainKey?: string | null;
   moduleKey?: string | null;

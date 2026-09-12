@@ -99,7 +99,7 @@ export type FrappeDemandLogisticsSnapshot = {
   snapshotAt: string;
 };
 
-export type FrappeDemandLogisticsLookup = {
+type FrappeDemandLogisticsLookup = {
   snapshotsByRequestNo: Map<string, FrappeDemandLogisticsSnapshot>;
   errorsByRequestNo: Map<string, string>;
 };
@@ -124,7 +124,7 @@ type MappingRow = Row & {
 
 export type FrappeDemandSyncTrigger = "manual" | "scheduled" | "script";
 
-export type FrappeDemandSyncResult = {
+type FrappeDemandSyncResult = {
   status: "created" | "skipped_existing" | "blocked" | "pending_change";
   sourceOrderId: string;
   localRequestNo: string | null;
@@ -132,7 +132,7 @@ export type FrappeDemandSyncResult = {
   reason: string;
 };
 
-export type FrappeDemandSyncSummary = {
+type FrappeDemandSyncSummary = {
   runId: string;
   triggerType: FrappeDemandSyncTrigger;
   status: "success" | "failed";
@@ -824,7 +824,7 @@ const CHANGE_FIELD_LABELS: Record<string, string> = {
   "order.deliveryRecipientListId": "收件人清单",
 };
 
-export type RemoteDemandChange = { field: string; label: string; from: string; to: string };
+type RemoteDemandChange = { field: string; label: string; from: string; to: string };
 
 /** 对比台账里的上次快照与本次远端内容，列出发生变化的字段。 */
 export function describeRemoteChanges(previousJson: unknown, current: ReturnType<typeof itemSnapshot>): RemoteDemandChange[] {

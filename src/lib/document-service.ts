@@ -44,7 +44,7 @@ type StoredDocumentFile = {
   updatedAt: string;
 };
 
-export async function ensureDefaultDocumentFolders() {
+async function ensureDefaultDocumentFolders() {
   await execute(
     `
       INSERT IGNORE INTO merge_common_document_folders (folderId, parentId, name, sortOrder)

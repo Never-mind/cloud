@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { execute, queryRows, type Row } from "./db";
 import { appendTableInFilter, formatTableDateExpression, getTableSort, listSqlFilterOptions } from "./table-query";
 
-export type CapexPricingLineInput = {
+type CapexPricingLineInput = {
   id?: string;
   deviceCode: string;
   b6Type?: string;
@@ -25,7 +25,7 @@ export type CapexPricingLineInput = {
   spareSettlementMethod?: string;
 };
 
-export type CapexPricingVersionInput = {
+type CapexPricingVersionInput = {
   versionNo: string;
   countryCode: string;
   effectiveDate: string;
@@ -34,7 +34,7 @@ export type CapexPricingVersionInput = {
   items?: CapexPricingLineInput[];
 };
 
-export type B6TypeConfig = {
+type B6TypeConfig = {
   b6Type: string;
   alias: string;
   scope: string;
@@ -62,7 +62,7 @@ type CapexPricingDefaults = Required<Omit<CapexPricingLineInput, "id" | "deviceC
   sourceHints: Record<string, string>;
 };
 
-export type CapexPricingCalculation = {
+type CapexPricingCalculation = {
   spareScenario: string;
   fundingRatio: number;
   fundingAmount: number;

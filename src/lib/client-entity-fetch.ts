@@ -1,4 +1,4 @@
-export type ClientEntityRow = Record<string, string | number | boolean | null>;
+type ClientEntityRow = Record<string, string | number | boolean | null>;
 
 export async function fetchAllEntityRows<T extends object = ClientEntityRow>(
   entity: string,

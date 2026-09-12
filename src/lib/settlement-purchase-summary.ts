@@ -1,4 +1,4 @@
-export type SettlementPurchaseSummaryItem = {
+type SettlementPurchaseSummaryItem = {
   plannedQty: number;
   purchaseQty: number;
   purchaseUnitPrice: number;
@@ -7,18 +7,18 @@ export type SettlementPurchaseSummaryItem = {
   taxRate: number;
 };
 
-export type SettlementPurchaseExchangeRates = {
+type SettlementPurchaseExchangeRates = {
   exchangeRateUsd: number;
   exchangeRateMxn: number;
 };
 
-export type SettlementPurchaseAmounts = {
+type SettlementPurchaseAmounts = {
   purchaseTotal: number;
   taxExcludedUsd: number;
   taxIncludedUsd: number;
 };
 
-export type SettlementPurchaseSummary = {
+type SettlementPurchaseSummary = {
   plannedQty: number;
   purchaseQty: number;
   purchaseTotalsByCurrency: Record<string, number>;

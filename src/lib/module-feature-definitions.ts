@@ -12,7 +12,7 @@ export function isModuleFeatureToggleable(moduleKey: string) {
   return !NON_TOGGLEABLE_MODULES.has(moduleKey);
 }
 
-export type ModuleFeatureRoute = {
+type ModuleFeatureRoute = {
   key: string;
   routePrefix: string;
 };
@@ -26,7 +26,7 @@ export function getModuleFeatureDomainKey(groupTitle: string): ModuleFeatureDoma
   return "power";
 }
 
-export const MODULE_FEATURE_ROUTES: ModuleFeatureRoute[] = [
+const MODULE_FEATURE_ROUTES: ModuleFeatureRoute[] = [
   { key: "b6-type-configs", routePrefix: "/finance/b6-type-configs" },
   { key: "capex-pricing", routePrefix: "/finance/capex-pricing" },
   { key: "balance-settlements", routePrefix: "/finance/balance-settlements" },

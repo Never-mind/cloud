@@ -22,7 +22,7 @@ export function getPrepaymentContractEditState({
   };
 }
 
-export function isConfirmedPrepaymentStatus(status: unknown) {
+function isConfirmedPrepaymentStatus(status: unknown) {
   const value = String(status ?? "");
   return value === "已确认" || value.includes("确认") || value.includes("纭") || value.includes("茬");
 }

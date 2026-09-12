@@ -42,7 +42,7 @@ export type BillingAdjustmentDetail = {
   adjustedNext36MonthPrice: number;
 };
 
-export type BillingAdjustmentDraft = {
+type BillingAdjustmentDraft = {
   adjustmentNo: string;
   instanceContractNo: string;
   status?: string;

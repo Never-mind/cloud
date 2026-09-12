@@ -37,7 +37,7 @@ export type PrepaymentWriteOffAdjustmentItemDraft = {
   differenceAmount: number;
 };
 
-export type AppliedPrepaymentMonthlyWriteOff = PrepaymentMonthlyWriteOffForAdjustment & {
+type AppliedPrepaymentMonthlyWriteOff = PrepaymentMonthlyWriteOffForAdjustment & {
   monthlyAmount: number;
   sourceType: string;
   adjustmentNo: string;

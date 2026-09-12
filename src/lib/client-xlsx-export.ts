@@ -1,6 +1,6 @@
 import * as XLSX from "xlsx";
 
-export type ClientExportColumn = {
+type ClientExportColumn = {
   key: string;
   label: string;
   format?: (value: unknown) => string | number;

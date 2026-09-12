@@ -34,21 +34,21 @@ export const CLOUD_TAX_GROUPS = {
 export type CloudTaxGroup = keyof typeof CLOUD_TAX_GROUPS;
 export type CloudTaxField = "net" | "tax" | "total" | "rate";
 
-export type CloudTaxCalculation = {
+type CloudTaxCalculation = {
   net: number | null;
   tax: number | null;
   total: number | null;
   source: "net-rate" | "tax" | "total" | null;
 };
 
-export function cloudTaxNumber(value: unknown) {
+function cloudTaxNumber(value: unknown) {
   const raw = String(value ?? "").trim().replace(/,/g, "");
   if (!raw) return null;
   const parsed = Number(raw);
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-export function cloudTaxRate(value: unknown) {
+function cloudTaxRate(value: unknown) {
   const raw = String(value ?? "").trim().replace(/,/g, "");
   if (!raw) return null;
   const percent = raw.endsWith("%");

@@ -1,4 +1,4 @@
-export type QuotationItemSpreadsheetField = {
+type QuotationItemSpreadsheetField = {
   key: string;
   label: string;
   note: string;

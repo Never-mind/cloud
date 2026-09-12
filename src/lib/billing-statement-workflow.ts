@@ -25,7 +25,7 @@ export type BillingStatementRow = {
   sourceIds: string;
 };
 
-export type BillingStatementCurrencyGroup = {
+type BillingStatementCurrencyGroup = {
   currency: string;
   rows: BillingStatementRow[];
   totalQuantity: number;

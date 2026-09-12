@@ -14,7 +14,7 @@ type RequestRow = { requestNo: string; status?: string | null };
 type QueryRows = <T extends Row>(sql: string, params?: Row) => Promise<T[]>;
 type ExecuteQuery = (sql: string, params?: Row) => Promise<unknown>;
 
-export type BatchOrderDeleteBlockedItem = {
+type BatchOrderDeleteBlockedItem = {
   requestNo: string;
   reason: string;
 };

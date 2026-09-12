@@ -19,7 +19,7 @@ export const HOME_TAB: WorkspaceTab = {
   closable: false,
 };
 
-export type WorkspaceMessage =
+type WorkspaceMessage =
   | { type: "cloud-power:route"; route: string; title: string }
   | { type: "cloud-power:open-tab"; route: string; title: string };
 

@@ -18,7 +18,7 @@ export type ImportTargetKey =
 
 export type ImportStrategy = "create-only" | "overwrite-drafts" | "overwrite-all";
 
-export type ImportTemplateColumn = {
+type ImportTemplateColumn = {
   key: string;
   label: string;
   required?: boolean;
@@ -73,7 +73,7 @@ export type ImportPreview = {
   };
 };
 
-export const IMPORT_TARGETS: ImportTarget[] = [
+const IMPORT_TARGETS: ImportTarget[] = [
   {
     key: "request-orders",
     title: "需求单主从导入",

@@ -1,21 +1,21 @@
-export type SettlementEntrySummaryItem = {
+type SettlementEntrySummaryItem = {
   amount: number;
   currency: string;
   priceType: string;
   taxRate: number;
 };
 
-export type SettlementEntryExchangeRates = {
+type SettlementEntryExchangeRates = {
   exchangeRateUsd: number;
   exchangeRateMxn: number;
 };
 
-export type SettlementEntryAmounts = {
+type SettlementEntryAmounts = {
   taxExcludedUsd: number;
   taxIncludedUsd: number;
 };
 
-export type SettlementEntrySummary = {
+type SettlementEntrySummary = {
   amountTotalsByCurrency: Record<string, number>;
   taxExcludedUsd: number;
   taxIncludedUsd: number;

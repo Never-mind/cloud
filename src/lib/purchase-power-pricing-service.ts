@@ -25,7 +25,7 @@ export async function isPurchaseItemPowerPricingStorageReady() {
   return columns.every(Boolean);
 }
 
-export function hasPurchaseItemPowerPricingPayload(body: Row) {
+function hasPurchaseItemPowerPricingPayload(body: Row) {
   return PURCHASE_ITEM_POWER_PRICE_COLUMNS.some((column) => body[column] !== undefined);
 }
 

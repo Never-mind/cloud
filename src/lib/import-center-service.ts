@@ -411,7 +411,7 @@ export async function confirmImportJob(jobId: string, options: { allowConfirmed?
   return savedJob ? { ...savedJob, shipmentSync } : savedJob;
 }
 
-export type ImportJobListResult = {
+type ImportJobListResult = {
   jobs: ImportJobRow[];
   total: number;
   page: number;

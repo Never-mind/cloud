@@ -1,6 +1,6 @@
 type DisplayValue = string | number | boolean | Date | null | undefined;
 
-export type DisplayOption = { label: string; value: string };
+type DisplayOption = { label: string; value: string };
 
 export function formatDateInputValue(value: DisplayValue) {
   if (value === null || value === undefined || value === "") return "";

@@ -43,7 +43,7 @@ export type InternalServicePricingAdjustment = {
   next36MonthlyAmount: number;
 };
 
-export type InternalServiceCalculation = {
+type InternalServiceCalculation = {
   contractRevenueIncludingTax: number;
   contractRevenueExcludingTax: number;
   procurementCost: number;

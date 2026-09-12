@@ -33,9 +33,9 @@ export type RemoteMaterial = {
   nameZh: string;
 };
 
-export type MaterialSyncBlockReason = "unsupported-type" | "missing-part-no" | "invalid-part-no" | "missing-item-code";
+type MaterialSyncBlockReason = "unsupported-type" | "missing-part-no" | "invalid-part-no" | "missing-item-code";
 
-export type MaterialSyncTarget =
+type MaterialSyncTarget =
   | { ok: true; instanceType: InstanceModelType; deviceCode: string; alternateCode: string }
   | { ok: false; reason: MaterialSyncBlockReason; instanceType: InstanceModelType | null };
 

@@ -1,6 +1,6 @@
 import type { FieldType } from "./modules";
 
-export type DemandPlanFieldSpec = {
+type DemandPlanFieldSpec = {
   key: string;
   label: string;
   type?: FieldType;

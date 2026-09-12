@@ -57,7 +57,7 @@ export type QuotationCalculationInput = {
   product?: QuotationProductSnapshot | null;
 };
 
-export type CalculatedQuotationItem = QuotationCalculationInput & {
+type CalculatedQuotationItem = QuotationCalculationInput & {
   productCode: string;
   productName: string;
   brand: string;
@@ -89,7 +89,7 @@ export type CalculatedQuotationItem = QuotationCalculationInput & {
   currency: string;
 };
 
-export type CalculatedQuotation = {
+type CalculatedQuotation = {
   publicFeeTotal: number;
   totalCifUsd: number;
   totalDdpUsd: number;

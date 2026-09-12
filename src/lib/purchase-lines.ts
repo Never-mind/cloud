@@ -74,7 +74,7 @@ export const PURCHASE_PRODUCT_LINE_COLUMNS = [
   { key: "totalAmount", label: "含税总价" },
 ] as const;
 
-export type PurchaseProductLine = {
+type PurchaseProductLine = {
   id: string;
   poNo: string;
   requestNo: string;

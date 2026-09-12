@@ -1,4 +1,4 @@
-export type PurchasePriceReference = {
+type PurchasePriceReference = {
   countryCode?: string | null;
   deviceCode?: string | null;
   contractNo: string;
@@ -8,19 +8,19 @@ export type PurchasePriceReference = {
   next36MonthPriceUSD?: number | string | null;
 };
 
-export type PurchasePriceComparisonFields = {
+type PurchasePriceComparisonFields = {
   latestInstanceContractNo: string;
   latestInstanceContractDateSigned: string | null;
   first24PriceDifference: number | null;
   next36PriceDifference: number | null;
 };
 
-export type PurchasePriceComparison = {
+type PurchasePriceComparison = {
   difference: number | null;
   relation: "higher" | "lower" | "same" | "unavailable";
 };
 
-export function comparePurchasePrices(
+function comparePurchasePrices(
   current: unknown,
   benchmark: unknown,
 ) {

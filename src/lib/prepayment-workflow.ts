@@ -17,12 +17,12 @@ export type PrepaymentPurchaseLine = {
   unitPrice: number;
 };
 
-export type AvailablePrepaymentLine = PrepaymentPurchaseLine & {
+type AvailablePrepaymentLine = PrepaymentPurchaseLine & {
   actualUnitPrice: number;
   actualTotalAmount: number;
 };
 
-export type PrepaymentContractDraft = {
+type PrepaymentContractDraft = {
   contract: {
     contractNo: string;
     status: string;
@@ -62,7 +62,7 @@ export type PrepaymentContractLineDraft = {
   feeDescription: string;
 };
 
-export type PrepaymentContractLineStorage = Omit<
+type PrepaymentContractLineStorage = Omit<
   PrepaymentContractLineDraft,
   "purchaseOrderItemId" | "requestItemId"
 > & {
@@ -91,7 +91,7 @@ export type MonthlyWriteOffSourceLine = {
   writeOffStartMonth?: string | Date | null;
 };
 
-export type MonthlyWriteOffRow = {
+type MonthlyWriteOffRow = {
   id: string;
   contractNo: string;
   contractLineId: string;

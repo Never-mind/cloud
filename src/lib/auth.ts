@@ -17,7 +17,7 @@ export type AuthUser = {
   status: string;
 };
 
-export type AuthUserLoader = (email: string) => Promise<AuthUser | null>;
+type AuthUserLoader = (email: string) => Promise<AuthUser | null>;
 
 export function createPasswordSalt() {
   return randomBytes(16).toString("hex");

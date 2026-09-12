@@ -12,11 +12,11 @@ const countQueryCache = new Map<string, { expiresAt: number; rows: QueryResult }
 const schemaColumnCache = dbGlobal.__suanliDbSchemaColumnCache ?? new Map<string, boolean>();
 dbGlobal.__suanliDbSchemaColumnCache = schemaColumnCache;
 
-export const DB_TABLE_PREFIX = "merge_power_";
+const DB_TABLE_PREFIX = "merge_power_";
 // internalId is the physical InnoDB primary key introduced by the controlled
 // migration. Public UUIDs and business numbers remain the API identity.
 export const INTERNAL_ID_COLUMN = "internalId";
-export const DB_TABLE_PREFIXES = ["merge_power_", "merge_po_", "merge_cloud_", "merge_common_"] as const;
+const DB_TABLE_PREFIXES = ["merge_power_", "merge_po_", "merge_cloud_", "merge_common_"] as const;
 const LEGACY_DB_TABLE_PREFIXES = ["power_", "po_", "cloud_", "common_"] as const;
 
 export const LOGICAL_TABLE_NAMES = [

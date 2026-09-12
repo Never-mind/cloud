@@ -444,7 +444,7 @@ export async function rollbackPrepaymentContract(contractNo: string) {
  *   2. 服务费对账单已引用本合同的核销明细或合同号时，金额已经进入对账口径。
  * 命中任一情况都阻断，提示先处理对应单据。
  */
-export async function assertPrepaymentContractRollbackAllowed(contractNo: string) {
+async function assertPrepaymentContractRollbackAllowed(contractNo: string) {
   const adjustments = await queryRows<Row>(
     "SELECT adjustmentNo, status FROM prepaymentwriteoffadjustments WHERE contractNo = :contractNo ORDER BY adjustmentNo",
     { contractNo },

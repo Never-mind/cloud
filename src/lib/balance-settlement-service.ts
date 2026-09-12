@@ -13,9 +13,9 @@ const INSTANCE = "\u5b9e\u4f8b";
 const SPARE_PART = "\u5907\u4ef6";
 const NON_INSTANCE_EXPENSE = "\u975e\u5b9e\u4f8b\u8d39\u7528";
 
-export const BALANCE_ITEM_TYPES = [INSTANCE, SPARE_PART, NON_INSTANCE_EXPENSE] as const;
+const BALANCE_ITEM_TYPES = [INSTANCE, SPARE_PART, NON_INSTANCE_EXPENSE] as const;
 
-export type BalanceCalculationInput = {
+type BalanceCalculationInput = {
   quantity?: unknown;
   purchaseCapexUnitPrice?: unknown;
   purchaseOpexUnitPrice?: unknown;
@@ -24,7 +24,7 @@ export type BalanceCalculationInput = {
   anchorOpexUnitPrice?: unknown;
 };
 
-export type BalanceCalculation = {
+type BalanceCalculation = {
   settlementCapexUnitPrice: number;
   settlementOpexUnitPrice: number;
   capexDifferenceUnitPrice: number;
@@ -34,7 +34,7 @@ export type BalanceCalculation = {
   differenceTotal: number;
 };
 
-export type ManualBalanceItemInput = {
+type ManualBalanceItemInput = {
   itemType: string;
   countryCode?: string;
   batchName?: string;

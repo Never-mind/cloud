@@ -1,6 +1,6 @@
-export type QuotationDetailSummaryRow = Record<string, unknown>;
+type QuotationDetailSummaryRow = Record<string, unknown>;
 
-export type QuotationDetailSummary = {
+type QuotationDetailSummary = {
   quantity: number;
   purchaseTotalOriginalByCurrency: Record<string, number>;
   totals: Record<string, number>;

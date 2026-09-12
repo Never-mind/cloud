@@ -1,6 +1,6 @@
 export type NonInstanceExpenseLine = Record<string, string>;
 
-export type NonInstanceSettlementColumn = {
+type NonInstanceSettlementColumn = {
   key: string;
   label: string;
   kind?: "date" | "number" | "percentage" | "select" | "text";
@@ -23,7 +23,7 @@ export const NON_INSTANCE_EXPENSE_TYPES = [
 
 export const NON_INSTANCE_SETTLEMENT_CURRENCIES = ["USD", "CNY", "BRL", "MXN", "CLP"] as const;
 
-export type NonInstanceCalculationResult = {
+type NonInstanceCalculationResult = {
   values: Record<string, number | string>;
   formula: string;
   ruleVersion: string;

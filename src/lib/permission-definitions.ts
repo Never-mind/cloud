@@ -1,7 +1,7 @@
-export const PERMISSION_ACTIONS = ["view", "create", "update", "delete", "export", "import", "confirm"] as const;
+const PERMISSION_ACTIONS = ["view", "create", "update", "delete", "export", "import", "confirm"] as const;
 export type PermissionAction = (typeof PERMISSION_ACTIONS)[number];
 
-export type PermissionFlags = {
+type PermissionFlags = {
   canView: boolean;
   canCreate: boolean;
   canUpdate: boolean;

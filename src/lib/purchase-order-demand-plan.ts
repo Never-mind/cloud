@@ -1,6 +1,6 @@
-export type DemandPlanKind = "sn" | "plan";
+type DemandPlanKind = "sn" | "plan";
 
-export type DemandPlanImportColumn = {
+type DemandPlanImportColumn = {
   key: string;
   label: string;
   required?: boolean;

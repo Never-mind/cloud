@@ -19,7 +19,7 @@ import {
   type BillingStatementSourceRow,
 } from "./billing-statement-workflow";
 
-export type BillingStatementFilters = {
+type BillingStatementFilters = {
   countryCode?: string;
   currency?: string;
   startDate?: string;

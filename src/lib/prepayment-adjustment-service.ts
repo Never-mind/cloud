@@ -7,7 +7,7 @@ import {
   type PrepaymentWriteOffAdjustmentItemDraft,
 } from "./prepayment-adjustment-workflow";
 
-export type PrepaymentAdjustmentPayload = {
+type PrepaymentAdjustmentPayload = {
   adjustmentNo: string;
   reason?: string;
   monthlyWriteOffIds: string[];
