@@ -244,14 +244,59 @@ export function applyBillingAdjustments(rows: MonthlyBillingRow[], adjustments: 
   });
 }
 
-export function firstDayOfMonth(value: string | Date) {
-  const source =
-    value instanceof Date
-      ? `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`
-      : String(value).slice(0, 10);
-  const date = new Date(`${source}T00:00:00`);
-  if (Number.isNaN(date.getTime())) return String(value);
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-01`;
+/**
+ * 把各种写法的"月份"归一化成当月 1 日（YYYY-MM-01）。
+ *
+ * 兼容 Excel 导入的真实情况：
+ * - Excel 日期单元格：xlsx 读取到的是**日期序列号**（如 46023），不是字符串；
+ * - 手填文本：`2026-01`、`2026/1`、`2026-1-5`、`2026/1/5`、`2026.1.5`、`2026年1月`；
+ * - Date 实例（开启 cellDates 时）。
+ *
+ * 解析失败时返回原值，调用方据此提示"月份不正确"。
+ */
+export function firstDayOfMonth(value: string | number | Date) {
+  const parsed = parseMonthValue(value);
+  if (!parsed) return String(value);
+  return `${parsed.year}-${String(parsed.month).padStart(2, "0")}-01`;
+}
+
+function parseMonthValue(value: string | number | Date): { year: number; month: number } | null {
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : { year: value.getFullYear(), month: value.getMonth() + 1 };
+  }
+  if (typeof value === "number") return excelSerialToMonth(value);
+
+  const text = String(value ?? "").trim();
+  if (!text) return null;
+  // Excel 序列号以文本形式出现时（例如整列被设成文本格式）
+  if (/^\d{5}(\.\d+)?$/.test(text)) {
+    const fromSerial = excelSerialToMonth(Number(text));
+    if (fromSerial) return fromSerial;
+  }
+  const separated = text.match(/^(\d{4})[-/.](\d{1,2})(?:[-/.](\d{1,2}))?/);
+  if (separated) {
+    const year = Number(separated[1]);
+    const month = Number(separated[2]);
+    if (year > 1900 && month >= 1 && month <= 12) return { year, month };
+  }
+  const chinese = text.match(/^(\d{4})\s*年\s*(\d{1,2})\s*月/);
+  if (chinese) {
+    const year = Number(chinese[1]);
+    const month = Number(chinese[2]);
+    if (year > 1900 && month >= 1 && month <= 12) return { year, month };
+  }
+  const fallback = new Date(text);
+  if (!Number.isNaN(fallback.getTime())) {
+    return { year: fallback.getFullYear(), month: fallback.getMonth() + 1 };
+  }
+  return null;
+}
+
+/** Excel 1900 日期系统序列号 → 年月（25569 = 1970-01-01，按 UTC 计算避免时区偏移一天）。 */
+function excelSerialToMonth(serial: number) {
+  if (!Number.isFinite(serial) || serial < 1 || serial > 2_958_465) return null;
+  const date = new Date(Math.round((serial - 25569) * 86_400_000));
+  return Number.isNaN(date.getTime()) ? null : { year: date.getUTCFullYear(), month: date.getUTCMonth() + 1 };
 }
 
 function addMonths(startMonth: string, offset: number) {

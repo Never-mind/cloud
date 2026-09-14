@@ -1105,7 +1105,9 @@ function normalizeBillingAdjustmentItem(adjustmentNo: string, item: BillingAdjus
   if (!deviceCode) throw new Error(`第 ${index + 1} 条明细实例编码不能为空`);
   if (!currency) throw new Error(`第 ${index + 1} 条明细币种不能为空`);
   if (!effectiveMonth || Number.isNaN(new Date(`${effectiveMonth}T00:00:00`).getTime())) {
-    throw new Error(`第 ${index + 1} 条明细生效月份不正确`);
+    throw new Error(
+      `第 ${index + 1} 条明细生效月份不正确：读到「${String(item.effectiveMonth ?? "")}」，请填 2026-01 或 2026-01-01`,
+    );
   }
   if (!Number.isFinite(adjustedFirst24MonthPrice)) throw new Error(`第 ${index + 1} 条明细前24个月价格不正确`);
   if (!Number.isFinite(adjustedNext36MonthPrice)) throw new Error(`第 ${index + 1} 条明细后36个月价格不正确`);
