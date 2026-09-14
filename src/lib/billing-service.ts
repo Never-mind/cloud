@@ -579,7 +579,8 @@ export async function listMonthlyBillingWriteOffs(searchParams: URLSearchParams)
   const knownTotalAmount = getKnownNumber(searchParams, "knownTotalAmount");
   let normalizedTotal = knownTotal ?? 0;
   let normalizedTotalAmount = knownTotalAmount ?? 0;
-  if (knownTotal === null || knownTotalAmount === null) {
+  // 导出只要明细行，跳过全表 COUNT/SUM，省掉一次整表扫描。
+  if (!exportAll && (knownTotal === null || knownTotalAmount === null)) {
     const [{ total, totalAmount }] = await queryRows<{ total: number; totalAmount: number }>(
       `
         SELECT COUNT(*) AS total, COALESCE(SUM(mbw.monthlyTotalAmount), 0) AS totalAmount
@@ -588,7 +589,13 @@ export async function listMonthlyBillingWriteOffs(searchParams: URLSearchParams)
         LEFT JOIN purchaseorderitems AS purchaseItem ON purchaseItem.id = ledger.purchaseOrderItemId
         LEFT JOIN requestitems AS ri ON ri.id = purchaseItem.requestItemId
         LEFT JOIN requests AS req ON req.requestNo = COALESCE(NULLIF(purchaseItem.requestNo, ''), NULLIF(ri.requestNo, ''), mbw.requestNo)
-        LEFT JOIN requestitems AS riByBusinessKey ON riByBusinessKey.id = (SELECT candidate.id FROM requestitems AS candidate WHERE candidate.requestNo = mbw.requestNo AND candidate.deviceCode = mbw.deviceCode ORDER BY candidate.id LIMIT 1)
+        LEFT JOIN (
+          SELECT requestNo AS keyRequestNo, deviceCode AS keyDeviceCode, MAX(id) AS keyId
+          FROM requestitems
+          WHERE requestNo IS NOT NULL AND deviceCode IS NOT NULL
+          GROUP BY requestNo, deviceCode
+        ) AS riBusinessKey ON riBusinessKey.keyRequestNo = mbw.requestNo AND riBusinessKey.keyDeviceCode = mbw.deviceCode
+        LEFT JOIN requestitems AS riByBusinessKey ON riByBusinessKey.id = riBusinessKey.keyId
         ${where}
       `,
       params,
@@ -639,7 +646,13 @@ export async function listMonthlyBillingWriteOffs(searchParams: URLSearchParams)
       LEFT JOIN purchaseorderitems AS purchaseItem ON purchaseItem.id = ledger.purchaseOrderItemId
       LEFT JOIN requestitems AS ri ON ri.id = purchaseItem.requestItemId
       LEFT JOIN requests AS req ON req.requestNo = COALESCE(NULLIF(purchaseItem.requestNo, ''), NULLIF(ri.requestNo, ''), mbw.requestNo)
-      LEFT JOIN requestitems AS riByBusinessKey ON riByBusinessKey.id = (SELECT candidate.id FROM requestitems AS candidate WHERE candidate.requestNo = mbw.requestNo AND candidate.deviceCode = mbw.deviceCode ORDER BY candidate.id LIMIT 1)
+      LEFT JOIN (
+          SELECT requestNo AS keyRequestNo, deviceCode AS keyDeviceCode, MAX(id) AS keyId
+          FROM requestitems
+          WHERE requestNo IS NOT NULL AND deviceCode IS NOT NULL
+          GROUP BY requestNo, deviceCode
+        ) AS riBusinessKey ON riBusinessKey.keyRequestNo = mbw.requestNo AND riBusinessKey.keyDeviceCode = mbw.deviceCode
+        LEFT JOIN requestitems AS riByBusinessKey ON riByBusinessKey.id = riBusinessKey.keyId
       ${where}
       ${getTableSort(searchParams, filterExpressions) || "ORDER BY mbw.writeOffMonth DESC, mbw.ledgerId"}
       ${exportAll ? "" : "LIMIT :limit OFFSET :offset"}
@@ -825,7 +838,13 @@ export async function listMonthlyBillingWriteOffFilterOptions(searchParams: URLS
     LEFT JOIN purchaseorderitems AS purchaseItem ON purchaseItem.id = ledger.purchaseOrderItemId
     LEFT JOIN requestitems AS ri ON ri.id = purchaseItem.requestItemId
     LEFT JOIN requests AS req ON req.requestNo = COALESCE(NULLIF(purchaseItem.requestNo, ''), NULLIF(ri.requestNo, ''), mbw.requestNo)
-    LEFT JOIN requestitems AS riByBusinessKey ON riByBusinessKey.id = (SELECT candidate.id FROM requestitems AS candidate WHERE candidate.requestNo = mbw.requestNo AND candidate.deviceCode = mbw.deviceCode ORDER BY candidate.id LIMIT 1)
+    LEFT JOIN (
+          SELECT requestNo AS keyRequestNo, deviceCode AS keyDeviceCode, MAX(id) AS keyId
+          FROM requestitems
+          WHERE requestNo IS NOT NULL AND deviceCode IS NOT NULL
+          GROUP BY requestNo, deviceCode
+        ) AS riBusinessKey ON riBusinessKey.keyRequestNo = mbw.requestNo AND riBusinessKey.keyDeviceCode = mbw.deviceCode
+        LEFT JOIN requestitems AS riByBusinessKey ON riByBusinessKey.id = riBusinessKey.keyId
   `);
 }
 

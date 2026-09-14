@@ -32,10 +32,10 @@ type PrepaymentLineRow = PrepaymentContractLineDraft & {
 
 function monthlyPrepaymentPartyNameExpression(party: "supplier" | "undertakingUnit" | "customer") {
   const ids = party === "supplier"
-    ? "COALESCE(NULLIF(mpw.supplierId, ''), ri.linkedSupplierId, riByBusinessKey.fallbackSupplierId)"
+    ? "COALESCE(NULLIF(mpw.supplierId, ''), ri.supplierId, riByBusinessKey.fallbackSupplierId)"
     : party === "undertakingUnit"
-      ? "COALESCE(NULLIF(mpw.undertakingUnitId, ''), ri.linkedUndertakingUnitId, riByBusinessKey.fallbackUndertakingUnitId)"
-      : "COALESCE(NULLIF(mpw.customerId, ''), ri.linkedCustomerId, riByBusinessKey.fallbackCustomerId)";
+      ? "COALESCE(NULLIF(mpw.undertakingUnitId, ''), ri.undertakingUnitId, riByBusinessKey.fallbackUndertakingUnitId)"
+      : "COALESCE(NULLIF(mpw.customerId, ''), ri.customerId, riByBusinessKey.fallbackCustomerId)";
   const table = party === "supplier" ? "merge_common_suppliers" : party === "undertakingUnit" ? "merge_common_undertaking_units" : "merge_common_customers";
   const idColumn = party === "supplier" ? "supplierId" : party === "undertakingUnit" ? "undertakingUnitId" : "customerId";
   const codeColumn = party === "supplier" ? "supplierCode" : party === "undertakingUnit" ? "undertakingUnitCode" : "customerCode";
@@ -562,20 +562,15 @@ export async function listMonthlyPrepaymentWriteOffs(searchParams: URLSearchPara
   const knownTotalAmount = getKnownNumber(searchParams, "knownTotalAmount");
   let normalizedTotal = knownTotal ?? 0;
   let normalizedTotalAmount = knownTotalAmount ?? 0;
-  if (knownTotal === null || knownTotalAmount === null) {
+  // 导出只要明细行，跳过全表 COUNT/SUM，省掉一次整表扫描。
+  if (!exportAll && (knownTotal === null || knownTotalAmount === null)) {
     const [{ total, totalAmount }] = await queryRows<{ total: number; totalAmount: number }>(
       `
         SELECT COUNT(*) AS total, COALESCE(SUM(mpw.monthlyAmount), 0) AS totalAmount
         FROM monthlyprepaymentwriteoffs AS mpw
-        LEFT JOIN (
-          SELECT id AS linkedContractLineId, requestItemId AS linkedRequestItemId, purchaseOrderItemId AS linkedPurchaseOrderItemId
-          FROM prepaymentcontractitems
-        ) AS contractItem ON contractItem.linkedContractLineId = mpw.contractLineId
-        LEFT JOIN purchaseorderitems AS purchaseItem ON purchaseItem.id = contractItem.linkedPurchaseOrderItemId
-        LEFT JOIN (
-          SELECT id AS linkedRequestItemId, supplierId AS linkedSupplierId, undertakingUnitId AS linkedUndertakingUnitId, customerId AS linkedCustomerId
-          FROM requestitems
-        ) AS ri ON ri.linkedRequestItemId = contractItem.linkedRequestItemId
+        LEFT JOIN prepaymentcontractitems AS contractItem ON contractItem.id = mpw.contractLineId
+        LEFT JOIN purchaseorderitems AS purchaseItem ON purchaseItem.id = contractItem.purchaseOrderItemId
+        LEFT JOIN requestitems AS ri ON ri.id = contractItem.requestItemId
         LEFT JOIN (
           SELECT requestNo AS keyRequestNo, deviceCode AS keyDeviceCode, MAX(supplierId) AS fallbackSupplierId, MAX(undertakingUnitId) AS fallbackUndertakingUnitId, MAX(customerId) AS fallbackCustomerId
           FROM requestitems
@@ -617,27 +612,23 @@ export async function listMonthlyPrepaymentWriteOffs(searchParams: URLSearchPara
         mpw.requestType,
         mpw.modelCode,
         mpw.nameEn,
-        COALESCE(NULLIF(mpw.supplierId, ''), ri.linkedSupplierId, riByBusinessKey.fallbackSupplierId) AS supplierId,
-        COALESCE(NULLIF(mpw.undertakingUnitId, ''), ri.linkedUndertakingUnitId, riByBusinessKey.fallbackUndertakingUnitId) AS undertakingUnitId,
-        COALESCE(NULLIF(mpw.customerId, ''), ri.linkedCustomerId, riByBusinessKey.fallbackCustomerId) AS customerId,
+        COALESCE(NULLIF(mpw.supplierId, ''), ri.supplierId, riByBusinessKey.fallbackSupplierId) AS supplierId,
+        COALESCE(NULLIF(mpw.undertakingUnitId, ''), ri.undertakingUnitId, riByBusinessKey.fallbackUndertakingUnitId) AS undertakingUnitId,
+        COALESCE(NULLIF(mpw.customerId, ''), ri.customerId, riByBusinessKey.fallbackCustomerId) AS customerId,
         mpw.quantity,
         mpw.sourceType,
         mpw.adjustmentNo,
         DATE_FORMAT(mpw.createdAt, '%Y-%m-%d') AS createdAt,
         DATE_FORMAT(mpw.updatedAt, '%Y-%m-%d') AS updatedAt
       FROM monthlyprepaymentwriteoffs AS mpw
+      LEFT JOIN prepaymentcontractitems AS contractItem ON contractItem.id = mpw.contractLineId
+      LEFT JOIN purchaseorderitems AS purchaseItem ON purchaseItem.id = contractItem.purchaseOrderItemId
+      LEFT JOIN requestitems AS ri ON ri.id = contractItem.requestItemId
       LEFT JOIN (
-        SELECT id AS linkedContractLineId, requestItemId AS linkedRequestItemId, purchaseOrderItemId AS linkedPurchaseOrderItemId
-        FROM prepaymentcontractitems
-      ) AS contractItem ON contractItem.linkedContractLineId = mpw.contractLineId
-      LEFT JOIN purchaseorderitems AS purchaseItem ON purchaseItem.id = contractItem.linkedPurchaseOrderItemId
-      LEFT JOIN (
-        SELECT id AS linkedRequestItemId, supplierId AS linkedSupplierId, undertakingUnitId AS linkedUndertakingUnitId, customerId AS linkedCustomerId
+        SELECT requestNo AS keyRequestNo, deviceCode AS keyDeviceCode, MAX(supplierId) AS fallbackSupplierId, MAX(undertakingUnitId) AS fallbackUndertakingUnitId, MAX(customerId) AS fallbackCustomerId
         FROM requestitems
-      ) AS ri ON ri.linkedRequestItemId = contractItem.linkedRequestItemId
-      LEFT JOIN (
-        SELECT requestNo AS keyRequestNo, deviceCode AS keyDeviceCode, supplierId AS fallbackSupplierId, undertakingUnitId AS fallbackUndertakingUnitId, customerId AS fallbackCustomerId
-        FROM requestitems
+        WHERE requestNo IS NOT NULL AND deviceCode IS NOT NULL
+        GROUP BY requestNo, deviceCode
       ) AS riByBusinessKey
         ON riByBusinessKey.keyRequestNo = mpw.requestNo
         AND riByBusinessKey.keyDeviceCode = mpw.deviceCode
@@ -679,9 +670,9 @@ export async function listMonthlyPrepaymentWriteOffFilterOptions(searchParams: U
     FROM (
       SELECT ${expression} AS value
       FROM monthlyprepaymentwriteoffs AS mpw
-      LEFT JOIN (SELECT id AS linkedContractLineId, requestItemId AS linkedRequestItemId, purchaseOrderItemId AS linkedPurchaseOrderItemId FROM prepaymentcontractitems) AS contractItem ON contractItem.linkedContractLineId = mpw.contractLineId
-      LEFT JOIN purchaseorderitems AS purchaseItem ON purchaseItem.id = contractItem.linkedPurchaseOrderItemId
-      LEFT JOIN (SELECT id AS linkedRequestItemId, supplierId AS linkedSupplierId, undertakingUnitId AS linkedUndertakingUnitId, customerId AS linkedCustomerId FROM requestitems) AS ri ON ri.linkedRequestItemId = contractItem.linkedRequestItemId
+      LEFT JOIN prepaymentcontractitems AS contractItem ON contractItem.id = mpw.contractLineId
+      LEFT JOIN purchaseorderitems AS purchaseItem ON purchaseItem.id = contractItem.purchaseOrderItemId
+      LEFT JOIN requestitems AS ri ON ri.id = contractItem.requestItemId
       LEFT JOIN (SELECT requestNo AS keyRequestNo, deviceCode AS keyDeviceCode, MAX(supplierId) AS fallbackSupplierId, MAX(undertakingUnitId) AS fallbackUndertakingUnitId, MAX(customerId) AS fallbackCustomerId FROM requestitems WHERE requestNo IS NOT NULL AND deviceCode IS NOT NULL GROUP BY requestNo, deviceCode) AS riByBusinessKey ON riByBusinessKey.keyRequestNo = mpw.requestNo AND riByBusinessKey.keyDeviceCode = mpw.deviceCode
       WHERE ${where.join(" AND ")}
     ) AS optionValues
