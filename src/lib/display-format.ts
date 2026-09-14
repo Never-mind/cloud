@@ -2,6 +2,21 @@ type DisplayValue = string | number | boolean | Date | null | undefined;
 
 type DisplayOption = { label: string; value: string };
 
+// 复用格式化器实例：每次调用都新建 toLocaleString 的配置对象在批量导出时非常慢
+// （几万行 × 几十列会产生几十万次创建），这里集中成两个实例。
+const moneyFormatter = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const numberFormatter = new Intl.NumberFormat("en-US", { maximumFractionDigits: 4 });
+
+function formatMoney(value: unknown) {
+  const number = Number(value);
+  return Number.isFinite(number) ? moneyFormatter.format(number) : "-";
+}
+
+function formatNumber(value: unknown) {
+  const number = Number(value);
+  return Number.isFinite(number) ? numberFormatter.format(number) : "-";
+}
+
 export function formatDateInputValue(value: DisplayValue) {
   if (value === null || value === undefined || value === "") return "";
   if (value instanceof Date) return formatLocalDate(value);
@@ -11,14 +26,14 @@ export function formatDateInputValue(value: DisplayValue) {
 export function formatDisplayValue(value: DisplayValue, type?: string) {
   if (value === null || value === undefined || value === "") return "-";
   if (type === "boolean") return value ? "是" : "否";
-  if (type === "number") return Number(value).toLocaleString("en-US", { maximumFractionDigits: 4 });
-  if (type === "money") return Number(value).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  if (type === "percentage") return `${(Number(value) * 100).toLocaleString("en-US", { maximumFractionDigits: 4 })}%`;
+  if (type === "number") return formatNumber(value);
+  if (type === "money") return formatMoney(value);
+  if (type === "percentage") return `${formatNumber(Number(value) * 100)}%`;
   if (type === "lineType") return formatLineType(value);
   if (type === "datetime") return formatDateTimeLikeString(String(value));
   if (value instanceof Date) return formatLocalDate(value);
   if (isDateLikeValue(value, type)) return formatDateLikeString(String(value));
-  if (typeof value === "number") return value.toLocaleString("en-US", { maximumFractionDigits: 4 });
+  if (typeof value === "number") return formatNumber(value);
   return String(value);
 }
 

@@ -13,35 +13,14 @@ import { useRequestGuard } from "@/lib/table-query-client";
 import { buildDetailRoute, buildListRoute, getCurrentRoute, getPositiveNumber, useListScrollPosition } from "@/lib/client-list-navigation";
 import { Button, Input, Panel } from "./ui";
 import { notify } from "./app-dialog";
+import { monthlyPrepaymentWriteOffColumns } from "@/lib/writeoff-export-columns";
 import { TableStateContent } from "./table-state";
 
 type Row = Record<string, string | number | boolean | null>;
 type ListResponse = { rows: Row[]; total: number; totalAmount: number; page: number; pageSize: number; totalPages: number };
 
-const columns: Array<{ key: string; label: string; type?: string }> = [
-  { key: "writeOffMonth", label: "核销月份", type: "date" },
-  { key: "contractNo", label: "预付款合同号" },
-  { key: "countryCode", label: "国家" },
-  { key: "batchName", label: "批次号" },
-  { key: "undertakingUnitName", label: "承接单位" },
-  { key: "supplierName", label: "供应商" },
-  { key: "customerName", label: "客户" },
-  { key: "requestNo", label: "需求单号" },
-  { key: "poNo", label: "PO单号" },
-  { key: "deviceCode", label: "实例编码" },
-  { key: "requestType", label: "类型" },
-  { key: "modelCode", label: "机型" },
-  { key: "nameEn", label: "英文名称" },
-  { key: "quantity", label: "数量" },
-  { key: "currency", label: "币种" },
-  { key: "originalAmount", label: "合同总价", type: "money" },
-  { key: "monthlyAmount", label: "月核销金额", type: "money" },
-  { key: "lineType", label: "明细类型", type: "lineType" },
-  { key: "sourceType", label: "来源" },
-  { key: "adjustmentNo", label: "调整单号" },
-  { key: "createdAt", label: "创建日期", type: "date" },
-  { key: "updatedAt", label: "更新日期", type: "date" },
-].map((column) => ({ ...column, sortable: true, filterable: true }));
+// 列定义与"服务端导出文件"共用一份，避免两边列不一致。
+const columns = monthlyPrepaymentWriteOffColumns.map((column) => ({ ...column, sortable: true, filterable: true }));
 
 export function MonthlyPrepaymentWriteOffsPage() {
   const pathname = usePathname();
@@ -56,6 +35,7 @@ export function MonthlyPrepaymentWriteOffsPage() {
   const [requestType, setRequestType] = useState(() => searchParams.get("requestType") ?? "");
   const [appliedFilters, setAppliedFilters] = useState(() => ({ keyword, countryCode, batchName, startMonth, endMonth, requestType }));
   const [loading, setLoading] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [page, setPage] = useState(() => getPositiveNumber(searchParams.get("page"), 1));
   const [pageSize, setPageSize] = useState(() => getPositiveNumber(searchParams.get("pageSize"), DEFAULT_PAGE_SIZE));
   const [total, setTotal] = useState(0);
@@ -172,27 +152,26 @@ export function MonthlyPrepaymentWriteOffsPage() {
     void loadData(1, pageSizeRef.current, appliedFilters);
   }, [columnFilters, sortField, sortOrder]);
 
-  async function exportCsv() {
-    let exportRows: Row[];
+  async function downloadExport() {
+    setExporting(true);
     try {
-      const data = await fetchData(1, pageSizeRef.current, true, appliedFilters);
-      exportRows = data.rows ?? [];
+      const response = await fetch(`/api/prepayments/monthly-writeoffs/export?${buildRequestParams(1, pageSizeRef.current, false, appliedFilters).toString()}`);
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error ?? "预付款核销明细导出失败");
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "prepayment-monthly-writeoffs.csv";
+      link.click();
+      URL.revokeObjectURL(url);
     } catch (error) {
-      notify(error instanceof Error ? error.message : "预付款核销明细导出失败", "info");
-      return;
+      notify(error instanceof Error ? error.message : "MSG", "info");
+    } finally {
+      setExporting(false);
     }
-    const header = columns.map((column) => column.label);
-    const body = exportRows.map((row) =>
-      columns.map((column) => `"${String(formatValue(row[column.key], column.type)).replaceAll('"', '""')}"`).join(","),
-    );
-    const csv = [header.join(","), ...body].join("\n");
-    const blob = new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = "prepayment-monthly-writeoffs.csv";
-    link.click();
-    URL.revokeObjectURL(url);
   }
 
   return (
@@ -222,7 +201,7 @@ export function MonthlyPrepaymentWriteOffsPage() {
             <RefreshCw size={15} />
             刷新
           </Button>
-          <Button className="ml-auto" tone="warning" onClick={() => void exportCsv()}>
+          <Button className="ml-auto" disabled={exporting} tone="warning" onClick={() => void downloadExport()}>
             <FileDown size={15} />
             导出
           </Button>
