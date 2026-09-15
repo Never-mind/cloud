@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { CheckCircle2, FileDown, Pencil, Plus, RotateCcw, Save, Trash2, Upload } from "lucide-react";
+import { ArrowLeft, CheckCircle2, FileDown, Pencil, Plus, RotateCcw, Save, Trash2, Upload } from "lucide-react";
 import {
   applyBillingAdjustmentDeviceAutofill,
   getBillingAdjustmentEditState,
@@ -209,9 +209,15 @@ export function BillingAdjustmentDetailPage({ adjustmentNo: routeAdjustmentNo }:
 
   return (
     <div className="space-y-5">
-      <div>
-        <h1 className="text-xl font-medium text-ink">实例合同调整单明细</h1>
-        <p className="mt-1 text-sm text-ink-3">一个实例合同单号可对应多条实例明细，导入入口在下方明细区域内。</p>
+      <div className="flex items-start gap-3">
+        <Button onClick={() => router.push(returnTo)}>
+          <ArrowLeft size={15} />
+          返回列表
+        </Button>
+        <div>
+          <h1 className="text-xl font-medium text-ink">实例合同调整单明细</h1>
+          <p className="mt-1 text-sm text-ink-3">一个实例合同单号可对应多条实例明细，导入入口在下方明细区域内。</p>
+        </div>
       </div>
 
       <Panel>

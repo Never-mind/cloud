@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { CheckCircle2, Plus, RefreshCw, RotateCcw, Save, Search, Trash2 } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Plus, RefreshCw, RotateCcw, Save, Search, Trash2 } from "lucide-react";
 import { formatDisplayValue } from "@/lib/display-format";
 import { buildDetailRoute, getReturnTo } from "@/lib/client-list-navigation";
 import {
@@ -240,9 +240,15 @@ export function PrepaymentWriteOffAdjustmentDetailPage({ adjustmentNo: routeAdju
 
   return (
     <div className="space-y-5">
-      <div>
-        <h1 className="text-xl font-medium text-ink">预付款核销调整单明细</h1>
-        <p className="mt-1 text-sm text-ink-3">先搜索特定实例或月份，添加到下方调整明细后再填写调整金额。</p>
+      <div className="flex items-start gap-3">
+        <Button onClick={() => router.push(returnTo)}>
+          <ArrowLeft size={15} />
+          返回列表
+        </Button>
+        <div>
+          <h1 className="text-xl font-medium text-ink">预付款核销调整单明细</h1>
+          <p className="mt-1 text-sm text-ink-3">先搜索特定实例或月份，添加到下方调整明细后再填写调整金额。</p>
+        </div>
       </div>
 
       <Panel>
