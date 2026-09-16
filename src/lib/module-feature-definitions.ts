@@ -79,18 +79,32 @@ export function getModuleFeatureKeyForRoute(pathname: string) {
     .sort((left, right) => right.routePrefix.length - left.routePrefix.length)[0]?.key ?? null;
 }
 
+// The signed feature state travels in a cookie header on every request, so only the switches
+// that differ from the shipped defaults are stored. Default switches are resolved on read.
+const MODULE_FEATURE_PAYLOAD_PREFIX = "v2~";
+
 export function encodeModuleFeatureState(state: ModuleFeatureState) {
-  return encodeURIComponent(JSON.stringify(state));
+  const overrides: ModuleFeatureState = {};
+  for (const [key, enabled] of Object.entries(state)) {
+    if (typeof enabled !== "boolean") continue;
+    if (!isModuleDisabledByDefault(key) === enabled) continue;
+    overrides[key] = enabled;
+  }
+  return `${MODULE_FEATURE_PAYLOAD_PREFIX}${encodeURIComponent(JSON.stringify(overrides))}`;
 }
 
 export function decodeModuleFeatureState(value: string | undefined | null): ModuleFeatureState {
   if (!value) return getDefaultModuleFeatureState();
   try {
-    const parsed = JSON.parse(decodeURIComponent(value)) as unknown;
+    const isCompact = value.startsWith(MODULE_FEATURE_PAYLOAD_PREFIX);
+    const parsed = JSON.parse(decodeURIComponent(isCompact ? value.slice(MODULE_FEATURE_PAYLOAD_PREFIX.length) : value)) as unknown;
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return getDefaultModuleFeatureState();
-    return Object.fromEntries(
-      Object.entries(parsed).filter(([, enabled]) => typeof enabled === "boolean"),
-    ) as ModuleFeatureState;
+    const entries = Object.entries(parsed).filter(([, enabled]) => typeof enabled === "boolean") as Array<[string, boolean]>;
+    // Older sessions stored the complete switch map; newer ones only carry explicit overrides.
+    if (!isCompact) return Object.fromEntries(entries) as ModuleFeatureState;
+    const state = getDefaultModuleFeatureState();
+    for (const [key, enabled] of entries) state[key] = enabled;
+    return state;
   } catch {
     return getDefaultModuleFeatureState();
   }

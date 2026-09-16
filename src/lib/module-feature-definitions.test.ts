@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  decodeModuleFeatureState,
+  encodeModuleFeatureState,
   getDefaultModuleFeatureState,
   getModuleFeatureDomainKey,
   isModuleDisabledByDefault,
@@ -22,5 +24,23 @@ describe("module feature domains", () => {
     expect(isModuleDisabledByDefault("internal-service-fees")).toBe(true);
     expect(state["internal-service-fees"]).toBe(false);
     expect(state["system-module-features"]).toBeUndefined();
+  });
+
+  it("stores only the switches that differ from the defaults", () => {
+    const state = getDefaultModuleFeatureState();
+    state["internal-service-fees"] = true;
+    state["requests"] = false;
+    const encoded = encodeModuleFeatureState(state);
+
+    expect(encoded.length).toBeLessThan(120);
+    expect(decodeModuleFeatureState(encoded)).toMatchObject({
+      "internal-service-fees": true,
+      requests: false,
+    });
+  });
+
+  it("keeps reading the full switch map written by older sessions", () => {
+    const legacy = encodeURIComponent(JSON.stringify({ "internal-service-fees": true, requests: false, "no-such-module": "skip" }));
+    expect(decodeModuleFeatureState(legacy)).toEqual({ "internal-service-fees": true, requests: false });
   });
 });

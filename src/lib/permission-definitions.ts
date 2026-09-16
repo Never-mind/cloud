@@ -208,6 +208,66 @@ export function permissionKeyFromToken(token: string) {
   }
 }
 
+const PERMISSION_PAYLOAD_VERSION = "3";
+
+// The signed permission payload doubles as a response header, so it is grouped per mask
+// (`mask:token,token;mask:token`) to keep cookie headers well below proxy buffer limits.
+export function encodePermissionPayload(state: PermissionState) {
+  const groupsByMask = new Map<number, string[]>();
+  for (const [key, mask] of Object.entries(state.grants)) {
+    if (!Number.isInteger(mask) || mask < 0) continue;
+    const token = permissionKeyToken(key);
+    const bucket = groupsByMask.get(mask);
+    if (bucket) bucket.push(token);
+    else groupsByMask.set(mask, [token]);
+  }
+  const serialized = [...groupsByMask.entries()]
+    .sort((left, right) => left[0] - right[0])
+    .map(([mask, tokens]) => `${mask.toString(36)}:${tokens.sort().join(",")}`)
+    .join(";");
+  return `${PERMISSION_PAYLOAD_VERSION}|${state.role}|${serialized}`;
+}
+
+export function decodePermissionPayload(payload: string): PermissionState | null {
+  if (payload.startsWith("{")) {
+    try {
+      const parsed = JSON.parse(payload) as unknown;
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+      const value = parsed as Record<string, unknown>;
+      if (value.v === 2 && typeof value.r === "string" && Array.isArray(value.g)) {
+        const grants: Record<string, number> = {};
+        for (const item of value.g) {
+          if (!Array.isArray(item) || typeof item[0] !== "string" || typeof item[1] !== "number") continue;
+          const key = permissionKeyFromToken(item[0]);
+          if (key) grants[key] = item[1];
+        }
+        return { role: value.r, grants };
+      }
+      if (typeof value.role !== "string" || !value.grants || typeof value.grants !== "object" || Array.isArray(value.grants)) return null;
+      return { role: value.role, grants: Object.fromEntries(Object.entries(value.grants).filter(([, mask]) => typeof mask === "number")) };
+    } catch {
+      return null;
+    }
+  }
+
+  const parts = payload.split("|");
+  if (parts.length !== 3) return null;
+  const [version, role, serialized] = parts;
+  if (version !== PERMISSION_PAYLOAD_VERSION || !role) return null;
+  const grants: Record<string, number> = {};
+  for (const group of serialized.split(";")) {
+    if (!group) continue;
+    const [maskText, tokensText] = group.split(":");
+    const mask = Number.parseInt(maskText ?? "", 36);
+    if (!Number.isInteger(mask) || mask < 0 || !tokensText) continue;
+    for (const token of tokensText.split(",")) {
+      const key = permissionKeyFromToken(token);
+      if (key) grants[key] = mask;
+    }
+  }
+  return { role, grants };
+}
+
 const PERMISSION_GROUP_ORDER: Record<string, string[]> = {
   "domain:power": ["客户需求", "采购管理", "合同管理", "物流管理", "财务管理", "基础信息", "数据工具", "隐藏"],
   "domain:po": ["客户PO", "项目结算", "财务管理", "产品管理", "采购管理", "隐藏"],

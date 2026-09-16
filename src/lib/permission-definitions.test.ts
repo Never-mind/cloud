@@ -7,6 +7,21 @@ import {
   permissionMask,
 } from "./permission-definitions";
 import { decodePermissionState, encodePermissionState } from "./permission-cookie";
+import { navGroups, type NavGroup } from "./modules";
+
+function flattenNavItems(groups: NavGroup[]): Array<{ key: string; title: string; navGroup: string }> {
+  return groups.flatMap((group) => {
+    const collect = (children: NavGroup["children"]): Array<{ key: string; title: string; navGroup: string }> =>
+      (children ?? []).flatMap((child) => [
+        ...child.items.map((item) => ({ key: item.key, title: item.title, navGroup: group.title })),
+        ...collect(child.children),
+      ]);
+    return [
+      ...group.items.map((item) => ({ key: item.key, title: item.title, navGroup: group.title })),
+      ...collect(group.children),
+    ];
+  });
+}
 
 describe("permission definitions", () => {
   it("maps API methods to module actions", () => {
@@ -77,6 +92,16 @@ describe("permission definitions", () => {
     const legacyPayloadLength = Buffer.from(JSON.stringify({ role: "user", grants }), "utf8").toString("base64url").length;
 
     expect(payloadLength).toBeLessThan(legacyPayloadLength);
+    expect(decodePermissionState(encoded)).toEqual({ role: "user", grants });
+  });
+
+  it("keeps the signed permission cookie small enough for proxy header buffers", () => {
+    const definitions = getPermissionDefinitions(flattenNavItems(navGroups));
+    const grants = Object.fromEntries(definitions.map((definition) => [definition.moduleKey, 127]));
+    const encoded = encodePermissionState({ role: "user", grants });
+
+    expect(definitions.length).toBeGreaterThan(60);
+    expect(encoded.length).toBeLessThan(800);
     expect(decodePermissionState(encoded)).toEqual({ role: "user", grants });
   });
 
