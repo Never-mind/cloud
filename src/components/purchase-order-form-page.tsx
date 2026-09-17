@@ -10,7 +10,7 @@ import { calculatePurchaseTotalAmount } from "@/lib/purchase-lines";
 import { buildAutoPurchaseOrderId, buildAutoPurchaseOrderNo, normalizeRequestNos } from "@/lib/procurement-workflow";
 import { fetchAllEntityRows } from "@/lib/client-entity-fetch";
 import { DEFAULT_POWER_CONTRACT_EXCHANGE_RATE, buildPowerPricingSnapshot, refreshPowerPricingSnapshot, serializePowerPricingSnapshot, type PowerPriceContext, type PowerPricingSnapshot } from "@/lib/power-price-calculator";
-import { Button, Input, Panel } from "./ui";
+import { Button, Input, Panel, Select } from "./ui";
 import { NumberInput as NumberField } from "./number-input";
 import { PowerPriceCalculationDrawer } from "./power-price-calculation-drawer";
 import { StickyTable } from "./sticky-table";
@@ -274,8 +274,8 @@ export function PurchaseOrderFormPage() {
           </label>
           <label>
             <span className="mb-1 block text-sm font-medium text-ink-2">来源需求单</span>
-            <select
-              className="h-9 w-full rounded border border-line bg-white px-3 text-sm outline-none focus:border-primary"
+            <Select
+              className="w-full"
               value={master.requestNo}
               onChange={(event) => updateMaster("requestNo", event.target.value)}
             >
@@ -285,7 +285,7 @@ export function PurchaseOrderFormPage() {
                   {String(request.requestNo)} - {String(request.batchName ?? "")}
                 </option>
               ))}
-            </select>
+            </Select>
           </label>
           <Field label="采购状态" value={master.status} onChange={(value) => updateMaster("status", value)} />
           <label>
@@ -293,8 +293,8 @@ export function PurchaseOrderFormPage() {
               <span className="text-danger">*</span>
               币种
             </span>
-            <select
-              className="h-9 w-full rounded border border-line bg-white px-3 text-sm outline-none focus:border-primary"
+            <Select
+              className="w-full"
               required
               value={master.currency}
               onChange={(event) => updateMaster("currency", event.target.value)}
@@ -304,7 +304,7 @@ export function PurchaseOrderFormPage() {
                   {currency}
                 </option>
               ))}
-            </select>
+            </Select>
           </label>
           <Field label="整机价转合同汇率（CNY → USD）" step="0.000000000000001" type="number" value={master.usdRate} onChange={(value) => updateMaster("usdRate", value)} />
           <Field label="下发日期" type="date" value={master.releasedAt} onChange={(value) => updateMaster("releasedAt", value)} />
@@ -325,23 +325,23 @@ export function PurchaseOrderFormPage() {
           <table className="min-w-[2250px] whitespace-nowrap border-collapse text-sm">
             <thead className="bg-canvas text-ink">
               <tr>
-                <th className="border-b border-r border-line-soft px-3 py-3 text-left">需求明细</th>
-                <th className="border-b border-r border-line-soft px-3 py-3 text-left">设备编码</th>
-                <th className="border-b border-r border-line-soft px-3 py-3 text-left">机型</th>
-                <th className="border-b border-r border-line-soft px-3 py-3 text-left">英文名称</th>
-                <th className="border-b border-r border-line-soft px-3 py-3 text-left">数量</th>
-                <th className="border-b border-r border-line-soft px-3 py-3 text-left">币种</th>
-                <th className="border-b border-r border-line-soft px-3 py-3 text-left">不含税单价</th>
-                <th className="border-b border-r border-line-soft px-3 py-3 text-left">税费加成金额</th>
-                <th className="border-b border-r border-line-soft px-3 py-3 text-left">含税单价</th>
-                <th className="border-b border-r border-line-soft px-3 py-3 text-left">含税总价</th>
-                <th className="border-b border-r border-line-soft px-3 py-3 text-left">采购CAPEX单价</th>
-                <th className="border-b border-r border-line-soft px-3 py-3 text-left">采购OPEX单价</th>
-                <th className="border-b border-r border-line-soft px-3 py-3 text-left">算力服务价格（1-24个月，含VAT）</th>
-                <th className="border-b border-r border-line-soft px-3 py-3 text-left">算力服务价格（后36个月，含VAT）</th>
-                <th className="border-b border-r border-line-soft px-3 py-3 text-left">测算</th>
-                <th className="border-b border-r border-line-soft px-3 py-3 text-left">硬件系数</th>
-                <th className="border-b border-r border-line-soft px-3 py-3 text-left">软件系数</th>
+                <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">需求明细</th>
+                <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">设备编码</th>
+                <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">机型</th>
+                <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">英文名称</th>
+                <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">数量</th>
+                <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">币种</th>
+                <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">不含税单价</th>
+                <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">税费加成金额</th>
+                <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">含税单价</th>
+                <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">含税总价</th>
+                <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">采购CAPEX单价</th>
+                <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">采购OPEX单价</th>
+                <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">算力服务价格（1-24个月，含VAT）</th>
+                <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">算力服务价格（后36个月，含VAT）</th>
+                <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">测算</th>
+                <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">硬件系数</th>
+                <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">软件系数</th>
               </tr>
             </thead>
             <tbody>
@@ -353,8 +353,8 @@ export function PurchaseOrderFormPage() {
                 return (
                   <tr key={index}>
                     <td className="border-b border-r border-line-soft px-3 py-3">
-                      <select
-                        className="h-9 min-w-[220px] rounded border border-line bg-white px-2"
+                      <Select
+                        className="min-w-[220px]"
                         value={detail.requestItemId}
                         onChange={(event) => updateDetail(index, { requestItemId: event.target.value })}
                       >
@@ -364,20 +364,20 @@ export function PurchaseOrderFormPage() {
                             {String(item.id)} - {String(item.deviceCode)}
                           </option>
                         ))}
-                      </select>
+                      </Select>
                     </td>
                     <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3">{formatValue(requestItem?.deviceCode)}</td>
                     <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3">{formatValue(model?.modelCode)}</td>
                     <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3">{formatValue(model?.nameEn)}</td>
                     <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3">{formatValue(requestItem?.quantity)}</td>
                     <td className="border-b border-r border-line-soft px-3 py-3">
-                      <select
-                        className="h-9 min-w-[100px] rounded border border-line bg-white px-2"
+                      <Select
+                        className="min-w-[100px]"
                         value={normalizePurchaseOrderItemCurrency(detail.currency, master.currency)}
                         onChange={(event) => updateDetail(index, { currency: event.target.value })}
                       >
                         {PURCHASE_ORDER_ITEM_CURRENCY_OPTIONS.map((currency) => <option key={currency} value={currency}>{currency}</option>)}
-                      </select>
+                      </Select>
                     </td>
                     <td className="border-b border-r border-line-soft px-3 py-3">
                       <NumberInput value={detail.taxExcludedUnitPrice ?? 0} onChange={(value) => updateDetail(index, { taxExcludedUnitPrice: value })} />

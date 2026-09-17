@@ -7,7 +7,7 @@ import { Plus, RefreshCw, RotateCcw, Search, Trash2, X } from "lucide-react";
 import { formatDisplayValue } from "@/lib/display-format";
 import { DEFAULT_PAGE_SIZE } from "@/lib/pagination";
 import { buildDetailRoute, buildListRoute, getCurrentRoute, useListScrollPosition } from "@/lib/client-list-navigation";
-import { Button, Input, Panel } from "./ui";
+import { Button, Input, Panel, Select } from "./ui";
 import { Modal } from "./modal";
 import { confirmDialog, notify } from "./app-dialog";
 import { PaginationBar } from "./pagination-bar";
@@ -293,7 +293,7 @@ export function PrepaymentContractsPage() {
           <table className="min-w-full border-collapse text-sm">
             <thead className="bg-canvas text-ink">
               <tr>
-                <th className="table-select-cell border-b border-r border-line-soft py-3 text-center font-medium [&>input]:h-4 [&>input]:w-4 [&>input]:align-middle">
+                <th className="whitespace-nowrap table-select-cell border-b border-r border-line-soft py-3 text-center font-medium [&>input]:h-4 [&>input]:w-4 [&>input]:align-middle">
                   <input aria-label="全选本页预付款合同" checked={allVisibleSelected} type="checkbox" onChange={toggleAllVisible} />
                 </th>
                 {columns.map((column) => (
@@ -301,7 +301,7 @@ export function PrepaymentContractsPage() {
                     {renderHeader(column)}
                   </th>
                 ))}
-                <th className="sticky right-0 border-b border-line-soft bg-canvas px-3 py-3 text-left font-medium">操作</th>
+                <th className="whitespace-nowrap sticky right-0 border-b border-line-soft bg-canvas px-3 py-3 text-left font-medium">操作</th>
               </tr>
             </thead>
             <tbody>
@@ -379,9 +379,9 @@ export function PrepaymentContractsPage() {
             </label>
             <label>
               <span className="mb-1 block text-sm text-ink-2">合同币种</span>
-              <select className="h-9 w-full rounded border border-line bg-white px-3 text-sm" value={newCurrency} onChange={(event) => setNewCurrency(event.target.value)}>
+              <Select className="w-full" value={newCurrency} onChange={(event) => setNewCurrency(event.target.value)}>
                 {["CNY", "MXN", "CLP", "USD", "BRL"].map((currency) => <option key={currency} value={currency}>{currency}</option>)}
-              </select>
+              </Select>
             </label>
             <label>
               <span className="mb-1 block text-sm text-ink-2">生效日期</span>

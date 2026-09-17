@@ -185,7 +185,7 @@ export function BillingAdjustmentsPage() {
                     {renderHeader(column)}
                   </th>
                 ))}
-                <th className="sticky right-0 border-b border-line-soft bg-canvas px-3 py-3 text-left font-medium">操作</th>
+                <th className="whitespace-nowrap sticky right-0 border-b border-line-soft bg-canvas px-3 py-3 text-left font-medium">操作</th>
               </tr>
             </thead>
             <tbody>

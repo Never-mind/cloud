@@ -16,7 +16,7 @@ import { buildPowerPricingSnapshot, refreshPowerPricingSnapshot, serializePowerP
 import { PurchaseOrderDemandPlanTabs } from "./purchase-order-demand-plan-tabs";
 import { getReturnTo } from "@/lib/client-list-navigation";
 import { readJsonResponse } from "@/lib/client-response";
-import { AuditInfoBar, Button, Input, Panel } from "./ui";
+import { AuditInfoBar, Button, Input, Panel, Select } from "./ui";
 import { NumberInput as NumberField } from "./number-input";
 import { notify } from "./app-dialog";
 import { StickyTable } from "./sticky-table";
@@ -340,8 +340,8 @@ export function OrderDetailPage({
               <label key={field.key}>
                 <span className="mb-1 block text-xs text-ink-3">{field.label}</span>
                 {field.type === "select" ? (
-                  <select
-                    className="h-9 w-full min-w-0 rounded border border-line bg-white px-3 text-sm outline-none focus:border-primary"
+                  <Select
+                    className="w-full min-w-0"
                     disabled={field.key === masterConfig.primaryKey}
                     value={String(masterDraft[field.key] ?? field.options?.[0]?.value ?? "")}
                     onChange={(event) => updateMasterDraft(field.key, event.target.value)}
@@ -351,7 +351,7 @@ export function OrderDetailPage({
                         {option.label}
                       </option>
                     ))}
-                  </select>
+                  </Select>
                 ) : (
                   <Input
                     className="w-full min-w-0"
@@ -415,13 +415,13 @@ export function OrderDetailPage({
                       ) : field.key === "powerFirst24VatIncluded" || field.key === "powerNext36VatIncluded" ? (
                          renderPowerPrice(row, field.key, pricing)
                       ) : editing && mode === "purchase" && field.key === "currency" ? (
-                        <select
-                          className="h-9 min-w-[100px] rounded border border-line bg-white px-2"
+                        <Select
+                          className="min-w-[100px]"
                           value={normalizePurchaseOrderItemCurrency(row[field.key], String(masterDraft.currency ?? master?.currency ?? "USD"))}
                           onChange={(event) => updateDetailDraft(String(row.id), field.key, event.target.value)}
                         >
                           {PURCHASE_ORDER_ITEM_CURRENCY_OPTIONS.map((currency) => <option key={currency} value={currency}>{currency}</option>)}
-                        </select>
+                        </Select>
                       ) : editing && mode === "purchase" && ["taxExcludedUnitPrice", "taxSurcharge", "capexUnitPrice", "opexUnitPrice", "hardwareCoefficient", "softwareCoefficient"].includes(field.key) ? (
                         <NumberInput
                           value={Number(row[field.key] ?? 0)}

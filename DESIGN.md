@@ -278,10 +278,26 @@ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
 - 表格容器允许横向滚动。
 - 操作列建议固定在右侧。
 - 关键识别列可固定在左侧，例如 ID、批次号、设备编码。
-- 长文本字段使用省略号，悬停或详情中展示完整内容。
+- 长文本字段使用省略号，悬停或详情中展示完整内容；备注等超长文本列允许折行。
 - 日期统一格式：`YYYY-MM-DD`。
-- 时间统一格式：`YYYY-MM-DD HH:mm:ss`。
+- 时间统一格式：`YYYY-MM-DD HH:mm`（到分，不带秒）；仅需要秒级排查的日志场景例外。
 - 金额统一千分位和两位小数，例如 `26,411.31`。
+
+### 6.4 组件与类名约定
+
+以下规则由 `src/components/ui.tsx` 与集中扫描保证，新增页面必须遵守：
+
+| 场景 | 约定 |
+| --- | --- |
+| 输入框 / 下拉框 / 文本域 / 数字框 | 一律使用 `Input` / `Select` / `Textarea` / `NumberInput`，不写裸 `<input>` `<select>` `<textarea>`；宽度用 `w-full` / `min-w-*` 等布局类控制 |
+| 表头 `th` | 固定 `whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium`，由公共扫描保证；`py-2` 归到 `py-3` |
+| 数据单元格 `td` | 渲染值的单元格固定 `whitespace-nowrap`；备注等长文本用 `whitespace-normal break-words`；表单控件单元格不加 `nowrap` |
+| 表格容器 | 统一 `<StickyTable className="table-scroll overflow-auto">`；固定高度页用 `table-scroll h-full w-full overflow-auto`；**不要再写 `max-h-[calc(100vh-XXXpx)]` 这类魔法值** |
+| 空状态与加载 | 一律用 `TableStateContent`，不要手写 `<td>暂无数据</td>` |
+| 分页 | 一律用 `PaginationBar`，不要自绘分页条 |
+| 确认与提示 | 一律用 `confirmDialog` / `notify`，不要用 `window.confirm` / `alert` |
+| 颜色 | 只用 `src/app/globals.css` 的主题 token，禁止 `bg-[#...]` / `text-[#...]` / `border-[#...]` 硬编码 |
+| 弹层 | 一律用 `Modal` / `Drawer`，不要手写 `fixed inset-0` 遮罩 |
 
 ### 6.3 行操作
 

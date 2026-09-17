@@ -2,7 +2,7 @@
 
 import { Fragment, useEffect, useState } from "react";
 import { DatabaseZap, FileSearch, Pencil, Play, RefreshCw, Save, X } from "lucide-react";
-import { Button, Input, Panel } from "./ui";
+import { Button, Input, Panel, Select } from "./ui";
 import { Modal } from "./modal";
 import { confirmDialog } from "./app-dialog";
 import { TableStateContent } from "./table-state";
@@ -386,7 +386,7 @@ export function FrappeDemandSyncPage() {
         </summary>
         <div className="border-t border-line-soft">
           {latestRun.results.length ? <StickyTable className="max-h-72 overflow-auto" tableKey="frappe-demand-sync-results">
-            <table className="min-w-[920px] border-collapse text-sm"><thead className="bg-canvas"><tr><th className="border-b border-r border-line-soft px-3 py-3 text-left font-medium">结果</th><th className="border-b border-r border-line-soft px-3 py-3 text-left font-medium">远端需求单</th><th className="border-b border-r border-line-soft px-3 py-3 text-left font-medium">本地需求单</th><th className="border-b border-r border-line-soft px-3 py-3 text-right font-medium">明细数</th><th className="border-b border-line-soft px-3 py-3 text-left font-medium">原因</th></tr></thead>
+            <table className="min-w-[920px] border-collapse text-sm"><thead className="bg-canvas"><tr><th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">结果</th><th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">远端需求单</th><th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">本地需求单</th><th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-right font-medium">明细数</th><th className="whitespace-nowrap border-b border-line-soft px-3 py-3 text-left font-medium">原因</th></tr></thead>
               <tbody>{latestRun.results.map((result, index) => <tr key={`${result.sourceOrderId}-${result.status}-${index}`}><td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3">{syncResultStatus(result.status)}</td><td className="border-b border-r border-line-soft px-3 py-3 font-mono text-xs">{display(result.sourceOrderId)}</td><td className="border-b border-r border-line-soft px-3 py-3 font-mono text-xs">{display(result.localRequestNo)}</td><td className="border-b border-r border-line-soft px-3 py-3 text-right">{result.itemCount}</td><td className="border-b border-line-soft px-3 py-3 text-ink-2">{display(result.reason)}</td></tr>)}</tbody>
             </table>
           </StickyTable> : <div className="px-4 py-6 text-sm text-ink-3">此历史记录没有逐单结果；后续同步会保留该明细。</div>}
@@ -398,27 +398,27 @@ export function FrappeDemandSyncPage() {
         {tabs.map(([key, label]) => <button className={`border-b-2 px-3 py-2 text-sm ${tab === key ? "border-primary text-primary" : "border-transparent text-ink-2"}`} type="button" key={key} onClick={() => { setTab(key); setStatus(""); }}>{label}{key === "ledger" ? null : <span className="ml-1 text-xs text-ink-3">{counts[key] ?? 0}</span>}<UnhandledBadge count={key === "ledger" ? unhandled.ledger : unhandled.mappings[key] ?? 0} /></button>)}
         <div className="ml-auto flex flex-wrap gap-2">
           {tab === "ledger" ? <>
-            <select className="h-9 rounded border border-line bg-white px-3 text-sm" value={ledgerCategory} onChange={(event) => setLedgerCategory(event.target.value)}>
+            <Select value={ledgerCategory} onChange={(event) => setLedgerCategory(event.target.value)}>
               {ledgerCategories.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-            </select>
+            </Select>
             <Input placeholder="远端单号或本地需求单号" value={keyword} onChange={(event) => setKeyword(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void loadLedger({ page: 1 }); }} />
             <Button disabled={busy} onClick={() => void loadLedger({ page: 1 })}>查询</Button>
             <Button disabled={busy || !selectedOrders.length} tone="primary" onClick={() => void rebuildSelectedOrders()}><Play size={15} />重新拉取所选（{selectedOrders.length}）</Button>
           </> : <>
-            {tab === "material" ? <select className="h-9 rounded border border-line bg-white px-3 text-sm" title="按远端实例类型分类" value={materialType} onChange={(event) => setMaterialType(event.target.value)}><option value="">全部类型（{Object.values(materialTypeCounts).reduce((sum, value) => sum + value, 0)}）</option>{materialTypeOptions.map(([value, label]) => <option key={value} value={value}>{label}（{materialTypeCounts[value] ?? 0}）</option>)}</select> : null}
-            <select className="h-9 rounded border border-line bg-white px-3 text-sm" title="按本地档案是否存在筛选" value={localEntity} onChange={(event) => setLocalEntity(event.target.value)}><option value="">本地档案：全部</option><option value="exists">仅本地存在</option><option value="missing">仅本地已删除</option></select>
+            {tab === "material" ? <Select title="按远端实例类型分类" value={materialType} onChange={(event) => setMaterialType(event.target.value)}><option value="">全部类型（{Object.values(materialTypeCounts).reduce((sum, value) => sum + value, 0)}）</option>{materialTypeOptions.map(([value, label]) => <option key={value} value={value}>{label}（{materialTypeCounts[value] ?? 0}）</option>)}</Select> : null}
+            <Select title="按本地档案是否存在筛选" value={localEntity} onChange={(event) => setLocalEntity(event.target.value)}><option value="">本地档案：全部</option><option value="exists">仅本地存在</option><option value="missing">仅本地已删除</option></Select>
             <Input placeholder="远端编码、名称或本地档案" value={keyword} onChange={(event) => setKeyword(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void load({ page: 1 }); }} />
-            <select className="h-9 rounded border border-line bg-white px-3 text-sm" value={status} onChange={(event) => setStatus(event.target.value)}><option value="">全部状态</option><option value="pending">待处理</option><option value="confirmed">已确认</option><option value="conflict">冲突</option><option value="ignored">已忽略</option></select>
+            <Select value={status} onChange={(event) => setStatus(event.target.value)}><option value="">全部状态</option><option value="pending">待处理</option><option value="confirmed">已确认</option><option value="conflict">冲突</option><option value="ignored">已忽略</option></Select>
             <Button disabled={busy} onClick={() => void load({ page: 1 })}>查询</Button>
           </>}
         </div>
       </div>
       {tab === "ledger" ? <>
-      <StickyTable className="max-h-[calc(100vh-280px)] overflow-auto" tableKey="frappe-demand-sync-ledger">
+      <StickyTable className="table-scroll overflow-auto" tableKey="frappe-demand-sync-ledger">
         <table className="min-w-[1100px] border-collapse text-sm">
           <thead className="bg-canvas"><tr>
-            <th className="table-select-cell border-b border-r border-line-soft py-3 text-center font-medium [&>input]:h-4 [&>input]:w-4 [&>input]:align-middle"><input aria-label="全选需求单" checked={ledger.length > 0 && selectedOrders.length === ledger.length} type="checkbox" onChange={(event) => setSelectedOrders(event.target.checked ? ledger.map((row) => row.sourceOrderId) : [])} /></th>
-            {["远端需求单号", "本地需求单号", "明细数", "本地状态", "远端变更", "最后同步", "操作"].map((label) => <th className="border-b border-r border-line-soft px-3 py-3 text-left font-medium" key={label}>{label}</th>)}
+            <th className="whitespace-nowrap table-select-cell border-b border-r border-line-soft py-3 text-center font-medium [&>input]:h-4 [&>input]:w-4 [&>input]:align-middle"><input aria-label="全选需求单" checked={ledger.length > 0 && selectedOrders.length === ledger.length} type="checkbox" onChange={(event) => setSelectedOrders(event.target.checked ? ledger.map((row) => row.sourceOrderId) : [])} /></th>
+            {["远端需求单号", "本地需求单号", "明细数", "本地状态", "远端变更", "最后同步", "操作"].map((label) => <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium" key={label}>{label}</th>)}
           </tr></thead>
           <tbody>
             {ledger.map((row) => <Fragment key={row.sourceOrderId}>
@@ -434,7 +434,7 @@ export function FrappeDemandSyncPage() {
               </tr>
               {expandedOrder === row.sourceOrderId ? <tr><td className="border-b border-line-soft bg-surface-2 px-4 py-3" colSpan={8}>
                 <table className="w-full min-w-[900px] border-collapse text-sm">
-                  <thead><tr>{["明细ID", "台账状态", "原因", "本地明细", "远端变更", "说明"].map((label) => <th className="border-b border-line-soft px-3 py-2 text-left font-medium text-ink-2" key={label}>{label}</th>)}</tr></thead>
+                  <thead><tr>{["明细ID", "台账状态", "原因", "本地明细", "远端变更", "说明"].map((label) => <th className="whitespace-nowrap border-b border-line-soft px-3 py-3 text-left font-medium text-ink-2" key={label}>{label}</th>)}</tr></thead>
                   <tbody>{ledgerItems.map((item) => <tr key={item.sourceItemId}>
                     <td className="border-b border-line-soft px-3 py-2 font-mono text-xs">{item.sourceItemId}</td>
                     <td className="border-b border-line-soft px-3 py-2">{ledgerItemStatus(item.status)}</td>
@@ -452,8 +452,8 @@ export function FrappeDemandSyncPage() {
       </StickyTable>
       <PaginationBar page={ledgerPage} pageSize={ledgerPageSize} total={ledgerTotal} onPageChange={(next) => { setLedgerPage(next); void loadLedger({ page: next }); }} onPageSizeChange={(size) => { setLedgerPageSize(size); setLedgerPage(1); void loadLedger({ page: 1, pageSize: size }); }} />
       </> : <>
-      <StickyTable className="max-h-[calc(100vh-280px)] overflow-auto" tableKey="frappe-demand-sync-mappings">
-        <table className="min-w-[1260px] border-collapse text-sm"><thead className="bg-canvas"><tr><th className="border-b border-r border-line-soft px-3 py-3 text-left font-medium">远端ID</th><th className="border-b border-r border-line-soft px-3 py-3 text-left font-medium">远端信息</th><th className="border-b border-r border-line-soft px-3 py-3 text-left font-medium">自动匹配</th><th className="border-b border-r border-line-soft px-3 py-3 text-left font-medium">本地档案</th><th className="border-b border-r border-line-soft px-3 py-3 text-left font-medium">状态</th><th className="border-b border-line-soft px-3 py-3 text-left font-medium">操作</th></tr></thead>
+      <StickyTable className="table-scroll overflow-auto" tableKey="frappe-demand-sync-mappings">
+        <table className="min-w-[1260px] border-collapse text-sm"><thead className="bg-canvas"><tr><th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">远端ID</th><th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">远端信息</th><th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">自动匹配</th><th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">本地档案</th><th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">状态</th><th className="whitespace-nowrap border-b border-line-soft px-3 py-3 text-left font-medium">操作</th></tr></thead>
           <tbody>{visibleMappings.map((mapping) => <tr key={mapping.mappingId}><td className="border-b border-r border-line-soft px-3 py-3 font-mono text-xs">{mapping.sourceId}</td><td className="max-w-[340px] border-b border-r border-line-soft px-3 py-3"><div>{display(mapping.sourceCode)} {mapping.sourceName ? `- ${mapping.sourceName}` : ""}</div><div className="mt-1 whitespace-normal text-xs text-ink-3">{sourceDetails(mapping) || "-"}</div></td><td className="max-w-[260px] border-b border-r border-line-soft px-3 py-3 text-ink-2">{mapping.candidates?.length === 1 ? mapping.candidates[0].label : mapping.candidates?.length ? `${mapping.candidates.length} 个候选项` : "无"}</td><td className="max-w-[260px] border-b border-r border-line-soft px-3 py-3">{display(mapping.localDisplayName)}{mapping.localEntityExists === false ? <span className="ml-1 text-danger">（本地档案已删除）</span> : null}</td><td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3">{mappingStatus(mapping.status)}</td><td className="border-b border-line-soft px-3 py-3"><Button tone={mapping.status === "pending" || mapping.status === "conflict" ? "primary" : undefined} onClick={() => setEditing(mapping)}>{mapping.status === "pending" || mapping.status === "conflict" ? "去匹配" : <><Pencil size={14} />修改匹配</>}</Button></td></tr>)}{!visibleMappings.length ? <tr><td className="py-14 text-center text-ink-3" colSpan={6}>{busy ? "加载中..." : "暂无映射记录"}</td></tr> : null}</tbody>
         </table>
       </StickyTable>
@@ -500,11 +500,11 @@ function MappingDialog({ mapping, masters, onCancel, onSave }: { mapping: Mappin
         </div>
         <label className="block text-sm text-ink-2">
           <span className="mb-1 block">处理方式</span>
-          <select className="h-9 w-full rounded border border-line bg-white px-3" value={status} onChange={(event) => setStatus(event.target.value)}>
+          <Select className="w-full" value={status} onChange={(event) => setStatus(event.target.value)}>
             <option value="confirmed">选择本地档案并确认映射</option>
             <option value="pending">解除映射，保留待处理</option>
             <option value="ignored">忽略此远端记录</option>
-          </select>
+          </Select>
         </label>
         {shouldSelectTarget ? <>
           {suggestions.length ? <div className="space-y-2 text-sm text-ink-2">
@@ -513,10 +513,10 @@ function MappingDialog({ mapping, masters, onCancel, onSave }: { mapping: Mappin
           </div> : null}
           <label className="block text-sm text-ink-2">
             <span className="mb-1 block">本地对应档案<b className="ml-1 text-danger">*</b></span>
-            <select className="h-9 w-full rounded border border-line bg-white px-3" value={localEntityId} onChange={(event) => setLocalEntityId(event.target.value)}>
+            <Select className="w-full" value={localEntityId} onChange={(event) => setLocalEntityId(event.target.value)}>
               <option value="">请选择</option>
               {options.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
-            </select>
+            </Select>
           </label>
         </> : null}
       </div>

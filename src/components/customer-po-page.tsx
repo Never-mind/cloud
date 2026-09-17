@@ -25,7 +25,7 @@ import type { EntityConfig } from "@/lib/modules";
 import { TableColumnMenu, type TableFilterOption, type TableSortOrder } from "./table-column-menu";
 import { StickyTable } from "./sticky-table";
 import { StatusTag } from "./status-tag";
-import { AuditInfoBar, Button, Input, Panel, Textarea } from "./ui";
+import { AuditInfoBar, Button, Input, Panel, Select, Textarea } from "./ui";
 import { confirmDialog } from "./app-dialog";
 import { LoadingBlock, TableSkeleton } from "./table-state";
 
@@ -261,7 +261,7 @@ export function CustomerPoListPage({ config }: { config: EntityConfig }) {
         {error ? <div className="border-b border-danger-border bg-danger-soft px-4 py-3 text-sm text-danger">{error}</div> : null}
         <StickyTable className="table-scroll overflow-auto" tableKey="customer-pos-list">
           <table className="min-w-[1500px] border-collapse text-sm">
-            <thead className="bg-canvas text-ink"><tr>{listFields.map((field) => <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium" key={field.key}><TableColumnMenu column={field} filterValues={columnFilters[field.key] ?? []} loadOptions={(optionKeyword) => loadOptions(field.key, optionKeyword)} onFilter={(values) => { setPage(1); setColumnFilters((current) => ({ ...current, [field.key]: values })); }} onSort={(order) => { setPage(1); setSortField(field.key); setSortOrder(order); }} sortOrder={sortField === field.key ? sortOrder : ""} /></th>)}<th className="sticky right-0 border-b border-line-soft bg-canvas px-3 py-3 text-left font-medium">操作</th></tr></thead>
+            <thead className="bg-canvas text-ink"><tr>{listFields.map((field) => <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium" key={field.key}><TableColumnMenu column={field} filterValues={columnFilters[field.key] ?? []} loadOptions={(optionKeyword) => loadOptions(field.key, optionKeyword)} onFilter={(values) => { setPage(1); setColumnFilters((current) => ({ ...current, [field.key]: values })); }} onSort={(order) => { setPage(1); setSortField(field.key); setSortOrder(order); }} sortOrder={sortField === field.key ? sortOrder : ""} /></th>)}<th className="whitespace-nowrap sticky right-0 border-b border-line-soft bg-canvas px-3 py-3 text-left font-medium">操作</th></tr></thead>
             <tbody>
               {loading ? <tr><td className="px-4 py-12 text-center text-ink-3" colSpan={listFields.length + 1}><TableSkeleton /></td></tr> : rows.map((row) => {
                 const id = String(row.id ?? "");
@@ -271,7 +271,7 @@ export function CustomerPoListPage({ config }: { config: EntityConfig }) {
             </tbody>
           </table>
         </StickyTable>
-        <div className="flex items-center justify-between border-t border-line-soft px-4 py-3 text-sm text-ink-2"><span>第 {page} / {totalPages} 页</span><div className="flex items-center gap-2"><select className="h-8 rounded border border-line bg-white px-2" value={pageSize} onChange={(event) => { setPage(1); setPageSize(Number(event.target.value)); }}><option value={20}>20条/页</option><option value={50}>50条/页</option><option value={100}>100条/页</option></select><Button disabled={!canPrevious} onClick={() => setPage((value) => value - 1)}>上一页</Button><Button disabled={!canNext} onClick={() => setPage((value) => value + 1)}>下一页</Button></div></div>
+        <div className="flex items-center justify-between border-t border-line-soft px-4 py-3 text-sm text-ink-2"><span>第 {page} / {totalPages} 页</span><div className="flex items-center gap-2"><Select value={pageSize} onChange={(event) => { setPage(1); setPageSize(Number(event.target.value)); }}><option value={20}>20条/页</option><option value={50}>50条/页</option><option value={100}>100条/页</option></Select><Button disabled={!canPrevious} onClick={() => setPage((value) => value - 1)}>上一页</Button><Button disabled={!canNext} onClick={() => setPage((value) => value + 1)}>下一页</Button></div></div>
       </Panel>
     </div>
   );
@@ -589,7 +589,7 @@ export function CustomerPoDetailPage({ config, id }: { config: EntityConfig; id:
           <table className="w-full min-w-[1160px] table-fixed border-collapse text-sm">
             <thead className="bg-canvas text-ink"><tr>{[
               ["lineNo", "行号"], ["customerSku", "客户SKU"], ["customerProductName", "产品名称"], ["customerBrand", "品牌"], ["customerSpec", "规格"], ["quantity", "数量"], ["unit", "单位"], ["targetUnitPrice", "目标单价"], ["currency", "币种"], ["matchedProductCode", "产品主档匹配"], ["matchStatus", "匹配状态"], ["remark", "备注"],
-            ].map(([key, label]) => <th className={`whitespace-nowrap border-b border-r border-line-soft px-2 py-3 text-left font-medium ${itemColumnClasses[key] ?? ""}`} key={key}>{label}</th>)}{editing ? <th className="sticky right-0 w-[56px] border-b border-line-soft bg-canvas px-2 py-3 text-left font-medium">操作</th> : null}</tr></thead>
+            ].map(([key, label]) => <th className={`whitespace-nowrap border-b border-r border-line-soft px-2 py-3 text-left font-medium ${itemColumnClasses[key] ?? ""}`} key={key}>{label}</th>)}{editing ? <th className="whitespace-nowrap sticky right-0 w-[56px] border-b border-line-soft bg-canvas px-2 py-3 text-left font-medium">操作</th> : null}</tr></thead>
             <tbody>{items.map((row) => <CustomerPoItemRow editing={editing} key={String(row.id)} row={row} onChange={updateItem} onRemove={removeItem} />)}{!items.length ? <tr><td className="px-4 py-12 text-center text-ink-3" colSpan={editing ? 13 : 12}>暂无产品明细，请点击“新增明细”</td></tr> : null}</tbody>
           </table>
         </StickyTable>

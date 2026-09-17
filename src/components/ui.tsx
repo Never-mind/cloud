@@ -70,6 +70,25 @@ export function Textarea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement
   );
 }
 
+/**
+ * 下拉框统一组件。
+ *
+ * 与 `Input` 保持同一套高度、圆角、边框和聚焦样式；宽度通过 `className` 传
+ * `w-full` / `min-w-*` 等布局类控制，不要再写 `h-9 rounded border border-line` 这些基础样式。
+ */
+export const Select = forwardRef<HTMLSelectElement, React.SelectHTMLAttributes<HTMLSelectElement>>(function Select(props, ref) {
+  return (
+    <select
+      ref={ref}
+      {...props}
+      className={clsx(
+        "h-9 min-w-0 max-w-full rounded border border-line bg-white px-3 text-sm outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/20 disabled:cursor-not-allowed disabled:bg-canvas disabled:text-ink-3",
+        props.className,
+      )}
+    />
+  );
+});
+
 export function Panel({ children, className }: { children: React.ReactNode; className?: string }) {
   return (
     // 圆角与控件保持一致（4px）。overflow-hidden 让内部的表头色条、表格边框跟着圆角裁切，

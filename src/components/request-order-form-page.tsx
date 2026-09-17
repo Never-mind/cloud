@@ -12,7 +12,7 @@ import { fetchAllEntityRows } from "@/lib/client-entity-fetch";
 import { buildDetailRoute, getReturnTo } from "@/lib/client-list-navigation";
 import { exportRowsToXlsx } from "@/lib/client-xlsx-export";
 import { getPartyReferenceLabel, resolvePartyReference } from "@/lib/party-reference";
-import { AuditInfoBar, Button, Input, Panel } from "./ui";
+import { AuditInfoBar, Button, Input, Panel, Select } from "./ui";
 import { NumberInput as NumberField } from "./number-input";
 import { notify } from "./app-dialog";
 import { StickyTable } from "./sticky-table";
@@ -356,8 +356,8 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
               <span className="text-danger">*</span>
               国家
             </span>
-            <select
-              className="h-9 w-full rounded border border-line bg-white px-3 text-sm outline-none focus:border-primary"
+            <Select
+              className="w-full"
               required
               disabled={!canEdit}
               value={master.countryCode}
@@ -369,7 +369,7 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
                   {String(country.code)} - {String(country.nameZh ?? country.nameEn ?? "")}
                 </option>
               ))}
-            </select>
+            </Select>
           </label>
           <Field disabled={!canEdit} label="合同号" required value={master.contractNo} onChange={(value) => updateMaster("contractNo", value)} />
           <Field disabled={!canEdit} label="批次名称" required value={master.batchName} onChange={(value) => updateMaster("batchName", value)} />
@@ -378,8 +378,8 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
               <span className="text-danger">*</span>
               类型
             </span>
-            <select
-              className="h-9 w-full rounded border border-line bg-white px-3 text-sm outline-none focus:border-primary disabled:bg-canvas disabled:text-ink-3"
+            <Select
+              className="w-full"
               required
               disabled={!canEdit}
               value={master.requestType}
@@ -388,7 +388,7 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
               {REQUEST_TYPE_OPTIONS.map((option) => (
                 <option key={option.value} value={option.value}>{option.label}</option>
               ))}
-            </select>
+            </Select>
           </label>
           <Field disabled={!canEdit} label="计划交付日期" type="date" value={master.plannedDeliveryDate} onChange={(value) => updateMaster("plannedDeliveryDate", value)} />
         </div>
@@ -425,13 +425,13 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
           <table className="min-w-[1220px] whitespace-nowrap border-collapse text-sm">
             <thead className="bg-canvas text-ink">
               <tr>
-                <th className="border-b border-r border-line-soft px-3 py-3 text-left">设备编码</th>
-                <th className="border-b border-r border-line-soft px-3 py-3 text-left">机型</th>
-                <th className="border-b border-r border-line-soft px-3 py-3 text-left">英文名称</th>
-                <th className="border-b border-r border-line-soft px-3 py-3 text-left">供应商</th>
-                <th className="border-b border-r border-line-soft px-3 py-3 text-left">承接单位</th>
-                <th className="border-b border-r border-line-soft px-3 py-3 text-left">客户</th>
-                <th className="border-b border-r border-line-soft px-3 py-3 text-left">节点数量</th>
+                <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">设备编码</th>
+                <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">机型</th>
+                <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">英文名称</th>
+                <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">供应商</th>
+                <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">承接单位</th>
+                <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">客户</th>
+                <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">节点数量</th>
               </tr>
             </thead>
             <tbody>

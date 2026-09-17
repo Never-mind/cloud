@@ -12,7 +12,7 @@ import { PaginationBar } from "./pagination-bar";
 import { StickyTable } from "./sticky-table";
 import { TableColumnMenu, type TableFilterOption, type TableSortOrder } from "./table-column-menu";
 import { StatusTag } from "./status-tag";
-import { AuditInfoBar, Button, Input, Panel, Textarea } from "./ui";
+import { AuditInfoBar, Button, Input, Panel, Select, Textarea } from "./ui";
 import { NumberInput } from "./number-input";
 import { confirmDialog } from "./app-dialog";
 import { LoadingBlock, TableSkeleton } from "./table-state";
@@ -255,7 +255,7 @@ export function QuotationListPage({ config }: { config: EntityConfig }) {
                   <TableColumnMenu column={field} filterValues={columnFilters[field.key] ?? []} loadOptions={(optionKeyword) => loadOptions(field.key, optionKeyword)} onFilter={(values) => { setPage(1); setColumnFilters((current) => ({ ...current, [field.key]: values })); }} onSort={(order) => { setPage(1); setSortField(field.key); setSortOrder(order); }} sortOrder={sortField === field.key ? sortOrder : ""} />
                 </th>
               ))}
-              <th className="sticky right-0 border-b border-line-soft bg-canvas px-3 py-3 text-left font-medium">操作</th>
+              <th className="whitespace-nowrap sticky right-0 border-b border-line-soft bg-canvas px-3 py-3 text-left font-medium">操作</th>
             </tr></thead>
             <tbody>
               {loading ? <tr><td className="px-4 py-12 text-center text-ink-3" colSpan={config.listFields.length + 1}><TableSkeleton /></td></tr> : null}
@@ -534,10 +534,10 @@ export function QuotationDetailPage({ id }: { id: string }) {
       />;
     }
     if (field.key === "transportType") {
-      return <select className="h-8 w-28 border border-line bg-white px-2 text-sm" value={String(value)} onChange={(event) => updateItemDraft(itemId, field.key, event.target.value)}><option value="air">空运</option><option value="sea">海运</option><option value="none">无运输</option></select>;
+      return <Select className="w-28" value={String(value)} onChange={(event) => updateItemDraft(itemId, field.key, event.target.value)}><option value="air">空运</option><option value="sea">海运</option><option value="none">无运输</option></Select>;
     }
     if (field.key === "isCustomsClearance" || field.key === "enableNom") {
-      return <select className="h-8 w-24 border border-line bg-white px-2 text-sm" value={toBooleanValue(value) ? "1" : "0"} onChange={(event) => updateItemDraft(itemId, field.key, event.target.value === "1")}><option value="0">否</option><option value="1">是</option></select>;
+      return <Select className="w-24" value={toBooleanValue(value) ? "1" : "0"} onChange={(event) => updateItemDraft(itemId, field.key, event.target.value === "1")}><option value="0">否</option><option value="1">是</option></Select>;
     }
     const type = ["quantity", "purchaseUnitPrice", "markupRate", "unitPrice"].includes(field.key) ? "number" : "text";
     const step = field.key === "quantity" ? "1" : type === "number" ? "0.0001" : undefined;
@@ -582,7 +582,7 @@ export function QuotationDetailPage({ id }: { id: string }) {
       {error ? <div className="border border-danger-border bg-danger-soft px-4 py-3 text-sm text-danger">{error}</div> : null}
       {importReport ? <Panel>
         <div className="flex flex-wrap items-center gap-3 border-b border-line-soft px-4 py-3 text-sm"><strong>导入结果</strong><span className="text-ink-2">共 {importReport.total} 条，成功 {importReport.success} 条，失败 {importReport.failed.length} 条</span><button className="ml-auto text-ink-3 hover:text-ink" type="button" aria-label="关闭导入结果" title="关闭" onClick={() => setImportReport(null)}><X size={16} /></button></div>
-        {importReport.failed.length ? <div className="overflow-auto"><table className="w-full border-collapse text-sm"><thead className="bg-canvas"><tr><th className="border-b border-r border-line-soft px-3 py-2 text-left">Excel行号</th><th className="border-b border-r border-line-soft px-3 py-2 text-left">匹配标识</th><th className="border-b border-line-soft px-3 py-2 text-left">失败原因</th></tr></thead><tbody>{importReport.failed.map((failure) => <tr key={`${failure.rowNumber}-${failure.primaryKey}-${failure.error}`}><td className="border-b border-r border-line-soft px-3 py-2">{failure.rowNumber}</td><td className="border-b border-r border-line-soft px-3 py-2">{failure.primaryKey || "-"}</td><td className="border-b border-line-soft px-3 py-2 text-danger">{failure.error}</td></tr>)}</tbody></table></div> : null}
+        {importReport.failed.length ? <div className="overflow-auto"><table className="w-full border-collapse text-sm"><thead className="bg-canvas"><tr><th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">Excel行号</th><th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">匹配标识</th><th className="whitespace-nowrap border-b border-line-soft px-3 py-3 text-left font-medium">失败原因</th></tr></thead><tbody>{importReport.failed.map((failure) => <tr key={`${failure.rowNumber}-${failure.primaryKey}-${failure.error}`}><td className="border-b border-r border-line-soft px-3 py-2">{failure.rowNumber}</td><td className="border-b border-r border-line-soft px-3 py-2">{failure.primaryKey || "-"}</td><td className="border-b border-line-soft px-3 py-2 text-danger">{failure.error}</td></tr>)}</tbody></table></div> : null}
       </Panel> : null}
       {editing ? <Panel>
         <div className="border-b border-line-soft px-4 py-3 font-medium text-ink">报价参数</div>

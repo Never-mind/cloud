@@ -297,7 +297,7 @@ export function PrepaymentWriteOffAdjustmentDetailPage({ adjustmentNo: routeAdju
                         {column.label}
                       </th>
                     ))}
-                    <th className="sticky right-0 border-b border-line-soft bg-canvas px-3 py-3 text-left font-medium">操作</th>
+                    <th className="whitespace-nowrap sticky right-0 border-b border-line-soft bg-canvas px-3 py-3 text-left font-medium">操作</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -403,8 +403,8 @@ function AdjustmentTable({
                 {column.label}
               </th>
             ))}
-            <th className="border-b border-r border-line-soft px-3 py-3 text-left font-medium">调整后月核销金额</th>
-            <th className="sticky right-0 border-b border-line-soft bg-canvas px-3 py-3 text-left font-medium">操作</th>
+            <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">调整后月核销金额</th>
+            <th className="whitespace-nowrap sticky right-0 border-b border-line-soft bg-canvas px-3 py-3 text-left font-medium">操作</th>
           </tr>
         </thead>
         <tbody>

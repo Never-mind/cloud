@@ -13,7 +13,7 @@ import { buildImportMessage, type ImportReport } from "@/lib/entity-import";
 import { PURCHASE_CURRENCY_OPTIONS } from "@/lib/purchase-order-form";
 import { fetchAllEntityRows } from "@/lib/client-entity-fetch";
 import { buildDetailRoute, getReturnTo } from "@/lib/client-list-navigation";
-import { Button, Input, Panel } from "./ui";
+import { Button, Input, Panel, Select } from "./ui";
 import { AutoGrowTextarea } from "./auto-grow-textarea";
 import { confirmDialog, notify } from "./app-dialog";
 import { StickyTable } from "./sticky-table";
@@ -312,7 +312,7 @@ export function BillingAdjustmentDetailPage({ adjustmentNo: routeAdjustmentNo }:
                     {column.label}
                   </th>
                 ))}
-                {canEdit ? <th className="sticky right-0 border-b border-line-soft bg-canvas px-3 py-3 text-left font-medium">操作</th> : null}
+                {canEdit ? <th className="whitespace-nowrap sticky right-0 border-b border-line-soft bg-canvas px-3 py-3 text-left font-medium">操作</th> : null}
               </tr>
             </thead>
             <tbody>
@@ -323,8 +323,8 @@ export function BillingAdjustmentDetailPage({ adjustmentNo: routeAdjustmentNo }:
                       {!canEdit ? (
                         formatValue(item[column.key], column.type)
                       ) : column.key === "currency" ? (
-                        <select
-                          className="h-9 min-w-[100px] rounded border border-line bg-white px-3 text-sm outline-none focus:border-primary"
+                        <Select
+                          className="min-w-[100px]"
                           value={String(item[column.key] ?? "USD")}
                           onChange={(event) => updateItem(index, column.key, event.target.value)}
                         >
@@ -333,7 +333,7 @@ export function BillingAdjustmentDetailPage({ adjustmentNo: routeAdjustmentNo }:
                               {currency}
                             </option>
                           ))}
-                        </select>
+                        </Select>
                       ) : (
                         <Input
                           className="min-w-[130px]"

@@ -134,7 +134,7 @@ export function InternalServiceFeeAvailablePage() {
           <table className="w-full min-w-[1560px] border-collapse text-sm">
             <thead className="bg-canvas text-ink">
               <tr>
-                <th className="table-select-cell border-b border-r border-line-soft py-3 text-center font-medium [&>input]:h-4 [&>input]:w-4 [&>input]:align-middle"><input type="checkbox" checked={allSelected} onChange={toggleCurrentPageSelection} /></th>
+                <th className="whitespace-nowrap table-select-cell border-b border-r border-line-soft py-3 text-center font-medium [&>input]:h-4 [&>input]:w-4 [&>input]:align-middle"><input type="checkbox" checked={allSelected} onChange={toggleCurrentPageSelection} /></th>
                 {columns.map(([key, label]) => <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium" key={key}>
                   <TableColumnMenu
                     column={{ key, label, sortable: true, filterable: true }}

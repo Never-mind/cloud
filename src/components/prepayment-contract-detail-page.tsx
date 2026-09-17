@@ -9,7 +9,7 @@ import { getPrepaymentContractEditState } from "@/lib/prepayment-contract-ui";
 import { fetchAllEntityRows } from "@/lib/client-entity-fetch";
 import { getReturnTo } from "@/lib/client-list-navigation";
 import { postWorkspaceMessage } from "@/lib/tab-workspace";
-import { Button, Input, Panel, Textarea } from "./ui";
+import { Button, Input, Panel, Select, Textarea } from "./ui";
 import { NumberInput } from "./number-input";
 import { confirmDialog, notify } from "./app-dialog";
 import { LoadingBlock } from "./table-state";
@@ -434,17 +434,17 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
           <table className="min-w-full border-collapse text-sm">
             <thead className="bg-canvas text-ink">
               <tr>
-                <th className="border-b border-r border-line-soft px-3 py-3 text-left">费用名称</th>
-                <th className="border-b border-r border-line-soft px-3 py-3 text-left">国家</th>
-                <th className="border-b border-r border-line-soft px-3 py-3 text-left">批次号</th>
-                <th className="border-b border-r border-line-soft px-3 py-3 text-left">说明</th>
-                <th className="border-b border-r border-line-soft px-3 py-3 text-left">承接单位</th>
-                <th className="border-b border-r border-line-soft px-3 py-3 text-left">供应商</th>
-                <th className="border-b border-r border-line-soft px-3 py-3 text-left">客户</th>
-                <th className="border-b border-r border-line-soft px-3 py-3 text-left">币种</th>
-                <th className="border-b border-r border-line-soft px-3 py-3 text-left">金额</th>
-                <th className="border-b border-r border-line-soft px-3 py-3 text-left">起始核销月份</th>
-                <th className="border-b border-line-soft px-3 py-3 text-left">操作</th>
+                <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">费用名称</th>
+                <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">国家</th>
+                <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">批次号</th>
+                <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">说明</th>
+                <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">承接单位</th>
+                <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">供应商</th>
+                <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">客户</th>
+                <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">币种</th>
+                <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">金额</th>
+                <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">起始核销月份</th>
+                <th className="whitespace-nowrap border-b border-line-soft px-3 py-3 text-left font-medium">操作</th>
               </tr>
             </thead>
             <tbody>
@@ -454,8 +454,8 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
                     <Input disabled={!canEdit} value={line.feeName ?? ""} onChange={(event) => updateLine(line.id, { feeName: event.target.value, nameEn: event.target.value })} />
                   </td>
                   <td className="border-b border-r border-line-soft px-3 py-3">
-                    <select
-                      className="h-9 min-w-[150px] rounded border border-line bg-white px-2"
+                    <Select
+                      className="min-w-[150px]"
                       disabled={!canEdit}
                       value={line.countryCode ?? ""}
                       onChange={(event) => updateLine(line.id, { countryCode: event.target.value })}
@@ -473,7 +473,7 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
                             {countryLabel(country.code)}
                           </option>
                         ))}
-                    </select>
+                    </Select>
                   </td>
                   <td className="border-b border-r border-line-soft px-3 py-3">
                     <Input disabled={!canEdit} value={line.batchName ?? ""} onChange={(event) => updateLine(line.id, { batchName: event.target.value })} />
@@ -482,22 +482,22 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
                     <Textarea disabled={!canEdit} value={line.feeDescription ?? ""} onChange={(event) => updateLine(line.id, { feeDescription: event.target.value })} />
                   </td>
                   <td className="border-b border-r border-line-soft px-3 py-3">
-                    <select className="h-9 min-w-[160px] rounded border border-line bg-white px-2" disabled={!canEdit} value={line.undertakingUnitId ?? ""} onChange={(event) => updateLine(line.id, { undertakingUnitId: event.target.value })}>
+                    <Select className="min-w-[160px]" disabled={!canEdit} value={line.undertakingUnitId ?? ""} onChange={(event) => updateLine(line.id, { undertakingUnitId: event.target.value })}>
                       <option value="">请选择</option>
                       {undertakingUnits.map((unit) => <option key={String(unit.undertakingUnitId)} value={String(unit.undertakingUnitId)}>{partyOptionLabel(unit, ["undertakingUnitCode", "entityCode"], ["shortName", "entityName", "name"])}</option>)}
-                    </select>
+                    </Select>
                   </td>
                   <td className="border-b border-r border-line-soft px-3 py-3">
-                    <select className="h-9 min-w-[160px] rounded border border-line bg-white px-2" disabled={!canEdit} value={line.supplierId ?? ""} onChange={(event) => updateLine(line.id, { supplierId: event.target.value })}>
+                    <Select className="min-w-[160px]" disabled={!canEdit} value={line.supplierId ?? ""} onChange={(event) => updateLine(line.id, { supplierId: event.target.value })}>
                       <option value="">请选择</option>
                       {suppliers.map((supplier) => <option key={String(supplier.supplierId)} value={String(supplier.supplierId)}>{partyOptionLabel(supplier, ["supplierCode"], ["shortName", "nameCn"])}</option>)}
-                    </select>
+                    </Select>
                   </td>
                   <td className="border-b border-r border-line-soft px-3 py-3">
-                    <select className="h-9 min-w-[160px] rounded border border-line bg-white px-2" disabled={!canEdit} value={line.customerId ?? ""} onChange={(event) => updateLine(line.id, { customerId: event.target.value })}>
+                    <Select className="min-w-[160px]" disabled={!canEdit} value={line.customerId ?? ""} onChange={(event) => updateLine(line.id, { customerId: event.target.value })}>
                       <option value="">请选择</option>
                       {customers.map((customer) => <option key={String(customer.customerId)} value={String(customer.customerId)}>{partyOptionLabel(customer, ["customerCode"], ["shortName", "nameCn", "name"])}</option>)}
-                    </select>
+                    </Select>
                   </td>
                   <td className="border-b border-r border-line-soft px-3 py-3">
                     <Input className="w-24 min-w-0" disabled={!canEdit} value={line.contractCurrency ?? ""} onChange={(event) => updateLine(line.id, { contractCurrency: event.target.value })} />

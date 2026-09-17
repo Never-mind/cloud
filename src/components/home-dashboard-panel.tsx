@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { RefreshCw } from "lucide-react";
 import { buildServiceFeeChartSeries } from "@/lib/dashboard-workflow";
 import { formatDisplayValue } from "@/lib/display-format";
-import { Button, Panel } from "./ui";
+import { Button, Panel, Select } from "./ui";
 import { TableStateContent } from "./table-state";
 
 type ServiceFeeSummary = {
@@ -76,8 +76,7 @@ export function HomeDashboardPanel() {
           <p className="mt-1 text-xs text-ink-3">按国家、月份查看服务费合计和新增实例数量。</p>
         </div>
         <div className="ml-auto flex items-center gap-2">
-          <select
-            className="h-9 rounded border border-line bg-white px-3 text-sm outline-none focus:border-primary"
+          <Select
             value={countryCode}
             onChange={(event) => {
               setCountryCode(event.target.value);
@@ -90,7 +89,7 @@ export function HomeDashboardPanel() {
                 {country}
               </option>
             ))}
-          </select>
+          </Select>
           <Button disabled={loading} onClick={() => void loadData()}>
             <RefreshCw size={15} />
             {loading ? "刷新中" : "刷新"}
@@ -250,7 +249,7 @@ function SummaryTable({
         <thead className="sticky top-0 bg-canvas text-ink">
           <tr>
             {columns.map((column) => (
-              <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-2 text-left font-medium" key={column.key}>
+              <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium" key={column.key}>
                 {column.label}
               </th>
             ))}

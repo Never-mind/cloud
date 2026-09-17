@@ -9,7 +9,7 @@ import { fetchTableFilterOptions } from "@/lib/table-query-client";
 import { PaginationBar } from "./pagination-bar";
 import { StickyTable } from "./sticky-table";
 import { TableColumnMenu, type TableSortOrder } from "./table-column-menu";
-import { Button, Input, Panel } from "./ui";
+import { Button, Input, Panel, Select } from "./ui";
 import { Modal } from "./modal";
 import { NumberInput } from "./number-input";
 import { confirmDialog, notify } from "./app-dialog";
@@ -417,14 +417,14 @@ export function BalanceSettlementPage() {
         <>
           <Panel>
             <div className="flex flex-wrap items-center gap-2 border-b border-line-soft p-4">
-              <select className="h-9 min-w-[130px] rounded border border-line bg-white px-2 text-sm" value={candidateCountry} onChange={(event) => { setCandidateCountry(event.target.value); setPricingVersionId(""); }}>
+              <Select className="min-w-[130px]" value={candidateCountry} onChange={(event) => { setCandidateCountry(event.target.value); setPricingVersionId(""); }}>
                 <option value="">全部国家</option>
                 {countries.map((country) => <option key={country.code} value={country.code}>{country.code}{country.nameZh ? ` - ${country.nameZh}` : ""}</option>)}
-              </select>
-              <select className="h-9 min-w-[240px] rounded border border-line bg-white px-2 text-sm" value={pricingVersionId} onChange={(event) => selectVersion(event.target.value)}>
+              </Select>
+              <Select className="min-w-[240px]" value={pricingVersionId} onChange={(event) => selectVersion(event.target.value)}>
                 <option value="">选择已确认CAPEX/OPEX锚定价格版本</option>
                 {versionOptions.map((version) => <option key={version.versionId} value={version.versionId}>{version.countryCode} / {version.versionNo} / {formatDate(version.effectiveDate)}</option>)}
-              </select>
+              </Select>
               <Input className="min-w-[240px]" placeholder="搜索批次、需求单、PO、实例编码或英文名称" value={candidateKeyword} onChange={(event) => setCandidateKeyword(event.target.value)} />
               <Button tone="secondary" onClick={() => void loadCandidates(1)}><Search size={15} />查询</Button>
               <Button onClick={() => void loadCandidates(1)}><RefreshCw size={15} />刷新</Button>
@@ -432,7 +432,7 @@ export function BalanceSettlementPage() {
             <StickyTable className="table-scroll overflow-auto" tableKey="balance-settlement-available">
               <table className="w-full min-w-[2060px] border-collapse text-sm">
                 <thead className="bg-canvas text-ink"><tr>
-                  <th className="table-select-cell border-b border-r border-line-soft py-3 text-center font-medium [&>input]:h-4 [&>input]:w-4 [&>input]:align-middle"><input type="checkbox" checked={allSelected} onChange={toggleAllCandidates} /></th>
+                  <th className="whitespace-nowrap table-select-cell border-b border-r border-line-soft py-3 text-center font-medium [&>input]:h-4 [&>input]:w-4 [&>input]:align-middle"><input type="checkbox" checked={allSelected} onChange={toggleAllCandidates} /></th>
                   {[ ["countryCode", "国家"], ["batchName", "批次"], ["requestNo", "需求单号"], ["poNo", "PO单号"], ["deviceCode", "实例编码"], ["modelCode", "机型"], ["nameEn", "英文名称"], ["undertakingUnitCode", "承接单位"], ["supplierCode", "供应商"], ["customerCode", "客户"], ["quantity", "数量"], ["procurementCurrency", "采购币种"], ["capexUnitPrice", "采购CAPEX单价"], ["opexUnitPrice", "采购OPEX单价"], ["settlementRate", "结差汇率"], ["anchorCapexUnitPrice", "CAPEX锚定单价"], ["anchorOpexUnitPrice", "OPEX锚定单价"], ["capexDifferenceTotal", "CAPEX结差总额"], ["opexDifferenceTotal", "OPEX结差总额"], ["differenceTotal", "结差合计"], ["canGenerate", "校验结果"]].map(([key, label]) => <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium" key={key}>{["countryCode", "batchName", "requestNo", "poNo", "deviceCode", "modelCode", "nameEn", "undertakingUnitCode", "supplierCode", "customerCode", "quantity", "procurementCurrency", "capexUnitPrice", "opexUnitPrice", "anchorCapexUnitPrice", "anchorOpexUnitPrice"].includes(key) ? columnMenu(key, label, { sortField: candidateSortField, sortOrder: candidateSortOrder, filters: candidateFilters }, "/api/balance-settlements/available", updateCandidateQuery, { pricingVersionId, countryCode: candidateCountry }) : label}</th>)}
                 </tr></thead>
                 <tbody>
@@ -476,8 +476,8 @@ export function BalanceSettlementPage() {
         <>
           <Panel>
             <div className="flex flex-wrap items-center gap-2 border-b border-line-soft p-4">
-              <select className="h-9 min-w-[130px] rounded border border-line bg-white px-2 text-sm" value={settlementCountry} onChange={(event) => setSettlementCountry(event.target.value)}><option value="">全部国家</option>{countries.map((country) => <option key={country.code} value={country.code}>{country.code}</option>)}</select>
-              <select className="h-9 min-w-[120px] rounded border border-line bg-white px-2 text-sm" value={settlementStatus} onChange={(event) => setSettlementStatus(event.target.value)}><option value="">全部状态</option>{[DRAFT, CONFIRMED, VOIDED].map((status) => <option key={status} value={status}>{status}</option>)}</select>
+              <Select className="min-w-[130px]" value={settlementCountry} onChange={(event) => setSettlementCountry(event.target.value)}><option value="">全部国家</option>{countries.map((country) => <option key={country.code} value={country.code}>{country.code}</option>)}</Select>
+              <Select className="min-w-[120px]" value={settlementStatus} onChange={(event) => setSettlementStatus(event.target.value)}><option value="">全部状态</option>{[DRAFT, CONFIRMED, VOIDED].map((status) => <option key={status} value={status}>{status}</option>)}</Select>
               <Input placeholder="搜索结差来源单号、名称或锚定版本" value={settlementKeyword} onChange={(event) => setSettlementKeyword(event.target.value)} />
               <Button tone="secondary" onClick={() => void loadSettlements()}><Search size={15} />查询</Button><Button onClick={() => void loadSettlements()}><RefreshCw size={15} />刷新</Button>
               <Button onClick={() => exportRows(SETTLEMENT_EXPORT_COLUMNS, settlements, "结差来源单.xlsx", "结差来源单")}><Download size={15} />导出</Button>

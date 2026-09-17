@@ -9,7 +9,7 @@ import { PaginationBar } from "./pagination-bar";
 import { StickyTable } from "./sticky-table";
 import { StatusTag } from "./status-tag";
 import { TableColumnMenu, type TableFilterOption, type TableSortOrder } from "./table-column-menu";
-import { Button, Input, Panel } from "./ui";
+import { Button, Input, Panel, Select } from "./ui";
 import { TableSkeleton } from "./table-state";
 
 type Column = { key: string; label: string; type?: "money" | "number" | "date" | "datetime" | "boolean" };
@@ -161,15 +161,15 @@ export function PoInvoiceSummaryPage() {
               <Button tone="primary" className="h-10 w-10 px-0" aria-label="查询" title="查询" onClick={applySearch}><Search size={16} /></Button>
             </div>
           </label>
-          <label className="w-32 text-sm text-ink-2"><span className="mb-1 block text-xs text-ink-3">类型</span><select className="h-10 w-full rounded border border-line bg-white px-3 outline-none focus:border-primary" value={type} onChange={(event) => { setPage(1); setType(event.target.value); }}><option value="">全部类型</option><option value="income">收入</option><option value="cost">成本</option></select></label>
+          <label className="w-32 text-sm text-ink-2"><span className="mb-1 block text-xs text-ink-3">类型</span><Select className="w-full" value={type} onChange={(event) => { setPage(1); setType(event.target.value); }}><option value="">全部类型</option><option value="income">收入</option><option value="cost">成本</option></Select></label>
           <label className="text-sm text-ink-2"><span className="mb-1 block text-xs text-ink-3">账期开始</span><Input className="h-10" type="date" value={accountPeriodStart} onChange={(event) => { setPage(1); setAccountPeriodStart(event.target.value); }} /></label>
           <label className="text-sm text-ink-2"><span className="mb-1 block text-xs text-ink-3">账期结束</span><Input className="h-10" type="date" value={accountPeriodEnd} onChange={(event) => { setPage(1); setAccountPeriodEnd(event.target.value); }} /></label>
           <span className="ml-auto text-sm text-ink-3">共 {result.total} 条</span>
         </div>
         {error ? <div className="border-b border-danger-border bg-danger-soft px-4 py-3 text-sm text-danger">{error}</div> : null}
-        <StickyTable className="table-scroll max-h-[calc(100vh-340px)] overflow-auto" tableKey="po-invoice-summary">
+        <StickyTable className="table-scroll overflow-auto" tableKey="po-invoice-summary">
           <table className="min-w-[2900px] border-collapse text-sm">
-            <thead className="bg-canvas text-ink"><tr>{columns.map((column) => <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium" key={column.key}><TableColumnMenu column={{ ...column, sortable: true, filterable: true }} filterValues={columnFilters[column.key] ?? []} loadOptions={(optionKeyword) => loadOptions(column.key, optionKeyword)} onFilter={(values) => { setPage(1); setColumnFilters((current) => ({ ...current, [column.key]: values })); }} onSort={(order) => { setPage(1); setSortField(column.key); setSortOrder(order); }} sortOrder={sortField === column.key ? sortOrder : ""} /></th>)}<th className="sticky right-0 border-b border-line-soft bg-canvas px-3 py-3 text-left font-medium">操作</th></tr></thead>
+            <thead className="bg-canvas text-ink"><tr>{columns.map((column) => <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium" key={column.key}><TableColumnMenu column={{ ...column, sortable: true, filterable: true }} filterValues={columnFilters[column.key] ?? []} loadOptions={(optionKeyword) => loadOptions(column.key, optionKeyword)} onFilter={(values) => { setPage(1); setColumnFilters((current) => ({ ...current, [column.key]: values })); }} onSort={(order) => { setPage(1); setSortField(column.key); setSortOrder(order); }} sortOrder={sortField === column.key ? sortOrder : ""} /></th>)}<th className="whitespace-nowrap sticky right-0 border-b border-line-soft bg-canvas px-3 py-3 text-left font-medium">操作</th></tr></thead>
             <tbody>
               {loading ? <tr><td className="px-4 py-12 text-center text-ink-3" colSpan={columns.length + 1}><TableSkeleton /></td></tr> : null}
               {!loading && result.items.map((row) => <tr className="hover:bg-surface-2" key={row.id}>{columns.map((column, index) => <td className="max-w-[260px] truncate whitespace-nowrap border-b border-r border-line-soft px-3 py-3" key={column.key}>{index === 0 ? <button className="text-primary hover:underline" type="button" onClick={() => openProject(row)}>{row.projectNo || "-"}</button> : column.key === "projectStatus" ? <StatusTag status={row.projectStatus} label={statusLabel(row.projectStatus)} /> : formatValue(row[column.key as keyof PoInvoiceSummaryRow], column.type)}</td>)}<td className="sticky right-0 whitespace-nowrap border-b border-line-soft bg-white px-3 py-3"><button className="text-primary hover:underline" type="button" onClick={() => openProject(row)}>查看项目</button></td></tr>)}

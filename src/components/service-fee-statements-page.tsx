@@ -11,7 +11,7 @@ import { PaginationBar } from "./pagination-bar";
 import { StickyTable } from "./sticky-table";
 import { TableColumnMenu, type TableFilterOption, type TableSortOrder } from "./table-column-menu";
 import { useRequestGuard } from "@/lib/table-query-client";
-import { Button, Input, Panel } from "./ui";
+import { Button, Input, Panel, Select } from "./ui";
 import { NumberInput } from "./number-input";
 import { Modal } from "./modal";
 import { confirmDialog, notify } from "./app-dialog";
@@ -436,22 +436,22 @@ export function ServiceFeeStatementsPage() {
         <div className="flex flex-wrap items-center gap-2 border-b border-line-soft p-4">
           <Input placeholder="对账单号/国家/附件名" value={keyword} onChange={(event) => setKeyword(event.target.value)} />
           <Input aria-label="核销月份" type="month" value={writeOffMonth} onChange={(event) => setWriteOffMonth(event.target.value)} />
-          <select className="h-9 min-w-28 rounded border border-line bg-white px-3 text-sm" value={countryCode} onChange={(event) => setCountryCode(event.target.value)}>
+          <Select className="min-w-28" value={countryCode} onChange={(event) => setCountryCode(event.target.value)}>
             <option value="">全部国家</option>
             <option value="BR">BR</option>
             <option value="CL">CL</option>
             <option value="MX">MX</option>
-          </select>
-          <select className="h-9 min-w-28 rounded border border-line bg-white px-3 text-sm" value={status} onChange={(event) => setStatus(event.target.value)}>
+          </Select>
+          <Select className="min-w-28" value={status} onChange={(event) => setStatus(event.target.value)}>
             <option value="">全部状态</option>
             <option value="未确认">未确认</option>
             <option value="已确认">已确认</option>
-          </select>
-          <select className="h-9 min-w-28 rounded border border-line bg-white px-3 text-sm" value={invoiceStatus} onChange={(event) => setInvoiceStatus(event.target.value)}>
+          </Select>
+          <Select className="min-w-28" value={invoiceStatus} onChange={(event) => setInvoiceStatus(event.target.value)}>
             <option value="">全部开票状态</option>
             <option value="未开票">未开票</option>
             <option value="已开票">已开票</option>
-          </select>
+          </Select>
           <div className="flex h-9 items-center gap-1 rounded border border-line bg-white p-1" aria-label="是否回款筛选">
             {[
               ["", "全部"],
@@ -491,7 +491,7 @@ export function ServiceFeeStatementsPage() {
             <thead className="bg-canvas text-ink">
               <tr>
                 {tableColumns.map((column) => <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium" key={column.key}>{renderHeader(column)}</th>)}
-                <th className="sticky right-0 min-w-[150px] border-b border-line-soft bg-canvas px-3 py-3 text-left font-medium">操作</th>
+                <th className="whitespace-nowrap sticky right-0 min-w-[150px] border-b border-line-soft bg-canvas px-3 py-3 text-left font-medium">操作</th>
               </tr>
             </thead>
             <tbody>
@@ -710,21 +710,21 @@ export function ServiceFeeStatementsPage() {
               </RepaymentField>
               <div />
               <RepaymentField label="收款单位">
-                <select className="h-9 w-full rounded border border-line bg-white px-3 text-sm" value={repaymentDraft.receivingUnitId} onChange={(event) => setRepaymentDraft((current) => current ? { ...current, receivingUnitId: event.target.value } : current)}>
+                <Select className="w-full" value={repaymentDraft.receivingUnitId} onChange={(event) => setRepaymentDraft((current) => current ? { ...current, receivingUnitId: event.target.value } : current)}>
                   <option value="">请选择承接单位</option>
                   {undertakingUnits.map((row) => <option key={String(row.undertakingUnitId)} value={String(row.undertakingUnitId)}>{partyOptionLabel(row, ["undertakingUnitCode", "entityCode"], ["shortName", "entityName", "name"])}</option>)}
-                </select>
+                </Select>
               </RepaymentField>
               <RepaymentField label="付款单位">
-                <select className="h-9 w-full rounded border border-line bg-white px-3 text-sm" value={repaymentDraft.payerCustomerId} onChange={(event) => setRepaymentDraft((current) => current ? { ...current, payerCustomerId: event.target.value } : current)}>
+                <Select className="w-full" value={repaymentDraft.payerCustomerId} onChange={(event) => setRepaymentDraft((current) => current ? { ...current, payerCustomerId: event.target.value } : current)}>
                   <option value="">请选择客户</option>
                   {customers.map((row) => <option key={String(row.customerId)} value={String(row.customerId)}>{partyOptionLabel(row, ["customerCode"], ["shortName", "nameCn", "name"])}</option>)}
-                </select>
+                </Select>
               </RepaymentField>
               <RepaymentField label="回款币种">
-                <select className="h-9 w-full rounded border border-line bg-white px-3 text-sm" value={repaymentDraft.repaymentCurrency} onChange={(event) => setRepaymentDraft((current) => current ? { ...current, repaymentCurrency: event.target.value } : current)}>
+                <Select className="w-full" value={repaymentDraft.repaymentCurrency} onChange={(event) => setRepaymentDraft((current) => current ? { ...current, repaymentCurrency: event.target.value } : current)}>
                   <option value="">请选择币种</option>{["CNY", "MXN", "CLP", "USD", "BRL"].map((currency) => <option key={currency} value={currency}>{currency}</option>)}
-                </select>
+                </Select>
               </RepaymentField>
               <RepaymentField label="回款未税金额">
                 <NumberInput className="w-full min-w-0" step="0.01" value={repaymentDraft.repaymentAmountExcludingTax} onChange={(text) => updateRepaymentTaxField("excludingTax", text)} />
@@ -756,16 +756,16 @@ export function ServiceFeeStatementsPage() {
         >
           <div className="grid grid-cols-2 gap-4">
               <RepaymentField label="承接单位">
-                <select className="h-9 w-full rounded border border-line bg-white px-3 text-sm" value={invoiceDraft.invoiceReceivingUnitId} onChange={(event) => setInvoiceDraft((current) => current ? { ...current, invoiceReceivingUnitId: event.target.value } : current)}>
+                <Select className="w-full" value={invoiceDraft.invoiceReceivingUnitId} onChange={(event) => setInvoiceDraft((current) => current ? { ...current, invoiceReceivingUnitId: event.target.value } : current)}>
                   <option value="">请选择承接单位</option>
                   {undertakingUnits.map((row) => <option key={String(row.undertakingUnitId)} value={String(row.undertakingUnitId)}>{partyShortName(row, ["shortName", "entityName", "name"], ["undertakingUnitCode", "entityCode"])}</option>)}
-                </select>
+                </Select>
               </RepaymentField>
               <RepaymentField label="客户">
-                <select className="h-9 w-full rounded border border-line bg-white px-3 text-sm" value={invoiceDraft.invoicePayerCustomerId} onChange={(event) => setInvoiceDraft((current) => current ? { ...current, invoicePayerCustomerId: event.target.value } : current)}>
+                <Select className="w-full" value={invoiceDraft.invoicePayerCustomerId} onChange={(event) => setInvoiceDraft((current) => current ? { ...current, invoicePayerCustomerId: event.target.value } : current)}>
                   <option value="">请选择客户</option>
                   {customers.map((row) => <option key={String(row.customerId)} value={String(row.customerId)}>{partyShortName(row, ["shortName", "nameCn", "name"], ["customerCode"])}</option>)}
-                </select>
+                </Select>
               </RepaymentField>
               <RepaymentField label="发票号">
                 <Input className="w-full min-w-0" value={invoiceDraft.invoiceNo} onChange={(event) => setInvoiceDraft((current) => current ? { ...current, invoiceNo: event.target.value } : current)} />

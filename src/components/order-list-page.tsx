@@ -24,7 +24,7 @@ import { TableColumnMenu, type TableFilterOption, type TableSortOrder } from "./
 import { useRequestGuard } from "@/lib/table-query-client";
 import { readJsonResponse } from "@/lib/client-response";
 import { postWorkspaceMessage } from "@/lib/tab-workspace";
-import { Button, Input, Panel } from "./ui";
+import { Button, Input, Panel, Select } from "./ui";
 import { confirmDialog, notify } from "./app-dialog";
 import { TableStateContent } from "./table-state";
 
@@ -407,8 +407,8 @@ export function OrderListPage({
               void loadData(1, pageSizeRef.current, statusTab, keyword, countryCode);
             }}
           />
-          <select
-            className="h-9 min-w-32 rounded border border-line bg-white px-3 text-sm outline-none focus:border-primary"
+          <Select
+            className="min-w-32"
             value={countryCode}
             onChange={(event) => {
               const value = event.target.value;
@@ -422,7 +422,7 @@ export function OrderListPage({
                 {country.nameZh ? `${country.code} - ${country.nameZh}` : country.code}
               </option>
             ))}
-          </select>
+          </Select>
           <Button tone="secondary" onClick={() => {
             setAppliedKeyword(keyword);
             setAppliedCountryCode(countryCode);
@@ -466,7 +466,7 @@ export function OrderListPage({
             <thead className="bg-canvas text-ink">
               <tr>
                 {canBatchDelete ? (
-                  <th className="table-select-cell border-b border-r border-line-soft py-3 text-center font-medium [&>input]:h-4 [&>input]:w-4 [&>input]:align-middle">
+                  <th className="whitespace-nowrap table-select-cell border-b border-r border-line-soft py-3 text-center font-medium [&>input]:h-4 [&>input]:w-4 [&>input]:align-middle">
                     <input
                       aria-label="全选当前页需求单"
                       type="checkbox"
@@ -485,54 +485,54 @@ export function OrderListPage({
                     />
                   </th>
                 ) : null}
-                <th className="border-b border-r border-line-soft px-3 py-3 text-left font-medium">
+                <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">
                   {renderHeader(mode === "requests" ? "requestNo" : "poNo", mode === "requests" ? "需求单号" : "PO订单号")}
                 </th>
                 {mode === "requests" ? (
                   <>
-                    <th className="border-b border-r border-line-soft px-3 py-3 text-left font-medium">{renderHeader("countryCode", "国家")}</th>
-                    <th className="border-b border-r border-line-soft px-3 py-3 text-left font-medium">{renderHeader("batchName", "批次号")}</th>
+                    <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">{renderHeader("countryCode", "国家")}</th>
+                    <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">{renderHeader("batchName", "批次号")}</th>
                   </>
                 ) : null}
                 {mode === "purchase" ? (
-                  <th className="w-[260px] min-w-[260px] border-b border-r border-line-soft px-3 py-3 text-left font-medium">
+                  <th className="whitespace-nowrap w-[260px] min-w-[260px] border-b border-r border-line-soft px-3 py-3 text-left font-medium">
                     {renderHeader("requestNo", "来源需求单")}
                   </th>
                 ) : null}
                 {mode === "purchase" ? (
-                  <th className="border-b border-r border-line-soft px-3 py-3 text-left font-medium">
+                  <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">
                     {renderHeader("countryCode", "国家")}
                   </th>
                 ) : null}
                 {mode === "purchase" ? (
-                  <th className="border-b border-r border-line-soft px-3 py-3 text-left font-medium">
+                  <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">
                     {renderHeader("batchName", "批次号")}
                   </th>
                 ) : null}
-                <th className="border-b border-r border-line-soft px-3 py-3 text-left font-medium">{renderHeader("status", "状态")}</th>
+                <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">{renderHeader("status", "状态")}</th>
                 {mode === "requests" ? (
-                  <th className="border-b border-r border-line-soft px-3 py-3 text-left font-medium">{renderHeader("remoteStatus", "远端状态")}</th>
+                  <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">{renderHeader("remoteStatus", "远端状态")}</th>
                 ) : null}
                 {mode === "purchase" ? (
                   <>
-                        <th className="border-b border-r border-line-soft px-3 py-3 text-left font-medium">{renderHeader("currency", "币种")}</th>
+                        <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">{renderHeader("currency", "币种")}</th>
                   </>
                 ) : null}
-                <th className="border-b border-r border-line-soft px-3 py-3 text-left font-medium">{renderHeader("totalQuantity", "总数量")}</th>
+                <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">{renderHeader("totalQuantity", "总数量")}</th>
                 {mode === "purchase" ? (
-                  <th className="border-b border-r border-line-soft px-3 py-3 text-left font-medium">
+                  <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">
                     {renderHeader("purchaseTotalAmount", "采购总金额")}
                   </th>
                 ) : null}
                 {mode === "requests" ? (
-                  <th className="border-b border-r border-line-soft px-3 py-3 text-left font-medium">
+                  <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">
                     {renderHeader("plannedDeliveryDate", "计划交付日期")}
                   </th>
                 ) : null}
-                <th className="border-b border-r border-line-soft px-3 py-3 text-left font-medium">{renderHeader("createdAt", "创建时间")}</th>
-                <th className="border-b border-r border-line-soft px-3 py-3 text-left font-medium">{renderHeader("updatedAt", "更新时间")}</th>
+                <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">{renderHeader("createdAt", "创建时间")}</th>
+                <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">{renderHeader("updatedAt", "更新时间")}</th>
                 {hasActionColumn ? (
-                  <th className="sticky right-0 border-b border-line-soft bg-canvas px-3 py-3 text-left font-medium">
+                  <th className="whitespace-nowrap sticky right-0 border-b border-line-soft bg-canvas px-3 py-3 text-left font-medium">
                     操作
                   </th>
                 ) : null}

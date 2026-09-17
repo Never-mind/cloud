@@ -14,7 +14,7 @@ import { PaginationBar } from "./pagination-bar";
 import { StickyTable } from "./sticky-table";
 import { TableColumnMenu, type TableFilterOption, type TableSortOrder } from "./table-column-menu";
 import { useRequestGuard } from "@/lib/table-query-client";
-import { Button, Input, Panel } from "./ui";
+import { Button, Input, Panel, Select } from "./ui";
 import { notify } from "./app-dialog";
 import { buildListRoute, getCurrentRoute, useListScrollPosition } from "@/lib/client-list-navigation";
 import { TableStateContent } from "./table-state";
@@ -155,14 +155,14 @@ export function PurchaseProductLinesPage() {
       <Panel>
         <div className="flex flex-wrap items-center gap-2 border-b border-line-soft p-4">
           <Input placeholder="搜索PO订单号/需求单号/实例编码/名称" value={keyword} onChange={(event) => setKeyword(event.target.value)} />
-          <select className="h-9 min-w-32 rounded border border-line bg-white px-3 text-sm outline-none focus:border-primary" value={countryCode} onChange={(event) => setCountryCode(event.target.value)}>
+          <Select className="min-w-32" value={countryCode} onChange={(event) => setCountryCode(event.target.value)}>
             <option value="">全部国家</option>
             {countries
               .map((country) => ({ code: String(country.code ?? "").trim(), nameZh: String(country.nameZh ?? "").trim() }))
               .filter((country) => country.code)
               .sort((left, right) => left.code.localeCompare(right.code))
               .map((country) => <option key={country.code} value={country.code}>{country.nameZh ? `${country.code} - ${country.nameZh}` : country.code}</option>)}
-          </select>
+          </Select>
           <Button tone="secondary" onClick={() => { setAppliedKeyword(keyword); setAppliedCountryCode(countryCode); setPage(1); void loadData(1, pageSizeRef.current, countryCode, keyword); }}>
             <Search size={15} />
             查询

@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { CheckCircle2, FileDown, RefreshCw, Search } from "lucide-react";
 import { formatDisplayValue } from "@/lib/display-format";
 import { DEFAULT_PAGE_SIZE } from "@/lib/pagination";
-import { Button, Input, Panel } from "./ui";
+import { Button, Input, Panel, Select } from "./ui";
 import { notify } from "./app-dialog";
 import { PaginationBar } from "./pagination-bar";
 import { StickyTable } from "./sticky-table";
@@ -272,24 +272,24 @@ export function ServiceFeesPage() {
           <Input className="w-[78px]" placeholder="国家" value={countryCode} onChange={(event) => setCountryCode(event.target.value)} />
           <Input className="w-[88px]" placeholder="批次" value={batchName} onChange={(event) => setBatchName(event.target.value)} />
           <Input className="w-[132px]" placeholder="币种，如 USD / CNY" value={currency} onChange={(event) => setCurrency(event.target.value)} />
-          <select
-            className="h-9 w-[104px] rounded border border-line bg-white px-2 text-sm outline-none focus:border-primary"
+          <Select
+            className="w-[104px]"
             value={lineType}
             onChange={(event) => setLineType(event.target.value)}
           >
             <option value="">全部类型</option>
             <option value="instance">实例</option>
             <option value="fee">非实例费用</option>
-          </select>
-          <select
-            className="h-9 w-[96px] rounded border border-line bg-white px-2 text-sm outline-none focus:border-primary"
+          </Select>
+          <Select
+            className="w-[96px]"
             value={requestType}
             onChange={(event) => setRequestType(event.target.value)}
           >
             <option value="">全部类型</option>
             <option value="整机">整机</option>
             <option value="备件">备件</option>
-          </select>
+          </Select>
           <Button tone="secondary" onClick={() => { setPage(1); void loadData(1, pageSizeRef.current); }}>
             <Search size={15} />
             查询

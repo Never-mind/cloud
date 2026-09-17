@@ -5,7 +5,7 @@ import { CheckCircle2, Download, RefreshCw, Search, Trash2 } from "lucide-react"
 import { formatDisplayValue } from "@/lib/display-format";
 import { DEFAULT_PAGE_SIZE } from "@/lib/pagination";
 import { postWorkspaceMessage } from "@/lib/tab-workspace";
-import { Button, Input, Panel } from "./ui";
+import { Button, Input, Panel, Select } from "./ui";
 import { confirmDialog, notify } from "./app-dialog";
 import { PaginationBar } from "./pagination-bar";
 import { StickyTable } from "./sticky-table";
@@ -198,22 +198,22 @@ export function BillingStatementsPage() {
         <div className="grid gap-4 border-b border-line-soft p-4 md:grid-cols-6">
           <label>
             <span className="mb-1 block text-sm font-medium text-ink-2">国家</span>
-            <select className="h-9 w-full rounded border border-line bg-white px-3 text-sm outline-none focus:border-primary" value={countryCode} onChange={(event) => setCountryCode(event.target.value)}>
+            <Select className="w-full" value={countryCode} onChange={(event) => setCountryCode(event.target.value)}>
               <option value="BR">BR</option>
               <option value="CL">CL</option>
               <option value="MX">MX</option>
-            </select>
+            </Select>
           </label>
           <label>
             <span className="mb-1 block text-sm font-medium text-ink-2">币种</span>
-            <select className="h-9 w-full rounded border border-line bg-white px-3 text-sm outline-none focus:border-primary" value={currency} onChange={(event) => setCurrency(event.target.value)}>
+            <Select className="w-full" value={currency} onChange={(event) => setCurrency(event.target.value)}>
               <option value="">全部</option>
               <option value="CNY">CNY</option>
               <option value="USD">USD</option>
               <option value="MXN">MXN</option>
               <option value="CLP">CLP</option>
               <option value="BRL">BRL</option>
-            </select>
+            </Select>
           </label>
           <label>
             <span className="mb-1 block text-sm font-medium text-ink-2">起始日期</span>
@@ -277,11 +277,11 @@ export function BillingStatementsPage() {
       <Panel>
         <div className="flex flex-wrap items-center gap-2 border-b border-line-soft p-4">
           <Input placeholder="搜索对账单号/国家/币种" value={keyword} onChange={(event) => setKeyword(event.target.value)} />
-          <select className="h-9 min-w-28 rounded border border-line bg-white px-3 text-sm" value={status} onChange={(event) => setStatus(event.target.value)}>
+          <Select className="min-w-28" value={status} onChange={(event) => setStatus(event.target.value)}>
             <option value="">全部状态</option>
             <option value="未确认">未确认</option>
             <option value="已确认">已确认</option>
-          </select>
+          </Select>
           <Button tone="secondary" onClick={() => void loadSnapshots()}>
             <Search size={15} />
             查询
@@ -300,7 +300,7 @@ export function BillingStatementsPage() {
                     {renderHeader(column)}
                   </th>
                 ))}
-                <th className="sticky right-0 border-b border-line-soft bg-canvas px-3 py-3 text-left font-medium">操作</th>
+                <th className="whitespace-nowrap sticky right-0 border-b border-line-soft bg-canvas px-3 py-3 text-left font-medium">操作</th>
               </tr>
             </thead>
             <tbody>

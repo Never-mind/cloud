@@ -24,7 +24,7 @@ import { StickyTable } from "./sticky-table";
 import { TableColumnMenu, type TableFilterOption, type TableSortOrder } from "./table-column-menu";
 import { useRequestGuard } from "@/lib/table-query-client";
 import type { MaterialSyncSummary } from "@/lib/material-sync-service";
-import { Button, Input, Panel, Textarea } from "./ui";
+import { Button, Input, Panel, Select, Textarea } from "./ui";
 import { Modal } from "./modal";
 import { confirmDialog, notify } from "./app-dialog";
 import { TableStateContent } from "./table-state";
@@ -788,8 +788,8 @@ export function EntityPage({
             .filter((filter) => filter.key !== "keyword")
             .map((filter) => (
               filter.type === "select" ? (
-                <select
-                  className="h-9 min-w-36 rounded border border-line bg-white px-3 text-sm outline-none focus:border-primary"
+                <Select
+                  className="min-w-36"
                   key={filter.key}
                   value={filterValues[filter.key] ?? ""}
                   onChange={(event) => {
@@ -802,7 +802,7 @@ export function EntityPage({
                       {option.label}
                     </option>
                   ))}
-                </select>
+                </Select>
               ) : (
                 <Input
                   key={filter.key}
@@ -965,7 +965,7 @@ export function EntityPage({
                   <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">序号</th>
                 ) : null}
                 {config.batchDelete ? (
-                  <th className="table-select-cell border-b border-r border-line-soft py-3 text-center font-medium [&>input]:h-4 [&>input]:w-4 [&>input]:align-middle">
+                  <th className="whitespace-nowrap table-select-cell border-b border-r border-line-soft py-3 text-center font-medium [&>input]:h-4 [&>input]:w-4 [&>input]:align-middle">
                     <input aria-label="全选本页" checked={allRowsSelected} type="checkbox" onChange={toggleAllRowsSelected} />
                   </th>
                 ) : null}
@@ -982,7 +982,7 @@ export function EntityPage({
                   </th>
                 ))}
                 {!readOnly ? (
-                  <th className="sticky right-0 border-b border-line-soft bg-canvas px-3 py-3 text-left font-medium">
+                  <th className="whitespace-nowrap sticky right-0 border-b border-line-soft bg-canvas px-3 py-3 text-left font-medium">
                     操作
                   </th>
                 ) : null}
@@ -1145,8 +1145,8 @@ export function EntityPage({
                       defaultValue={String(editing?.[field.key] ?? fixedValues[field.key] ?? "")}
                     />
                   ) : field.lookupSource === "undertaking-units" || field.lookupSource === "customers" ? (
-                    <select
-                      className="h-9 w-full rounded border border-line bg-white px-3 text-sm outline-none focus:border-primary"
+                    <Select
+                      className="w-full"
                       defaultValue={String(editing?.[field.key] ?? fixedValues[field.key] ?? "")}
                       name={field.key}
                       required={field.required}
@@ -1158,10 +1158,10 @@ export function EntityPage({
                         const name = String(row[isUndertakingUnit ? "shortName" : "shortName"] ?? row[isUndertakingUnit ? "entityName" : "nameCn"] ?? row.name ?? "");
                         return <option key={id} value={id}>{name || id}</option>;
                       })}
-                    </select>
+                    </Select>
                   ) : field.type === "select" ? (
-                    <select
-                      className="h-9 w-full rounded border border-line bg-white px-3 text-sm outline-none focus:border-primary"
+                    <Select
+                      className="w-full"
                       defaultValue={String(editing?.[field.key] ?? fixedValues[field.key] ?? field.options?.[0]?.value ?? "")}
                       name={field.key}
                       required={field.required}
@@ -1171,7 +1171,7 @@ export function EntityPage({
                           {option.label}
                         </option>
                       ))}
-                    </select>
+                    </Select>
                   ) : field.type === "boolean" ? (
                     field.readonly && config.key === "product-masters" && field.key === "needNom" ? (
                       <div className="flex h-9 items-center text-sm text-ink-2">

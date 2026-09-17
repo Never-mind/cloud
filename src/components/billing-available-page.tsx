@@ -10,7 +10,7 @@ import { fetchTableFilterOptions } from "@/lib/table-query-client";
 import { PaginationBar } from "./pagination-bar";
 import { StickyTable } from "./sticky-table";
 import { TableColumnMenu, type TableSortOrder } from "./table-column-menu";
-import { Button, Input, Panel } from "./ui";
+import { Button, Input, Panel, Select } from "./ui";
 import { notify } from "./app-dialog";
 import { TableStateContent } from "./table-state";
 
@@ -251,8 +251,8 @@ export function BillingAvailablePage() {
       <Panel>
         <div className="flex flex-wrap items-center gap-2 border-b border-line-soft p-4">
           <Input placeholder="搜索国家/批次/需求单/PO/实例编码" value={keyword} onChange={(event) => setKeyword(event.target.value)} />
-          <select
-            className="h-9 min-w-32 rounded border border-line bg-white px-3 text-sm outline-none focus:border-primary"
+          <Select
+            className="min-w-32"
             value={countryCode}
             onChange={(event) => setCountryCode(event.target.value)}
           >
@@ -265,16 +265,16 @@ export function BillingAvailablePage() {
                   {country.nameZh ? `${country.code} - ${country.nameZh}` : country.code}
                 </option>
               ))}
-          </select>
-          <select
-            className="h-9 min-w-28 rounded border border-line bg-white px-3 text-sm outline-none focus:border-primary"
+          </Select>
+          <Select
+            className="min-w-28"
             value={requestType}
             onChange={(event) => setRequestType(event.target.value)}
           >
             <option value="">全部类型</option>
             <option value="整机">整机</option>
             <option value="备件">备件（不参与月账单）</option>
-          </select>
+          </Select>
           <Button
             tone="secondary"
             onClick={() => {
@@ -297,7 +297,7 @@ export function BillingAvailablePage() {
           <table className="min-w-full border-collapse text-sm">
             <thead className="bg-canvas text-ink">
               <tr>
-                <th className="table-select-cell border-b border-r border-line-soft py-3 text-center font-medium [&>input]:h-4 [&>input]:w-4 [&>input]:align-middle">
+                <th className="whitespace-nowrap table-select-cell border-b border-r border-line-soft py-3 text-center font-medium [&>input]:h-4 [&>input]:w-4 [&>input]:align-middle">
                 <input checked={allVisibleSelected} type="checkbox" onChange={toggleAllVisible} />
                 </th>
                 {columns.map((column) => (

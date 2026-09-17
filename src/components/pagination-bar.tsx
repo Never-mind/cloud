@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { DEFAULT_PAGE_SIZE, PAGE_SIZE_OPTIONS, getPaginationState } from "@/lib/pagination";
-import { Button, Input } from "./ui";
+import { Button, Input, Select } from "./ui";
 
 export function PaginationBar({
   page,
@@ -30,8 +30,7 @@ export function PaginationBar({
       <span>
         当前 {state.start}-{state.end} 条
       </span>
-      <select
-        className="h-9 rounded border border-line bg-white px-2 text-sm outline-none focus:border-primary"
+      <Select
         value={state.pageSize}
         onChange={(event) => {
           onPageSizeChange?.(Number(event.target.value));
@@ -43,7 +42,7 @@ export function PaginationBar({
             {option} 条/页
           </option>
         ))}
-      </select>
+      </Select>
       <Button disabled={state.page <= 1} onClick={() => onPageChange(state.page - 1)}>
         上一页
       </Button>

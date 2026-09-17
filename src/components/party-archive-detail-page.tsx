@@ -7,7 +7,7 @@ import { ArrowLeft, Building2, Download, Edit3, FileUp, Landmark, Plus, RefreshC
 import { fetchAllEntityRows } from "@/lib/client-entity-fetch";
 import { formatDateInputValue, formatDisplayValue } from "@/lib/display-format";
 import type { EntityConfig, EntityField } from "@/lib/modules";
-import { Button, Input, Panel, Textarea } from "./ui";
+import { Button, Input, Panel, Select, Textarea } from "./ui";
 import { confirmDialog } from "./app-dialog";
 
 type Row = Record<string, string | number | boolean | null>;
@@ -279,10 +279,10 @@ function FieldEditor({ field, value, editing, onChange }: { field: EntityField; 
           </datalist>
         </>
       ) : field.type === "select" ? (
-        <select className="h-9 w-full rounded border border-line bg-white px-3 text-sm disabled:bg-canvas disabled:text-ink-2" disabled={!editing} required={field.required} value={String(value ?? "")} onChange={(event) => onChange(event.target.value)}>
+        <Select className="w-full disabled:text-ink-2" disabled={!editing} required={field.required} value={String(value ?? "")} onChange={(event) => onChange(event.target.value)}>
           <option value="">请选择</option>
           {field.options?.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-        </select>
+        </Select>
       ) : (
         <Input className="w-full disabled:bg-canvas disabled:text-ink-2" disabled={!editing} required={field.required} type={field.type === "number" || field.type === "money" || field.type === "percentage" ? "number" : field.type === "date" ? "date" : "text"} value={inputValue} onChange={(event) => onChange(event.target.value)} />
       )}

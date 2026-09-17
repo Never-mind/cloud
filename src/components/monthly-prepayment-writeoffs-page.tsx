@@ -11,7 +11,7 @@ import { StickyTable } from "./sticky-table";
 import { TableColumnMenu, type TableFilterOption, type TableSortOrder } from "./table-column-menu";
 import { useRequestGuard } from "@/lib/table-query-client";
 import { buildDetailRoute, buildListRoute, getCurrentRoute, getPositiveNumber, useListScrollPosition } from "@/lib/client-list-navigation";
-import { Button, Input, Panel } from "./ui";
+import { Button, Input, Panel, Select } from "./ui";
 import { notify } from "./app-dialog";
 import { monthlyPrepaymentWriteOffColumns } from "@/lib/writeoff-export-columns";
 import { TableStateContent } from "./table-state";
@@ -188,11 +188,11 @@ export function MonthlyPrepaymentWriteOffsPage() {
           <Input placeholder="批次" value={batchName} onChange={(event) => setBatchName(event.target.value)} />
           <Input type="date" value={startMonth} onChange={(event) => setStartMonth(event.target.value)} />
           <Input type="date" value={endMonth} onChange={(event) => setEndMonth(event.target.value)} />
-          <select className="h-9 rounded border border-line bg-white px-3 text-sm" value={requestType} onChange={(event) => setRequestType(event.target.value)}>
+          <Select value={requestType} onChange={(event) => setRequestType(event.target.value)}>
             <option value="">全部类型</option>
             <option value="整机">整机</option>
             <option value="备件">备件</option>
-          </select>
+          </Select>
           <Button tone="secondary" onClick={() => { const filters = { keyword, countryCode, batchName, startMonth, endMonth, requestType }; setAppliedFilters(filters); setPage(1); void loadData(1, pageSizeRef.current, filters); }}>
             <Search size={15} />
             查询

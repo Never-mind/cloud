@@ -6,7 +6,7 @@ import { formatDisplayValue } from "@/lib/display-format";
 import { DEFAULT_PAGE_SIZE } from "@/lib/pagination";
 import { PaginationBar } from "./pagination-bar";
 import { StickyTable } from "./sticky-table";
-import { Button, Panel } from "./ui";
+import { Button, Panel, Select } from "./ui";
 import { confirmDialog, notify } from "./app-dialog";
 
 type ImportTarget = {
@@ -219,8 +219,8 @@ export function ImportCenterPage() {
 
             <div className="flex flex-wrap items-center gap-3 border-b border-line-soft bg-surface-2 px-4 py-3">
               <span className="text-sm font-medium text-ink">导入策略</span>
-              <select
-                className="h-9 min-w-[180px] border border-line bg-white px-2 text-sm text-ink outline-none focus:border-primary"
+              <Select
+                className="min-w-[180px] text-ink"
                 value={strategy}
                 onChange={(event) => {
                   setStrategy(event.target.value as ImportStrategy);
@@ -228,18 +228,18 @@ export function ImportCenterPage() {
                 }}
               >
                 {strategyOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-              </select>
+              </Select>
               <span className="text-xs text-ink-3">{strategyOptions.find((option) => option.value === strategy)?.description}</span>
             </div>
 
             <div className="grid gap-4 p-4 lg:grid-cols-[1fr_320px]">
-              <StickyTable className="overflow-auto" tableKey="import-center-columns">
+              <StickyTable className="table-scroll overflow-auto" tableKey="import-center-columns">
                 <table className="min-w-full border-collapse text-sm">
                   <thead className="bg-canvas">
                     <tr>
-                      <th className="border-b border-r border-line-soft px-3 py-2 text-left">字段</th>
-                      <th className="border-b border-r border-line-soft px-3 py-2 text-left">列名</th>
-                      <th className="border-b border-r border-line-soft px-3 py-2 text-left">要求</th>
+                      <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">字段</th>
+                      <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">列名</th>
+                      <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">要求</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -299,12 +299,12 @@ export function ImportCenterPage() {
 
           <Panel>
             <div className="border-b border-line-soft px-4 py-3 font-medium text-ink">导入历史</div>
-            <StickyTable className="overflow-auto" tableKey="import-center-history">
+            <StickyTable className="table-scroll overflow-auto" tableKey="import-center-history">
               <table className="min-w-full border-collapse text-sm">
                 <thead className="bg-canvas">
                   <tr>
                     {["任务编号", "导入类型", "文件名", "状态", "总行数", "成功", "失败", "主单", "明细", "创建时间", "更新时间", "操作"].map((label) => (
-                      <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left" key={label}>{label}</th>
+                      <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium" key={label}>{label}</th>
                     ))}
                   </tr>
                 </thead>
