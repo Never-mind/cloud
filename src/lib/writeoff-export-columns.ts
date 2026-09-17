@@ -24,8 +24,8 @@ export const monthlyBillingWriteOffColumns: WriteOffColumn[] = [
   { key: "stage", label: "阶段" },
   { key: "sourceType", label: "来源" },
   { key: "adjustmentNo", label: "调整单号" },
-  { key: "createdAt", label: "创建日期", type: "date" },
-  { key: "updatedAt", label: "更新日期", type: "date" },
+  { key: "createdAt", label: "创建时间", type: "datetime" },
+  { key: "updatedAt", label: "更新时间", type: "datetime" },
 ];
 
 /** 表格与导出都按这份列展示：在国家后面插入承接单位、供应商、客户。 */
@@ -56,8 +56,8 @@ export const monthlyPrepaymentWriteOffColumns: WriteOffColumn[] = [
   { key: "lineType", label: "明细类型", type: "lineType" },
   { key: "sourceType", label: "来源" },
   { key: "adjustmentNo", label: "调整单号" },
-  { key: "createdAt", label: "创建日期", type: "date" },
-  { key: "updatedAt", label: "更新日期", type: "date" },
+  { key: "createdAt", label: "创建时间", type: "datetime" },
+  { key: "updatedAt", label: "更新时间", type: "datetime" },
 ];
 
 export const monthlyBillingWriteOffExportFilename = "monthly-billing-writeoffs.csv";

@@ -366,10 +366,10 @@ export function PurchaseOrderFormPage() {
                         ))}
                       </select>
                     </td>
-                    <td className="border-b border-r border-line-soft px-3 py-3">{formatValue(requestItem?.deviceCode)}</td>
-                    <td className="border-b border-r border-line-soft px-3 py-3">{formatValue(model?.modelCode)}</td>
-                    <td className="border-b border-r border-line-soft px-3 py-3">{formatValue(model?.nameEn)}</td>
-                    <td className="border-b border-r border-line-soft px-3 py-3">{formatValue(requestItem?.quantity)}</td>
+                    <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3">{formatValue(requestItem?.deviceCode)}</td>
+                    <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3">{formatValue(model?.modelCode)}</td>
+                    <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3">{formatValue(model?.nameEn)}</td>
+                    <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3">{formatValue(requestItem?.quantity)}</td>
                     <td className="border-b border-r border-line-soft px-3 py-3">
                       <select
                         className="h-9 min-w-[100px] rounded border border-line bg-white px-2"
@@ -385,8 +385,8 @@ export function PurchaseOrderFormPage() {
                     <td className="border-b border-r border-line-soft px-3 py-3">
                       <NumberInput value={detail.taxSurcharge ?? 0} onChange={(value) => updateDetail(index, { taxSurcharge: value })} />
                     </td>
-                    <td className="border-b border-r border-line-soft px-3 py-3">{formatValue(detail.unitPrice, "money")}</td>
-                    <td className="border-b border-r border-line-soft px-3 py-3">
+                    <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3">{formatValue(detail.unitPrice, "money")}</td>
+                    <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3">
                       {formatValue(Number(requestItem?.quantity ?? 0) * Number(detail.unitPrice ?? 0), "money")}
                     </td>
                     <td className="border-b border-r border-line-soft px-3 py-3">

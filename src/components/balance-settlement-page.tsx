@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Calculator, CheckCircle2, Download, Plus, RefreshCw, Search, XCircle } from "lucide-react";
 import { exportRowsToXlsx } from "@/lib/client-xlsx-export";
 import { fetchAllEntityRows } from "@/lib/client-entity-fetch";
+import { formatDisplayValue, formatMoneyValue, formatNumberValue, isDateTimeFieldKey } from "@/lib/display-format";
 import { fetchTableFilterOptions } from "@/lib/table-query-client";
 import { PaginationBar } from "./pagination-bar";
 import { StickyTable } from "./sticky-table";
@@ -47,7 +48,7 @@ const RATE_REASON = "请填写采购币种兑USD的结差汇率";
 const SETTLEMENT_EXPORT_COLUMNS = [
   ["settlementNo", "结差来源单号"], ["title", "结差单名称"], ["itemTypes", "来源类型"], ["countryCode", "国家"], ["pricingVersionNo", "锚定价格版本"],
   ["currency", "结差币种"], ["status", "状态"], ["itemCount", "明细数量"], ["capexDifferenceTotal", "CAPEX结差总额"],
-  ["opexDifferenceTotal", "OPEX结差总额"], ["differenceTotal", "结差合计"], ["confirmedAt", "确认日期"], ["createdAt", "创建日期"], ["updatedAt", "更新日期"],
+  ["opexDifferenceTotal", "OPEX结差总额"], ["differenceTotal", "结差合计"], ["confirmedAt", "确认时间"], ["createdAt", "创建时间"], ["updatedAt", "更新时间"],
 ] as const;
 const DETAIL_EXPORT_COLUMNS = [
   ["lineNo", "序号"], ["itemType", "结差类型"], ["countryCode", "国家"], ["batchName", "批次"], ["requestNo", "需求单号"], ["poNo", "PO单号"],
@@ -94,7 +95,7 @@ function asNumber(value: unknown, fallback = 0) {
 }
 
 function formatMoney(value: unknown) {
-  return new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(asNumber(value));
+  return formatMoneyValue(value);
 }
 
 function formatDate(value: unknown) {
@@ -108,7 +109,7 @@ function isNegative(value: unknown) {
 function formatValue(value: unknown, kind?: "money" | "date" | "number") {
   if (kind === "money") return formatMoney(value);
   if (kind === "date") return formatDate(value);
-  if (kind === "number") return asNumber(value);
+  if (kind === "number") return formatNumberValue(value);
   return asText(value);
 }
 
@@ -126,7 +127,11 @@ function exportRows(columns: readonly (readonly [string, string])[], rows: Row[]
     columns: columns.map(([key, label]) => ({
       key,
       label,
-      format: (value) => key.endsWith("At") || key.endsWith("Date") ? formatDate(value) : value as string | number,
+      format: (value) => isDateTimeFieldKey(key)
+        ? formatDisplayValue(value as never, "datetime")
+        : key.endsWith("At") || key.endsWith("Date")
+          ? formatDate(value)
+          : value as string | number,
     })),
     rows,
   });
@@ -437,7 +442,7 @@ export function BalanceSettlementPage() {
                     const missing = row.missingReasons ?? [];
                     return <tr className="hover:bg-surface-2" key={row.id}>
                       <td className="table-select-cell border-b border-r border-line-soft py-3 text-center [&>input]:h-4 [&>input]:w-4 [&>input]:align-middle"><input type="checkbox" disabled={!canGenerate} checked={selectedIds.includes(row.id)} onChange={() => toggleCandidate(row)} /></td>
-                      {[["countryCode"], ["batchName"], ["requestNo"], ["poNo"], ["deviceCode"], ["modelCode"], ["nameEn"], ["undertakingUnitCode"], ["supplierCode"], ["customerCode"], ["quantity", "number"], ["procurementCurrency"], ["capexUnitPrice", "money"], ["opexUnitPrice", "money"]].map(([key, kind]) => <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3" key={key}>{formatValue(row[key], kind as "money" | "number")}</td>)}
+                      {[["countryCode"], ["batchName"], ["requestNo"], ["poNo"], ["deviceCode"], ["modelCode"], ["nameEn"], ["undertakingUnitCode"], ["supplierCode"], ["customerCode"], ["quantity", "number"], ["procurementCurrency"], ["capexUnitPrice", "money"], ["opexUnitPrice", "money"]].map(([key, kind]) => <td className="border-b border-r border-line-soft px-3 py-3" key={key}>{formatValue(row[key], kind as "money" | "number")}</td>)}
                       <td className="border-b border-r border-line-soft px-3 py-2">
                         {asText(row.procurementCurrency).toUpperCase() === "USD" ? <span>1.000000</span> : <NumberInput bare className="h-8 w-28 rounded border border-line px-2 text-sm" min="0" step="0.000001" value={settlementRates[row.id] ?? ""} onChange={(text) => setSettlementRates((current) => ({ ...current, [row.id]: text }))} />}
                       </td>
@@ -477,14 +482,14 @@ export function BalanceSettlementPage() {
               <Button tone="secondary" onClick={() => void loadSettlements()}><Search size={15} />查询</Button><Button onClick={() => void loadSettlements()}><RefreshCw size={15} />刷新</Button>
               <Button onClick={() => exportRows(SETTLEMENT_EXPORT_COLUMNS, settlements, "结差来源单.xlsx", "结差来源单")}><Download size={15} />导出</Button>
             </div>
-            <StickyTable className="table-scroll overflow-auto" tableKey="balance-settlements"><table className="w-full min-w-[1460px] border-collapse text-sm"><thead className="bg-canvas text-ink"><tr>{[["settlementNo", "结差来源单号"], ["title", "结差单名称"], ["itemTypes", "来源类型"], ["countryCode", "国家"], ["pricingVersionNo", "锚定价格版本"], ["currency", "币种"], ["status", "状态"], ["itemCount", "明细数量"], ["capexDifferenceTotal", "CAPEX结差总额"], ["opexDifferenceTotal", "OPEX结差总额"], ["differenceTotal", "结差合计"], ["confirmedAt", "确认日期"], ["createdAt", "创建日期"], ["updatedAt", "更新日期"]].map(([key, label]) => <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium" key={key}>{columnMenu(key, label, { sortField: settlementSortField, sortOrder: settlementSortOrder, filters: settlementFilters }, "/api/balance-settlements", updateSettlementQuery)}</th>)}</tr></thead><tbody>
+            <StickyTable className="table-scroll overflow-auto" tableKey="balance-settlements"><table className="w-full min-w-[1460px] border-collapse text-sm"><thead className="bg-canvas text-ink"><tr>{[["settlementNo", "结差来源单号"], ["title", "结差单名称"], ["itemTypes", "来源类型"], ["countryCode", "国家"], ["pricingVersionNo", "锚定价格版本"], ["currency", "币种"], ["status", "状态"], ["itemCount", "明细数量"], ["capexDifferenceTotal", "CAPEX结差总额"], ["opexDifferenceTotal", "OPEX结差总额"], ["differenceTotal", "结差合计"], ["confirmedAt", "确认时间"], ["createdAt", "创建时间"], ["updatedAt", "更新时间"]].map(([key, label]) => <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium" key={key}>{columnMenu(key, label, { sortField: settlementSortField, sortOrder: settlementSortOrder, filters: settlementFilters }, "/api/balance-settlements", updateSettlementQuery)}</th>)}</tr></thead><tbody>
               {settlements.map((row) => <tr className="hover:bg-surface-2" key={row.settlementNo}>
                 <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3"><button className="text-primary hover:underline" onClick={() => void openSettlement(row.settlementNo)}>{row.settlementNo}</button></td>
                 {[["title"], ["itemTypes"], ["countryCode"], ["pricingVersionNo"], ["currency"]].map(([key]) => <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3" key={key}>{asText(row[key]) || "-"}</td>)}
-                <td className="border-b border-r border-line-soft px-3 py-3"><span className={`rounded px-2 py-1 text-xs ${statusClass(row.status)}`}>{asText(row.status)}</span></td>
-                <td className="border-b border-r border-line-soft px-3 py-3">{asNumber(row.itemCount)}</td>
+                <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3"><span className={`rounded px-2 py-1 text-xs ${statusClass(row.status)}`}>{asText(row.status)}</span></td>
+                <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3">{asNumber(row.itemCount)}</td>
                 {[["capexDifferenceTotal"], ["opexDifferenceTotal"], ["differenceTotal"]].map(([key]) => <td className={`whitespace-nowrap border-b border-r border-line-soft px-3 py-3 ${isNegative(row[key]) ? "text-danger" : ""}`} key={key}>{formatMoney(row[key])}</td>)}
-                <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3">{formatDate(row.confirmedAt)}</td><td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3">{formatDate(row.createdAt)}</td><td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3">{formatDate(row.updatedAt)}</td>
+                <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3">{formatDisplayValue(row.confirmedAt as never, "datetime")}</td><td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3">{formatDisplayValue(row.createdAt as never, "datetime")}</td><td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3">{formatDisplayValue(row.updatedAt as never, "datetime")}</td>
               </tr>)}
               {!settlements.length && <tr><td className="py-12 text-center text-ink-3" colSpan={15}><TableStateContent empty="暂无结差来源单" loading={loading} /></td></tr>}
             </tbody></table></StickyTable>
@@ -502,7 +507,7 @@ export function BalanceSettlementPage() {
 function SettlementDetailPanel({ detail, saving, onClose, onConfirm, onVoid }: { detail: SettlementDetail; saving: boolean; onClose: () => void; onConfirm: () => void; onVoid: () => void }) {
   const hasNonInstanceItems = detail.items.some((item) => asText(item.itemType) === "非实例费用");
   const columns = hasNonInstanceItems ? [...DETAIL_TABLE_COLUMNS, ...NON_INSTANCE_DETAIL_TABLE_COLUMNS] : DETAIL_TABLE_COLUMNS;
-  return <Panel><div className="flex flex-wrap items-center justify-between gap-3 border-b border-line-soft p-4"><div><div className="flex items-center gap-2"><h2 className="font-medium text-ink">结差单：{detail.master.settlementNo}</h2><span className={`rounded px-2 py-1 text-xs ${statusClass(detail.master.status)}`}>{asText(detail.master.status)}</span></div><p className="mt-1 text-sm text-ink-3">{asText(detail.master.title)} · 锚定版本：{asText(detail.master.pricingVersionNo) || "手工结差"} · 创建日期：{formatDate(detail.master.createdAt)}</p></div><div className="flex flex-wrap gap-2"><Button onClick={() => exportRows(DETAIL_EXPORT_COLUMNS, detail.items, `${detail.master.settlementNo}-明细.xlsx`, "结差明细")}><Download size={15} />导出明细</Button>{detail.master.status === DRAFT && <Button tone="danger" disabled={saving} onClick={onVoid}><XCircle size={15} />作废草稿</Button>}{detail.master.status === DRAFT && <Button tone="success" disabled={saving} onClick={onConfirm}><CheckCircle2 size={15} />确认结差单</Button>}<Button onClick={onClose}>关闭</Button></div></div><div className="grid gap-px border-b border-line-soft bg-line-soft sm:grid-cols-4"><Metric label="明细数量" value={asNumber(detail.master.itemCount)} /><Metric label="CAPEX结差总额" value={formatMoney(detail.master.capexDifferenceTotal)} negative={isNegative(detail.master.capexDifferenceTotal)} /><Metric label="OPEX结差总额" value={formatMoney(detail.master.opexDifferenceTotal)} negative={isNegative(detail.master.opexDifferenceTotal)} /><Metric label="结差合计" value={formatMoney(detail.master.differenceTotal)} negative={isNegative(detail.master.differenceTotal)} /></div><StickyTable className="table-scroll overflow-auto" tableKey={`balance-settlement-detail-${detail.master.settlementNo}`}><table className={`w-full min-w-[${hasNonInstanceItems ? "3600" : "2360"}px] border-collapse text-sm`}><thead className="bg-canvas"><tr>{columns.map(([key, label]) => <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium" key={key}>{label}</th>)}</tr></thead><tbody>{detail.items.map((item) => <tr key={asText(item.id)}>{columns.map(([key, , kind]) => <td className={`whitespace-nowrap border-b border-r border-line-soft px-3 py-3 ${key.toLowerCase().includes("difference") && isNegative(item[key]) ? "text-danger" : ""}`} key={key}>{formatValue(item[key], kind as "money" | "date" | "number")}</td>)}</tr>)}</tbody></table></StickyTable></Panel>;
+  return <Panel><div className="flex flex-wrap items-center justify-between gap-3 border-b border-line-soft p-4"><div><div className="flex items-center gap-2"><h2 className="font-medium text-ink">结差单：{detail.master.settlementNo}</h2><span className={`rounded px-2 py-1 text-xs ${statusClass(detail.master.status)}`}>{asText(detail.master.status)}</span></div><p className="mt-1 text-sm text-ink-3">{asText(detail.master.title)} · 锚定版本：{asText(detail.master.pricingVersionNo) || "手工结差"} · 创建时间：{formatDisplayValue(detail.master.createdAt as never, "datetime")}</p></div><div className="flex flex-wrap gap-2"><Button onClick={() => exportRows(DETAIL_EXPORT_COLUMNS, detail.items, `${detail.master.settlementNo}-明细.xlsx`, "结差明细")}><Download size={15} />导出明细</Button>{detail.master.status === DRAFT && <Button tone="danger" disabled={saving} onClick={onVoid}><XCircle size={15} />作废草稿</Button>}{detail.master.status === DRAFT && <Button tone="success" disabled={saving} onClick={onConfirm}><CheckCircle2 size={15} />确认结差单</Button>}<Button onClick={onClose}>关闭</Button></div></div><div className="grid gap-px border-b border-line-soft bg-line-soft sm:grid-cols-4"><Metric label="明细数量" value={asNumber(detail.master.itemCount)} /><Metric label="CAPEX结差总额" value={formatMoney(detail.master.capexDifferenceTotal)} negative={isNegative(detail.master.capexDifferenceTotal)} /><Metric label="OPEX结差总额" value={formatMoney(detail.master.opexDifferenceTotal)} negative={isNegative(detail.master.opexDifferenceTotal)} /><Metric label="结差合计" value={formatMoney(detail.master.differenceTotal)} negative={isNegative(detail.master.differenceTotal)} /></div><StickyTable className="table-scroll overflow-auto" tableKey={`balance-settlement-detail-${detail.master.settlementNo}`}><table className={`w-full min-w-[${hasNonInstanceItems ? "3600" : "2360"}px] border-collapse text-sm`}><thead className="bg-canvas"><tr>{columns.map(([key, label]) => <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium" key={key}>{label}</th>)}</tr></thead><tbody>{detail.items.map((item) => <tr key={asText(item.id)}>{columns.map(([key, , kind]) => <td className={`whitespace-nowrap border-b border-r border-line-soft px-3 py-3 ${key.toLowerCase().includes("difference") && isNegative(item[key]) ? "text-danger" : ""}`} key={key}>{formatValue(item[key], kind as "money" | "date" | "number")}</td>)}</tr>)}</tbody></table></StickyTable></Panel>;
 }
 
 function InstanceFormulaDialog({ onClose }: { onClose: () => void }) {

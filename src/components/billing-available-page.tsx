@@ -322,7 +322,7 @@ export function BillingAvailablePage() {
                     <input checked={selectedIds.includes(row.purchaseOrderItemId)} disabled={!row.instanceContractNo || !row.contractCurrency} type="checkbox" onChange={() => toggleSelected(row)} />
                   </td>
                   {columns.map((column) => (
-                    <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3" key={column.key}>
+                    <td className="border-b border-r border-line-soft px-3 py-3" key={column.key}>
                       {column.key === "instanceContractNo" ? (
                         <>
                           <Input

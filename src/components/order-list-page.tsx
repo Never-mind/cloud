@@ -329,12 +329,12 @@ export function OrderListPage({
         ? [
             ["requestNo", "需求单号"], ["countryCode", "国家"], ["batchName", "批次号"], ["status", "状态"], ["remoteStatus", "远端状态"],
             ["totalQuantity", "总数量"], ["plannedDeliveryDate", "计划交付日期", "date"],
-            ["createdAt", "创建日期", "datetime"], ["updatedAt", "更新日期", "datetime"],
+            ["createdAt", "创建时间", "datetime"], ["updatedAt", "更新时间", "datetime"],
           ]
         : [
             ["poNo", "PO订单号"], ["requestNo", "来源需求单"], ["countryCode", "国家"], ["batchName", "批次号"], ["status", "状态"],
             ["currency", "币种"], ["totalQuantity", "总数量"], ["purchaseTotalAmount", "采购总金额", "money"],
-            ["createdAt", "创建日期", "datetime"], ["updatedAt", "更新日期", "datetime"],
+            ["createdAt", "创建时间", "datetime"], ["updatedAt", "更新时间", "datetime"],
           ];
     const worksheet = XLSX.utils.aoa_to_sheet([
       columns.map(([, label]) => label),
@@ -563,7 +563,7 @@ export function OrderListPage({
                         />
                       </td>
                     ) : null}
-                    <td className="border-b border-r border-line-soft px-3 py-3">
+                    <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3">
                       <Link
                         className="font-medium text-primary hover:underline"
                         href={buildDetailRoute(getOrderDetailRoute(mode, id), currentRoute)}
@@ -574,10 +574,10 @@ export function OrderListPage({
                     </td>
                     {mode === "requests" ? (
                       <>
-                        <td className="border-b border-r border-line-soft px-3 py-3">
+                        <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3">
                           {formatValue(row.countryCode)}
                         </td>
-                        <td className="border-b border-r border-line-soft px-3 py-3">
+                        <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3">
                           {formatValue(row.batchName)}
                         </td>
                       </>
@@ -588,45 +588,45 @@ export function OrderListPage({
                       </td>
                     ) : null}
                     {mode === "purchase" ? (
-                      <td className="border-b border-r border-line-soft px-3 py-3">
+                      <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3">
                         {formatValue(row.countryCode)}
                       </td>
                     ) : null}
                     {mode === "purchase" ? (
-                      <td className="border-b border-r border-line-soft px-3 py-3">
+                      <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3">
                         {formatValue(row.batchName)}
                       </td>
                     ) : null}
-                    <td className="border-b border-r border-line-soft px-3 py-3">
+                    <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3">
                       <StatusBadge mode={mode} value={String(row.status ?? "-")} />
                     </td>
                     {mode === "requests" ? (
-                      <td className="border-b border-r border-line-soft px-3 py-3">{formatDisplayValue(row.remoteStatus, "text")}</td>
+                      <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3">{formatDisplayValue(row.remoteStatus, "text")}</td>
                     ) : null}
                     {mode === "purchase" ? (
                       <>
-                        <td className="border-b border-r border-line-soft px-3 py-3">
+                        <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3">
                           {formatValue(row.currency)}
                         </td>
                       </>
                     ) : null}
-                    <td className="border-b border-r border-line-soft px-3 py-3">
+                    <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3">
                       {formatValue(row.totalQuantity)}
                     </td>
                     {mode === "purchase" ? (
-                      <td className="border-b border-r border-line-soft px-3 py-3">
+                      <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3">
                         {formatValue(row.purchaseTotalAmount, "money")}
                       </td>
                     ) : null}
                     {mode === "requests" ? (
-                      <td className="border-b border-r border-line-soft px-3 py-3">
+                      <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3">
                         {formatValue(row.plannedDeliveryDate, "date")}
                       </td>
                     ) : null}
-                    <td className="border-b border-r border-line-soft px-3 py-3">
+                    <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3">
                       {formatValue(row.createdAt, "datetime")}
                     </td>
-                    <td className="border-b border-r border-line-soft px-3 py-3">
+                    <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3">
                       {formatValue(row.updatedAt, "datetime")}
                     </td>
                     {hasActionColumn ? (

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { queryRows, type Row } from "@/lib/db";
+import { normalizeTemporalFields } from "@/lib/display-format";
 import { DEFAULT_PAGE_SIZE, normalizePageSize } from "@/lib/pagination";
 
 const undertakingUnitNameExpression = `COALESCE(NULLIF(unit.shortName, ''), NULLIF(unit.entityName, ''), NULLIF(unit.name, ''), NULLIF(unit.undertakingUnitCode, ''), po.undertakingUnitId)`;
@@ -124,5 +125,9 @@ export async function GET(request: NextRequest) {
     statusCountRows.map((row) => [String(row.status ?? ""), Number(row.count ?? 0)]),
   );
 
-  return NextResponse.json({ rows, total, page, pageSize, totalPages, statusCounts });
+  const normalizedRows = rows.map((row) =>
+    normalizeTemporalFields(row, { datetime: ["createdAt", "updatedAt", "confirmedAt"], date: ["poDate", "deliveryDate"] }),
+  );
+
+  return NextResponse.json({ rows: normalizedRows, total, page, pageSize, totalPages, statusCounts });
 }

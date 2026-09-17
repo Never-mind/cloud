@@ -450,8 +450,8 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
                         onChange={(value) => updateDetail(index, { deviceCode: value })}
                       />
                     </td>
-                    <td className="border-b border-r border-line-soft px-3 py-3">{formatValue(model?.modelCode)}</td>
-                    <td className="border-b border-r border-line-soft px-3 py-3">{formatValue(model?.nameEn)}</td>
+                    <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3">{formatValue(model?.modelCode)}</td>
+                    <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3">{formatValue(model?.nameEn)}</td>
                     <td className="border-b border-r border-line-soft px-3 py-3">
                       <SearchPicker
                         options={suppliers.map((supplier) => {

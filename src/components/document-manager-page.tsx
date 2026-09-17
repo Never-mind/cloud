@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { Button, Input, Panel } from "./ui";
 import { confirmDialog, notify } from "./app-dialog";
+import { formatDisplayValue } from "@/lib/display-format";
 import { LoadingBlock } from "./table-state";
 import { PaginationBar } from "./pagination-bar";
 
@@ -314,7 +315,7 @@ export function DocumentManagerPage() {
                     onRenameChange={setRenameValue}
                     onRenameSubmit={submitRename}
                     renameValue={renameValue}
-                    subText={`大小 ${formatFileSize(file.fileSize)} · 创建 ${formatDate(file.createdAt)} · 更新 ${formatDate(file.updatedAt)}`}
+                    subText={`大小 ${formatFileSize(file.fileSize)} · 创建 ${formatDisplayValue(file.createdAt, "datetime")} · 更新 ${formatDisplayValue(file.updatedAt, "datetime")}`}
                   />
                 ))}
               </div>
@@ -500,9 +501,4 @@ function formatFileSize(size: number) {
   if (size >= 1024 * 1024) return `${(size / 1024 / 1024).toFixed(1)} MB`;
   if (size >= 1024) return `${(size / 1024).toFixed(1)} KB`;
   return `${size} B`;
-}
-
-function formatDate(value: string) {
-  if (!value) return "";
-  return value.slice(0, 10);
 }

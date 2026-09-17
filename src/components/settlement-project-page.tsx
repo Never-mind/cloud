@@ -10,6 +10,7 @@ import { StickyTable } from "./sticky-table";
 import { TableColumnMenu, type TableFilterOption, type TableSortOrder } from "./table-column-menu";
 import { StatusTag } from "./status-tag";
 import { postWorkspaceMessage } from "@/lib/tab-workspace";
+import { formatMoneyValue } from "@/lib/display-format";
 
 type Project = {
   id: string; projectNo: string; quotationId: string; quotationNo: string; projectName: string | null; customerName: string | null; contractingUnitName: string | null;
@@ -127,7 +128,6 @@ export function SettlementProjectPage() {
   );
 }
 
-function money(value: number) { return Number(value || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
-function formatDate(value: string) { return value ? String(value).slice(0, 16).replace("T", " ") : "-"; }
+function money(value: number) { return formatMoneyValue(value); }
 function statusLabel(status: string) { return ({ purchasing: "采购中", procurement_completed: "采购完成", accepting: "验收中", acceptance_completed: "验收完成", closed: "已完结" } as Record<string, string>)[status] || status || "-"; }
 function statusClass(status: string) { return status === "closed" ? "bg-tag-green text-tag-green-fg" : status === "accepting" ? "bg-tag-indigo text-tag-indigo-fg" : status === "procurement_completed" ? "bg-tag-blue text-tag-blue-fg" : "bg-tag-amber text-tag-amber-fg"; }

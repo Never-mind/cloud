@@ -50,8 +50,8 @@ const columns: Array<{ key: string; label: string; type?: string }> = [
   { key: "serviceFeeAmountExcludingTax", label: "月度服务费（未税）", type: "money" },
   { key: "prepaymentContractNos", label: "预付款合同号" },
   { key: "sourceNote", label: "来源说明" },
-  { key: "createdAt", label: "创建日期", type: "date" },
-  { key: "updatedAt", label: "更新日期", type: "date" },
+  { key: "createdAt", label: "创建时间", type: "datetime" },
+  { key: "updatedAt", label: "更新时间", type: "datetime" },
 ];
 const tableColumns = columns.map((column) => ({ ...column, sortable: true, filterable: true }));
 

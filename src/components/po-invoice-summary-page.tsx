@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Download, RefreshCw, Search } from "lucide-react";
 import { postWorkspaceMessage } from "@/lib/tab-workspace";
+import { formatDisplayValue, formatMoneyValue } from "@/lib/display-format";
 import type { PoInvoiceSummaryResult, PoInvoiceSummaryRow } from "@/lib/po-invoice-summary-service";
 import { PaginationBar } from "./pagination-bar";
 import { StickyTable } from "./sticky-table";
@@ -191,7 +192,8 @@ function formatValue(value: unknown, type?: Column["type"]) {
   if (value === null || value === undefined || value === "") return "-";
   if (type === "boolean") return Number(value) === 0 ? "否" : "是";
   if (type === "money" || type === "number") return money(Number(value));
-  if (type === "date" || type === "datetime") return String(value).replace("T", " ").slice(0, type === "date" ? 10 : 16);
+  // 日期时间统一走公共格式化，避免本页再维护一套（含时区与到分规则）。
+  if (type === "date" || type === "datetime") return formatDisplayValue(value as never, type);
   if (value === "income") return "收入";
   if (value === "cost") return "成本";
   return String(value);
@@ -202,5 +204,5 @@ function statusLabel(status: string) {
 }
 
 function money(value: number) {
-  return Number(value || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return formatMoneyValue(value);
 }

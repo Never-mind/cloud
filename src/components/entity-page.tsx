@@ -1005,7 +1005,17 @@ export function EntityPage({
                     </td>
                   ) : null}
                   {visibleColumns.map((column) => (
-                    <td className={`max-w-[260px] border-b border-r border-line-soft px-3 py-3 ${isPartyArchive ? "align-top" : "truncate"}`} key={column.key}>
+                    <td
+                      className={`border-b border-r border-line-soft px-3 py-3 ${
+                        column.type === "date" || column.type === "datetime"
+                          ? "whitespace-nowrap"
+                          : column.type === "textarea"
+                            // 备注等超长文本允许折行，能看到完整内容
+                            ? "max-w-[320px] whitespace-normal break-words align-top"
+                            : `max-w-[260px] ${isPartyArchive ? "align-top" : "truncate"}`
+                      }`}
+                      key={column.key}
+                    >
                       {isPartyArchive ? (
                         <PartyListCell config={config} row={row} column={column} firstVisibleKey={visibleColumns[0]?.key ?? ""} nameField={partyNameField} />
                       ) : config.detailRoute && column.key === visibleColumns[0]?.key ? (

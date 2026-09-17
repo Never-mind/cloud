@@ -3,6 +3,7 @@ import * as XLSX from "xlsx";
 import { executeRaw, queryRows, queryRowsRaw, type Row } from "./db";
 import { calculateCloudTaxGroup, CLOUD_TAX_GROUPS, type CloudTaxGroup } from "./cloud-tax";
 import { customerDisplayName } from "./customer-display";
+import { formatDisplayValue } from "./display-format";
 import type { OperationActor } from "./operation-actor";
 import { appendTableInFilter, formatTableDateExpression, getTableSort, listSqlFilterOptions } from "./table-query";
 
@@ -290,12 +291,19 @@ function dateOnly(value: unknown) {
   return `${match[1]}-${match[2].padStart(2, "0")}-${match[3].padStart(2, "0")}`;
 }
 
-const CLOUD_DATE_ONLY_FIELDS = new Set(["collectionDate", "receivableDate", "invoiceDate", "paymentDate", "confirmedAt"]);
+const CLOUD_DATE_ONLY_FIELDS = new Set(["collectionDate", "receivableDate", "invoiceDate", "paymentDate"]);
+const CLOUD_DATE_TIME_FIELDS = new Set(["createdAt", "updatedAt", "confirmedAt", "paymentUpdatedAt"]);
 
 function normalizeCloudDateFields(row: Row) {
   const normalized = { ...row };
   for (const field of CLOUD_DATE_ONLY_FIELDS) {
     if (Object.prototype.hasOwnProperty.call(normalized, field)) normalized[field] = dateOnly(normalized[field]);
+  }
+  // 与实体列表保持一致：日期时间统一到分，避免前端各写一套格式化。
+  for (const field of CLOUD_DATE_TIME_FIELDS) {
+    if (Object.prototype.hasOwnProperty.call(normalized, field) && normalized[field]) {
+      normalized[field] = formatDisplayValue(normalized[field] as never, "datetime");
+    }
   }
   return normalized;
 }
@@ -708,7 +716,9 @@ export async function listCloudMappings(params: URLSearchParams) {
     queryRows<Row>(`SELECT COUNT(*) AS total FROM ${CLOUD_MAPPING_FROM} ${where}`, values),
     queryRows<Row>(`SELECT * FROM ${CLOUD_MAPPING_FROM} ${where} ${requestedSort || "ORDER BY updatedAt DESC"} LIMIT :limit OFFSET :offset`, { ...values, limit: pageSize, offset }),
   ]);
-  const rows = rawRows.map(({ customerDisplayName, ...row }) => ({ ...row, customerName: customerDisplayName ?? row.customerName }));
+  const rows = rawRows.map(({ customerDisplayName, ...row }) =>
+    normalizeCloudDateFields({ ...row, customerName: customerDisplayName ?? row.customerName }),
+  );
   return { items: rows, total: Number(count[0]?.total ?? 0), page, pageSize };
 }
 

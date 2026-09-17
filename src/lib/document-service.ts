@@ -1,5 +1,6 @@
 import { randomUUID } from "crypto";
 import { execute, queryRows } from "./db";
+import { normalizeTemporalFields } from "./display-format";
 import {
   assertCanDeleteFolder,
   categorizeDocumentFile,
@@ -97,7 +98,18 @@ export async function getDocumentItems(folderId = DOCUMENT_ROOT_ID, options: { p
   );
   const files = storedFiles.map(toDocumentFile);
   const breadcrumbs = await getFolderBreadcrumbs(folderId);
-  return { folder, folders, files, breadcrumbs, total, page, pageSize, totalPages };
+  const folderTemporal = { datetime: ["createdAt", "updatedAt"] };
+  const fileTemporal = { datetime: ["uploadedAt", "updatedAt"] };
+  return {
+    folder: normalizeTemporalFields(folder, folderTemporal),
+    folders: folders.map((item) => normalizeTemporalFields(item, folderTemporal)),
+    files: files.map((item) => normalizeTemporalFields(item, fileTemporal)),
+    breadcrumbs: breadcrumbs.map((item) => normalizeTemporalFields(item, folderTemporal)),
+    total,
+    page,
+    pageSize,
+    totalPages,
+  };
 }
 
 export async function getDocumentTree() {

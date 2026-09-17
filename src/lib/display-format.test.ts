@@ -9,6 +9,26 @@ describe("display format", () => {
     expect(formatDisplayValue("2026-07-01 13:45:20")).toBe("2026-07-01");
   });
 
+  it("shows datetime to the minute for both local strings and Date values", () => {
+    const local = new Date(2026, 7, 30, 8, 23, 9);
+    expect(formatDisplayValue(local, "datetime")).toBe("2026-08-30 08:23");
+    // ISO 字符串按本地时间换算，不会出现 UTC 截取导致的 8 小时偏差
+    expect(formatDisplayValue(local.toISOString(), "datetime")).toBe("2026-08-30 08:23");
+    expect(formatDisplayValue("2026-08-30 08:23:09", "datetime")).toBe("2026-08-30 08:23");
+    // 已是本地格式的字符串不做二次时区转换
+    expect(formatDisplayValue("2026-08-30T08:23:09", "datetime")).toBe("2026-08-30 08:23");
+  });
+
+  it("keeps seconds only for the explicit debug type", () => {
+    expect(formatDisplayValue("2026-08-30 08:23:09", "datetime-seconds")).toBe("2026-08-30 08:23:09");
+    expect(formatDisplayValue("2026-08-30 08:23:09", "datetime")).toBe("2026-08-30 08:23");
+  });
+
+  it("does not invent a time for date-only values", () => {
+    expect(formatDisplayValue("2026-08-30", "datetime")).toBe("2026-08-30");
+    expect(formatDisplayValue("2026-08-30", "date")).toBe("2026-08-30");
+  });
+
   it("keeps number formatting unchanged", () => {
     expect(formatDisplayValue(1234.56789)).toBe("1,234.5679");
     expect(formatDisplayValue(1234.56789, "number")).toBe("1,234.5679");

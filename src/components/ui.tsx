@@ -1,5 +1,6 @@
 import { clsx } from "clsx";
 import { forwardRef } from "react";
+import { formatDisplayValue } from "@/lib/display-format";
 
 export function Button({
   children,
@@ -93,21 +94,24 @@ export function AuditInfoBar({
   confirmedAt?: unknown;
 }) {
   const fields = [
-    ["创建人", createdBy],
-    ["创建时间", createdAt],
-    ["更新人", updatedBy],
-    ["更新时间", updatedAt],
-    ["确认人", confirmedBy],
-    ["确认时间", confirmedAt],
+    ["创建人", createdBy, "text"],
+    ["创建时间", createdAt, "datetime"],
+    ["更新人", updatedBy, "text"],
+    ["更新时间", updatedAt, "datetime"],
+    ["确认人", confirmedBy, "text"],
+    ["确认时间", confirmedAt, "datetime"],
   ] as const;
   return (
     <div className="grid gap-3 border-t border-line-soft bg-surface-2 p-4 text-xs text-ink-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6">
-      {fields.map(([label, value]) => (
-        <div className="min-w-0" key={label}>
-          <span className="block">{label}</span>
-          <span className="mt-1 block truncate text-sm text-ink-2" title={value == null ? "-" : String(value)}>{value == null || value === "" ? "-" : String(value)}</span>
-        </div>
-      ))}
+      {fields.map(([label, value, type]) => {
+        const displayText = value == null || value === "" ? "-" : formatDisplayValue(value as never, type);
+        return (
+          <div className="min-w-0" key={label}>
+            <span className="block">{label}</span>
+            <span className="mt-1 block whitespace-nowrap text-sm text-ink-2" title={displayText}>{displayText}</span>
+          </div>
+        );
+      })}
     </div>
   );
 }

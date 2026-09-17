@@ -1,5 +1,6 @@
 import { randomUUID } from "crypto";
 import { execute, queryRows, type Row } from "./db";
+import { normalizeTemporalFields } from "./display-format";
 import {
   buildImportPreview,
   getImportTarget,
@@ -446,7 +447,7 @@ export async function listImportJobs(searchParams = new URLSearchParams()): Prom
     },
   );
   return {
-    jobs,
+    jobs: jobs.map((job) => normalizeTemporalFields(job, { datetime: ["createdAt", "updatedAt", "confirmedAt"] })),
     total: Number(total ?? 0),
     page: pagination.page,
     pageSize: pagination.pageSize,

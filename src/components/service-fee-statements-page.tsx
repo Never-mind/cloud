@@ -61,9 +61,9 @@ const columns: Array<{ key: string; label: string; type?: string }> = [
   { key: "customerReceivable", label: "客户应收" },
   { key: "customerReceived", label: "客户实收" },
   { key: "customerInvoice", label: "客户开票" },
-  { key: "createdAt", label: "创建日期", type: "date" },
-  { key: "updatedAt", label: "更新日期", type: "date" },
-  { key: "confirmedAt", label: "确认日期", type: "date" },
+  { key: "createdAt", label: "创建时间", type: "datetime" },
+  { key: "updatedAt", label: "更新时间", type: "datetime" },
+  { key: "confirmedAt", label: "确认时间", type: "datetime" },
   { key: "status", label: "确认状态" },
 ];
 const tableColumns = columns.map((column) => ({ ...column, sortable: true, filterable: true }));

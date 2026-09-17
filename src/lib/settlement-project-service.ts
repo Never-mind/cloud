@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import * as XLSX from "xlsx";
 import { execute, queryRows, type Row } from "./db";
 import { normalizeDateOnlyValue } from "./date-only";
+import { normalizeTemporalFields } from "./display-format";
 import type { OperationActor } from "./operation-actor";
 import { appendTableInFilter, getTableSort, listSqlFilterOptions } from "./table-query";
 import { customerDisplaySql } from "./customer-display";
@@ -293,7 +294,7 @@ async function getProject(projectId: string) {
 }
 
 function normalizeProject(project: SettlementProject): SettlementProject {
-  return {
+  return normalizeTemporalFields({
     ...project,
     status: normalizeSettlementStatus(project.status),
     exchangeRateUsd: numeric(project.exchangeRateUsd, 1),
@@ -304,8 +305,13 @@ function normalizeProject(project: SettlementProject): SettlementProject {
     receivedRevenueTaxIncludedUsd: numeric(project.receivedRevenueTaxIncludedUsd),
     receivedRevenueUsd: numeric(project.receivedRevenueUsd),
     grossProfitUsd: numeric(project.grossProfitUsd),
-  };
+  }, { datetime: SETTLEMENT_PROJECT_DATE_TIME_FIELDS });
 }
+
+const SETTLEMENT_PROJECT_DATE_TIME_FIELDS = [
+  "acceptanceCompletedAt", "acceptanceStartedAt", "closedAt", "confirmedAt",
+  "createdAt", "procurementCompletedAt", "updatedAt",
+];
 
 function normalizeItem(item: SettlementItem): SettlementItem {
   return {

@@ -302,7 +302,7 @@ export async function listEntityRows(config: EntityConfig, searchParams: URLSear
     : config.key === "request-items"
     ? partyDisplayFields
     : config.key === "purchase-orders"
-      ? new Set(["requestType"])
+      ? new Set(["requestType", "countryCode"])
       : config.key === "service-fee-snapshots"
         ? new Set(["receivingUnitCode", "payerCustomerCode", "undertakingUnitName", "customerName"])
         : derivedRequestTypeEntityKeys.has(config.key)
@@ -334,7 +334,10 @@ export async function listEntityRows(config: EntityConfig, searchParams: URLSear
     })
     .concat(
       config.listFields
-        .filter((field) => derivedRequestTypeEntityKeys.has(config.key) && field.key === "requestType")
+        .filter((field) =>
+          (derivedRequestTypeEntityKeys.has(config.key) && field.key === "requestType")
+          || (config.key === "purchase-orders" && field.key === "countryCode"),
+        )
         .map((field) => `${getEntityDisplayFieldExpression(config, field.key)} AS ${quoteIdentifier(field.key)}`),
     )
     .concat(config.key === "customer-pos"
@@ -665,7 +668,7 @@ function getEntitySortReference(config: EntityConfig, field: string, shipmentAli
       : derivedRequestTypeEntityKeys.has(config.key)
         ? new Set(["requestType", ...partyDisplayFields])
       : config.key === "purchase-orders"
-        ? new Set(["requestType"])
+        ? new Set(["requestType", "countryCode"])
         : financePartyEntityKeys.has(config.key)
           ? partyDisplayFields
           : new Set<string>();
@@ -814,6 +817,16 @@ function getEntityDisplayFieldExpression(config: EntityConfig, field: string, sh
   const source = shipmentAlias ? `${shipmentAlias}.` : `${quoteIdentifier(config.table)}.`;
   const derivedRequestType = field === "requestType" ? getDerivedRequestTypeExpression(config, source) : "";
   if (derivedRequestType) return derivedRequestType;
+  // 采购订单主表没有国家字段，国家挂在来源需求单上，这里按明细回查，避免直接引用不存在的列。
+  if (config.key === "purchase-orders" && field === "countryCode") {
+    return `(SELECT UPPER(TRIM(SUBSTRING_INDEX(countryRequest.countryCode, '-', 1)))
+       FROM purchaseorderitems countryItem
+       LEFT JOIN requestitems countryRequestItem ON countryRequestItem.id = countryItem.requestItemId
+       LEFT JOIN requests countryRequest ON countryRequest.requestNo = COALESCE(NULLIF(countryItem.requestNo, ''), countryRequestItem.requestNo)
+      WHERE countryItem.purchaseOrderId = ${source}purchaseOrderId
+        AND COALESCE(countryRequest.countryCode, '') <> ''
+      ORDER BY countryRequest.countryCode LIMIT 1)`;
+  }
   if (config.key === "customer-pos") {
     if (field === "undertakingUnitName") {
       return `(SELECT COALESCE(NULLIF(unit.shortName, ''), NULLIF(unit.entityName, ''), NULLIF(unit.name, ''), NULLIF(unit.undertakingUnitCode, ''), ${source}undertakingUnitId) FROM merge_common_undertaking_units unit WHERE unit.undertakingUnitId = ${source}undertakingUnitId OR unit.undertakingUnitCode = ${source}undertakingUnitId OR unit.entityCode = ${source}undertakingUnitId LIMIT 1)`;
@@ -971,6 +984,10 @@ function filterableFieldReference(config: EntityConfig, field: string, shipmentA
 function getEntityFilterFieldExpression(config: EntityConfig, field: string, shipmentAlias = "") {
   const reference = filterableFieldReference(config, field, shipmentAlias);
   const fieldConfig = config.listFields.find((item) => item.key === field);
+  // 采购订单的国家来自来源需求单，取同一份派生表达式，保证筛选与列表口径一致。
+  if (config.key === "purchase-orders" && field === "countryCode") {
+    return getEntityDisplayFieldExpression(config, field, shipmentAlias);
+  }
   if (field === "countryCode") return normalizeCountryExpression(reference);
   return fieldConfig?.type === "date" || fieldConfig?.type === "datetime"
     ? formatTableDateExpression(reference)

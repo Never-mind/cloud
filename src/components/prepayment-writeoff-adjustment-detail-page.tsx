@@ -52,8 +52,8 @@ const confirmedColumns: Array<{ key: string; label: string; type?: string }> = [
   { key: "originalMonthlyAmount", label: "原月核销金额", type: "number" },
   { key: "adjustedMonthlyAmount", label: "调整后月核销金额", type: "number" },
   { key: "differenceAmount", label: "差额", type: "number" },
-  { key: "createdAt", label: "创建日期", type: "date" },
-  { key: "updatedAt", label: "更新日期", type: "date" },
+  { key: "createdAt", label: "创建时间", type: "datetime" },
+  { key: "updatedAt", label: "更新时间", type: "datetime" },
 ];
 
 export function PrepaymentWriteOffAdjustmentDetailPage({ adjustmentNo: routeAdjustmentNo }: { adjustmentNo: string }) {
@@ -417,7 +417,7 @@ function AdjustmentTable({
                     {formatValue(row[column.key], column.type)}
                   </td>
                 ))}
-                <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3">
+                <td className="border-b border-r border-line-soft px-3 py-3">
                   <NumberInput
                     className="min-w-[120px]"
                     step="0.0001"

@@ -1,5 +1,6 @@
 import * as XLSX from "xlsx";
 import { queryRows, type Row } from "./db";
+import { formatDisplayValue } from "./display-format";
 import {
   getTableSort,
   getTableFilterOptionsOrderBy,
@@ -103,13 +104,8 @@ function text(value: unknown) {
 
 function dateText(value: unknown, withTime = false) {
   if (value === null || value === undefined || value === "") return null;
-  const raw = String(value).trim();
-  if (/^\d{4}-\d{2}-\d{2}/.test(raw)) return raw.replace("T", " ").slice(0, withTime ? 16 : 10);
-  const parsed = new Date(raw);
-  if (Number.isNaN(parsed.getTime())) return raw;
-  const date = `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, "0")}-${String(parsed.getDate()).padStart(2, "0")}`;
-  if (!withTime) return date;
-  return `${date} ${String(parsed.getHours()).padStart(2, "0")}:${String(parsed.getMinutes()).padStart(2, "0")}`;
+  // 统一走公共格式化：ISO 字符串按本地时间换算，不再按 UTC 截取。
+  return formatDisplayValue(value as never, withTime ? "datetime" : "date");
 }
 
 function numeric(value: unknown, fallback = 0) {

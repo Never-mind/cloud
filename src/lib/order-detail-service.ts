@@ -1,4 +1,16 @@
 import { queryRows, type Row } from "./db";
+import { normalizeTemporalFields } from "./display-format";
+
+const REQUEST_MASTER_TEMPORAL = {
+  datetime: ["createdAt", "updatedAt", "cancelledAt", "remoteStatusUpdatedAt"],
+  date: ["plannedDeliveryDate"],
+};
+const PURCHASE_MASTER_TEMPORAL = {
+  datetime: ["createdAt", "updatedAt"],
+  date: ["paymentDate", "releasedAt"],
+};
+const REQUEST_ITEM_TEMPORAL = { datetime: ["createdAt", "updatedAt"], date: ["requestedAt"] };
+const PURCHASE_ITEM_TEMPORAL = { datetime: ["createdAt", "updatedAt"] };
 
 export type OrderDetailType = "requests" | "purchase-orders";
 
@@ -36,7 +48,13 @@ async function getRequestOrderDetail(requestNo: string): Promise<OrderDetailData
     { requestNo },
   );
 
-  return { master: masterRows[0] ?? null, details, requestItems: details, instanceModels: [] };
+  const normalizedDetails = details.map((row) => normalizeTemporalFields(row, REQUEST_ITEM_TEMPORAL));
+  return {
+    master: masterRows[0] ? normalizeTemporalFields(masterRows[0], REQUEST_MASTER_TEMPORAL) : null,
+    details: normalizedDetails,
+    requestItems: normalizedDetails,
+    instanceModels: [],
+  };
 }
 
 async function getPurchaseOrderDetail(purchaseOrderId: string): Promise<OrderDetailData> {
@@ -87,7 +105,12 @@ async function getPurchaseOrderDetail(purchaseOrderId: string): Promise<OrderDet
     ),
   ]);
 
-  return { master: masterRows[0], details, requestItems, instanceModels };
+  return {
+    master: normalizeTemporalFields(masterRows[0], PURCHASE_MASTER_TEMPORAL),
+    details: details.map((row) => normalizeTemporalFields(row, PURCHASE_ITEM_TEMPORAL)),
+    requestItems: requestItems.map((row) => normalizeTemporalFields(row, REQUEST_ITEM_TEMPORAL)),
+    instanceModels,
+  };
 }
 
 function latestInstanceContractExpression(column: string, date = false) {
