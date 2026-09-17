@@ -15,14 +15,14 @@ export function Button({
   const tones = {
     // 层级约定：primary / success 用实心，表示主操作；secondary 用蓝框白底表示查询类次级主操作；
     // default / warning / danger 用描边，表示工具类操作。导出这类工具按钮不再用整块亮黄填充。
-    default: "border border-line bg-white text-ink-2 hover:border-[#c6cbd4] hover:bg-[#f7f8fa]",
+    default: "border border-line bg-white text-ink-2 hover:border-ink-4 hover:bg-surface-2",
     primary: "border border-primary bg-primary text-white hover:border-primary-dark hover:bg-primary-dark",
     // 查询/搜索专用：白底蓝框蓝字，避免与蓝实心的“新建”撞色，也区别于白底灰框的刷新/重置。
     secondary: "border border-primary bg-white text-primary hover:border-primary-dark hover:bg-info-soft",
     success: "border border-success bg-success text-white hover:border-success-dark hover:bg-success-dark",
     // 描边式提醒按钮：白底 + 琥珀边框 + 深琥珀文字（对比度约 6.4:1），hover 时浅琥珀底。
     warning: "border border-warning-deep bg-white text-warning-ink hover:border-warning-border hover:bg-warning-soft",
-    danger: "border border-danger bg-danger-soft text-danger hover:border-[#f78989] hover:bg-danger-border",
+    danger: "border border-danger bg-danger-soft text-danger hover:border-danger-border-strong hover:bg-danger-border",
   };
   const sizes = {
     default: "h-9 gap-1 px-3 text-sm",

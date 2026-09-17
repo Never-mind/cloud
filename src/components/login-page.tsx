@@ -43,7 +43,7 @@ export function LoginPage() {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-[#f2f6fb] px-4">
+    <main className="flex min-h-screen items-center justify-center bg-canvas px-4">
       <section className="w-full max-w-[420px] border border-line bg-white p-8 shadow-sm">
         <div className="mb-7">
           <div className="mb-2 text-2xl font-medium text-ink">算力交付管理系统</div>

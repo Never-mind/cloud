@@ -17,6 +17,7 @@ import { PurchaseOrderDemandPlanTabs } from "./purchase-order-demand-plan-tabs";
 import { getReturnTo } from "@/lib/client-list-navigation";
 import { readJsonResponse } from "@/lib/client-response";
 import { AuditInfoBar, Button, Input, Panel, Select } from "./ui";
+import { EmptyState } from "./table-state";
 import { NumberInput as NumberField } from "./number-input";
 import { notify } from "./app-dialog";
 import { StickyTable } from "./sticky-table";
@@ -437,9 +438,7 @@ export function OrderDetailPage({
               })}
               {!details.length ? (
                 <tr>
-                  <td className="py-10 text-center text-ink-3" colSpan={detailColumns.length}>
-                    暂无明细
-                  </td>
+                  <td className="py-12 text-center text-ink-3" colSpan={detailColumns.length}><EmptyState title="暂无明细" /></td>
                 </tr>
               ) : null}
             </tbody>

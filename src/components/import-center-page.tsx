@@ -7,6 +7,7 @@ import { DEFAULT_PAGE_SIZE } from "@/lib/pagination";
 import { PaginationBar } from "./pagination-bar";
 import { StickyTable } from "./sticky-table";
 import { Button, Panel, Select } from "./ui";
+import { EmptyState } from "./table-state";
 import { confirmDialog, notify } from "./app-dialog";
 
 type ImportTarget = {
@@ -167,7 +168,7 @@ export function ImportCenterPage() {
                 className={`w-full border px-3 py-3 text-left text-sm ${
                   currentTarget?.key === target.key
                     ? "border-primary bg-info-soft text-primary"
-                    : "border-line-soft bg-white text-ink-2 hover:border-[#c6e2ff]"
+                    : "border-line-soft bg-white text-ink-2 hover:border-info-border"
                 }`}
                 key={target.key}
                 type="button"
@@ -331,7 +332,7 @@ export function ImportCenterPage() {
                   ))}
                   {!jobs.length ? (
                     <tr>
-                      <td className="py-10 text-center text-ink-3" colSpan={12}>暂无导入历史</td>
+                      <td className="py-12 text-center text-ink-3" colSpan={12}><EmptyState title="暂无导入历史" /></td>
                     </tr>
                   ) : null}
                 </tbody>

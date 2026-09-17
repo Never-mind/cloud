@@ -23,6 +23,7 @@ import { formatDateInputValue, formatDisplayValue } from "@/lib/display-format";
 import { postWorkspaceMessage } from "@/lib/tab-workspace";
 import type { EntityConfig } from "@/lib/modules";
 import { TableColumnMenu, type TableFilterOption, type TableSortOrder } from "./table-column-menu";
+import { PaginationBar } from "./pagination-bar";
 import { StickyTable } from "./sticky-table";
 import { StatusTag } from "./status-tag";
 import { AuditInfoBar, Button, Input, Panel, Select, Textarea } from "./ui";
@@ -221,8 +222,6 @@ export function CustomerPoListPage({ config }: { config: EntityConfig }) {
     }));
   }
 
-  const canPrevious = page > 1;
-  const canNext = page < totalPages;
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-end gap-3">
@@ -271,7 +270,7 @@ export function CustomerPoListPage({ config }: { config: EntityConfig }) {
             </tbody>
           </table>
         </StickyTable>
-        <div className="flex items-center justify-between border-t border-line-soft px-4 py-3 text-sm text-ink-2"><span>第 {page} / {totalPages} 页</span><div className="flex items-center gap-2"><Select value={pageSize} onChange={(event) => { setPage(1); setPageSize(Number(event.target.value)); }}><option value={20}>20条/页</option><option value={50}>50条/页</option><option value={100}>100条/页</option></Select><Button disabled={!canPrevious} onClick={() => setPage((value) => value - 1)}>上一页</Button><Button disabled={!canNext} onClick={() => setPage((value) => value + 1)}>下一页</Button></div></div>
+        <PaginationBar onPageChange={setPage} onPageSizeChange={setPageSize} page={page} pageSize={pageSize} total={total} />
       </Panel>
     </div>
   );
@@ -615,7 +614,7 @@ function CustomerPoItemRow({ editing, row, onChange, onRemove }: { editing: bool
     <td className="border-b border-r border-line-soft px-2 py-2">{input("targetUnitPrice", "number", "w-full !min-w-0")}</td>
     <td className="border-b border-r border-line-soft px-2 py-2">{input("currency", "text", "w-full !min-w-0")}</td>
     <td className="border-b border-r border-line-soft px-2 py-2"><ProductMasterPicker disabled={!editing} value={String(row.matchedProductCode ?? "")} label={String(row.matchedProductName ?? "")} onChange={(product) => { onChange(id, "matchedProductCode", product?.productCode ?? ""); onChange(id, "productMasterId", product?.productMasterId ?? null); onChange(id, "productModelId", product?.productModelId ?? null); onChange(id, "productSpecId", product?.productSpecId ?? null); onChange(id, "matchStatus", product ? "matched" : "unmatched"); }} /></td>
-    <td className="border-b border-r border-line-soft px-2 py-2">{String(row.matchStatus ?? "unmatched") === "matched" ? <span className="text-[#13a561]">已匹配</span> : <span className="text-ink-3">未匹配</span>}</td>
+    <td className="border-b border-r border-line-soft px-2 py-2">{String(row.matchStatus ?? "unmatched") === "matched" ? <span className="text-success-dark">已匹配</span> : <span className="text-ink-3">未匹配</span>}</td>
     <td className="border-b border-r border-line-soft px-2 py-2">{input("remark")}</td>
     {editing ? <td className="sticky right-0 border-b border-line-soft bg-white px-2 py-2"><button className="inline-flex h-8 w-8 items-center justify-center text-danger hover:text-danger-strong" type="button" aria-label="删除明细" title="删除明细" onClick={() => onRemove(row)}><Trash2 size={15} /></button></td> : null}
   </tr>;

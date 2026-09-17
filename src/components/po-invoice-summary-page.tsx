@@ -184,7 +184,7 @@ export function PoInvoiceSummaryPage() {
 }
 
 function Metric({ label, value, tone }: { label: string; value: number; tone: "success" | "warning" | "primary" }) {
-  const border = tone === "success" ? "border-[#b7ebc6]" : tone === "warning" ? "border-[#f5d79a]" : "border-[#b8d8f8]";
+  const border = tone === "success" ? "border-success-border" : tone === "warning" ? "border-warning-border-soft" : "border-info-border";
   return <div className={`min-h-[84px] rounded border bg-white px-4 py-3 shadow-sm ${border}`}><div className="text-xs text-ink-3">{label}</div><div className="mt-2 text-xl font-semibold text-ink">{money(value)}</div></div>;
 }
 

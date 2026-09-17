@@ -14,7 +14,7 @@ export function StatusTag({ status, label, children }: StatusTagProps) {
       : status === "procurement_completed"
         ? "bg-info-soft text-info"
         : status === "accepting"
-          ? "bg-[#f0f0ff] text-[#626aef]"
+          ? "bg-tag-indigo text-tag-indigo-fg"
           : "bg-warning-soft text-warning-deep";
 
   return <span className={`inline-flex items-center rounded px-2 py-1 text-xs font-medium ${className}`}>{children ?? label}</span>;

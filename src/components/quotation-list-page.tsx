@@ -577,7 +577,7 @@ export function QuotationDetailPage({ id }: { id: string }) {
         <Button onClick={() => { const link = document.createElement("a"); link.href = `/api/entities/quotations/export?filter.quotationNo=${encodeURIComponent(String(quotation.quotationNo ?? ""))}`; link.download = ""; link.click(); }}><FileDown size={15} />导出主单</Button>
       </div>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7">
-        {summaryCards.map((card) => <div className="min-w-0 min-h-[84px] rounded border border-[#d9e2ec] bg-white px-4 py-3 shadow-sm" key={card.label}><div className="truncate text-xs text-ink-3" title={card.label}>{card.label}</div><div className="mt-2 truncate text-xl font-semibold text-ink" title={card.value}>{card.value}</div></div>)}
+        {summaryCards.map((card) => <div className="min-w-0 min-h-[84px] rounded border border-line bg-white px-4 py-3 shadow-sm" key={card.label}><div className="truncate text-xs text-ink-3" title={card.label}>{card.label}</div><div className="mt-2 truncate text-xl font-semibold text-ink" title={card.value}>{card.value}</div></div>)}
       </div>
       {error ? <div className="border border-danger-border bg-danger-soft px-4 py-3 text-sm text-danger">{error}</div> : null}
       {importReport ? <Panel>
@@ -594,7 +594,7 @@ export function QuotationDetailPage({ id }: { id: string }) {
       <Panel>
         <div className="border-b border-line-soft px-4 py-3 font-medium text-ink">报价参数</div>
         <div className="grid grid-cols-2 gap-3 p-4 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-8">
-          {detailSummaryFields.map((field) => <div className="min-w-0 min-h-[66px] rounded border border-[#d9e2ec] bg-[#f8fafc] px-3 py-2.5" key={field.key}><div className="break-words text-xs leading-5 text-ink-3">{field.label}</div><div className="mt-1 break-words text-sm font-semibold text-ink">{formatQuotationValue(quotation[field.key], field.type, ["exchangeRateUsd", "exchangeRateMxn", "badDebtRate"].includes(field.key))}</div></div>)}
+          {detailSummaryFields.map((field) => <div className="min-w-0 min-h-[66px] rounded border border-line bg-surface-2 px-3 py-2.5" key={field.key}><div className="break-words text-xs leading-5 text-ink-3">{field.label}</div><div className="mt-1 break-words text-sm font-semibold text-ink">{formatQuotationValue(quotation[field.key], field.type, ["exchangeRateUsd", "exchangeRateMxn", "badDebtRate"].includes(field.key))}</div></div>)}
         </div>
       </Panel>
       <Panel>
@@ -602,7 +602,7 @@ export function QuotationDetailPage({ id }: { id: string }) {
         <StickyTable className="table-scroll overflow-auto" tableKey="quotation-detail-items">
           <table className="w-max min-w-full table-auto border-collapse text-sm"><thead className="bg-canvas text-ink"><tr>{itemFields.map((field) => <th className={`whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium ${field.key === "lineNo" ? "w-[72px] min-w-[72px] max-w-[72px]" : ""}`} key={field.key}><TableColumnMenu column={field} filterValues={itemFilters[field.key] ?? []} loadOptions={(keyword) => loadItemOptions(field.key, keyword)} onFilter={(values) => setItemFilters((current) => ({ ...current, [field.key]: values }))} onSort={(order) => { setItemSortField(field.key); setItemSortOrder(order); }} sortOrder={itemSortField === field.key ? itemSortOrder : ""} /></th>)}</tr></thead>
             <tbody>{visibleItems.map((row) => <tr className="hover:bg-surface-2" key={String(row.id)}>{itemFields.map((field) => <td className={`max-w-[240px] truncate whitespace-nowrap border-b border-r border-line-soft px-3 py-3 ${field.key === "lineNo" ? "w-[72px] min-w-[72px] max-w-[72px]" : ""}`} key={field.key}>{renderItemValue(row, field)}</td>)}</tr>)}{!visibleItems.length ? <tr><td className="px-4 py-10 text-center text-ink-3" colSpan={itemFields.length}>暂无报价明细</td></tr> : null}</tbody>
-            <tfoot><tr>{itemFields.map((field) => <td className="whitespace-nowrap border-t border-r border-line-soft bg-[#fcfcfd] px-3 py-3 font-medium" key={field.key}>{formatQuotationSummaryValue(field, quotationSummary)}</td>)}</tr></tfoot>
+            <tfoot><tr>{itemFields.map((field) => <td className="whitespace-nowrap border-t border-r border-line-soft bg-surface-2 px-3 py-3 font-medium" key={field.key}>{formatQuotationSummaryValue(field, quotationSummary)}</td>)}</tr></tfoot>
           </table>
         </StickyTable>
        </Panel>

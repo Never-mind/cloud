@@ -11,7 +11,7 @@ import { PaginationBar } from "./pagination-bar";
 import { StickyTable } from "./sticky-table";
 import { TableColumnMenu, type TableFilterOption, type TableSortOrder } from "./table-column-menu";
 import { WorkspaceNavigationDialog } from "./workspace-navigation-dialog";
-import { TableStateContent } from "./table-state";
+import { EmptyState, TableStateContent } from "./table-state";
 
 type Row = Record<string, string | number | boolean | null>;
 type SnapshotListResponse = { rows: Row[]; total: number; page: number; pageSize: number; totalPages: number };
@@ -264,9 +264,7 @@ export function BillingStatementsPage() {
               ))}
               {!previewRows.length ? (
                 <tr>
-                  <td className="py-10 text-center text-ink-3" colSpan={previewColumns.length}>
-                    请选择条件后预览或生成快照
-                  </td>
+                  <td className="py-12 text-center text-ink-3" colSpan={previewColumns.length}><EmptyState title="请选择条件后预览或生成快照" /></td>
                 </tr>
               ) : null}
             </tbody>

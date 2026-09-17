@@ -311,7 +311,7 @@ export function PurchaseOrderFormPage() {
           <Info label="采购总金额" value={purchaseTotalAmount} type="money" />
         </div>
       </Panel>
-      {saveError ? <div className="border border-[#fbc4c4] bg-danger-soft px-4 py-3 text-sm text-danger">{saveError}</div> : null}
+      {saveError ? <div className="border border-danger-border-strong bg-danger-soft px-4 py-3 text-sm text-danger">{saveError}</div> : null}
 
       <Panel>
         <div className="flex items-center gap-2 border-b border-line-soft px-4 py-3">

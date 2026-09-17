@@ -402,14 +402,14 @@ export function FrappeDemandSyncPage() {
               {ledgerCategories.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
             </Select>
             <Input placeholder="远端单号或本地需求单号" value={keyword} onChange={(event) => setKeyword(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void loadLedger({ page: 1 }); }} />
-            <Button disabled={busy} onClick={() => void loadLedger({ page: 1 })}>查询</Button>
+            <Button disabled={busy} tone="secondary" onClick={() => void loadLedger({ page: 1 })}>查询</Button>
             <Button disabled={busy || !selectedOrders.length} tone="primary" onClick={() => void rebuildSelectedOrders()}><Play size={15} />重新拉取所选（{selectedOrders.length}）</Button>
           </> : <>
             {tab === "material" ? <Select title="按远端实例类型分类" value={materialType} onChange={(event) => setMaterialType(event.target.value)}><option value="">全部类型（{Object.values(materialTypeCounts).reduce((sum, value) => sum + value, 0)}）</option>{materialTypeOptions.map(([value, label]) => <option key={value} value={value}>{label}（{materialTypeCounts[value] ?? 0}）</option>)}</Select> : null}
             <Select title="按本地档案是否存在筛选" value={localEntity} onChange={(event) => setLocalEntity(event.target.value)}><option value="">本地档案：全部</option><option value="exists">仅本地存在</option><option value="missing">仅本地已删除</option></Select>
             <Input placeholder="远端编码、名称或本地档案" value={keyword} onChange={(event) => setKeyword(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void load({ page: 1 }); }} />
             <Select value={status} onChange={(event) => setStatus(event.target.value)}><option value="">全部状态</option><option value="pending">待处理</option><option value="confirmed">已确认</option><option value="conflict">冲突</option><option value="ignored">已忽略</option></Select>
-            <Button disabled={busy} onClick={() => void load({ page: 1 })}>查询</Button>
+            <Button disabled={busy} tone="secondary" onClick={() => void load({ page: 1 })}>查询</Button>
           </>}
         </div>
       </div>

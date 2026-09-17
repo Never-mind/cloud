@@ -191,9 +191,81 @@ table-scroll max-h-[calc(100vh-340px)] ...      ×1
 | 页面回归 | 29 个主要页面全部 200 |
 | 扫描复核 | 裸 `<select>` = 0；未规范表头 = 0；`max-h-[calc(100vh-` 残留 = 0 |
 
-### 5.5 仍未处理
+### 5.5 第 4 ~ 6 项修复情况（同日续做）
 
-第 4 ~ 7 项（空状态统一 50 处、硬编码色值 25 个文件、`customer-po-page` 自绘分页、长表格吸顶表头）按原计划待排期；其中吸顶表头涉及布局，风险相对大，建议单独一轮。
+#### 5.5.1 空状态统一
+
+| 项目 | 修复前 | 修复后 |
+| --- | --- | --- |
+| 手写纯文本空状态（无图标、文案各异） | 15 处 | **0 处** |
+| 使用 `TableStateContent` / `EmptyState` | 40 处 | 55 处 |
+
+15 处手写文案统一为 `<EmptyState title="..." />`（`table-state.tsx` 的公共空状态：图标 + 主文案），`py-10` 归一为 `py-12`，原本文案保留各自业务含义（"暂无映射""暂无供应商付款""暂无快照"等）。自动补齐了 `EmptyState` 的 import（按字母排序）。
+
+#### 5.5.2 硬编码色值归到 token
+
+新增 6 个确实缺失的令牌（取值与原来完全一致，无视觉变化）：
+
+| 令牌 | 值 | 用途 |
+| --- | --- | --- |
+| `--color-skeleton` | `#eef1f5` | 加载骨架、占位块 |
+| `--color-nav-ink` | `#bfcbd9` | 左侧导航普通文字 |
+| `--color-nav-ink-soft` | `#8aa0b8` | 左侧导航次级文字 |
+| `--color-info-ink` | `#2f75b5` | 浅色底上的信息文字 |
+| `--color-danger-border-strong` | `#fbc4c4` | 行内删除按钮边框 |
+| `--color-warning-border-soft` | `#f5dab1` | 浅色警告提示边框 |
+
+其余全部映射到已有语义令牌，共替换 **66 处**：
+
+| 原硬编码 | 处数 | 归到 |
+| --- | --- | --- |
+| `#f4f9ff` / `#f5fbff` / `#e6f4ff` / `#f4faff` / `#f0f5ff` | 10 | `bg-info-soft`（原来有 **5 种不同的浅蓝底**） |
+| `#d9ecff` / `#c6e2ff` / `#b8d8f8` | 8 | `border-info-border`（原来有 3 种信息边框） |
+| `#fff7e6` / `#fff8e6` / `#fffdf5` | 5 | `bg-warning-soft` |
+| `#f0fff7` / `#f0fff4` | 2 | `bg-success-soft` |
+| `#13a85a` / `#13a561` / `#13a65b` | 3 | `text-success-dark` |
+| `#a66b00` / `#b88600` | 2 | `text-warning-ink` |
+| `#e5e7eb` / `#e4e7ed` / `#d9e2ec` | 4 | `border-line` |
+| `#f7f8fa` / `#f8fafc` / `#fcfcfd` | 3 | `bg-surface-2` |
+| `#5b7db1` / `#2f75b5` | 2 | `text-info-ink` |
+| 其余（`#fbc4c4`、`#f78989`、`#b7ebc6`、`#f0f0ff`、`#626aef`、`#f2f6fb` 等） | 27 | 对应语义或新增令牌 |
+
+结果：**硬编码色值 0 处**。
+
+#### 5.5.3 分页与查询按钮
+
+- `customer-po-page` 的自绘分页条替换为 `PaginationBar`（同时删掉因此不再使用的 `canPrevious` / `canNext`）。至此 16 个列表页分页完全统一。
+- 同步台账 / 映射、华为云对账的「查询」按钮补上 `tone="secondary"`，与其它页一致。
+
+#### 5.5.4 验收
+
+| 项目 | 结果 |
+| --- | --- |
+| `npx tsc --noEmit` | 通过 |
+| `npm test` | 318 个单测通过 |
+| `npm run build` | 通过 |
+| 新令牌生效 | 6 个新令牌均在产物 CSS 中生成对应工具类（`bg-skeleton` / `text-nav-ink` / `text-nav-ink-soft` / `text-info-ink` / `border-danger-border-strong` / `border-warning-border-soft`） |
+| 页面回归 | 30 个页面全部 200 |
+| 扫描复核 | 硬编码色值 0、纯文本空状态 0、裸 `<select>` 0 |
+
+### 5.6 第 7 项：吸顶表头**不能直接做**（结论已修正）
+
+原计划"给 68 个 `<thead>` 补 `sticky top-0`"。实际排查后发现这个做法在当前布局下**不成立**：
+
+`position: sticky` 只在**最近的滚动容器**内生效。第 3 项刚把绝大多数表格容器统一成 `table-scroll overflow-auto`（容器有 `overflow` 但不限高），此时**滚动的是页面而不是容器**，表头会被容器整体带出视野，加了 `sticky` 也没有效果。
+
+反过来看当前仅有的 2 处生效案例（华为云对账、服务映射），它们用的是 `table-scroll h-full w-full overflow-auto`——容器有确定高度、自己内部滚动，所以 `sticky` 才有意义，与上面的判断一致。
+
+因此这一项有两选：
+
+1. **不做**（推荐）：当前"列表随内容增长、整页滚动"的布局下，表头本来就会随页面滚走，这是常规后台的常见形态，不影响使用。
+2. **改成固定高度布局再吸顶**：把列表页容器统一改成"撑满剩余视口高度 + 容器内滚动"，再加 `sticky top-0`。收益是表头常驻，但要动所有列表页的外层高度计算（并且要处理详情页里一个页面多张表的场景），属于一轮独立的布局改造。
+
+建议先不做，等有明确诉求再单独排一轮。
+
+### 5.7 仍未处理
+
+只剩第 7 项（吸顶表头），结论见 5.6——不建议在当前布局下直接做。
 
 顺带把 `DESIGN.md` 补齐了：
 

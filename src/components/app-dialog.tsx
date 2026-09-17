@@ -176,7 +176,7 @@ function confirmToneIconClass(tone: ConfirmOptions["tone"]) {
 
 function noticeToneClass(tone: NoticeTone) {
   if (tone === "success") return "border-success-border";
-  if (tone === "error") return "border-[#fbc4c4]";
+  if (tone === "error") return "border-danger-border-strong";
   return "border-line";
 }
 

@@ -14,6 +14,7 @@ import { PURCHASE_CURRENCY_OPTIONS } from "@/lib/purchase-order-form";
 import { fetchAllEntityRows } from "@/lib/client-entity-fetch";
 import { buildDetailRoute, getReturnTo } from "@/lib/client-list-navigation";
 import { Button, Input, Panel, Select } from "./ui";
+import { EmptyState } from "./table-state";
 import { AutoGrowTextarea } from "./auto-grow-textarea";
 import { confirmDialog, notify } from "./app-dialog";
 import { StickyTable } from "./sticky-table";
@@ -359,9 +360,7 @@ export function BillingAdjustmentDetailPage({ adjustmentNo: routeAdjustmentNo }:
               ))}
               {!items.length ? (
                 <tr>
-                  <td className="py-12 text-center text-ink-3" colSpan={itemColumns.length + (canEdit ? 1 : 0)}>
-                    暂无调整明细
-                  </td>
+                  <td className="py-12 text-center text-ink-3" colSpan={itemColumns.length + (canEdit ? 1 : 0)}><EmptyState title="暂无调整明细" /></td>
                 </tr>
               ) : null}
             </tbody>

@@ -284,7 +284,7 @@ export function DocumentManagerPage() {
               <div className="grid grid-cols-[repeat(auto-fill,minmax(190px,1fr))] gap-3">
                 {filteredFolders.map((folder) => (
                   <DocumentTile
-                    icon={<Folder className="text-[#f5a623]" size={30} />}
+                    icon={<Folder className="text-warning-deep" size={30} />}
                     isRenaming={renaming?.type === "folder" && renaming.item.folderId === folder.folderId}
                     key={folder.folderId}
                     name={folder.name}
@@ -369,7 +369,7 @@ function FolderTree({
         <div key={folder.folderId}>
           <button
             className={`flex h-8 w-full min-w-0 items-center gap-2 rounded px-2 text-left text-sm ${
-              activeFolderId === folder.folderId ? "bg-[#e6f4ff] text-primary" : "text-ink-2 hover:bg-white"
+              activeFolderId === folder.folderId ? "bg-info-soft text-primary" : "text-ink-2 hover:bg-white"
             }`}
             onContextMenu={(event) => {
               event.preventDefault();
@@ -380,7 +380,7 @@ function FolderTree({
             title={folder.name}
             type="button"
           >
-            <Folder size={15} className="shrink-0 text-[#f5a623]" />
+            <Folder size={15} className="shrink-0 text-warning-deep" />
             <span className="min-w-0 truncate">{folder.name}</span>
           </button>
           <FolderTree activeFolderId={activeFolderId} folders={folders} onCreateFolder={onCreateFolder} onOpen={onOpen} parentId={folder.folderId} />
@@ -415,7 +415,7 @@ function DocumentTile({
 }) {
   return (
     <div
-      className="flex h-[84px] min-w-0 cursor-default items-center gap-3 rounded border border-line-soft bg-white px-3 hover:border-info-border hover:bg-[#f5fbff]"
+      className="flex h-[84px] min-w-0 cursor-default items-center gap-3 rounded border border-line-soft bg-white px-3 hover:border-info-border hover:bg-info-soft"
       onContextMenu={onContextMenu}
       onDoubleClick={onDoubleClick}
       title={name}

@@ -522,7 +522,7 @@ export function ServiceFeeStatementsPage() {
                               {snapshotNo}
                             </Link>
                           ) : column.key === "status" ? (
-                            <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${confirmed ? "bg-success-soft text-success-strong" : "bg-[#fff7e6] text-warning-deep"}`}>
+                            <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${confirmed ? "bg-success-soft text-success-strong" : "bg-warning-soft text-warning-deep"}`}>
                               {confirmed ? "已确认" : "未确认"}
                             </span>
                           ) : column.key === "billingTotal" || column.key === "prepaymentTotal" ? (
@@ -636,7 +636,7 @@ export function ServiceFeeStatementsPage() {
                         {!confirmed ? (
                           <button
                             aria-label="确认对账单"
-                            className="inline-flex h-8 w-8 items-center justify-center rounded border border-success bg-white text-success transition hover:bg-[#f0fff4] disabled:cursor-not-allowed disabled:opacity-50"
+                            className="inline-flex h-8 w-8 items-center justify-center rounded border border-success bg-white text-success transition hover:bg-success-soft disabled:cursor-not-allowed disabled:opacity-50"
                             disabled={busyNo === snapshotNo}
                             title="确认对账单"
                             type="button"
@@ -893,7 +893,7 @@ function AmountSummary({
     <div className="min-w-[135px] space-y-0.5 text-xs leading-4 text-ink-2">
       {partyFlow ? <div className="max-w-[190px] truncate text-[11px] text-ink-3" title={partyFlow}>{partyFlow}</div> : null}
       {receivableDate ? <div className="text-ink-3">应收日期 <span className="text-ink-2">{String(receivableDate).slice(0, 10)}</span></div> : null}
-      <div className="font-semibold text-[#2f75b5]">{String(currency ?? "").trim() || "-"}</div>
+      <div className="font-semibold text-info-ink">{String(currency ?? "").trim() || "-"}</div>
       <div><span className="text-ink-3">未税 </span>{formatCompactMoney(resolvedNet)}</div>
       <div><span className="text-ink-3">税率 </span>{formatCompactRate(rate)}</div>
       <div><span className="text-ink-3">税金 </span>{formatCompactMoney(tax)}</div>

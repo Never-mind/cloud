@@ -7,7 +7,7 @@ import { getReturnTo } from "@/lib/client-list-navigation";
 import { formatDisplayValue } from "@/lib/display-format";
 import { Button, Panel } from "./ui";
 import { notify } from "./app-dialog";
-import { LoadingBlock } from "./table-state";
+import { EmptyState, LoadingBlock } from "./table-state";
 import { StickyTable } from "./sticky-table";
 
 type Row = Record<string, string | number | boolean | null>;
@@ -112,7 +112,7 @@ export function BillingStatementDetailPage({ snapshotNo }: { snapshotNo: string 
               <div className="text-xs text-ink-3">{field.label}</div>
               <div className="mt-1 break-all text-sm text-ink">
                 {field.key === "status" ? (
-                  <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${confirmed ? "bg-success-soft text-success-strong" : "bg-[#fff7e6] text-warning-deep"}`}>
+                  <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${confirmed ? "bg-success-soft text-success-strong" : "bg-warning-soft text-warning-deep"}`}>
                     {confirmed ? "已确认" : "未确认"}
                   </span>
                 ) : formatValue(data.snapshot?.[field.key], field.type)}
@@ -149,7 +149,7 @@ export function BillingStatementDetailPage({ snapshotNo }: { snapshotNo: string 
                 </tr>
               ))}
               {!data.items.length ? (
-                <tr><td className="py-12 text-center text-ink-3" colSpan={itemColumns.length}>暂无明细</td></tr>
+                <tr><td className="py-12 text-center text-ink-3" colSpan={itemColumns.length}><EmptyState title="暂无明细" /></td></tr>
               ) : null}
             </tbody>
           </table>

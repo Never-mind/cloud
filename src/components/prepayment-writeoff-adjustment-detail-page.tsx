@@ -16,7 +16,7 @@ import { confirmDialog, notify } from "./app-dialog";
 import { PaginationBar } from "./pagination-bar";
 import { StickyTable } from "./sticky-table";
 import { DEFAULT_PAGE_SIZE } from "@/lib/pagination";
-import { TableStateContent } from "./table-state";
+import { EmptyState, TableStateContent } from "./table-state";
 
 type Row = Record<string, string | number | boolean | null>;
 
@@ -436,9 +436,7 @@ function AdjustmentTable({
           })}
           {!rows.length ? (
             <tr>
-              <td className="py-12 text-center text-ink-3" colSpan={availableColumns.length + 2}>
-                暂无已添加明细，请从搜索结果中添加
-              </td>
+              <td className="py-12 text-center text-ink-3" colSpan={availableColumns.length + 2}><EmptyState title="暂无已添加明细，请从搜索结果中添加" /></td>
             </tr>
           ) : null}
         </tbody>
@@ -472,9 +470,7 @@ function ConfirmedTable({ rows }: { rows: Row[] }) {
           ))}
           {!rows.length ? (
             <tr>
-              <td className="py-12 text-center text-ink-3" colSpan={confirmedColumns.length}>
-                暂无调整明细
-              </td>
+              <td className="py-12 text-center text-ink-3" colSpan={confirmedColumns.length}><EmptyState title="暂无调整明细" /></td>
             </tr>
           ) : null}
         </tbody>

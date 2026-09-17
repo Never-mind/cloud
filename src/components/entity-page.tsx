@@ -915,7 +915,7 @@ export function EntityPage({
             </Button>
           ) : null}
           {config.batchDelete && selectedRowIds.length ? (
-            <div className="flex items-center gap-2 rounded border border-[#d9ecff] bg-info-soft px-3 py-1.5">
+            <div className="flex items-center gap-2 rounded border border-info-border bg-info-soft px-3 py-1.5">
               <span className="text-sm text-primary">已选 {selectedRowIds.length} 条</span>
               <Button disabled={batchBusy} tone="danger" onClick={() => void runBatchDelete()}>
                 <Trash2 size={15} />
@@ -952,7 +952,7 @@ export function EntityPage({
         ) : null}
 
         {hiddenColumns.length ? (
-          <div className="border-b border-line-soft bg-[#fffdf5] px-4 py-2 text-xs text-ink-3">
+          <div className="border-b border-line-soft bg-warning-soft px-4 py-2 text-xs text-ink-3">
             当前隐藏字段：{hiddenColumns.map((field) => field.label).join("、")}
           </div>
         ) : null}
@@ -1442,7 +1442,7 @@ export function EntityPage({
               />
             </div>
 
-            <div className="rounded border border-line-soft bg-[#fffdf5] px-3 py-2 text-xs leading-6 text-ink-3">
+            <div className="rounded border border-line-soft bg-warning-soft px-3 py-2 text-xs leading-6 text-ink-3">
               当前隐藏字段：
               {hiddenColumns.length ? hiddenColumns.map((field) => field.label).join("、") : "无"}
             </div>
@@ -1543,7 +1543,7 @@ function PartyListCell({
 function PartyTags({ value }: { value: Row[string] }) {
   const values = String(value ?? "").split(/[,，、;；\n]+/).map((item) => item.trim()).filter(Boolean);
   if (!values.length) return <span>-</span>;
-  return <span className="flex flex-wrap gap-1">{values.slice(0, 4).map((item) => <span className="inline-flex max-w-full items-center bg-[#f0f5ff] px-2 py-1 text-xs text-[#5b7db1]" key={item}>{item}</span>)}{values.length > 4 ? <span className="inline-flex items-center bg-canvas px-2 py-1 text-xs text-ink-3">+{values.length - 4}</span> : null}</span>;
+  return <span className="flex flex-wrap gap-1">{values.slice(0, 4).map((item) => <span className="inline-flex max-w-full items-center bg-info-soft px-2 py-1 text-xs text-info-ink" key={item}>{item}</span>)}{values.length > 4 ? <span className="inline-flex items-center bg-canvas px-2 py-1 text-xs text-ink-3">+{values.length - 4}</span> : null}</span>;
 }
 
 function getConfiguredValue(value: Row[string], field: EntityField) {

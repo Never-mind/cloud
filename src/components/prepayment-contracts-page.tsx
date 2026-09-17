@@ -262,7 +262,7 @@ export function PrepaymentContractsPage() {
             刷新
           </Button>
           {selectedNos.length ? (
-            <div className="flex items-center gap-2 rounded border border-[#d9ecff] bg-info-soft px-3 py-1.5">
+            <div className="flex items-center gap-2 rounded border border-info-border bg-info-soft px-3 py-1.5">
               <span className="text-sm text-primary">已选 {selectedNos.length} 条</span>
               {statusTab === "confirmed" ? (
                 <Button disabled={batchBusy} tone="warning" onClick={() => void runBatch("rollback")}>

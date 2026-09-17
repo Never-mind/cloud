@@ -44,6 +44,20 @@
   --color-danger-strong: #ff4949;
   --color-danger-border: #fde2e2;
 
+  /* 行内危险按钮（删除）的边框：比 danger-border 更明显，hover 再深一档。 */
+  --color-danger-border-strong: #fbc4c4;
+
+  /* 浅色提示的补充配色：警告提示的浅边框、浅底上的信息文字。 */
+  --color-warning-border-soft: #f5dab1;
+  --color-info-ink: #2f75b5;
+
+  /* 加载骨架与占位块底色。 */
+  --color-skeleton: #eef1f5;
+
+  /* 左侧导航文字层次（普通项 / 次级说明）。 */
+  --color-nav-ink: #bfcbd9;
+  --color-nav-ink-soft: #8aa0b8;
+
   /* 状态徽标：浅底 + 深字，五种业务状态需要彼此可区分，因此保留这套配色，
      但收敛成令牌。对比度均在 4.5:1 以上（#fef3c7/#92400e ≈ 7:1）。 */
   --color-tag-amber: #fef3c7;

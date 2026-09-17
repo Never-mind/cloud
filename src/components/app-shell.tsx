@@ -415,14 +415,14 @@ export function AppShell({
   return (
     <div className="app-shell min-h-screen" data-app-shell="outer">
       <AppDialogHost />
-      <aside className="app-sidebar fixed inset-y-0 left-0 z-20 flex flex-col bg-[var(--color-sidebar)] text-[#bfcbd9]">
+      <aside className="app-sidebar fixed inset-y-0 left-0 z-20 flex flex-col bg-[var(--color-sidebar)] text-nav-ink">
         <div className="flex h-[54px] min-w-0 shrink-0 items-center gap-2 px-5 text-white">
           <Boxes className="shrink-0" size={19} />
           <span className="min-w-0 truncate font-medium" title="业务系统">
             业务系统
           </span>
           <button
-            className="ml-auto shrink-0 text-[#bfcbd9] hover:text-white"
+            className="ml-auto shrink-0 text-nav-ink hover:text-white"
             onClick={resetSidebarOrder}
             title="恢复默认目录顺序"
             type="button"
@@ -457,7 +457,7 @@ export function AppShell({
                 <div className={`flex h-14 min-w-0 items-center bg-[var(--color-sidebar-active)] ${draggingGroupTitle === group.title ? "opacity-60" : ""}`}>
                   <button
                     aria-label={`拖动调整${group.title}顺序`}
-                    className="flex h-full shrink-0 cursor-grab items-center px-2 text-[#8aa0b8] hover:text-white active:cursor-grabbing"
+                    className="flex h-full shrink-0 cursor-grab items-center px-2 text-nav-ink-soft hover:text-white active:cursor-grabbing"
                     draggable
                     onDragEnd={() => setDraggingGroupTitle(null)}
                     onDragStart={(event) => {
@@ -514,7 +514,7 @@ export function AppShell({
         </nav>
       </aside>
       <main className="app-content min-h-screen">
-        <header className="app-header sticky top-0 z-10 flex h-[50px] min-w-0 items-center gap-2 border-b border-[#e5e7eb] bg-white px-3 sm:px-4">
+        <header className="app-header sticky top-0 z-10 flex h-[50px] min-w-0 items-center gap-2 border-b border-line bg-white px-3 sm:px-4">
           <Menu size={19} className="shrink-0 text-ink" />
           <div className="app-breadcrumb flex min-w-0 items-center gap-2">
             <span className="truncate text-ink-3">{currentSectionTitle}</span>
@@ -523,7 +523,7 @@ export function AppShell({
           </div>
           <div className="app-header-user ml-auto flex min-w-0 shrink-0 items-center gap-2 text-ink-2 sm:gap-4">
             <span className="app-header-user-name max-w-[24vw] truncate">{currentUserName || "用户"}</span>
-            <div className="h-8 w-8 rounded bg-[#eef1f5]" />
+            <div className="h-8 w-8 rounded bg-skeleton" />
             <button
               aria-label="退出登录"
               className="app-logout inline-flex h-8 shrink-0 items-center gap-1 rounded border border-line px-2 text-xs hover:border-primary hover:text-primary"
@@ -650,7 +650,7 @@ function ChildNavGroup({
   return (
     <div>
       <button
-        className="flex h-9 w-full min-w-0 items-center gap-2 text-left text-xs font-medium text-[#8aa0b8] hover:text-white pr-3"
+        className="flex h-9 w-full min-w-0 items-center gap-2 text-left text-xs font-medium text-nav-ink-soft hover:text-white pr-3"
         style={{ paddingLeft: `${8 + Math.min(depth, 4) * 8}px` }}
         onClick={() => setOpenGroups((current) => toggleGroup(current, childKey))}
         title={child.title}

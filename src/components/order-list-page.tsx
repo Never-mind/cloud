@@ -713,9 +713,9 @@ export function OrderListPage({
 
 function StatusBadge({ mode, value }: { mode: PageMode; value: string }) {
   const tone = isConfirmedOrderStatus(mode, value)
-    ? "border-success bg-[#f0fff7] text-[#13a85a]"
+    ? "border-success bg-success-soft text-success-dark"
     : value === "草稿" || value === "待采购"
-      ? "border-warning bg-[#fff8e6] text-[#b88600]"
+      ? "border-warning bg-warning-soft text-warning-ink"
       : "border-line bg-white text-ink-2";
 
   return <span className={`inline-flex rounded border px-2 py-0.5 text-xs ${tone}`}>{value}</span>;
