@@ -1,4 +1,5 @@
 import { execute, executeInTransaction, queryRows, withTransaction, type Row } from "./db";
+import type { PoolConnection } from "mysql2/promise";
 import { firstDayOfMonth } from "./prepayment-workflow";
 import { appendTableFilterOptionConditions, appendTableInFilter, getTableFilterOptionsOrderBy, getTableSort } from "./table-query";
 import {
@@ -230,10 +231,13 @@ export async function savePrepaymentWriteOffAdjustment(payload: PrepaymentAdjust
       reason: payload.reason ?? "",
     },
   );
-  await execute("DELETE FROM prepaymentwriteoffadjustmentitems WHERE adjustmentNo = :adjustmentNo", { adjustmentNo });
-  for (const item of items) {
-    await insertAdjustmentItem(item);
-  }
+  // 明细整体替换放进事务：中途失败不再留下"删了一半、插了一半"的数据。
+  await withTransaction(async (connection) => {
+    await executeInTransaction(connection, "DELETE FROM prepaymentwriteoffadjustmentitems WHERE adjustmentNo = :adjustmentNo", { adjustmentNo });
+    for (const item of items) {
+      await insertAdjustmentItem(item, connection);
+    }
+  });
 
   return getPrepaymentWriteOffAdjustment(adjustmentNo);
 }
@@ -403,9 +407,11 @@ async function getMonthlyWriteOffRowsByIds(ids: string[]) {
   );
 }
 
-async function insertAdjustmentItem(item: PrepaymentWriteOffAdjustmentItemDraft) {
-  await execute(
-    `
+async function insertAdjustmentItem(
+  item: PrepaymentWriteOffAdjustmentItemDraft,
+  connection: PoolConnection | null = null,
+) {
+  const sql = `
       INSERT INTO prepaymentwriteoffadjustmentitems
         (id, adjustmentNo, monthlyWriteOffId, contractNo, contractLineId, writeOffMonth,
          countryCode, batchName, requestNo, poNo, deviceCode, modelCode, nameEn, quantity,
@@ -414,9 +420,9 @@ async function insertAdjustmentItem(item: PrepaymentWriteOffAdjustmentItemDraft)
         (:id, :adjustmentNo, :monthlyWriteOffId, :contractNo, :contractLineId, :writeOffMonth,
          :countryCode, :batchName, :requestNo, :poNo, :deviceCode, :modelCode, :nameEn, :quantity,
          :currency, :originalMonthlyAmount, :adjustedMonthlyAmount, :differenceAmount)
-    `,
-    item,
-  );
+    `;
+  if (connection) await executeInTransaction(connection, sql, item);
+  else await execute(sql, item);
 }
 
 function roundMoney(value: number) {

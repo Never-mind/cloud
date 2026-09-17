@@ -394,7 +394,7 @@ function AdjustmentTable({
   onRemove: (id: string) => void;
 }) {
   return (
-    <StickyTable className="table-scroll overflow-auto" tableKey="prepayment-writeoff-adjustment-detail-selected">
+    <StickyTable className="table-scroll table-viewport overflow-auto" tableKey="prepayment-writeoff-adjustment-detail-selected">
       <table className="min-w-full border-collapse text-sm">
         <thead className="bg-canvas text-ink">
           <tr>
@@ -447,7 +447,7 @@ function AdjustmentTable({
 
 function ConfirmedTable({ rows }: { rows: Row[] }) {
   return (
-    <StickyTable className="table-scroll overflow-auto" tableKey="prepayment-writeoff-adjustment-detail-confirmed">
+    <StickyTable className="table-scroll table-viewport overflow-auto" tableKey="prepayment-writeoff-adjustment-detail-confirmed">
       <table className="min-w-full border-collapse text-sm">
         <thead className="bg-canvas text-ink">
           <tr>

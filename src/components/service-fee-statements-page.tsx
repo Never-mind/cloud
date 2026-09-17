@@ -486,7 +486,7 @@ export function ServiceFeeStatementsPage() {
           />
         </div>
 
-        <StickyTable className="table-scroll overflow-auto" tableKey="service-fee-statements">
+        <StickyTable className="table-scroll table-viewport overflow-auto" tableKey="service-fee-statements">
           <table className="min-w-full border-collapse text-sm">
             <thead className="bg-canvas text-ink">
               <tr>

@@ -130,7 +130,7 @@ export function InternalServiceFeeAvailablePage() {
           <Button tone="success" onClick={() => void initialize()}><CheckSquare size={15} />初始化已选（{selected.length}）</Button>
           <Button tone="primary" onClick={() => void initialize(currentPageIds)}>初始化本页（{rows.length}）</Button>
         </div>
-        <StickyTable className="table-scroll overflow-auto" tableKey="internal-service-fee-available">
+        <StickyTable className="table-scroll table-viewport overflow-auto" tableKey="internal-service-fee-available">
           <table className="w-full min-w-[1560px] border-collapse text-sm">
             <thead className="bg-canvas text-ink">
               <tr>

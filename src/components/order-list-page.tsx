@@ -461,7 +461,7 @@ export function OrderListPage({
           {shouldShowPurchaseSourceGenerator(mode) ? <div className="ml-auto" /> : null}
         </div>
 
-        <StickyTable className="table-scroll overflow-auto" tableKey={`orders-${mode}`}>
+        <StickyTable className="table-scroll table-viewport overflow-auto" tableKey={`orders-${mode}`}>
           <table className="w-full min-w-[1180px] border-collapse text-sm">
             <thead className="bg-canvas text-ink">
               <tr>

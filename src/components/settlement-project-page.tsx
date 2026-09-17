@@ -111,7 +111,7 @@ export function SettlementProjectPage() {
           <a className="inline-flex h-8 shrink-0 items-center gap-1 whitespace-nowrap rounded border border-warning-deep bg-white px-3 text-sm text-warning-ink transition-colors hover:border-warning-border hover:bg-warning-soft" href="/api/po/settlement-projects/export"><FileDown size={14} />导出 Excel</a>
         </div>
         {error ? <div className="m-4 border border-tag-red-border bg-tag-red px-3 py-2 text-sm text-tag-red-fg">{error}<button className="ml-3 underline" onClick={() => setError("")}>关闭</button></div> : null}
-        <StickyTable className="table-scroll overflow-auto" tableKey="settlement-projects">
+        <StickyTable className="table-scroll table-viewport overflow-auto" tableKey="settlement-projects">
          <table className="min-w-[2400px] border-collapse text-sm">
             <thead className="bg-canvas"><tr>{columns.map(([field, label]) => <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium" key={field}><TableColumnMenu column={{ key: field, label, sortable: true, filterable: true }} sortOrder={sortField === field ? sortOrder : ""} filterValues={columnFilters[field] ?? []} loadOptions={(optionKeyword) => loadOptions(field, optionKeyword)} onSort={(order) => { setPage(1); setSortField(order ? field : ""); setSortOrder(order); }} onFilter={(values) => { setPage(1); setColumnFilters((current) => ({ ...current, [field]: values })); }} /></th>)}<th className="whitespace-nowrap border-b border-line-soft px-3 py-3 text-left font-medium">操作</th></tr></thead>
              <tbody>{loading ? <tr><td className="px-4 py-12 text-center text-ink-3" colSpan={columns.length + 1}><TableSkeleton /></td></tr> : rows.map((row) => <tr key={row.id}>

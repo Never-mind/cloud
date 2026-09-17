@@ -247,7 +247,7 @@ export function QuotationListPage({ config }: { config: EntityConfig }) {
           <Button tone="warning" size="sm" onClick={() => download(`/api/entities/quotations/export?status=${encodeURIComponent(status)}`)}><FileDown size={14} />导出 Excel</Button>
         </div>
         {error ? <div className="border-b border-danger-border bg-danger-soft px-4 py-3 text-sm text-danger">{error}</div> : null}
-        <StickyTable className="table-scroll overflow-auto" tableKey="quotation-list">
+        <StickyTable className="table-scroll table-viewport overflow-auto" tableKey="quotation-list">
           <table className="min-w-[1500px] border-collapse text-sm">
             <thead className="bg-canvas text-ink"><tr>
               {config.listFields.map((field) => (
@@ -599,7 +599,7 @@ export function QuotationDetailPage({ id }: { id: string }) {
       </Panel>
       <Panel>
         <div className="flex items-center border-b border-line-soft p-4"><div><h2 className="font-medium text-ink">报价明细</h2><p className="mt-1 text-xs text-ink-3">共 {items.length} 条，数量合计 {formatQuotationValue(totalQuantity, "number")}。</p></div></div>
-        <StickyTable className="table-scroll overflow-auto" tableKey="quotation-detail-items">
+        <StickyTable className="table-scroll table-viewport overflow-auto" tableKey="quotation-detail-items">
           <table className="w-max min-w-full table-auto border-collapse text-sm"><thead className="bg-canvas text-ink"><tr>{itemFields.map((field) => <th className={`whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium ${field.key === "lineNo" ? "w-[72px] min-w-[72px] max-w-[72px]" : ""}`} key={field.key}><TableColumnMenu column={field} filterValues={itemFilters[field.key] ?? []} loadOptions={(keyword) => loadItemOptions(field.key, keyword)} onFilter={(values) => setItemFilters((current) => ({ ...current, [field.key]: values }))} onSort={(order) => { setItemSortField(field.key); setItemSortOrder(order); }} sortOrder={itemSortField === field.key ? itemSortOrder : ""} /></th>)}</tr></thead>
             <tbody>{visibleItems.map((row) => <tr className="hover:bg-surface-2" key={String(row.id)}>{itemFields.map((field) => <td className={`max-w-[240px] truncate whitespace-nowrap border-b border-r border-line-soft px-3 py-3 ${field.key === "lineNo" ? "w-[72px] min-w-[72px] max-w-[72px]" : ""}`} key={field.key}>{renderItemValue(row, field)}</td>)}</tr>)}{!visibleItems.length ? <tr><td className="px-4 py-10 text-center text-ink-3" colSpan={itemFields.length}>暂无报价明细</td></tr> : null}</tbody>
             <tfoot><tr>{itemFields.map((field) => <td className="whitespace-nowrap border-t border-r border-line-soft bg-surface-2 px-3 py-3 font-medium" key={field.key}>{formatQuotationSummaryValue(field, quotationSummary)}</td>)}</tr></tfoot>

@@ -1,5 +1,6 @@
 import { execute, executeInTransaction, queryRows, withTransaction, type Row } from "./db";
 import { attachPartyCodes } from "./party-display";
+import { assertUniqueLineIds, createLineId } from "./draft-line-ids";
 import { regenerateInternalServiceLedger } from "./internal-service-fee-service";
 import { DEFAULT_PAGE_SIZE, getKnownNumber, getKnownTotal, normalizePageSize } from "./pagination";
 import { EQUIPMENT_ONLY_INSTANCE_CONDITION } from "./instance-model-type";
@@ -193,6 +194,7 @@ export async function saveBillingAdjustmentDraft(payload: BillingAdjustmentDraft
 
   const items = payload.items.map((item, index) => normalizeBillingAdjustmentItem(adjustmentNo, item, index));
   if (!items.length) throw new Error("调整单明细不能为空");
+  assertUniqueLineIds(items, "调整单明细");
 
   await execute(
     `
@@ -214,20 +216,24 @@ export async function saveBillingAdjustmentDraft(payload: BillingAdjustmentDraft
     },
   );
 
-  await execute("DELETE FROM billingadjustmentitems WHERE adjustmentNo = :adjustmentNo", { adjustmentNo });
-  for (const item of items) {
-    await execute(
-      `
-        INSERT INTO billingadjustmentitems
-          (id, adjustmentNo, countryCode, batchName, requestNo, poNo, deviceCode, modelCode, nameEn,
-           quantity, currency, effectiveMonth, adjustedFirst24MonthPrice, adjustedNext36MonthPrice)
-        VALUES
-          (:id, :adjustmentNo, :countryCode, :batchName, :requestNo, :poNo, :deviceCode, :modelCode, :nameEn,
-           :quantity, :currency, :effectiveMonth, :adjustedFirst24MonthPrice, :adjustedNext36MonthPrice)
-      `,
-      item,
-    );
-  }
+  // 明细整体替换必须在一个事务里：否则中途失败会留下"删了一半、插了一半"的数据。
+  await withTransaction(async (connection) => {
+    await executeInTransaction(connection, "DELETE FROM billingadjustmentitems WHERE adjustmentNo = :adjustmentNo", { adjustmentNo });
+    for (const item of items) {
+      await executeInTransaction(
+        connection,
+        `
+          INSERT INTO billingadjustmentitems
+            (id, adjustmentNo, countryCode, batchName, requestNo, poNo, deviceCode, modelCode, nameEn,
+             quantity, currency, effectiveMonth, adjustedFirst24MonthPrice, adjustedNext36MonthPrice)
+          VALUES
+            (:id, :adjustmentNo, :countryCode, :batchName, :requestNo, :poNo, :deviceCode, :modelCode, :nameEn,
+             :quantity, :currency, :effectiveMonth, :adjustedFirst24MonthPrice, :adjustedNext36MonthPrice)
+        `,
+        item,
+      );
+    }
+  });
 
   return getBillingAdjustment(adjustmentNo);
 }
@@ -1113,7 +1119,7 @@ function normalizeBillingAdjustmentItem(adjustmentNo: string, item: BillingAdjus
   if (!Number.isFinite(adjustedNext36MonthPrice)) throw new Error(`第 ${index + 1} 条明细后36个月价格不正确`);
 
   return {
-    id: item.id?.trim() || `BAI-${adjustmentNo}-${String(index + 1).padStart(3, "0")}`,
+    id: item.id?.trim() || createLineId(`BAI-${adjustmentNo}`),
     adjustmentNo,
     countryCode,
     batchName,

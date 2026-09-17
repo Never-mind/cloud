@@ -246,7 +246,7 @@ function SummaryTable({
   return (
     <div className="max-h-[320px] overflow-auto border border-line-soft">
       <table className="min-w-full border-collapse text-sm">
-        <thead className="sticky top-0 bg-canvas text-ink">
+        <thead className="bg-canvas text-ink">
           <tr>
             {columns.map((column) => (
               <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium" key={column.key}>

@@ -292,7 +292,8 @@ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
 | 输入框 / 下拉框 / 文本域 / 数字框 | 一律使用 `Input` / `Select` / `Textarea` / `NumberInput`，不写裸 `<input>` `<select>` `<textarea>`；宽度用 `w-full` / `min-w-*` 等布局类控制 |
 | 表头 `th` | 固定 `whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium`，由公共扫描保证；`py-2` 归到 `py-3` |
 | 数据单元格 `td` | 渲染值的单元格固定 `whitespace-nowrap`；备注等长文本用 `whitespace-normal break-words`；表单控件单元格不加 `nowrap` |
-| 表格容器 | 统一 `<StickyTable className="table-scroll overflow-auto">`；固定高度页用 `table-scroll h-full w-full overflow-auto`；**不要再写 `max-h-[calc(100vh-XXXpx)]` 这类魔法值** |
+| 表格容器 | 列表统一 `<StickyTable className="table-scroll table-viewport overflow-auto">`；固定高度页用 `table-scroll h-full w-full overflow-auto`；**不要再写 `max-h-[calc(100vh-XXXpx)]` 这类魔法值**，视口高度只在 `globals.css` 的 `.table-viewport` 里定义一次 |
+| 表头吸顶 | 由 `.table-scroll > table > thead th` 统一处理，页面里**不要再写 `sticky top-0`**；吸顶要求容器自己有确定高度并滚动，`.table-viewport` 就是为此存在 |
 | 空状态与加载 | 一律用 `TableStateContent`，不要手写 `<td>暂无数据</td>` |
 | 分页 | 一律用 `PaginationBar`，不要自绘分页条 |
 | 确认与提示 | 一律用 `confirmDialog` / `notify`，不要用 `window.confirm` / `alert` |

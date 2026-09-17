@@ -167,7 +167,7 @@ export function PoInvoiceSummaryPage() {
           <span className="ml-auto text-sm text-ink-3">共 {result.total} 条</span>
         </div>
         {error ? <div className="border-b border-danger-border bg-danger-soft px-4 py-3 text-sm text-danger">{error}</div> : null}
-        <StickyTable className="table-scroll overflow-auto" tableKey="po-invoice-summary">
+        <StickyTable className="table-scroll table-viewport overflow-auto" tableKey="po-invoice-summary">
           <table className="min-w-[2900px] border-collapse text-sm">
             <thead className="bg-canvas text-ink"><tr>{columns.map((column) => <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium" key={column.key}><TableColumnMenu column={{ ...column, sortable: true, filterable: true }} filterValues={columnFilters[column.key] ?? []} loadOptions={(optionKeyword) => loadOptions(column.key, optionKeyword)} onFilter={(values) => { setPage(1); setColumnFilters((current) => ({ ...current, [column.key]: values })); }} onSort={(order) => { setPage(1); setSortField(column.key); setSortOrder(order); }} sortOrder={sortField === column.key ? sortOrder : ""} /></th>)}<th className="whitespace-nowrap sticky right-0 border-b border-line-soft bg-canvas px-3 py-3 text-left font-medium">操作</th></tr></thead>
             <tbody>

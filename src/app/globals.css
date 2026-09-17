@@ -171,6 +171,28 @@ textarea {
   scrollbar-width: thin;
 }
 
+/*
+ * 列表容器统一视口高度 + 表头吸顶。
+ *
+ * 表头吸顶只有在"容器自己滚动"时才生效：容器必须有确定的最大高度，
+ * 否则滚动的是页面，表头会随容器一起滚出视野。
+ * 这里把列表容器限制在视口内（iframe 内的 100dvh 即内容区高度），
+ * 减去页面工具栏与分页条约 210px 的预留。
+ */
+.table-viewport {
+  max-height: calc(100dvh - 210px);
+  overscroll-behavior: contain;
+}
+
+/* 只对列表容器里的主表生效，嵌套小表（展开行里的表格）不受影响。 */
+.table-scroll > table > thead th {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  /* 吸顶时必须有不透明底色，否则下面滚动的行会透出来 */
+  background-color: var(--color-canvas);
+}
+
 /* 旧版 Chromium 不支持 scrollbar-width，补一套 webkit 滚动条样式。 */
 .table-scroll::-webkit-scrollbar {
   height: 10px;

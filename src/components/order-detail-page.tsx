@@ -393,7 +393,7 @@ export function OrderDetailPage({
 
       <Panel>
         <div className="border-b border-line-soft px-4 py-3 font-medium text-ink">明细列表</div>
-        <StickyTable className="table-scroll overflow-auto" tableKey={`order-detail-${mode}`}>
+        <StickyTable className="table-scroll table-viewport overflow-auto" tableKey={`order-detail-${mode}`}>
           <table className={mode === "purchase" ? "min-w-[2200px] whitespace-nowrap border-collapse text-sm" : "min-w-[1050px] whitespace-nowrap border-collapse text-sm"}>
             <thead className="bg-canvas text-ink">
               <tr>

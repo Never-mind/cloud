@@ -258,7 +258,7 @@ export function CustomerPoListPage({ config }: { config: EntityConfig }) {
           <a className="inline-flex h-8 shrink-0 items-center gap-1 whitespace-nowrap rounded border border-warning-deep bg-white px-3 text-sm text-warning-ink transition-colors hover:border-warning-border hover:bg-warning-soft" href={`/api/entities/customer-pos/export?status=${encodeURIComponent(status)}`}><FileDown size={14} />导出 Excel</a>
         </div>
         {error ? <div className="border-b border-danger-border bg-danger-soft px-4 py-3 text-sm text-danger">{error}</div> : null}
-        <StickyTable className="table-scroll overflow-auto" tableKey="customer-pos-list">
+        <StickyTable className="table-scroll table-viewport overflow-auto" tableKey="customer-pos-list">
           <table className="min-w-[1500px] border-collapse text-sm">
             <thead className="bg-canvas text-ink"><tr>{listFields.map((field) => <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium" key={field.key}><TableColumnMenu column={field} filterValues={columnFilters[field.key] ?? []} loadOptions={(optionKeyword) => loadOptions(field.key, optionKeyword)} onFilter={(values) => { setPage(1); setColumnFilters((current) => ({ ...current, [field.key]: values })); }} onSort={(order) => { setPage(1); setSortField(field.key); setSortOrder(order); }} sortOrder={sortField === field.key ? sortOrder : ""} /></th>)}<th className="whitespace-nowrap sticky right-0 border-b border-line-soft bg-canvas px-3 py-3 text-left font-medium">操作</th></tr></thead>
             <tbody>
@@ -584,7 +584,7 @@ export function CustomerPoDetailPage({ config, id }: { config: EntityConfig; id:
 
       <Panel>
         <div className="flex flex-wrap items-center gap-2 border-b border-line-soft px-4 py-3"><h2 className="font-medium text-ink">产品明细</h2><span className="text-xs text-ink-3">共 {items.length} 行</span>{editing ? <div className="ml-auto flex gap-2"><Button onClick={() => itemFileRef.current?.click()} disabled={importingItems}><Upload size={15} />{importingItems ? "导入中..." : "导入明细"}</Button><a href="/api/po/customer-pos/items/template"><Button><FileSpreadsheet size={15} />明细模板</Button></a><Button onClick={addItem}><Plus size={15} />新增明细</Button><input ref={itemFileRef} className="hidden" type="file" accept=".xlsx,.xls" onChange={(event) => { const file = event.target.files?.[0]; if (file) void importItemsFile(file); event.currentTarget.value = ""; }} /></div> : null}</div>
-        <StickyTable className="table-scroll overflow-auto" tableKey="customer-po-items-detail">
+        <StickyTable className="table-scroll table-viewport overflow-auto" tableKey="customer-po-items-detail">
           <table className="w-full min-w-[1160px] table-fixed border-collapse text-sm">
             <thead className="bg-canvas text-ink"><tr>{[
               ["lineNo", "行号"], ["customerSku", "客户SKU"], ["customerProductName", "产品名称"], ["customerBrand", "品牌"], ["customerSpec", "规格"], ["quantity", "数量"], ["unit", "单位"], ["targetUnitPrice", "目标单价"], ["currency", "币种"], ["matchedProductCode", "产品主档匹配"], ["matchStatus", "匹配状态"], ["remark", "备注"],

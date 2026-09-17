@@ -186,7 +186,7 @@ export function RequestProductLinesPage() {
           </Button>
         </div>
 
-        <StickyTable className="table-scroll overflow-auto" tableKey="request-product-lines">
+        <StickyTable className="table-scroll table-viewport overflow-auto" tableKey="request-product-lines">
           <table className="min-w-full border-collapse text-sm">
             <thead className="bg-canvas text-ink">
               <tr>{columns.map((column) => <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium" key={column.key}>{renderHeader(column)}</th>)}</tr>

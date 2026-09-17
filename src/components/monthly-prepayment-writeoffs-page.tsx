@@ -210,7 +210,7 @@ export function MonthlyPrepaymentWriteOffsPage() {
           当前筛选共 {total} 条，月核销金额合计 {formatValue(totalAmount, "money")}
         </div>
 
-        <StickyTable className="table-scroll overflow-auto" tableKey="monthly-prepayment-writeoffs">
+        <StickyTable className="table-scroll table-viewport overflow-auto" tableKey="monthly-prepayment-writeoffs">
           <table className="min-w-full border-collapse text-sm">
             <thead className="bg-canvas text-ink">
               <tr>

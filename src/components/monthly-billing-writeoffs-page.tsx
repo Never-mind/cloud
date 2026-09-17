@@ -208,7 +208,7 @@ export function MonthlyBillingWriteOffsPage() {
         <div className="border-b border-line-soft bg-surface-2 px-4 py-3 text-sm text-ink-2">
           当前筛选共 {total} 条，月账单核销总金额合计 {formatValue(totalAmount, "money")}
         </div>
-        <StickyTable className="table-scroll overflow-auto" tableKey="monthly-billing-writeoffs">
+        <StickyTable className="table-scroll table-viewport overflow-auto" tableKey="monthly-billing-writeoffs">
           <table className="min-w-full border-collapse text-sm">
             <thead className="bg-canvas text-ink">
               <tr>

@@ -224,11 +224,17 @@ export function PurchaseOrderFormPage() {
       });
 
       for (const item of itemRows) {
-        const itemResponse = await fetch("/api/entities/purchase-order-items", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(item),
-        });
+        // 明细 id 由「采购单 + 序号」决定，重复保存时必须走更新而不是再插一条：
+        // 否则第一次保存中途失败后再次点击保存，会直接撞主键。
+        const existingResponse = await fetch(`/api/entities/purchase-order-items/${encodeURIComponent(item.id)}`);
+        const itemResponse = await fetch(
+          `/api/entities/purchase-order-items${existingResponse.ok ? `/${encodeURIComponent(item.id)}` : ""}`,
+          {
+            method: existingResponse.ok ? "PUT" : "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(item),
+          },
+        );
         if (!itemResponse.ok) throw new Error(await readResponseError(itemResponse, "采购明细保存失败"));
       }
 
@@ -321,7 +327,7 @@ export function PurchaseOrderFormPage() {
             新增明细
           </Button>
         </div>
-        <StickyTable className="table-scroll overflow-auto" tableKey="purchase-order-form-details">
+        <StickyTable className="table-scroll table-viewport overflow-auto" tableKey="purchase-order-form-details">
           <table className="min-w-[2250px] whitespace-nowrap border-collapse text-sm">
             <thead className="bg-canvas text-ink">
               <tr>

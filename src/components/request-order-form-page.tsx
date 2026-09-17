@@ -421,7 +421,7 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
           />
         </div>
 
-        <StickyTable className="table-scroll overflow-auto" tableKey="request-order-form-details">
+        <StickyTable className="table-scroll table-viewport overflow-auto" tableKey="request-order-form-details">
           <table className="min-w-[1220px] whitespace-nowrap border-collapse text-sm">
             <thead className="bg-canvas text-ink">
               <tr>

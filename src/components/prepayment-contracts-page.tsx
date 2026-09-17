@@ -289,7 +289,7 @@ export function PrepaymentContractsPage() {
           </Link>
         </div>
 
-        <StickyTable className="table-scroll overflow-auto" tableKey="prepayment-contracts">
+        <StickyTable className="table-scroll table-viewport overflow-auto" tableKey="prepayment-contracts">
           <table className="min-w-full border-collapse text-sm">
             <thead className="bg-canvas text-ink">
               <tr>

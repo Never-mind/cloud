@@ -378,7 +378,7 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
 
       <Panel>
         <div className="border-b border-line-soft px-4 py-3 font-medium text-ink">实例明细</div>
-        <StickyTable className="table-scroll overflow-auto" tableKey={`prepayment-contract-${contractNo}-instances`}>
+        <StickyTable className="table-scroll table-viewport overflow-auto" tableKey={`prepayment-contract-${contractNo}-instances`}>
           <table className="min-w-full border-collapse text-sm">
             <thead className="bg-canvas text-ink">
               <tr>
@@ -430,7 +430,7 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
             新增费用明细
           </Button>
         </div>
-        <StickyTable className="table-scroll overflow-auto" tableKey={`prepayment-contract-${contractNo}-fees`}>
+        <StickyTable className="table-scroll table-viewport overflow-auto" tableKey={`prepayment-contract-${contractNo}-fees`}>
           <table className="min-w-full border-collapse text-sm">
             <thead className="bg-canvas text-ink">
               <tr>

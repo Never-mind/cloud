@@ -322,7 +322,7 @@ export function ServiceFeesPage() {
           <span className="text-sm text-ink-3">请填写币种，并将起始月份与结束月份选为同一个月；对账单将汇总所选国家、币种当月的全部批次。</span>
         </div>
 
-        <StickyTable className="table-scroll overflow-auto" tableKey="service-fees">
+        <StickyTable className="table-scroll table-viewport overflow-auto" tableKey="service-fees">
           <table className="min-w-full border-collapse text-sm">
             <thead className="bg-canvas text-ink">
               <tr>

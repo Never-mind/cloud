@@ -957,7 +957,7 @@ export function EntityPage({
           </div>
         ) : null}
 
-        <StickyTable className="table-scroll overflow-auto" tableKey={config.key}>
+        <StickyTable className="table-scroll table-viewport overflow-auto" tableKey={config.key}>
           <table className="min-w-full border-collapse text-sm">
             <thead className="bg-canvas text-ink">
               <tr>

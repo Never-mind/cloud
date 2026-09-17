@@ -234,7 +234,7 @@ export function ImportCenterPage() {
             </div>
 
             <div className="grid gap-4 p-4 lg:grid-cols-[1fr_320px]">
-              <StickyTable className="table-scroll overflow-auto" tableKey="import-center-columns">
+              <StickyTable className="table-scroll table-viewport overflow-auto" tableKey="import-center-columns">
                 <table className="min-w-full border-collapse text-sm">
                   <thead className="bg-canvas">
                     <tr>
@@ -300,7 +300,7 @@ export function ImportCenterPage() {
 
           <Panel>
             <div className="border-b border-line-soft px-4 py-3 font-medium text-ink">导入历史</div>
-            <StickyTable className="table-scroll overflow-auto" tableKey="import-center-history">
+            <StickyTable className="table-scroll table-viewport overflow-auto" tableKey="import-center-history">
               <table className="min-w-full border-collapse text-sm">
                 <thead className="bg-canvas">
                   <tr>

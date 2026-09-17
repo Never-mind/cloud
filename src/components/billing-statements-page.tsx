@@ -289,7 +289,7 @@ export function BillingStatementsPage() {
             刷新
           </Button>
         </div>
-        <StickyTable className="table-scroll overflow-auto" tableKey="billing-statements">
+        <StickyTable className="table-scroll table-viewport overflow-auto" tableKey="billing-statements">
           <table className="min-w-full border-collapse text-sm">
             <thead className="bg-canvas text-ink">
               <tr>

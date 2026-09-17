@@ -127,7 +127,7 @@ export function BillingStatementDetailPage({ snapshotNo }: { snapshotNo: string 
           <span className="font-medium text-ink">对账单明细</span>
           <span className="text-sm text-ink-3">共 {data.items.length} 条，金额合计 {formatValue(total, "money")}</span>
         </div>
-        <StickyTable className="table-scroll overflow-auto" tableKey="billing-statement-detail-items">
+        <StickyTable className="table-scroll table-viewport overflow-auto" tableKey="billing-statement-detail-items">
           <table className="min-w-full border-collapse text-sm">
             <thead className="bg-canvas text-ink">
               <tr>

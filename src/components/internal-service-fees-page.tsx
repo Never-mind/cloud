@@ -227,7 +227,7 @@ export function InternalServiceFeesPage() {
           <Input className="ml-auto min-w-[150px]" type="month" value={archiveMonth} onChange={(event) => setArchiveMonth(event.target.value)} />
           <Button onClick={() => void archiveSelectedMonth()}><Archive size={15} />归档当月</Button>
         </div>
-        <StickyTable className="table-scroll overflow-auto" tableKey="internal-service-fees">
+        <StickyTable className="table-scroll table-viewport overflow-auto" tableKey="internal-service-fees">
           <table className="w-full min-w-[1840px] border-collapse text-sm">
             <thead className="bg-canvas text-ink"><tr>{tableColumns.map((column) => <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium" key={column.key}>{renderHeader(column)}</th>)}<th className="whitespace-nowrap sticky right-0 z-10 w-[236px] min-w-[236px] border-b border-line-soft bg-canvas px-3 py-3 text-left font-medium">操作</th></tr></thead>
             <tbody>

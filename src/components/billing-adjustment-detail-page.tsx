@@ -304,7 +304,7 @@ export function BillingAdjustmentDetailPage({ adjustmentNo: routeAdjustmentNo }:
           )}
         </div>
 
-        <StickyTable className="table-scroll overflow-auto" tableKey="billing-adjustment-detail-items">
+        <StickyTable className="table-scroll table-viewport overflow-auto" tableKey="billing-adjustment-detail-items">
           <table className="min-w-full border-collapse text-sm">
             <thead className="bg-canvas text-ink">
               <tr>
