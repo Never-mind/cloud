@@ -103,9 +103,10 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
 
   function partyCode(line: Line, key: "undertakingUnitId" | "supplierId" | "customerId") {
     const value = String(line[key] ?? "");
-    if (key === "undertakingUnitId") return partyShortName(undertakingUnits.find((row) => String(row.undertakingUnitId) === value), value, ["entityName", "name"]);
-    if (key === "supplierId") return partyShortName(suppliers.find((row) => String(row.supplierId) === value), value, ["nameCn"]);
-    return partyShortName(customers.find((row) => String(row.customerId) === value), value, ["nameCn", "name"]);
+    // 与下方费用明细的取值顺序保持一致：简称优先，其次全称，最后回退到原始 id。
+    if (key === "undertakingUnitId") return partyShortName(undertakingUnits.find((row) => String(row.undertakingUnitId) === value), value, ["shortName", "entityName", "name"]);
+    if (key === "supplierId") return partyShortName(suppliers.find((row) => String(row.supplierId) === value), value, ["shortName", "nameCn"]);
+    return partyShortName(customers.find((row) => String(row.customerId) === value), value, ["shortName", "nameCn", "name"]);
   }
 
   function partyOptionLabel(row: Row, codeKeys: string[], nameKeys: string[]) {
