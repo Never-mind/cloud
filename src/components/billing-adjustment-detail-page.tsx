@@ -14,6 +14,7 @@ import { PURCHASE_CURRENCY_OPTIONS } from "@/lib/purchase-order-form";
 import { fetchAllEntityRows } from "@/lib/client-entity-fetch";
 import { buildDetailRoute, getReturnTo } from "@/lib/client-list-navigation";
 import { Button, Input, Panel, Select } from "./ui";
+import { SearchSelect } from "./search-select";
 import { EmptyState } from "./table-state";
 import { AutoGrowTextarea } from "./auto-grow-textarea";
 import { confirmDialog, notify } from "./app-dialog";
@@ -335,10 +336,23 @@ export function BillingAdjustmentDetailPage({ adjustmentNo: routeAdjustmentNo }:
                             </option>
                           ))}
                         </Select>
+                      ) : column.key === "deviceCode" ? (
+                        <SearchSelect
+                          className="min-w-[150px]"
+                          emptyText="没有匹配的实例档案"
+                          options={instanceModels.map((model) => ({
+                            value: String(model.deviceCode ?? ""),
+                            label: String(model.deviceCode ?? ""),
+                            hint: `${String(model.modelCode ?? "")} ${String(model.nameEn ?? "")}`.trim(),
+                            keywords: `${String(model.modelCode ?? "")} ${String(model.nameEn ?? "")}`,
+                          }))}
+                          placeholder="搜索实例编码"
+                          value={String(item.deviceCode ?? "")}
+                          onChange={(value) => updateItem(index, "deviceCode", value)}
+                        />
                       ) : (
                         <Input
                           className="min-w-[130px]"
-                          list={column.key === "deviceCode" ? "billing-adjustment-device-codes" : undefined}
                           readOnly={column.key === "modelCode" || column.key === "nameEn"}
                           type={column.type === "date" ? "date" : column.type === "number" ? "number" : "text"}
                           step={column.type === "number" ? "0.0001" : undefined}
@@ -366,13 +380,6 @@ export function BillingAdjustmentDetailPage({ adjustmentNo: routeAdjustmentNo }:
             </tbody>
           </table>
         </StickyTable>
-        <datalist id="billing-adjustment-device-codes">
-          {instanceModels.map((model) => (
-            <option key={model.deviceCode} value={model.deviceCode}>
-              {model.modelCode ?? ""} {model.nameEn ?? ""}
-            </option>
-          ))}
-        </datalist>
       </Panel>
     </div>
   );

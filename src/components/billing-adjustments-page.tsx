@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { CheckCircle2, Plus, RefreshCw, Search, Trash2 } from "lucide-react";
+import { CheckCircle2, Plus, RefreshCw, RotateCcw, Search, Trash2 } from "lucide-react";
 import { formatDisplayValue } from "@/lib/display-format";
 import { DEFAULT_PAGE_SIZE } from "@/lib/pagination";
 import { buildDetailRoute, buildListRoute, getCurrentRoute, useListScrollPosition } from "@/lib/client-list-navigation";
@@ -124,6 +124,18 @@ export function BillingAdjustmentsPage() {
     await loadRows();
   }
 
+  async function rollbackAdjustment(adjustmentNo: string) {
+    if (!await confirmDialog(`确认将该调整单退回草稿？\n退回后会按“没有这张调整单”的口径重新计算受影响的月账单台账与内部服务费。`)) return;
+    const response = await fetch(`/api/billing/adjustments/${encodeURIComponent(adjustmentNo)}/rollback`, { method: "POST" });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      notify(data.error ?? "退回失败", "info");
+      return;
+    }
+    notify("已退回草稿，受影响的月账单台账已重算", "info");
+    await loadRows();
+  }
+
   async function deleteDraft(adjustmentNo: string) {
     if (!await confirmDialog("确认删除该实例合同调整单草稿？")) return;
     const response = await fetch(`/api/billing/adjustments/${encodeURIComponent(adjustmentNo)}`, { method: "DELETE" });
@@ -213,6 +225,10 @@ export function BillingAdjustmentsPage() {
                         <Button disabled={confirmed} tone="success" onClick={() => void confirmAdjustment(adjustmentNo)}>
                           <CheckCircle2 size={15} />
                           确认
+                        </Button>
+                        <Button disabled={!confirmed} tone="warning" onClick={() => void rollbackAdjustment(adjustmentNo)}>
+                          <RotateCcw size={15} />
+                          退回草稿
                         </Button>
                         <Button disabled={confirmed} tone="danger" onClick={() => void deleteDraft(adjustmentNo)}>
                           <Trash2 size={15} />

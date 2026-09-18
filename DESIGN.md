@@ -290,6 +290,7 @@ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
 | 场景 | 约定 |
 | --- | --- |
 | 输入框 / 下拉框 / 文本域 / 数字框 | 一律使用 `Input` / `Select` / `Textarea` / `NumberInput`，不写裸 `<input>` `<select>` `<textarea>`；宽度用 `w-full` / `min-w-*` 等布局类控制 |
+| 搜索选择（输入关键词再选） | 一律使用 `SearchSelect`，不再自研"输入 + 下拉面板"，也不用浏览器原生 `<datalist>`。选项统一"两行"：第一行主值（编码），第二行灰色说明（机型 / 英文名 / 规格等）；默认最多渲染 50 条并提示；支持 ↑↓ / Enter / Esc；只允许从选项中选择，不接受自由输入 |
 | 表头 `th` | 固定 `whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium`，由公共扫描保证；`py-2` 归到 `py-3` |
 | 数据单元格 `td` | 渲染值的单元格固定 `whitespace-nowrap`；备注等长文本用 `whitespace-normal break-words`；表单控件单元格不加 `nowrap` |
 | 表格容器 | 列表统一 `<StickyTable className="table-scroll table-viewport overflow-auto">`；固定高度页用 `table-scroll h-full w-full overflow-auto`；**不要再写 `max-h-[calc(100vh-XXXpx)]` 这类魔法值**，视口高度只在 `globals.css` 的 `.table-viewport` 里定义一次 |

@@ -27,6 +27,7 @@ import { PaginationBar } from "./pagination-bar";
 import { StickyTable } from "./sticky-table";
 import { StatusTag } from "./status-tag";
 import { AuditInfoBar, Button, Input, Panel, Select, Textarea } from "./ui";
+import { SearchSelect } from "./search-select";
 import { confirmDialog } from "./app-dialog";
 import { LoadingBlock, TableSkeleton } from "./table-state";
 
@@ -621,127 +622,96 @@ function CustomerPoItemRow({ editing, row, onChange, onRemove }: { editing: bool
 }
 
 function PartySearchSelect({ kind, label, required, value, selectedLabel, disabled, onChange }: { kind: "customers" | "undertaking-units"; label: string; required?: boolean; value: string; selectedLabel: string; disabled: boolean; onChange: (option: PartyOption) => void }) {
-  const wrapperRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState("");
   const [options, setOptions] = useState<PartyOption[]>([]);
   const [loading, setLoading] = useState(false);
+  const searchTimer = useRef<number | null>(null);
 
-  async function loadOptions(nextQuery: string) {
-    setLoading(true);
-    try {
-      const response = await fetch(`/api/po/customer-pos/references?kind=${kind}&keyword=${encodeURIComponent(nextQuery)}`, { cache: "no-store" });
-      const data = await response.json().catch(() => ({}));
-      if (response.ok) setOptions((data.options ?? []) as PartyOption[]);
-    } finally {
-      setLoading(false);
-    }
+  useEffect(() => () => { if (searchTimer.current) window.clearTimeout(searchTimer.current); }, []);
+
+  // 已保存的值先占一条，避免打开时回显成空白
+  const withSelected: PartyOption[] = value && !options.some((option) => option.value === value)
+    ? [{ value, code: "", shortName: selectedLabel, label: selectedLabel } as PartyOption, ...options]
+    : options;
+
+  function handleSearch(keyword: string) {
+    if (searchTimer.current) window.clearTimeout(searchTimer.current);
+    searchTimer.current = window.setTimeout(() => {
+      setLoading(true);
+      void fetch(`/api/po/customer-pos/references?kind=${kind}&keyword=${encodeURIComponent(keyword.trim())}`, { cache: "no-store" })
+        .then((response) => response.json().catch(() => ({})))
+        .then((data) => setOptions((data.options ?? []) as PartyOption[]))
+        .catch(() => undefined)
+        .finally(() => setLoading(false));
+    }, 180);
   }
 
-  useEffect(() => {
-    if (!open) return;
-    const timer = window.setTimeout(() => void loadOptions(query), 180);
-    return () => window.clearTimeout(timer);
-  }, [kind, open, query]);
-
-  useEffect(() => {
-    if (!open) return;
-    const close = (event: MouseEvent) => { if (!wrapperRef.current?.contains(event.target as Node)) setOpen(false); };
-    document.addEventListener("mousedown", close);
-    return () => document.removeEventListener("mousedown", close);
-  }, [open]);
-
-  function openPicker() {
-    if (disabled) return;
-    setOpen(true);
-    setQuery(selectedLabel || value);
-    window.setTimeout(() => inputRef.current?.select(), 0);
-  }
-
-  return <div className="relative" ref={wrapperRef}><span className="mb-1 block text-xs text-ink-2">{label}{required ? <b className="text-danger"> *</b> : null}</span><div className="relative"><Input ref={inputRef} className="w-full pr-8 disabled:bg-canvas" disabled={disabled} value={open ? query : selectedLabel || value} placeholder={`请选择${label}`} onFocus={openPicker} onChange={(event) => { setQuery(event.target.value); setOpen(true); }} /><ListFilter className="pointer-events-none absolute right-2 top-2 text-ink-3" size={15} /></div>{open ? <div className="absolute left-0 right-0 top-[62px] z-30 max-h-60 overflow-auto border border-line bg-white shadow-lg">{loading ? <LoadingBlock text="加载中…" /> : options.map((option) => <button className="block w-full truncate px-3 py-2 text-left text-sm hover:bg-info-soft" key={option.value} type="button" onClick={() => { onChange(option); setQuery(option.shortName); setOpen(false); }}>{option.label}</button>)}{!loading && !options.length ? <div className="px-3 py-4 text-center text-xs text-ink-3">暂无匹配伙伴</div> : null}</div> : null}</div>;
+  return (
+    <div className="relative">
+      <span className="mb-1 block text-xs text-ink-2">{label}{required ? <b className="text-danger"> *</b> : null}</span>
+      <SearchSelect
+        className="w-full"
+        disabled={disabled}
+        emptyText="暂无匹配伙伴"
+        loading={loading}
+        options={withSelected.map((option) => ({
+          value: option.value,
+          label: option.shortName || option.label,
+          code: option.code,
+          hint: option.label,
+          keywords: option.label,
+        }))}
+        placeholder={`请选择${label}`}
+        value={value}
+        onChange={(next) => {
+          const picked = withSelected.find((option) => option.value === next);
+          if (picked) onChange(picked);
+        }}
+        onSearch={handleSearch}
+      />
+    </div>
+  );
 }
-
 export function ProductMasterPicker({ disabled, value, label, onChange }: { disabled: boolean; value: string; label: string; onChange: (product: ProductOption | null) => void }) {
-  const wrapperRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const panelRef = useRef<HTMLDivElement>(null);
-  const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState("");
   const [options, setOptions] = useState<ProductOption[]>([]);
   const [loading, setLoading] = useState(false);
-  const [position, setPosition] = useState({ top: 0, left: 0, width: 320 });
+  const searchTimer = useRef<number | null>(null);
 
-  async function loadOptions(nextQuery: string) {
-    setLoading(true);
-    try {
-      const response = await fetch(`/api/po/product-lookup?keyword=${encodeURIComponent(nextQuery)}`, { cache: "no-store" });
-      const data = await response.json().catch(() => ({}));
-      if (response.ok) setOptions((data.rows ?? []) as ProductOption[]);
-    } finally {
-      setLoading(false);
-    }
+  useEffect(() => () => { if (searchTimer.current) window.clearTimeout(searchTimer.current); }, []);
+
+  function handleSearch(keyword: string) {
+    if (searchTimer.current) window.clearTimeout(searchTimer.current);
+    searchTimer.current = window.setTimeout(() => {
+      setLoading(true);
+      const trimmed = keyword.trim();
+      void fetch(`/api/po/product-lookup?keyword=${encodeURIComponent(trimmed)}`, { cache: "no-store" })
+        .then((response) => response.json().catch(() => ({})))
+        .then((data) => setOptions((data.rows ?? data.items ?? []) as ProductOption[]))
+        .catch(() => undefined)
+        .finally(() => setLoading(false));
+    }, 180);
   }
 
-  useEffect(() => {
-    if (!open) return;
-    const timer = window.setTimeout(() => void loadOptions(query), 180);
-    return () => window.clearTimeout(timer);
-  }, [open, query]);
-
-  useEffect(() => {
-    if (!open) return;
-    const close = (event: MouseEvent) => {
-      const target = event.target as Node;
-      if (!wrapperRef.current?.contains(target) && !panelRef.current?.contains(target)) setOpen(false);
-    };
-    document.addEventListener("mousedown", close);
-    return () => document.removeEventListener("mousedown", close);
-  }, [open]);
-
-  useEffect(() => {
-    if (!open) return;
-    const updatePosition = () => {
-      const input = inputRef.current;
-      if (!input) return;
-      const rect = input.getBoundingClientRect();
-      const width = Math.max(320, rect.width);
-      const left = Math.min(Math.max(8, rect.left), Math.max(8, window.innerWidth - width - 8));
-      const estimatedHeight = 248;
-      const top = rect.bottom + 4 + estimatedHeight <= window.innerHeight
-        ? rect.bottom + 4
-        : Math.max(8, rect.top - estimatedHeight - 4);
-      setPosition({ top, left, width });
-    };
-    updatePosition();
-    window.addEventListener("resize", updatePosition);
-    window.addEventListener("scroll", updatePosition, true);
-    return () => {
-      window.removeEventListener("resize", updatePosition);
-      window.removeEventListener("scroll", updatePosition, true);
-    };
-  }, [open]);
-
-  function openPicker() {
-    if (disabled) return;
-    setOpen(true);
-    setQuery(label || value);
-    window.setTimeout(() => inputRef.current?.select(), 0);
-  }
-
-  if (disabled) return <span className={value ? "text-ink-2" : "text-ink-4"}>{value || "未匹配"}</span>;
-
-  const dropdown = open && typeof document !== "undefined" ? createPortal(
-    <div ref={panelRef} className="fixed z-[100] max-h-60 overflow-auto border border-line bg-white shadow-lg" style={{ top: position.top, left: position.left, width: position.width }}>
-      {loading ? <LoadingBlock text="加载中…" /> : options.map((option) => <button className="block w-full truncate px-3 py-2 text-left text-sm hover:bg-info-soft" key={String(option.productCode)} type="button" onClick={() => { onChange(option); setQuery(String(option.productCode ?? "")); setOpen(false); }}>{String(option.productCode ?? "")} - {String(option.productName ?? "")}</button>)}
-      {!loading && !options.length ? <div className="px-3 py-4 text-center text-xs text-ink-3">暂无匹配产品</div> : null}
-    </div>,
-    document.body,
-  ) : null;
-
-  return <div className="relative w-full !min-w-0" ref={wrapperRef}><div className="relative"><Input ref={inputRef} className="w-full !min-w-0 pr-8" value={open ? query : value} placeholder="搜索产品编码、名称、品牌或规格" onFocus={openPicker} onChange={(event) => { setQuery(event.target.value); setOpen(true); }} />{value || label ? <button className="absolute right-2 top-2 text-ink-3 hover:text-danger" type="button" aria-label="取消产品匹配" title="取消产品匹配" onClick={() => onChange(null)}><X size={15} /></button> : <Search className="pointer-events-none absolute right-2 top-2 text-ink-3" size={15} />}</div>{dropdown}</div>;
+  return (
+    <div className="relative w-full !min-w-0">
+      <SearchSelect
+        className="w-full !min-w-0"
+        clearable
+        disabled={disabled}
+        emptyText="暂无匹配产品"
+        loading={loading}
+        options={options.map((option) => ({
+          value: String(option.productCode ?? ""),
+          label: String(option.productCode ?? ""),
+          hint: String(option.productName ?? ""),
+        }))}
+        placeholder="搜索产品编码、名称、品牌或规格"
+        value={value}
+        onChange={(next) => onChange(next ? options.find((option) => String(option.productCode ?? "") === next) ?? null : null)}
+        onSearch={handleSearch}
+      />
+    </div>
+  );
 }
-
 function formatPoStatus(value: Value) {
   const text = String(value ?? "");
   if (text === "draft") return "草稿";

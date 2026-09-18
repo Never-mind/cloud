@@ -11,6 +11,7 @@ import { PaginationBar } from "./pagination-bar";
 import { StickyTable } from "./sticky-table";
 import { TableColumnMenu, type TableSortOrder } from "./table-column-menu";
 import { Button, Input, Panel, Select } from "./ui";
+import { SearchSelect } from "./search-select";
 import { notify } from "./app-dialog";
 import { TableStateContent } from "./table-state";
 
@@ -324,25 +325,20 @@ export function BillingAvailablePage() {
                   {columns.map((column) => (
                     <td className="border-b border-r border-line-soft px-3 py-3" key={column.key}>
                       {column.key === "instanceContractNo" ? (
-                        <>
-                          <Input
-                            className="w-48 min-w-0"
-                            list={`billing-contracts-${row.purchaseOrderItemId}`}
-                            placeholder="搜索合同号"
-                            value={row.instanceContractNo}
-                            onChange={(event) => updateInstanceContractNo(row.purchaseOrderItemId, event.target.value)}
-                          />
-                          <datalist id={`billing-contracts-${row.purchaseOrderItemId}`}>
-                            {contracts
-                              .filter((contract) => contract.countryCode === row.countryCode && contract.deviceCode === row.deviceCode)
-                              .map((contract) => (
-                                <option key={`${contract.contractNo}-${contract.countryCode}-${contract.deviceCode}`} value={contract.contractNo}>
-                                  {contract.currency} / 24: {contract.first24MonthPriceUSD} / 36: {contract.next36MonthPriceUSD}
-                                </option>
-                              ))}
-                          </datalist>
-                          {!row.contractCurrency ? <div className="mt-1 text-xs text-danger">未匹配</div> : null}
-                        </>
+                        <SearchSelect
+                          className="w-56 min-w-0"
+                          emptyText="该实例暂无可用合同号"
+                          options={contracts
+                            .filter((contract) => contract.countryCode === row.countryCode && contract.deviceCode === row.deviceCode)
+                            .map((contract) => ({
+                              value: String(contract.contractNo ?? ""),
+                              label: String(contract.contractNo ?? ""),
+                              hint: `${contract.currency} / 24: ${contract.first24MonthPriceUSD} / 36: ${contract.next36MonthPriceUSD}`,
+                            }))}
+                          placeholder="搜索合同号"
+                          value={String(row.instanceContractNo ?? "")}
+                          onChange={(value) => updateInstanceContractNo(row.purchaseOrderItemId, value)}
+                        />
                       ) : (
                         <span
                           className={

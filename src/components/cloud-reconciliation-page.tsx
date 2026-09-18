@@ -6,6 +6,7 @@ import { Button, Input, Panel, Select } from "./ui";
 import { EmptyState } from "./table-state";
 import { Modal } from "./modal";
 import { PaginationBar } from "./pagination-bar";
+import { SearchSelect } from "./search-select";
 import { NumberInput } from "./number-input";
 import { confirmDialog } from "./app-dialog";
 import { StickyTable } from "./sticky-table";
@@ -471,48 +472,59 @@ function updateCloudTaxValue(value: Row, group: CloudTaxGroup, field: CloudTaxFi
   return next;
 }
 
+/**
+ * 默认付款单位 / 客户等伙伴选择：统一走 SearchSelect。
+ * 选项来自 `masters`，输入关键词时再走一次远端搜索（/api/cloud/master-data）。
+ */
 function PartnerSelect({ kind, label, idValue, nameValue, masters, onChange, required = false }: { kind: keyof MasterSet; label: string; idValue: unknown; nameValue: unknown; masters: MasterSet; onChange: (value: { id: string; name: string }) => void; required?: boolean }) {
-  const inputRef = useRef<HTMLInputElement>(null);
-  const [keyword, setKeyword] = useState("");
   const [options, setOptions] = useState<Master[]>(masters[kind]);
-  const [open, setOpen] = useState(false);
-  const [menuPosition, setMenuPosition] = useState({ left: 0, top: 0, width: 0 });
+  const searchTimer = useRef<number | null>(null);
+  useEffect(() => setOptions(masters[kind]), [kind, masters]);
+  useEffect(() => () => { if (searchTimer.current) window.clearTimeout(searchTimer.current); }, []);
+
   const selectedId = String(idValue ?? "");
   const selectedName = String(nameValue ?? "");
-  const selectedOption = options.find((item) => item.id === selectedId);
-  const selectedLabel = selectedOption?.shortName || selectedOption?.name || selectedName;
+  const known = options.find((item) => item.id === selectedId);
+  // 已保存的值不在当前选项里时补一条占位，避免回显成空白
+  const withSelected: Master[] = known || !selectedId
+    ? options
+    : [{ id: selectedId, name: selectedName || selectedId, shortName: selectedName }, ...options];
 
-  useEffect(() => setOptions(masters[kind]), [kind, masters]);
-  useEffect(() => {
-    if (!open) { setKeyword(selectedLabel); return; }
+  function handleSearch(keyword: string) {
+    if (searchTimer.current) window.clearTimeout(searchTimer.current);
     const trimmed = keyword.trim();
-    if (!trimmed) { setOptions(masters[kind]); return; }
-    const timer = window.setTimeout(() => {
-      void requestJson<MasterSet>(`/api/cloud/master-data?keyword=${encodeURIComponent(trimmed)}`).then((data) => setOptions(data[kind])).catch(() => undefined);
+    if (!trimmed) {
+      setOptions(masters[kind]);
+      return;
+    }
+    searchTimer.current = window.setTimeout(() => {
+      void requestJson<MasterSet>(`/api/cloud/master-data?keyword=${encodeURIComponent(trimmed)}`)
+        .then((data) => setOptions(data[kind]))
+        .catch(() => undefined);
     }, 180);
-    return () => window.clearTimeout(timer);
-  }, [keyword, kind, masters, open, selectedLabel]);
-  useEffect(() => {
-    if (!open) return;
-    const updatePosition = () => {
-      const rect = inputRef.current?.getBoundingClientRect();
-      if (rect) setMenuPosition({ left: rect.left, top: rect.bottom + 4, width: rect.width });
-    };
-    updatePosition();
-    window.addEventListener("resize", updatePosition);
-    window.addEventListener("scroll", updatePosition, true);
-    return () => { window.removeEventListener("resize", updatePosition); window.removeEventListener("scroll", updatePosition, true); };
-  }, [open]);
-
-  function selectOption(item: Master) {
-    const name = item.shortName || item.name;
-    onChange({ id: item.id, name });
-    setKeyword(name);
-    setOpen(false);
   }
 
-  const visibleOptions = options.filter((item, index, list) => list.findIndex((candidate) => candidate.id === item.id) === index);
-  return <label className="relative space-y-1 text-sm text-ink-2"><span>{label}{required ? <b className="ml-1 text-danger">*</b> : null}</span><Input ref={inputRef} className="w-full" placeholder="输入编码或简称搜索" value={keyword} onFocus={(event) => { setKeyword(selectedLabel); setOpen(true); event.currentTarget.select(); }} onChange={(event) => { const next = event.target.value; setKeyword(next); setOpen(true); if (next !== selectedLabel) onChange({ id: "", name: "" }); }} onBlur={() => window.setTimeout(() => { setOpen(false); setKeyword(selectedLabel); }, 120)} onKeyDown={(event) => { if (event.key === "Escape") { setOpen(false); setKeyword(selectedLabel); } }} />{open ? <div className="fixed z-[120] max-h-64 overflow-y-auto rounded border border-line bg-white py-1 shadow-lg" style={menuPosition}>{visibleOptions.length ? visibleOptions.map((item) => <button className="block w-full px-3 py-2 text-left text-sm text-ink-2 hover:bg-canvas" key={item.id} type="button" onMouseDown={(event) => { event.preventDefault(); selectOption(item); }}>{item.code ? `${item.code} - ` : ""}{item.shortName || item.name}</button>) : <div className="px-3 py-2 text-sm text-ink-3">暂无匹配选项</div>}</div> : null}</label>;
+  return (
+    <label className="space-y-1 text-sm text-ink-2">
+      <span>{label}{required ? <b className="ml-1 text-danger">*</b> : null}</span>
+      <SearchSelect
+        className="w-full"
+        options={withSelected.map((item) => ({
+          value: item.id,
+          label: item.shortName || item.name,
+          code: item.code,
+          hint: item.shortName && item.name !== item.shortName ? item.name : undefined,
+        }))}
+        placeholder="输入编码或简称搜索"
+        value={selectedId}
+        onChange={(value) => {
+          const picked = withSelected.find((item) => item.id === value);
+          onChange({ id: value, name: picked ? picked.shortName || picked.name : "" });
+        }}
+        onSearch={handleSearch}
+      />
+    </label>
+  );
 }
 
 function CloudAmountForm({ mode, value, masters, onChange, onCancel, onSave }: { mode: "collection" | "invoice"; value: Row; masters: MasterSet; onChange: (value: Row) => void; onCancel: () => void; onSave: () => void }) {

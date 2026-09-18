@@ -13,6 +13,7 @@ import { buildDetailRoute, getReturnTo } from "@/lib/client-list-navigation";
 import { exportRowsToXlsx } from "@/lib/client-xlsx-export";
 import { getPartyReferenceLabel, resolvePartyReference } from "@/lib/party-reference";
 import { AuditInfoBar, Button, Input, Panel, Select } from "./ui";
+import { SearchSelect } from "./search-select";
 import { NumberInput as NumberField } from "./number-input";
 import { notify } from "./app-dialog";
 import { StickyTable } from "./sticky-table";
@@ -40,12 +41,6 @@ type AuditInfo = {
   confirmedAt: unknown;
 };
 
-type SearchOption = {
-  value: string;
-  label: string;
-  code?: string;
-  keywords?: string;
-};
 
 const emptyMaster: MasterDraft = {
   requestNo: "",
@@ -440,67 +435,75 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
                 return (
                   <tr key={index}>
                     <td className="border-b border-r border-line-soft px-3 py-3">
-                      <SearchPicker
-                        allowFreeText
-                        options={instanceModels.map((item) => ({ value: String(item.deviceCode ?? ""), label: String(item.deviceCode ?? ""), keywords: `${String(item.modelCode ?? "")} ${String(item.nameEn ?? "")}` }))}
-                        placeholder="搜索或输入设备编码"
-                        className="h-9 min-w-[180px] rounded border border-line bg-white px-2"
-                        value={detail.deviceCode}
+                      <SearchSelect
+                        className="min-w-[180px]"
                         disabled={!canEdit}
+                        emptyText="没有匹配的实例档案，请先在实例型号中建档"
+                        options={instanceModels.map((item) => ({
+                          value: String(item.deviceCode ?? ""),
+                          label: String(item.deviceCode ?? ""),
+                          hint: `${String(item.modelCode ?? "")} ${String(item.nameEn ?? "")}`.trim(),
+                          keywords: `${String(item.modelCode ?? "")} ${String(item.nameEn ?? "")}`,
+                        }))}
+                        placeholder="搜索设备编码"
+                        value={detail.deviceCode}
                         onChange={(value) => updateDetail(index, { deviceCode: value })}
                       />
                     </td>
                     <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3">{formatValue(model?.modelCode)}</td>
                     <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3">{formatValue(model?.nameEn)}</td>
                     <td className="border-b border-r border-line-soft px-3 py-3">
-                      <SearchPicker
+                      <SearchSelect
+                        className="min-w-[160px]"
+                        disabled={!canEdit}
                         options={suppliers.map((supplier) => {
                           const label = getPartyReferenceLabel(supplier, ["supplierCode"], ["supplierCode", "supplierId"]);
                           return {
                             value: String(supplier.supplierId ?? ""),
                             label: label.shortName,
                             code: label.code,
+                            hint: String(supplier.nameCn ?? supplier.name ?? ""),
                             keywords: `${label.code} ${String(supplier.nameCn ?? supplier.name ?? "")} ${label.shortName} ${String(supplier.supplierId ?? "")}`,
                           };
                         })}
                         placeholder="搜索供应商"
-                        className="h-9 min-w-[160px] rounded border border-line bg-white px-2"
                         value={detail.supplierId}
-                        disabled={!canEdit}
                         onChange={(value) => updateDetail(index, { supplierId: value })}
                       />
                     </td>
                     <td className="border-b border-r border-line-soft px-3 py-3">
-                      <SearchPicker
+                      <SearchSelect
+                        disabled={!canEdit}
                         options={undertakingUnits.map((unit) => {
                           const label = getPartyReferenceLabel(unit, ["entityCode", "undertakingUnitCode"], ["entityCode", "undertakingUnitCode", "undertakingUnitId"]);
                           return {
                             value: String(unit.undertakingUnitId ?? ""),
                             label: label.shortName,
                             code: label.code,
+                            hint: String(unit.entityName ?? unit.name ?? ""),
                             keywords: `${label.code} ${String(unit.entityName ?? unit.name ?? "")} ${label.shortName} ${String(unit.undertakingUnitId ?? "")}`,
                           };
                         })}
                         placeholder="搜索承接单位"
                         value={detail.undertakingUnitId}
-                        disabled={!canEdit}
                         onChange={(value) => updateDetail(index, { undertakingUnitId: value })}
                       />
                     </td>
                     <td className="border-b border-r border-line-soft px-3 py-3">
-                      <SearchPicker
+                      <SearchSelect
+                        disabled={!canEdit}
                         options={customers.map((customer) => {
                           const label = getPartyReferenceLabel(customer, ["customerCode"], ["customerCode", "customerId"]);
                           return {
                             value: String(customer.customerId ?? ""),
                             label: label.shortName,
                             code: label.code,
+                            hint: String(customer.nameCn ?? customer.name ?? ""),
                             keywords: `${label.code} ${String(customer.nameCn ?? customer.name ?? "")} ${label.shortName} ${String(customer.customerId ?? "")}`,
                           };
                         })}
                         placeholder="搜索客户"
                         value={detail.customerId}
-                        disabled={!canEdit}
                         onChange={(value) => updateDetail(index, { customerId: value })}
                       />
                     </td>
@@ -518,13 +521,6 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
               })}
             </tbody>
           </table>
-          <datalist id="request-device-codes">
-            {instanceModels.map((item) => (
-              <option key={String(item.deviceCode)} value={String(item.deviceCode)}>
-                {String(item.deviceCode)}
-              </option>
-            ))}
-          </datalist>
         </StickyTable>
       </Panel>
       <AuditInfoBar
@@ -543,98 +539,6 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
     if (!raw) return "";
     return resolvePartyReference(raw, customers, ["customerId"], ["customerCode", "shortName", "nameCn", "name"]);
   }
-}
-
-function SearchPicker({
-  allowFreeText = false,
-  className,
-  disabled,
-  onChange,
-  options,
-  placeholder,
-  value,
-}: {
-  allowFreeText?: boolean;
-  className?: string;
-  disabled?: boolean;
-  onChange: (value: string) => void;
-  options: SearchOption[];
-  placeholder: string;
-  value: string;
-}) {
-  const selected = options.find((option) => option.value === value);
-  const inputWrapRef = useRef<HTMLDivElement | null>(null);
-  const [query, setQuery] = useState(selected?.label ?? value);
-  const [focused, setFocused] = useState(false);
-  const [menuPosition, setMenuPosition] = useState({ left: 0, top: 0, width: 0 });
-
-  useEffect(() => {
-    if (!focused) setQuery(selected?.label ?? value);
-  }, [focused, selected?.label, value]);
-
-  useEffect(() => {
-    if (!focused) return;
-    const closeMenu = () => setFocused(false);
-    window.addEventListener("resize", closeMenu);
-    window.addEventListener("scroll", closeMenu, true);
-    return () => {
-      window.removeEventListener("resize", closeMenu);
-      window.removeEventListener("scroll", closeMenu, true);
-    };
-  }, [focused]);
-
-  const normalizedQuery = query.trim().toLowerCase();
-  const matches = (normalizedQuery
-    ? options.filter((option) => `${option.value} ${option.code ?? ""} ${option.label} ${option.keywords ?? ""}`.toLowerCase().includes(normalizedQuery))
-    : options
-  ).slice(0, 8);
-
-  function handleInput(nextQuery: string) {
-    setQuery(nextQuery);
-    const exact = options.find((option) => [option.value, option.code ?? "", option.label].some((candidate) => candidate.toLowerCase() === nextQuery.trim().toLowerCase()));
-    if (exact) onChange(exact.value);
-    else if (allowFreeText) onChange(nextQuery);
-    else onChange("");
-  }
-
-  function openMenu() {
-    const rect = inputWrapRef.current?.getBoundingClientRect();
-    if (rect) setMenuPosition({ left: rect.left, top: rect.bottom + 4, width: Math.max(rect.width, 300) });
-    setFocused(true);
-  }
-
-  return (
-    <div className="min-w-[180px]" ref={inputWrapRef}>
-      <Input
-        className={className}
-        disabled={disabled}
-        placeholder={placeholder}
-        value={query}
-        onFocus={openMenu}
-        onBlur={() => window.setTimeout(() => setFocused(false), 120)}
-        onChange={(event) => handleInput(event.target.value)}
-      />
-      {focused && !disabled && matches.length ? (
-        <div className="fixed z-[100] max-h-64 overflow-auto border border-line bg-white py-1 shadow-xl" style={{ left: menuPosition.left, top: menuPosition.top, width: menuPosition.width }}>
-          {matches.map((option) => (
-            <button
-              className="block w-full px-3 py-2 text-left text-sm text-ink-2 hover:bg-canvas"
-              key={option.value}
-              type="button"
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={() => {
-                setQuery(option.label);
-                setFocused(false);
-                onChange(option.value);
-              }}
-            >
-              <span className="block text-ink">{option.code ? `${option.code} - ` : ""}{option.label}</span>
-            </button>
-          ))}
-        </div>
-      ) : null}
-    </div>
-  );
 }
 
 function Field({

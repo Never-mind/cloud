@@ -9,6 +9,7 @@ import { calculateSettlementPurchaseAmounts, summarizeSettlementPurchases } from
 import { calculateSettlementEntryAmounts, summarizeSettlementEntries } from "@/lib/settlement-entry-summary";
 import { AuditInfoBar, Button, Input, Panel, Select } from "./ui";
 import { NumberInput } from "./number-input";
+import { SearchSelect } from "./search-select";
 import { confirmDialog } from "./app-dialog";
 import { LoadingBlock } from "./table-state";
 import { PaginationBar } from "./pagination-bar";
@@ -558,52 +559,34 @@ type PartnerOption = Row & { partnerType?: string };
 function partnerOptionId(row: PartnerOption) { return String(row.supplierId || row.customerId || row.undertakingUnitId || row.id || ""); }
 function partnerOptionName(row: PartnerOption) { return String(row.shortName || row.nameCn || row.entityName || row.name || row.supplierCode || row.customerCode || row.undertakingUnitCode || row.id || ""); }
 function partnerOptionCode(row: PartnerOption) { return String(row.supplierCode || row.customerCode || row.undertakingUnitCode || row.entityCode || ""); }
+/** 项目结算里的伙伴选择：统一走 SearchSelect，供应商与客户合并成一个列表。 */
 function PartnerLookup({ options, selectedId, selectedName, onChange }: { options: PartnerOption[]; selectedId: unknown; selectedName: unknown; onChange: (selected: { id: string; name: string; partnerType?: string }) => void }) {
-  const inputRef = useRef<HTMLInputElement>(null);
-  const [inputValue, setInputValue] = useState("");
-  const [open, setOpen] = useState(false);
-  const [hasTyped, setHasTyped] = useState(false);
-  const [menuPosition, setMenuPosition] = useState({ left: 0, top: 0, width: 240 });
   const selected = String(selectedId ?? "");
   const savedName = String(selectedName ?? "").trim();
-  const selectedOption = options.find((row) => partnerOptionId(row) === selected)
+  const matched = options.find((row) => partnerOptionId(row) === selected)
     ?? options.find((row) => partnerOptionCode(row) === selected)
     ?? options.find((row) => savedName && partnerOptionName(row) === savedName);
-  const fallbackOption = selected && !selectedOption
-    ? { id: selected, name: savedName || selected } satisfies PartnerOption
-    : null;
-  const selectedLabel = selectedOption ? partnerOptionName(selectedOption) : savedName || "请选择";
-  useEffect(() => {
-    if (!open) setInputValue(selectedLabel);
-  }, [open, selectedLabel]);
+  // 已保存的值不在选项里时补一条占位，避免回显成空白
+  const withSelected = matched || !selected
+    ? options
+    : [{ id: selected, shortName: savedName || selected } as PartnerOption, ...options];
 
-  useEffect(() => {
-    if (!open) return;
-    const updateMenuPosition = () => {
-      const rect = inputRef.current?.getBoundingClientRect();
-      if (!rect) return;
-      setMenuPosition({ left: rect.left, top: rect.bottom + 4, width: Math.max(rect.width, 240) });
-    };
-    updateMenuPosition();
-    window.addEventListener("resize", updateMenuPosition);
-    window.addEventListener("scroll", updateMenuPosition, true);
-    return () => {
-      window.removeEventListener("resize", updateMenuPosition);
-      window.removeEventListener("scroll", updateMenuPosition, true);
-    };
-  }, [open]);
-
-  const keywordText = hasTyped ? inputValue.trim().toLowerCase() : "";
-  const visible = options.filter((row) => !keywordText || `${partnerOptionCode(row)} ${partnerOptionName(row)} ${row.nameCn || row.entityName || row.name || ""}`.toLowerCase().includes(keywordText));
-  const candidateOptions = [selectedOption ?? fallbackOption, ...visible].filter((row): row is PartnerOption => Boolean(row));
-  const renderedOptions = candidateOptions.filter((row, index, rows) => rows.findIndex((candidate) => partnerOptionId(candidate) === partnerOptionId(row)) === index);
-  const selectOption = (row: PartnerOption) => {
-    const id = partnerOptionId(row);
-    const name = partnerOptionName(row);
-    setInputValue(name);
-    setHasTyped(false);
-    setOpen(false);
-    onChange({ id, name, partnerType: row.partnerType });
-  };
-  return <div className="relative"><Input ref={inputRef} className="w-full" placeholder="搜索供应商、承接单位或客户" value={inputValue} onFocus={(event) => { setInputValue(selectedLabel); setHasTyped(false); setOpen(true); event.currentTarget.select(); }} onChange={(event) => { const next = event.target.value; setInputValue(next); setHasTyped(true); setOpen(true); if (!next.trim()) onChange({ id: "", name: "" }); }} onBlur={() => { window.setTimeout(() => { setOpen(false); setInputValue(selectedLabel); setHasTyped(false); }, 120); }} />{open ? <div className="fixed z-[120] max-h-64 overflow-y-auto rounded border border-line bg-white py-1 shadow-lg" style={menuPosition}>{renderedOptions.length ? renderedOptions.map((row) => <button className="block w-full px-3 py-2 text-left text-sm text-ink-2 hover:bg-canvas" key={`${row.partnerType || "unit"}-${partnerOptionId(row)}`} type="button" onMouseDown={(event) => { event.preventDefault(); selectOption(row); }}>{partnerOptionCode(row) ? `${partnerOptionCode(row)} - ` : ""}{partnerOptionName(row)}</button>) : <div className="px-3 py-2 text-sm text-ink-3">暂无匹配选项</div>}</div> : null}</div>;
+  return (
+    <SearchSelect
+      className="w-full"
+      options={withSelected.map((row) => ({
+        value: partnerOptionId(row),
+        label: partnerOptionName(row),
+        code: partnerOptionCode(row),
+        hint: String(row.nameCn || row.entityName || row.name || "") || undefined,
+        keywords: `${partnerOptionCode(row)} ${partnerOptionName(row)} ${row.nameCn || row.entityName || row.name || ""} ${row.partnerType || ""}`,
+      }))}
+      placeholder="搜索供应商、承接单位或客户"
+      value={selected}
+      onChange={(value) => {
+        const picked = withSelected.find((row) => partnerOptionId(row) === value);
+        onChange({ id: value, name: picked ? partnerOptionName(picked) : "", partnerType: picked?.partnerType });
+      }}
+    />
+  );
 }

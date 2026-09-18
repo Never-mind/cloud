@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { CheckCircle2, Plus, RefreshCw, Search, Trash2 } from "lucide-react";
+import { CheckCircle2, Plus, RefreshCw, RotateCcw, Search, Trash2 } from "lucide-react";
 import { formatDisplayValue } from "@/lib/display-format";
 import { DEFAULT_PAGE_SIZE } from "@/lib/pagination";
 import { buildDetailRoute, buildListRoute, getCurrentRoute, useListScrollPosition } from "@/lib/client-list-navigation";
@@ -130,6 +130,18 @@ export function PrepaymentWriteOffAdjustmentsPage() {
     await loadData();
   }
 
+  async function rollbackAdjustment(adjustmentNo: string) {
+    if (!await confirmDialog(`确认将该调整单退回草稿？\n退回后受影响的预付款月核销金额会还原成调整前的值。`)) return;
+    const response = await fetch(`/api/prepayment-adjustments/${encodeURIComponent(adjustmentNo)}/rollback`, { method: "POST" });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      notify(data.error ?? "退回失败", "info");
+      return;
+    }
+    notify("已退回草稿，月核销金额已还原", "info");
+    await loadData();
+  }
+
   return (
     <div className="space-y-5">
       <div>
@@ -208,6 +220,10 @@ export function PrepaymentWriteOffAdjustmentsPage() {
                         <Button disabled={confirmed} tone="success" onClick={() => void confirmAdjustment(adjustmentNo)}>
                           <CheckCircle2 size={15} />
                           确认
+                        </Button>
+                        <Button disabled={!confirmed} tone="warning" onClick={() => void rollbackAdjustment(adjustmentNo)}>
+                          <RotateCcw size={15} />
+                          退回草稿
                         </Button>
                         <Button disabled={confirmed} tone="danger" onClick={() => void deleteDraft(adjustmentNo)}>
                           <Trash2 size={15} />

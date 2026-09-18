@@ -8,6 +8,7 @@ import { fetchAllEntityRows } from "@/lib/client-entity-fetch";
 import { formatDateInputValue, formatDisplayValue } from "@/lib/display-format";
 import type { EntityConfig, EntityField } from "@/lib/modules";
 import { Button, Input, Panel, Select, Textarea } from "./ui";
+import { SearchSelect } from "./search-select";
 import { confirmDialog } from "./app-dialog";
 
 type Row = Record<string, string | number | boolean | null>;
@@ -272,12 +273,14 @@ function FieldEditor({ field, value, editing, onChange }: { field: EntityField; 
       ) : field.type === "boolean" ? (
         <span className="flex h-9 items-center gap-2 text-sm text-ink-2"><input checked={Boolean(value)} disabled={!editing} type="checkbox" onChange={(event) => onChange(event.target.checked)} />{Boolean(value) ? "是" : "否"}</span>
       ) : field.type === "select" && field.allowCustom ? (
-        <>
-          <Input className="w-full disabled:bg-canvas disabled:text-ink-2" disabled={!editing} list={`party-${field.key}-options`} required={field.required} value={inputValue} onChange={(event) => onChange(event.target.value)} />
-          <datalist id={`party-${field.key}-options`}>
-            {field.options?.map((option) => <option key={option.value} label={option.label} value={option.value} />)}
-          </datalist>
-        </>
+        <SearchSelect
+          className="w-full"
+          disabled={!editing}
+          options={(field.options ?? []).map((option) => ({ value: option.value, label: option.label }))}
+          placeholder={`请选择或搜索${field.label}`}
+          value={String(value ?? "")}
+          onChange={(next) => onChange(next)}
+        />
       ) : field.type === "select" ? (
         <Select className="w-full disabled:text-ink-2" disabled={!editing} required={field.required} value={String(value ?? "")} onChange={(event) => onChange(event.target.value)}>
           <option value="">请选择</option>
