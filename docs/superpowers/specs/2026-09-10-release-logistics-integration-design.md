@@ -1,7 +1,7 @@
 # 远程物流单（Release ID）接入开发方案
 
 编写日期：2026-09-10
-涉及远端：`http://192.168.2.27:1337`（Frappe）
+涉及远端：`http://192.168.3.153:1337`（Frappe）
 涉及本地：`merge_power_shipments`、`merge_power_requestitems`、采购确认流程
 
 ## 1. 目标

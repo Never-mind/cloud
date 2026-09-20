@@ -5,7 +5,10 @@ import { runFrappeDemandSync } from "../src/lib/frappe-demand-sync-service";
 
 loadLocalEnv();
 
-runFrappeDemandSync({ triggerType: "script" })
+// 加 --dry-run 只计算不写库，用于正式同步前核对影响面。
+const dryRun = process.argv.includes("--dry-run");
+
+runFrappeDemandSync({ triggerType: "script", dryRun })
   .then((result) => {
     console.log(JSON.stringify(result, null, 2));
   })

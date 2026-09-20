@@ -1,7 +1,7 @@
 # 远端 Shipment 时间节点接入开发方案
 
 编写日期：2026-09-16
-涉及远端：`http://192.168.2.27:1337`（Frappe），Doctype `SL Shipment`
+涉及远端：`http://192.168.3.153:1337`（Frappe），Doctype `SL Shipment`
 涉及本地：`merge_power_shipments`、`merge_power_requestitems`、`merge_power_demand_sync_items`
 上一版方案：`docs/superpowers/specs/2026-09-10-release-logistics-integration-design.md`（Release 级实体未落地）
 

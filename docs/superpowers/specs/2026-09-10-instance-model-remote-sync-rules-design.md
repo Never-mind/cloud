@@ -1,7 +1,7 @@
 # 实例型号远程同步规则调整方案
 
 编写日期：2026-09-10
-涉及远端：`Material`（`http://192.168.2.27:1337`）
+涉及远端：`Material`（`http://192.168.3.153:1337`）
 涉及本地：`merge_power_instancemodels`、`merge_power_material_sync_runs`、实例型号页面「同步远端 Material」
 
 ## 1. 目标

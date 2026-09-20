@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { PoolConnection, RowDataPacket } from "mysql2/promise";
 import { executeRaw, getDb, queryRowsRaw, type Row } from "./db";
+import { resolveFrappeEndpoint, resolvePageSize, resolveTimeoutMs } from "./frappe-config";
 import type { OperationActor } from "./operation-actor";
 
 const SOURCE_SYSTEM = "frappe";
@@ -9,15 +10,18 @@ const RUN_TABLE = "merge_power_demand_sync_runs";
 const ITEM_TABLE = "merge_power_demand_sync_items";
 const REQUEST_TABLE = "merge_power_requests";
 const SYNC_LOCK_NAME = "suanli-frappe-demand-sync";
-const DEFAULT_API_BASE_URL = "http://192.168.2.27:1337";
 const DEFAULT_PAGE_SIZE = 200;
+const MAX_PAGE_SIZE = 500;
 
 // 需要人工维护映射的只有供应商与实例型号；远端机房、收货地址、收件人信息
 // 在采购确认时直接取远端快照，不再走本地映射。
 const sourceTypes = ["supplier", "material"] as const;
 type SourceType = (typeof sourceTypes)[number];
-const activeMappingSourceTypes = ["supplier", "material"] as const;
 type MappingStatus = "pending" | "confirmed" | "conflict" | "ignored";
+
+function isSourceType(value: unknown): value is SourceType {
+  return sourceTypes.includes(value as SourceType);
+}
 
 type RemoteDemandItem = {
   id: string;
@@ -181,18 +185,12 @@ function parseCandidates(value: unknown): LocalCandidate[] {
 }
 
 function getConfig() {
-  const token = text(process.env.FRAPPE_DEMAND_API_TOKEN || process.env.MATERIAL_API_TOKEN);
-  if (!token) throw new Error("未配置 Frappe API 密钥，无法读取远端需求数据");
-  const configuredPageSize = Number(process.env.FRAPPE_DEMAND_SYNC_PAGE_SIZE ?? DEFAULT_PAGE_SIZE);
-  const pageSize = Number.isFinite(configuredPageSize)
-    ? Math.min(Math.max(Math.floor(configuredPageSize), 1), 500)
-    : DEFAULT_PAGE_SIZE;
-  const timeout = Number(process.env.FRAPPE_DEMAND_SYNC_TIMEOUT_MS ?? 30_000);
+  const { baseUrl, token } = resolveFrappeEndpoint("需求数据");
   return {
+    baseUrl,
     token,
-    baseUrl: text(process.env.FRAPPE_DEMAND_API_BASE_URL || process.env.MATERIAL_API_BASE_URL || DEFAULT_API_BASE_URL).replace(/\/+$/, ""),
-    pageSize,
-    timeoutMs: Number.isFinite(timeout) ? Math.min(Math.max(timeout, 1_000), 120_000) : 30_000,
+    pageSize: resolvePageSize(process.env.FRAPPE_DEMAND_SYNC_PAGE_SIZE, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE),
+    timeoutMs: resolveTimeoutMs(process.env.FRAPPE_DEMAND_SYNC_TIMEOUT_MS),
   };
 }
 
@@ -556,11 +554,11 @@ async function saveSourceMapping(source: RemoteSource, actor: OperationActor | n
 
 export async function refreshFrappeDemandMappings(actor: OperationActor | null) {
   const snapshot = await loadRemoteSnapshot();
-  await Promise.all(snapshot.sources.filter((source) => activeMappingSourceTypes.includes(source.type as (typeof activeMappingSourceTypes)[number])).map((source) => saveSourceMapping(source, actor)));
+  await Promise.all(snapshot.sources.filter((source) => isSourceType(source.type)).map((source) => saveSourceMapping(source, actor)));
   return {
     demandItems: snapshot.items.length,
     demandOrders: snapshot.orders.size,
-    sources: Object.fromEntries(activeMappingSourceTypes.map((sourceType) => [sourceType, snapshot.sources.filter((source) => source.type === sourceType).length])),
+    sources: Object.fromEntries(sourceTypes.map((sourceType) => [sourceType, snapshot.sources.filter((source) => source.type === sourceType).length])),
   };
 }
 
@@ -954,7 +952,7 @@ export async function runFrappeDemandSync({ triggerType = "manual", dryRun = fal
     if (!locked) throw new Error("已有需求同步任务正在执行，请稍后再试");
     await connection.execute(`INSERT INTO ${RUN_TABLE} (syncRunId,triggerType,status,dryRun,startedAt) VALUES (?,?,'running',?,CURRENT_TIMESTAMP)`, [runId, triggerType, dryRun ? 1 : 0]);
     const snapshot = await loadRemoteSnapshot();
-    await Promise.all(snapshot.sources.filter((source) => activeMappingSourceTypes.includes(source.type as (typeof activeMappingSourceTypes)[number])).map((source) => saveSourceMapping(source, actor)));
+    await Promise.all(snapshot.sources.filter((source) => isSourceType(source.type)).map((source) => saveSourceMapping(source, actor)));
     // 远端履约状态回写到本地需求单（仅更新已存在的单，试运行不写）。
     if (!dryRun) await persistRequestRemoteStatus(snapshot);
     summary.fetchedItems = snapshot.items.length;

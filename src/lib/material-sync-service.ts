@@ -1,11 +1,12 @@
 import { randomUUID } from "node:crypto";
 import type { ResultSetHeader, RowDataPacket } from "mysql2";
 import { executeRaw, getDb, queryRowsRaw, type Row } from "./db";
+import { resolveFrappeEndpoint, resolvePageSize, resolveTimeoutMs } from "./frappe-config";
 
 const SYNC_RUN_TABLE = "merge_power_material_sync_runs";
 const SYNC_LOCK_NAME = "suanli-material-instance-model-sync";
-const DEFAULT_MATERIAL_API_BASE_URL = "http://192.168.2.27:1337";
 const DEFAULT_PAGE_SIZE = 100;
+const MAX_PAGE_SIZE = 1_000;
 const MAX_ERROR_DETAILS = 100;
 const MATERIAL_FIELDS = [
   "name",
@@ -153,21 +154,12 @@ function createdCounterKey(instanceType: InstanceModelType) {
 }
 
 function getConfig() {
-  const token = clean(process.env.MATERIAL_API_TOKEN);
-  if (!token) throw new Error("未配置 MATERIAL_API_TOKEN，无法读取远端 Material 数据");
-
-  const configuredPageSize = Number(process.env.MATERIAL_SYNC_PAGE_SIZE ?? DEFAULT_PAGE_SIZE);
-  const pageSize = Number.isFinite(configuredPageSize)
-    ? Math.min(Math.max(Math.floor(configuredPageSize), 1), 1000)
-    : DEFAULT_PAGE_SIZE;
-  const baseUrl = clean(process.env.MATERIAL_API_BASE_URL || DEFAULT_MATERIAL_API_BASE_URL).replace(/\/+$/, "");
-  const timeoutMs = Number(process.env.MATERIAL_SYNC_TIMEOUT_MS ?? 30_000);
-
+  const { baseUrl, token } = resolveFrappeEndpoint("Material 数据");
   return {
     baseUrl,
     token,
-    pageSize,
-    timeoutMs: Number.isFinite(timeoutMs) ? Math.min(Math.max(timeoutMs, 1_000), 120_000) : 30_000,
+    pageSize: resolvePageSize(process.env.MATERIAL_SYNC_PAGE_SIZE, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE),
+    timeoutMs: resolveTimeoutMs(process.env.MATERIAL_SYNC_TIMEOUT_MS),
   };
 }
 
