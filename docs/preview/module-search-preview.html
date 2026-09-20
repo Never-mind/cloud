@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>功能模块搜索 · 演示</title>
+<style>
+:root{--ink:#303133;--ink-2:#606266;--ink-3:#909399;--ink-4:#c0c4cc;--line:#dcdfe6;--line-soft:#ebeef5;--surface:#fff;--surface-2:#fafafa;--canvas:#f5f7fa;--fill-soft:#f4f4f5;--brand:#409eff;--brand-soft:#ecf5ff;--brand-border:#b3d8ff;--success-soft:#f0f9eb;}
+*{box-sizing:border-box;}
+body{margin:0;font-family:-apple-system,"Segoe UI","Microsoft YaHei",sans-serif;color:var(--ink);background:var(--canvas);}
+.page{max-width:1180px;margin:0 auto;padding:26px 24px 56px;}
+h1{font-size:20px;margin:0 0 6px;}
+.lede{color:var(--ink-2);font-size:13px;line-height:1.75;margin:0 0 18px;}
+.stage{display:grid;grid-template-columns:236px 1fr;gap:16px;align-items:start;}
+.card{background:var(--surface);border:1px solid var(--line-soft);border-radius:10px;}
+.sidebar{padding:12px 10px;}
+.brand{font-size:12px;font-weight:600;padding:10px 8px 6px;color:var(--ink);}
+.nav-entry{display:flex;align-items:center;gap:8px;padding:7px 8px;border-radius:6px;font-size:13px;color:var(--ink-2);}
+.nav-entry.active{background:var(--brand-soft);color:#1f6fd0;font-weight:600;}
+.nav-entry .chev{margin-left:auto;color:var(--ink-4);font-size:11px;}
+.searchbox{margin:0 0 6px;position:relative;}
+.searchbox input{width:100%;height:30px;border:1px solid var(--line);border-radius:6px;padding:0 42px 0 28px;font-size:13px;color:var(--ink);background:var(--surface);outline:none;}
+.searchbox input:focus{border-color:var(--brand);box-shadow:0 0 0 2px rgba(64,158,255,.14);}
+.searchbox .icon{position:absolute;left:9px;top:7px;color:var(--ink-3);font-size:12px;}
+.searchbox .kbd{position:absolute;right:7px;top:7px;font-size:10px;color:var(--ink-3);border:1px solid var(--line);border-radius:4px;padding:1px 5px;background:var(--surface-2);}
+.panel-head{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid var(--line-soft);}
+.panel-head .title{font-size:13px;font-weight:600;}
+.panel-head .meta{font-size:12px;color:var(--ink-3);}
+.results{max-height:420px;overflow-y:auto;padding:6px;}
+.group-label{font-size:11px;color:var(--ink-3);padding:8px 10px 4px;}
+.item{display:flex;align-items:flex-start;gap:10px;padding:8px 10px;border-radius:7px;cursor:pointer;}
+.item:hover{background:var(--surface-2);}
+.item.sel{background:var(--brand-soft);outline:1px solid var(--brand-border);}
+.item .main{min-width:0;}
+.item .name{font-size:13px;font-weight:600;color:var(--ink);}
+.item .name em{font-style:normal;background:#fff3cd;border-radius:3px;padding:0 2px;}
+.item .desc{font-size:12px;color:var(--ink-3);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:520px;}
+.item .where{margin-left:auto;font-size:11px;color:var(--ink-4);white-space:nowrap;padding-left:12px;}
+.empty{padding:34px 16px;text-align:center;color:var(--ink-3);font-size:13px;}
+.empty .tips{margin-top:8px;font-size:12px;}
+.foot{display:flex;gap:14px;padding:10px 14px;border-top:1px solid var(--line-soft);font-size:11px;color:var(--ink-3);}
+.foot b{font-weight:600;color:var(--ink-2);}
+.tag{display:inline-block;padding:1px 6px;border-radius:4px;font-size:11px;background:var(--success-soft);color:#4f9c2f;}
+.notes{margin-top:16px;display:grid;grid-template-columns:repeat(3,1fr);gap:12px;}
+.note{padding:12px 14px;}
+.note h3{margin:0 0 6px;font-size:12px;}
+.note p{margin:0;font-size:12px;color:var(--ink-2);line-height:1.65;}
+.chip{display:inline-block;margin:10px 6px 0 0;padding:4px 9px;border:1px solid var(--line);border-radius:999px;font-size:12px;color:var(--ink-2);background:var(--surface);cursor:pointer;}
+.chip:hover{border-color:var(--brand-border);color:#1f6fd0;background:var(--brand-soft);}
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>功能模块搜索 · 演示</h1>
+  <p class="lede">
+    数据取自系统真实的 48 个模块。支持 <b>中文名</b>、<b>拼音首字母</b>、<b>业务别名</b> 三种匹配；
+    <b>已停用的功能不会出现在结果里</b>。直接在输入框敲字，或用下方"试试搜"。
+  </p>
+
+  <div class="stage">
+    <div class="card sidebar">
+      <div class="searchbox">
+        <span class="icon">🔍</span>
+        <input id="q" placeholder="搜索功能模块" autocomplete="off" />
+        <span class="kbd">⌘K</span>
+      </div>
+      <div class="brand">算力系统</div>
+      <div class="nav-entry">客户需求 <span class="chev">▸</span></div>
+      <div class="nav-entry">采购管理 <span class="chev">▸</span></div>
+      <div class="nav-entry">合同管理 <span class="chev">▸</span></div>
+      <div class="nav-entry">物流管理 <span class="chev">▸</span></div>
+      <div class="nav-entry">月账单管理 <span class="chev">▸</span></div>
+      <div class="nav-entry">预付款管理 <span class="chev">▸</span></div>
+      <div class="nav-entry">服务费核算 <span class="chev">▸</span></div>
+      <div class="nav-entry">成本与锚定价格 <span class="chev">▸</span></div>
+      <div class="nav-entry">基础信息 <span class="chev">▸</span></div>
+      <div class="brand">集采系统</div>
+      <div class="nav-entry">客户PO <span class="chev">▸</span></div>
+      <div class="nav-entry">项目结算 <span class="chev">▸</span></div>
+    </div>
+
+    <div class="card">
+      <div class="panel-head">
+        <span class="title" id="panelTitle">全部功能模块</span>
+        <span class="meta" id="panelMeta"></span>
+      </div>
+      <div class="results" id="results"></div>
+      <div class="foot">
+        <span><b>↑ ↓</b> 选择</span>
+        <span><b>Enter</b> 打开</span>
+        <span><b>Esc</b> 关闭</span>
+        <span style="margin-left:auto"><span class="tag">停用功能已过滤</span></span>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="card note"><h3>匹配规则</h3><p>中文名包含、拼音首字母包含、业务别名命中，三者取并集，命中的片段高亮。</p></div>
+    <div class="card note"><h3>结果排序</h3><p>名称完全匹配 &gt; 前缀命中 &gt; 名称包含 &gt; 拼音命中 &gt; 别名命中 &gt; 所属分组命中。</p></div>
+    <div class="card note"><h3>停用过滤</h3><p>停用功能（当前 4 个，如内部服务费系列）不进索引，搜不到，与"功能启用"的开关保持一致。</p></div>
+  </div>
+
+  <div style="margin-top:12px">
+    <span style="font-size:12px;color:var(--ink-2)">试试搜：</span>
+    <span class="chip" data-q="月账">月账</span>
+    <span class="chip" data-q="yzd">yzd</span>
+    <span class="chip" data-q="核销">核销</span>
+    <span class="chip" data-q="对账">对账</span>
+    <span class="chip" data-q="结差">结差</span>
+    <span class="chip" data-q="交单">交单</span>
+    <span class="chip" data-q="fphz">fphz</span>
+    <span class="chip" data-q="服务费">服务费</span>
+    <span class="chip" data-q="zzz">zzz（无结果）</span>
+  </div>
+</div>
+
+<script>
+const MODULES = [{"key":"huawei-cloud","title":"华为云对账","route":"/cloud/reconciliation","description":"华为云月度账单、收款、确认和跨月对账。","domain":"华为云业务","group":"华为云对账","disabled":false,"pinyin":"hwydz","aliases":["华为","华为云","云对账"]},{"key":"po-invoice-summary","title":"发票汇总","route":"/po/invoices","description":"集中查看集采项目结算中的收入和成本发票。","domain":"集采系统","group":"财务管理","disabled":false,"pinyin":"fphz","aliases":["开票","发票","票据"]},{"key":"customer-product-aliases","title":"客户产品别名","route":"/customer-product-aliases","description":"维护客户侧产品名称、SKU与产品主档编码的匹配关系。","domain":"集采系统","group":"采购管理","disabled":false,"pinyin":"khcbm","aliases":["别名","产品别名"]},{"key":"product-categories","title":"产品类别","route":"/product-categories","description":"维护产品类别与墨西哥HS编码、NOM认证的匹配关系。","domain":"集采系统","group":"产品管理","disabled":false,"pinyin":"cplb","aliases":["类别","分类"]},{"key":"product-masters","title":"产品主档","route":"/product-catalog","description":"维护一品一档的产品基础资料，按产品编码排序。","domain":"集采系统","group":"产品管理","disabled":false,"pinyin":"cpzd","aliases":["产品","主档","产品档案"]},{"key":"customer-pos","title":"客户PO","route":"/customer-pos","description":"登记客户采购订单，并按产品主档编码进行匹配。","domain":"集采系统","group":"客户PO","disabled":false,"pinyin":"khpo","aliases":["客户订单"]},{"key":"quotations","title":"报价单","route":"/quotation/list","description":"根据客户PO和产品主档编码维护报价单。","domain":"集采系统","group":"客户PO","disabled":false,"pinyin":"bjd","aliases":["报价","询价"]},{"key":"history-quotations","title":"历史报价","route":"/history-quotations","description":"按客户和产品编码查询历史报价。","domain":"集采系统","group":"客户PO","disabled":false,"pinyin":"lsbj","aliases":["历史价格","报价历史"]},{"key":"settlement-projects","title":"项目结算","route":"/po/settlement-projects","description":"管理已确认报价单的采购执行、成本费用、销售收入、发票和项目结算。","domain":"集采系统","group":"项目结算","disabled":false,"pinyin":"xmjs","aliases":["结差","项目结差","结算"]},{"key":"purchase-orders","title":"采购订单","route":"/purchase/orders","description":"以主从表单维护 PO 主单和采购明细。","domain":"算力系统","group":"采购管理","disabled":false,"pinyin":"cgdd","aliases":["采购","下单"]},{"key":"purchase-order-items","title":"采购明细一览","route":"/purchase/items","description":"集中查看所有 PO 采购明细。","domain":"算力系统","group":"采购管理","disabled":false,"pinyin":"cgmxyl","aliases":["采购明细","采购单明细"]},{"key":"b6-type-configs","title":"B6类型规则","route":"/finance/b6-type-configs","description":"维护B6类型的资金占用、备件服务和结算规则；价格版本确认后会保存规则快照。","domain":"算力系统","group":"成本与锚定价格","disabled":false,"pinyin":"b6lxgz","aliases":["B6","类型规则","规则"]},{"key":"capex-pricing","title":"CAPEX/OPEX锚定价格","route":"/finance/capex-pricing","description":"按国家和价格版本维护CAPEX/OPEX锚定价格、完整计算过程和历史快照。","domain":"算力系统","group":"成本与锚定价格","disabled":false,"pinyin":"capexopexmdjg","aliases":["锚定","锚定价格","CAPEX","OPEX","价格"]},{"key":"balance-settlements","title":"实例结差","route":"/finance/balance-settlements","description":"基于采购CAPEX/OPEX、结差汇率与已确认锚定价格版本生成实例结差来源单，并统一确认各类结差来源单。","domain":"算力系统","group":"成本与锚定价格","disabled":false,"pinyin":"sljc","aliases":["结差","实例差价"]},{"key":"non-instance-settlements","title":"非实例费用结差","route":"/finance/non-instance-settlements","description":"按备件、清关费、跨境金融税、人力及其他费用类型录入横向明细来源单。","domain":"算力系统","group":"成本与锚定价格","disabled":false,"pinyin":"fslfyjc","aliases":["结差","费用结差"]},{"key":"balance-final-settlements","title":"结差结算单","route":"/finance/balance-final-settlements","description":"按国家、结差期间和币种汇集已确认的实例结差与非实例费用结差，形成可追溯的最终结差结算单。","domain":"算力系统","group":"成本与锚定价格","disabled":false,"pinyin":"jcjsd","aliases":["结差","结算单"]},{"key":"service-fees","title":"服务费核算","route":"/finance/service-fees","description":"按月度月账单核销总额减预付款核销金额，实时核算服务费并生成服务费对账单草稿。","domain":"算力系统","group":"服务费核算","disabled":false,"pinyin":"fwfhs","aliases":["服务费","服务费测算"]},{"key":"service-fee-snapshots","title":"服务费对账单","route":"/finance/service-fee-snapshots","description":"按国家和核销月份管理服务费对账单、确认状态、开票状态及发票附件。","domain":"算力系统","group":"服务费核算","disabled":false,"pinyin":"fwfdzd","aliases":["服务费对账","对账单"]},{"key":"service-fee-snapshot-items","title":"服务费对账单明细","route":"/finance/service-fee-snapshot-items","description":"查看服务费对账单中冻结保存的明细行。","domain":"算力系统","group":"服务费核算","disabled":false,"pinyin":"fwfdzdmx","aliases":[]},{"key":"instance-contracts","title":"实例合同","route":"/contracts/instance-contracts","description":"维护实例合同、国家、实例型号与分阶段含税单价。","domain":"算力系统","group":"合同管理","disabled":false,"pinyin":"slht","aliases":["合同","实例合同"]},{"key":"billing-adjustments","title":"实例合同调整单","route":"/finance/billing-adjustments","description":"维护特定批次、特定实例在某个生效月份之后的月账单价格调整。","domain":"算力系统","group":"合同管理","disabled":false,"pinyin":"slhttzd","aliases":["合同调整","调整单"]},{"key":"countries","title":"国家管理","route":"/master-data/countries","description":"维护国家代码及中英文名称。","domain":"算力系统","group":"基础信息","disabled":false,"pinyin":"gjgl","aliases":["国家","地区"]},{"key":"instance-models","title":"实例型号","route":"/master-data/instance-models","description":"维护设备编码、机型、实例型号名称和类型。","domain":"算力系统","group":"基础信息","disabled":false,"pinyin":"slxh","aliases":["型号","机型","物料"]},{"key":"prepayment-contract-items","title":"预付款合同明细","route":"/finance/prepayment-contract-items","description":"管理预付款合同下的支付明细。","domain":"算力系统","group":"基础信息","disabled":false,"pinyin":"yfkhtmx","aliases":["预付合同明细"]},{"key":"write-off-items","title":"核销明细","route":"/finance/write-off-items","description":"管理预付款与需求明细之间的核销关系。","domain":"算力系统","group":"基础信息","disabled":false,"pinyin":"hxmx","aliases":["核销明细","逐月核销"]},{"key":"requests","title":"需求单","route":"/requests/orders","description":"以主从表单维护客户需求单和需求明细。","domain":"算力系统","group":"客户需求","disabled":false,"pinyin":"xqd","aliases":["需求"]},{"key":"request-items","title":"需求明细一览","route":"/requests/items","description":"跨批次集中查看所有需求明细。","domain":"算力系统","group":"客户需求","disabled":false,"pinyin":"xqmxyl","aliases":["需求明细","需求子表"]},{"key":"demand-sync-mappings","title":"需求同步映射","route":"/requests/sync-mappings","description":"维护 Frappe 供应商和物料到本地档案的映射，并同步创建需求草稿；物流信息在采购确认时直接取远端快照。","domain":"算力系统","group":"客户需求","disabled":false,"pinyin":"xqtbys","aliases":["同步映射","映射","远端同步"]},{"key":"data-imports","title":"数据导入中心","route":"/data-imports","description":"统一管理模板下载、文件上传、导入预览、错误报告和导入历史。","domain":"算力系统","group":"数据工具","disabled":false,"pinyin":"sjdrzx","aliases":["导入","模板","导入模板"]},{"key":"shipments","title":"物流列表","route":"/shipments","description":"采购订单确认时从远端获取机房、地址和收件人，并保存不可变物流快照。","domain":"算力系统","group":"物流管理","disabled":false,"pinyin":"wllb","aliases":["交单","发货","运单","提单","物流单"]},{"key":"prepayment-available","title":"待生成预付款实例","route":"/finance/prepayment-available","description":"从已下单采购实例中勾选生成预付款合同草稿。","domain":"算力系统","group":"预付款管理","disabled":false,"pinyin":"dscyfksl","aliases":["待生成预付","预付实例"]},{"key":"prepayment-contracts","title":"预付款合同","route":"/finance/prepayment-contracts","description":"管理预付款合同草稿、确认状态和合同总金额。","domain":"算力系统","group":"预付款管理","disabled":false,"pinyin":"yfkht","aliases":["预付","预付合同"]},{"key":"monthly-prepayment-writeoffs","title":"预付款每月核销明细","route":"/finance/monthly-prepayment-writeoffs","description":"按月份查看已确认预付款合同生成的核销金额。","domain":"算力系统","group":"预付款管理","disabled":false,"pinyin":"yfkmyhxmx","aliases":["核销","抵扣","冲销"]},{"key":"prepayment-writeoff-adjustments","title":"预付款核销调整单","route":"/finance/prepayment-writeoff-adjustments","description":"针对特定批次、实例、月份调整预付款每月核销金额。","domain":"算力系统","group":"预付款管理","disabled":false,"pinyin":"yfkhxtzd","aliases":["核销调整","调整单"]},{"key":"billing-available","title":"待生成月账单实例","route":"/finance/billing-available","description":"从已确认下单且尚未生成月账单台账的实例中生成60个月账单。","domain":"算力系统","group":"月账单管理","disabled":false,"pinyin":"dscyzdsl","aliases":["生成账单","待生成","账单实例"]},{"key":"billing-ledgers","title":"月账单台账","route":"/finance/billing-ledgers","description":"查看已确认月账单实例的合同价格锁定信息。","domain":"算力系统","group":"月账单管理","disabled":false,"pinyin":"yzdtz","aliases":["月账","出账","开账","账单台账"]},{"key":"monthly-billing-writeoffs","title":"月账单每月明细","route":"/finance/monthly-billing-writeoffs","description":"查看月账单台账生成的60个月实例核销明细。","domain":"算力系统","group":"月账单管理","disabled":false,"pinyin":"yzdmymx","aliases":["月账明细","逐月"]},{"key":"billing-statements","title":"月账单对账单","route":"/finance/billing-statements","description":"按国家、期间和币种生成月账单对账单，确认后冻结并按模板导出 Excel。","domain":"算力系统","group":"月账单管理","disabled":false,"pinyin":"yzddzd","aliases":["对账","核对"]},{"key":"documents","title":"文档库","route":"/documents","description":"集中管理系统业务文档、文件夹和附件。","domain":"文档管理","group":"文档管理","disabled":false,"pinyin":"wdk","aliases":["文档","文件","附件"]},{"key":"suppliers","title":"供应商管理","route":"/suppliers","description":"维护供应商完整基础资料。","domain":"业务伙伴","group":"业务伙伴","disabled":false,"pinyin":"gysgl","aliases":["供应商","厂商"]},{"key":"customers","title":"客户管理","route":"/customers","description":"维护客户完整基础资料。","domain":"业务伙伴","group":"业务伙伴","disabled":false,"pinyin":"khgl","aliases":["客户"]},{"key":"undertaking-units","title":"承接单位管理","route":"/undertaking-units","description":"维护承接单位完整基础资料。","domain":"业务伙伴","group":"业务伙伴","disabled":false,"pinyin":"cjdwgl","aliases":["承接单位","承接方","单位"]},{"key":"system-module-features","title":"功能启用","route":"/system/module-features","description":"管理暂未正式启用的系统功能。","domain":"用户管理","group":"功能启用","disabled":false,"pinyin":"gnqy","aliases":["权限","开关","功能"]},{"key":"system-users","title":"账户管理","route":"/system/users","description":"管理员管理用户账号、启用状态和系统权限。","domain":"用户管理","group":"账户管理","disabled":false,"pinyin":"zhgl","aliases":["用户","账号","用户管理"]}];
+const input = document.getElementById("q");
+const resultsEl = document.getElementById("results");
+const metaEl = document.getElementById("panelMeta");
+const titleEl = document.getElementById("panelTitle");
+let selected = 0;
+let flat = [];
+
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+}
+
+function highlight(text, keyword) {
+  const index = text.toLowerCase().indexOf(keyword.toLowerCase());
+  if (!keyword || index < 0) return escapeHtml(text);
+  return escapeHtml(text.slice(0, index)) + "<em>" + escapeHtml(text.slice(index, index + keyword.length)) + "</em>" + escapeHtml(text.slice(index + keyword.length));
+}
+
+function score(item, key) {
+  const title = item.title.toLowerCase();
+  if (title === key) return 100;
+  if (title.startsWith(key)) return 90;
+  if (title.includes(key)) return 80;
+  if (item.pinyin.startsWith(key)) return 70;
+  if (item.pinyin.includes(key)) return 60;
+  if (item.aliases.some((a) => a.toLowerCase() === key)) return 58;
+  if (item.aliases.some((a) => a.toLowerCase().includes(key))) return 50;
+  if (item.group.toLowerCase().includes(key)) return 30;
+  return 0;
+}
+
+function render(keyword) {
+  const key = (keyword || "").trim().toLowerCase();
+  const matched = key
+    ? MODULES.map((item) => ({ item, s: score(item, key) })).filter((row) => row.s > 0)
+        .sort((a, b) => b.s - a.s || a.item.title.localeCompare(b.item.title, "zh"))
+        .map((row) => row.item)
+    : MODULES;
+  flat = matched;
+  if (selected >= flat.length) selected = 0;
+
+  titleEl.textContent = key ? "搜索结果" : "全部功能模块";
+  metaEl.textContent = key
+    ? "共 " + matched.length + " 个功能"
+    : "共 " + MODULES.length + " 个功能（已过滤停用项）";
+
+  if (!matched.length) {
+    resultsEl.innerHTML = '<div class="empty">没有找到与「' + escapeHtml(keyword) + '」匹配的功能' +
+      '<div class="tips">试试搜 <b>月账</b>、<b>核销</b>、<b>对账</b>、<b>发票</b>，或输入拼音首字母如 <b>yzd</b></div></div>';
+    return;
+  }
+
+  let html = "";
+  let lastDomain = "";
+  matched.forEach((item, index) => {
+    if (item.domain !== lastDomain) {
+      html += '<div class="group-label">' + escapeHtml(item.domain) + "</div>";
+      lastDomain = item.domain;
+    }
+    html += '<div class="item' + (index === selected ? " sel" : "") + '" data-index="' + index + '">' +
+      '<div class="main"><div class="name">' + highlight(item.title, key) + "</div>" +
+      '<div class="desc">' + escapeHtml(item.description || item.group) + "</div></div>" +
+      '<div class="where">' + escapeHtml(item.group) + "</div></div>";
+  });
+  resultsEl.innerHTML = html;
+  const selEl = resultsEl.querySelector(".item.sel");
+  if (selEl) selEl.scrollIntoView({ block: "nearest" });
+}
+
+input.addEventListener("input", () => { selected = 0; render(input.value); });
+input.addEventListener("keydown", (event) => {
+  if (event.key === "ArrowDown") { event.preventDefault(); selected = Math.min(selected + 1, flat.length - 1); render(input.value); }
+  if (event.key === "ArrowUp") { event.preventDefault(); selected = Math.max(selected - 1, 0); render(input.value); }
+});
+resultsEl.addEventListener("click", (event) => {
+  const row = event.target.closest(".item");
+  if (!row) return;
+  selected = Number(row.dataset.index);
+  render(input.value);
+});
+document.querySelectorAll(".chip").forEach((chip) => {
+  chip.addEventListener("click", () => { input.value = chip.dataset.q; selected = 0; render(input.value); input.focus(); });
+});
+
+render("");
+</script>
+</body>
+</html>
