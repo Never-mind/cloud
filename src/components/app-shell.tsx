@@ -15,6 +15,7 @@ import {
   Menu,
   ReceiptText,
   RotateCcw,
+  Search,
   Ship,
   ShoppingCart,
   UserCog,
@@ -30,6 +31,8 @@ import {
   type ModuleFeatureState,
 } from "@/lib/module-feature-definitions";
 import { getChildGroupKey, isGroupOpen, toggleGroup, type SidebarGroupState } from "@/lib/nav-utils";
+import { buildModuleSearchIndex, type ModuleSearchEntry } from "@/lib/module-search";
+import { ModuleSearchDialog } from "./module-search-dialog";
 import { DEFAULT_SIDEBAR_GROUP_ORDER, getSidebarNavGroups, moveSidebarGroup } from "@/lib/sidebar-navigation";
 import {
   closeWorkspaceTab,
@@ -91,6 +94,7 @@ export function AppShell({
   const searchParams = useSearchParams();
   const [openGroups, setOpenGroups] = useState<SidebarGroupState>({});
   const [sidebarGroupsReady, setSidebarGroupsReady] = useState(false);
+  const [moduleSearchOpen, setModuleSearchOpen] = useState(false);
   const [workspace, setWorkspace] = useState<WorkspaceState>(() => createInitialWorkspace());
   const [workspaceReady, setWorkspaceReady] = useState(false);
   const [loadedTabIds, setLoadedTabIds] = useState<Set<string>>(() => new Set());
@@ -123,6 +127,20 @@ export function AppShell({
     })).filter((group) => group.items.length || group.children?.length);
   }, [filteredNavGroups, isAdmin, permissionState]);
   const sidebarGroups = useMemo(() => getSidebarNavGroups(visibleNavGroups, sidebarGroupOrder), [sidebarGroupOrder, visibleNavGroups]);
+  // 搜索索引取自过滤后的导航树：停用功能与无权限模块都搜不到。
+  const moduleSearchEntries = useMemo(() => buildModuleSearchIndex(visibleNavGroups as never), [visibleNavGroups]);
+
+  useEffect(() => {
+    if (embedded) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setModuleSearchOpen((value) => !value);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [embedded]);
   const currentSectionTitle = getTopLevelTitle(pathname);
   // The middleware marks embedded requests on the server. Keep the query
   // marker as a client-side fallback so an older/stale server build cannot
@@ -430,6 +448,16 @@ export function AppShell({
             <RotateCcw size={15} />
           </button>
         </div>
+        <button
+          className="mx-3 mb-2 flex h-9 shrink-0 items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 text-left text-nav-ink hover:bg-white/10 hover:text-white"
+          onClick={() => setModuleSearchOpen(true)}
+          title="搜索功能模块（Ctrl / Cmd + K）"
+          type="button"
+        >
+          <Search className="shrink-0" size={15} />
+          <span className="min-w-0 flex-1 truncate text-[13px]">搜索功能模块</span>
+          <span className="shrink-0 rounded border border-white/15 px-1.5 py-0.5 text-[10px]">⌘K</span>
+        </button>
         <nav className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden pb-4">
           <button
             className="flex h-14 w-full min-w-0 items-center gap-3 px-5 text-left text-info"
@@ -513,6 +541,15 @@ export function AppShell({
           })}
         </nav>
       </aside>
+      <ModuleSearchDialog
+        entries={moduleSearchEntries}
+        onClose={() => setModuleSearchOpen(false)}
+        onSelect={(entry: ModuleSearchEntry) => {
+          setModuleSearchOpen(false);
+          openTab({ route: entry.route, title: entry.title, closable: true });
+        }}
+        open={moduleSearchOpen}
+      />
       <main className="app-content min-h-screen">
         <header className="app-header sticky top-0 z-10 flex h-[50px] min-w-0 items-center gap-2 border-b border-line bg-white px-3 sm:px-4">
           <Menu size={19} className="shrink-0 text-ink" />
