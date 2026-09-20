@@ -25,9 +25,9 @@ type Row = {
   requestType: string;
   modelCode: string;
   nameEn: string;
-  undertakingUnitCode: string;
-  supplierCode: string;
-  customerCode: string;
+  undertakingUnitName: string;
+  supplierName: string;
+  customerName: string;
   quantity: number;
   currency: string;
   actualUnitPrice: number;
@@ -48,9 +48,9 @@ const columns = [
   { key: "requestType", label: "类型" },
   { key: "modelCode", label: "机型" },
   { key: "nameEn", label: "英文名称" },
-  { key: "undertakingUnitCode", label: "承接单位" },
-  { key: "supplierCode", label: "供应商" },
-  { key: "customerCode", label: "客户" },
+  { key: "undertakingUnitName", label: "承接单位" },
+  { key: "supplierName", label: "供应商" },
+  { key: "customerName", label: "客户" },
   { key: "quantity", label: "数量" },
   { key: "currency", label: "币种" },
   { key: "actualUnitPrice", label: "实际单价" },

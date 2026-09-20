@@ -19,9 +19,9 @@ type ListResponse = { rows: Row[]; total: number; totalAmount: number; page: num
 const columns: Array<{ key: string; label: string; type?: string }> = [
   { key: "writeOffMonth", label: "核算月份", type: "date" },
   { key: "countryCode", label: "国家" },
-  { key: "undertakingUnitCode", label: "承接单位" },
-  { key: "supplierCode", label: "供应商" },
-  { key: "customerCode", label: "客户" },
+  { key: "undertakingUnitName", label: "承接单位" },
+  { key: "supplierName", label: "供应商" },
+  { key: "customerName", label: "客户" },
   { key: "batchName", label: "批次" },
   { key: "requestNo", label: "需求单号" },
   { key: "poNo", label: "PO单号" },

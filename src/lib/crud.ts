@@ -1008,7 +1008,18 @@ function getBatchOrderBy(batchName: string, tieBreakers: string) {
   `;
 }
 
-const financePartyEntityKeys = new Set(["request-items", "billing-ledgers", "prepayment-contract-items", "monthly-billing-writeoffs", "monthly-prepayment-writeoffs", "service-fee-snapshot-items", "internal-service-fees"]);
+// 这些实体的承接单位/供应商/客户是"编码或 ID"列，展示值要按简称口径回填；
+// 漏掉的实体（如服务费核算）会直接查询明细表里不存在的列，导致列表 500。
+const financePartyEntityKeys = new Set([
+  "request-items",
+  "billing-ledgers",
+  "prepayment-contract-items",
+  "monthly-billing-writeoffs",
+  "monthly-prepayment-writeoffs",
+  "service-fee-snapshot-items",
+  "service-fees",
+  "internal-service-fees",
+]);
 
 async function enrichFinancialPartyRows(entityKey: string, rows: Row[]) {
   if (!financePartyEntityKeys.has(entityKey) || !rows.length) return rows;
