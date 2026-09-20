@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Plus, RefreshCw, RotateCcw, Search, Trash2, X } from "lucide-react";
+import { FileDown, Plus, RefreshCw, RotateCcw, Search, Trash2, X } from "lucide-react";
 import { formatDisplayValue } from "@/lib/display-format";
 import { DEFAULT_PAGE_SIZE } from "@/lib/pagination";
 import { buildDetailRoute, buildListRoute, getCurrentRoute, useListScrollPosition } from "@/lib/client-list-navigation";
@@ -64,6 +64,20 @@ export function PrepaymentContractsPage() {
     const nextRoute = buildListRoute(pathname, params);
     if (nextRoute !== currentRoute) router.replace(nextRoute, { scroll: false });
   }, [appliedKeyword, currentRoute, pathname, router, searchParams, statusTab]);
+
+  /** 导出当前筛选结果：带上状态页签、关键词、排序与列筛选，和列表口径一致。 */
+  const exportHref = useMemo(() => {
+    const params = new URLSearchParams({ status: statusTab === "confirmed" ? "已确认" : "草稿" });
+    if (appliedKeyword.trim()) params.set("keyword", appliedKeyword.trim());
+    if (sortField && sortOrder) {
+      params.set("sortField", sortField);
+      params.set("sortOrder", sortOrder);
+    }
+    for (const [key, values] of Object.entries(columnFilters)) {
+      values.forEach((value) => params.append(`filter.${key}`, value));
+    }
+    return `/api/entities/prepayment-contracts/export?${params.toString()}`;
+  }, [appliedKeyword, columnFilters, sortField, sortOrder, statusTab]);
 
   async function loadData(nextPage = page, nextPageSize = pageSizeRef.current, nextStatusTab = statusTab, nextKeyword = appliedKeyword) {
     setLoading(true);
@@ -261,6 +275,12 @@ export function PrepaymentContractsPage() {
             <RefreshCw size={15} />
             刷新
           </Button>
+          <a href={exportHref}>
+            <Button tone="warning">
+              <FileDown size={15} />
+              导出 Excel
+            </Button>
+          </a>
           {selectedNos.length ? (
             <div className="flex items-center gap-2 rounded border border-info-border bg-info-soft px-3 py-1.5">
               <span className="text-sm text-primary">已选 {selectedNos.length} 条</span>
