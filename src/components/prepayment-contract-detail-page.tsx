@@ -12,7 +12,7 @@ import { postWorkspaceMessage } from "@/lib/tab-workspace";
 import { Button, Input, Panel, Select, Textarea } from "./ui";
 import { NumberInput } from "./number-input";
 import { confirmDialog, notify } from "./app-dialog";
-import { LoadingBlock } from "./table-state";
+import { EmptyState, LoadingBlock } from "./table-state";
 import { StickyTable } from "./sticky-table";
 import { WorkspaceNavigationDialog } from "./workspace-navigation-dialog";
 
@@ -84,6 +84,7 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
   const returnTo = getReturnTo(searchParams.get("returnTo"), "/finance/prepayment-contracts");
   const [contract, setContract] = useState<Contract | null>(null);
   const [contractNoDraft, setContractNoDraft] = useState(contractNo);
+  const [selectedInstanceLineIds, setSelectedInstanceLineIds] = useState<string[]>([]);
   const [lines, setLines] = useState<Line[]>([]);
   const [editing, setEditing] = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -241,6 +242,30 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
 
   function removeLine(id: string) {
     setLines((current) => current.filter((line) => line.id !== id));
+    setSelectedInstanceLineIds((current) => current.filter((value) => value !== id));
+  }
+
+  /**
+   * 退回实例明细：把勾选的实例从本合同移出。
+   * 合同保存后，这些采购明细不再被草稿合同占用，会重新出现在「待生成预付款实例」里。
+   */
+  function returnInstanceLines(ids: string[]) {
+    if (!ids.length) return;
+    setLines((current) => current.filter((line) => !ids.includes(line.id)));
+    setSelectedInstanceLineIds((current) => current.filter((value) => !ids.includes(value)));
+  }
+
+  function toggleInstanceLine(id: string) {
+    setSelectedInstanceLineIds((current) =>
+      current.includes(id) ? current.filter((value) => value !== id) : [...current, id],
+    );
+  }
+
+  function toggleAllInstanceLines() {
+    const allIds = instanceLines.map((line) => line.id);
+    setSelectedInstanceLineIds(
+      allIds.length && allIds.every((id) => selectedInstanceLineIds.includes(id)) ? [] : allIds,
+    );
   }
 
   async function saveDraft() {
@@ -394,11 +419,39 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
       </Panel>
 
       <Panel>
-        <div className="border-b border-line-soft px-4 py-3 font-medium text-ink">实例明细</div>
+        <div className="flex flex-wrap items-center gap-3 border-b border-line-soft px-4 py-3">
+          <div className="font-medium text-ink">实例明细</div>
+          {canEdit ? (
+            <>
+              <span className="text-xs text-ink-3">
+                {selectedInstanceLineIds.length ? `已选 ${selectedInstanceLineIds.length} 项` : `共 ${instanceLines.length} 项`}
+              </span>
+              <Button
+                className="ml-auto"
+                disabled={!selectedInstanceLineIds.length}
+                tone="warning"
+                onClick={() => returnInstanceLines(selectedInstanceLineIds)}
+              >
+                <RotateCcw size={15} />
+                批量退回
+              </Button>
+            </>
+          ) : null}
+        </div>
         <StickyTable className="table-scroll table-viewport overflow-auto" tableKey={`prepayment-contract-${contractNo}-instances`}>
           <table className="min-w-full border-collapse text-sm">
             <thead className="bg-canvas text-ink">
               <tr>
+                {canEdit ? (
+                  <th className="table-select-cell border-b border-r border-line-soft py-3 text-center">
+                    <input
+                      aria-label="全选实例明细"
+                      checked={Boolean(instanceLines.length) && instanceLines.every((line) => selectedInstanceLineIds.includes(line.id))}
+                      onChange={toggleAllInstanceLines}
+                      type="checkbox"
+                    />
+                  </th>
+                ) : null}
                 {instanceColumns.map((column) => (
                   <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium" key={column.key}>
                     {column.label}
@@ -408,11 +461,22 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
                 <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">合同单价</th>
                 <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">合同总价</th>
                 <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">起始核销月份</th>
+                {canEdit ? <th className="border-b border-line-soft px-3 py-3 text-left font-medium">操作</th> : null}
               </tr>
             </thead>
             <tbody>
               {instanceLines.map((line) => (
                 <tr className="hover:bg-surface-2" key={line.id}>
+                  {canEdit ? (
+                    <td className="table-select-cell border-b border-r border-line-soft py-3 text-center">
+                      <input
+                        aria-label={`选择实例 ${line.deviceCode ?? ""}`}
+                        checked={selectedInstanceLineIds.includes(line.id)}
+                        onChange={() => toggleInstanceLine(line.id)}
+                        type="checkbox"
+                      />
+                    </td>
+                  ) : null}
                   {instanceColumns.map((column) => (
                     <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3" key={column.key}>
                       {column.key === "undertakingUnitId" || column.key === "supplierId" || column.key === "customerId"
@@ -432,8 +496,26 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
                   <td className="border-b border-r border-line-soft px-3 py-3">
                     <Input className="w-40 min-w-0" disabled={!canEdit} type="date" value={formatDateInputValue(line.writeOffStartMonth)} onChange={(event) => updateLine(line.id, { writeOffStartMonth: event.target.value })} />
                   </td>
+                  {canEdit ? (
+                    <td className="whitespace-nowrap border-b border-line-soft px-3 py-3">
+                      <Button tone="warning" onClick={() => returnInstanceLines([line.id])}>
+                        <RotateCcw size={15} />
+                        退回
+                      </Button>
+                    </td>
+                  ) : null}
                 </tr>
               ))}
+              {!instanceLines.length ? (
+                <tr>
+                  <td
+                    className="py-12 text-center text-ink-3"
+                    colSpan={instanceColumns.length + 4 + (canEdit ? 2 : 0)}
+                  >
+                    <EmptyState title="暂无实例明细" hint="请到「待生成预付款实例」勾选后生成合同" />
+                  </td>
+                </tr>
+              ) : null}
             </tbody>
           </table>
         </StickyTable>
