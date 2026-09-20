@@ -462,7 +462,7 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
                             value: String(supplier.supplierId ?? ""),
                             label: label.shortName,
                             code: label.code,
-                            hint: String(supplier.nameCn ?? supplier.name ?? ""),
+                            hint: label.code,
                             keywords: `${label.code} ${String(supplier.nameCn ?? supplier.name ?? "")} ${label.shortName} ${String(supplier.supplierId ?? "")}`,
                           };
                         })}
@@ -480,7 +480,7 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
                             value: String(unit.undertakingUnitId ?? ""),
                             label: label.shortName,
                             code: label.code,
-                            hint: String(unit.entityName ?? unit.name ?? ""),
+                            hint: label.code,
                             keywords: `${label.code} ${String(unit.entityName ?? unit.name ?? "")} ${label.shortName} ${String(unit.undertakingUnitId ?? "")}`,
                           };
                         })}
@@ -498,7 +498,7 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
                             value: String(customer.customerId ?? ""),
                             label: label.shortName,
                             code: label.code,
-                            hint: String(customer.nameCn ?? customer.name ?? ""),
+                            hint: label.code,
                             keywords: `${label.code} ${String(customer.nameCn ?? customer.name ?? "")} ${label.shortName} ${String(customer.customerId ?? "")}`,
                           };
                         })}

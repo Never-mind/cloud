@@ -318,10 +318,13 @@ export async function getPrepaymentContract(contractNo: string) {
 
 export async function updatePrepaymentDraft({
   contractNo,
+  newContractNo,
   effectiveDate,
   lines,
 }: {
   contractNo: string;
+  /** 传入且与 contractNo 不同时，把草稿的合同号改成它（退回草稿后常见需求）。 */
+  newContractNo?: string;
   effectiveDate: string;
   lines: PrepaymentContractLineDraft[];
 }) {
@@ -329,21 +332,56 @@ export async function updatePrepaymentDraft({
   if (!contract) throw new Error("预付款合同不存在");
   if (String(contract.status) !== "草稿") throw new Error("已确认的预付款合同不可修改");
 
+  const targetContractNo = String(newContractNo ?? "").trim() || contractNo;
+  if (targetContractNo !== contractNo) {
+    const duplicated = await queryRows<Row>(
+      "SELECT contractNo FROM prepaymentcontracts WHERE contractNo = :targetContractNo LIMIT 1",
+      { targetContractNo },
+    );
+    if (duplicated.length) throw new Error(`预付款合同号 ${targetContractNo} 已存在，请换一个`);
+  }
+
   const normalizedLines = lines.map((line, index) => ({
     ...line,
-    id: line.id || `PPCI-${contractNo}-${String(index + 1).padStart(3, "0")}`,
-    contractNo,
+    id: line.id || `PPCI-${targetContractNo}-${String(index + 1).padStart(3, "0")}`,
+    contractNo: targetContractNo,
     writeOffStartMonth: firstDayOfMonth(line.writeOffStartMonth || effectiveDate),
     contractTotalAmount: Number(line.contractTotalAmount ?? 0),
     contractUnitPrice: Number(line.contractUnitPrice ?? 0),
   }));
-  await assertPrepaymentInstanceOwnership(normalizedLines);
+  // 归属校验要用"库里当前的合同号"：改名时明细的 contractNo 已经指向新号，
+  // 直接拿它去比对会被自己挡住。
+  await assertPrepaymentInstanceOwnership(
+    normalizedLines.map((line) => ({ ...line, contractNo })),
+  );
   const totalAmount = roundMoney(
     normalizedLines.reduce((total, line) => total + Number(line.contractTotalAmount ?? 0), 0),
   );
   const currency = normalizedLines[0]?.contractCurrency ?? String(contract.currency ?? "USD");
 
   await withTransaction(async (connection) => {
+    // 改名与明细替换放在同一个事务里，避免出现"名字改了但保存失败"的半截状态。
+    if (targetContractNo !== contractNo) {
+      await executeInTransaction(
+        connection,
+        "UPDATE prepaymentcontracts SET contractNo = :targetContractNo WHERE contractNo = :contractNo",
+        { contractNo, targetContractNo },
+      );
+      // 合同号是下游表（合同明细、月核销明细、调整单及其明细）的关联键，
+      // 且表之间没有外键约束，改名必须自己带上这些表。
+      for (const table of [
+        "prepaymentcontractitems",
+        "monthlyprepaymentwriteoffs",
+        "prepaymentwriteoffadjustments",
+        "prepaymentwriteoffadjustmentitems",
+      ]) {
+        await executeInTransaction(
+          connection,
+          `UPDATE ${table} SET contractNo = :targetContractNo WHERE contractNo = :contractNo`,
+          { contractNo, targetContractNo },
+        );
+      }
+    }
     await executeInTransaction(
       connection,
       `
@@ -353,19 +391,19 @@ export async function updatePrepaymentDraft({
             totalAmount = :totalAmount
         WHERE contractNo = :contractNo
       `,
-      { contractNo, effectiveDate: firstDayOfMonth(effectiveDate), currency, totalAmount },
+      { contractNo: targetContractNo, effectiveDate: firstDayOfMonth(effectiveDate), currency, totalAmount },
     );
     await executeInTransaction(
       connection,
       "DELETE FROM prepaymentcontractitems WHERE contractNo = :contractNo",
-      { contractNo },
+      { contractNo: targetContractNo },
     );
     for (const line of normalizedLines) {
       await insertPrepaymentLine(line, connection);
     }
   });
 
-  return getPrepaymentContract(contractNo);
+  return getPrepaymentContract(targetContractNo);
 }
 
 export async function deletePrepaymentDraft(contractNo: string) {

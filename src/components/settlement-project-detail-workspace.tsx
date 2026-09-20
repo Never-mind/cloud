@@ -578,7 +578,7 @@ function PartnerLookup({ options, selectedId, selectedName, onChange }: { option
         value: partnerOptionId(row),
         label: partnerOptionName(row),
         code: partnerOptionCode(row),
-        hint: String(row.nameCn || row.entityName || row.name || "") || undefined,
+        hint: partnerOptionCode(row),
         keywords: `${partnerOptionCode(row)} ${partnerOptionName(row)} ${row.nameCn || row.entityName || row.name || ""} ${row.partnerType || ""}`,
       }))}
       placeholder="搜索供应商、承接单位或客户"

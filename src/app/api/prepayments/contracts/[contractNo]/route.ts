@@ -18,6 +18,7 @@ export async function PUT(request: NextRequest, context: { params: Promise<{ con
     const body = await request.json();
     const data = await updatePrepaymentDraft({
       contractNo: decodeURIComponent(contractNo),
+      newContractNo: body.contractNo === undefined ? undefined : String(body.contractNo),
       effectiveDate: String(body.effectiveDate ?? new Date().toISOString().slice(0, 10)),
       lines: Array.isArray(body.lines) ? body.lines : [],
     });

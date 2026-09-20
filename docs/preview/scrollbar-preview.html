@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>滚动条样式预览</title>
+<style>
+  :root {
+    --ink:#303133; --ink-2:#606266; --ink-3:#909399;
+    --line-soft:#ebeef5; --canvas:#f5f7fa; --sidebar:#304156; --sidebar-active:#263445;
+    --scroll-thumb: rgb(144 147 153 / .45);
+    --scroll-thumb-hover: rgb(144 147 153 / .7);
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:24px 28px 40px; background:var(--canvas); color:var(--ink); font:14px/1.5 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif; }
+  h1 { font-size:18px; font-weight:600; margin:0 0 4px; }
+  h2 { font-size:14px; font-weight:600; margin:26px 0 10px; }
+  p.note { color:var(--ink-3); font-size:13px; margin:0; }
+  .cols { display:flex; gap:24px; align-items:flex-start; flex-wrap:wrap; }
+
+  /* 统一后的滚动条样式 */
+  .skin, .skin * { scrollbar-width: thin; scrollbar-color: var(--scroll-thumb) transparent; }
+  .skin ::-webkit-scrollbar, .skin::-webkit-scrollbar { width:10px; height:10px; }
+  .skin ::-webkit-scrollbar-track, .skin::-webkit-scrollbar-track { background:transparent; }
+  .skin ::-webkit-scrollbar-thumb, .skin::-webkit-scrollbar-thumb {
+    background-color: var(--scroll-thumb); background-clip: content-box;
+    border:2px solid transparent; border-radius:9999px;
+  }
+  .skin ::-webkit-scrollbar-thumb:hover, .skin::-webkit-scrollbar-thumb:hover { background-color: var(--scroll-thumb-hover); }
+
+  .sidebar { width:210px; height:360px; background:var(--sidebar); border-radius:4px; padding:8px 0; overflow-y:auto; }
+  .sidebar.dark-skin { scrollbar-color: rgb(255 255 255 / .28) transparent; }
+  .sidebar.dark-skin::-webkit-scrollbar-thumb { background-color: rgb(255 255 255 / .28); }
+  .sidebar.dark-skin::-webkit-scrollbar-thumb:hover { background-color: rgb(255 255 255 / .45); }
+  .sidebar .item { height:44px; display:flex; align-items:center; padding:0 18px; color:#bfcbd9; font-size:13px; }
+  .sidebar .item.active { background:var(--sidebar-active); color:#409eff; }
+
+  .panel { width:320px; height:360px; background:#fff; border:1px solid var(--line-soft); border-radius:4px; padding:12px 16px; overflow-y:auto; }
+  .panel .row { height:34px; display:flex; align-items:center; border-bottom:1px solid var(--line-soft); font-size:13px; color:var(--ink-2); }
+  .caption { font-size:12px; color:var(--ink-3); margin-top:8px; }
+</style>
+</head>
+<body class="skin">
+  <h1>滚动条样式预览</h1>
+  <p class="note">统一为「细、圆角、透明轨道」，滑块比轨道窄留出呼吸空间；深色侧边栏换成浅色滑块；悬停时滑块加深。</p>
+
+  <h2>深色左侧导航（左：统一后 ／ 右：浏览器默认）</h2>
+  <div class="cols">
+    <div>
+      <div class="sidebar dark-skin">
+        <div class="item active">首页</div><div class="item">客户需求</div><div class="item">采购管理</div>
+        <div class="item">合同管理</div><div class="item">物流管理</div><div class="item">财务管理</div>
+        <div class="item">基础信息</div><div class="item">数据工具</div><div class="item">客户PO</div>
+        <div class="item">项目结算</div><div class="item">华为云业务</div><div class="item">业务伙伴</div>
+      </div>
+      <div class="caption">统一后：浅色细滑块</div>
+    </div>
+    <div>
+      <div class="sidebar">
+        <div class="item active">首页</div><div class="item">客户需求</div><div class="item">采购管理</div>
+        <div class="item">合同管理</div><div class="item">物流管理</div><div class="item">财务管理</div>
+        <div class="item">基础信息</div><div class="item">数据工具</div><div class="item">客户PO</div>
+        <div class="item">项目结算</div><div class="item">华为云业务</div><div class="item">业务伙伴</div>
+      </div>
+      <div class="caption">浏览器默认</div>
+    </div>
+  </div>
+
+  <h2>内容区 / 表格（左：统一后 ／ 右：浏览器默认）</h2>
+  <div class="cols">
+    <div>
+      <div class="panel">
+        <div class="row">BR-aaa</div><div class="row">MX-50</div><div class="row">CL-24</div><div class="row">CL-25</div>
+        <div class="row">CL-26</div><div class="row">SL-01</div><div class="row">SL-02</div><div class="row">SL-03</div>
+        <div class="row">SL-04</div><div class="row">SL-05</div><div class="row">SL-06</div><div class="row">SL-07</div>
+      </div>
+      <div class="caption">统一后：透明轨道、细滑块</div>
+    </div>
+    <div>
+      <div class="panel" style="scrollbar-width:auto;">
+        <div class="row">BR-aaa</div><div class="row">MX-50</div><div class="row">CL-24</div><div class="row">CL-25</div>
+        <div class="row">CL-26</div><div class="row">SL-01</div><div class="row">SL-02</div><div class="row">SL-03</div>
+        <div class="row">SL-04</div><div class="row">SL-05</div><div class="row">SL-06</div><div class="row">SL-07</div>
+      </div>
+      <div class="caption">浏览器默认</div>
+    </div>
+  </div>
+</body>
+</html>

@@ -54,6 +54,10 @@
   /* 加载骨架与占位块底色。 */
   --color-skeleton: #eef1f5;
 
+  /* 滚动条：细、圆角、透明轨道；深色侧边栏另用浅色滑块。 */
+  --color-scroll-thumb: rgb(144 147 153 / 0.45);
+  --color-scroll-thumb-hover: rgb(144 147 153 / 0.7);
+
   /* 左侧导航文字层次（普通项 / 次级说明）。 */
   --color-nav-ink: #bfcbd9;
   --color-nav-ink-soft: #8aa0b8;
@@ -167,8 +171,6 @@ textarea {
   min-width: 0;
   max-width: 100%;
   overflow-x: auto;
-  scrollbar-color: #b8bfc9 #f0f2f5;
-  scrollbar-width: thin;
 }
 
 /*
@@ -193,24 +195,51 @@ textarea {
   background-color: var(--color-canvas);
 }
 
-/* 旧版 Chromium 不支持 scrollbar-width，补一套 webkit 滚动条样式。 */
-.table-scroll::-webkit-scrollbar {
+/*
+ * 滚动条统一为"细、圆角、透明轨道"，替代各浏览器默认的粗滚动条（Windows 上尤其明显）。
+ * 列表容器、页面内容区、弹层、下拉面板都走这一套，不再单独定义。
+ */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-scroll-thumb) transparent;
+}
+
+*::-webkit-scrollbar {
   height: 10px;
   width: 10px;
 }
 
-.table-scroll::-webkit-scrollbar-track {
-  background: #f0f2f5;
+*::-webkit-scrollbar-track {
+  background: transparent;
 }
 
-.table-scroll::-webkit-scrollbar-thumb {
-  background: #b8bfc9;
-  border: 2px solid #f0f2f5;
+/* border + background-clip 让滑块看起来比滚动条轨道窄，留出呼吸空间。 */
+*::-webkit-scrollbar-thumb {
+  background-color: var(--color-scroll-thumb);
+  background-clip: content-box;
+  border: 2px solid transparent;
   border-radius: 9999px;
 }
 
-.table-scroll::-webkit-scrollbar-thumb:hover {
-  background: #9aa3ae;
+*::-webkit-scrollbar-thumb:hover {
+  background-color: var(--color-scroll-thumb-hover);
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* 深色左侧导航：浅色滑块，避免浅灰滑块在深色底上过于突兀。 */
+.app-sidebar nav {
+  scrollbar-color: rgb(255 255 255 / 0.28) transparent;
+}
+
+.app-sidebar nav::-webkit-scrollbar-thumb {
+  background-color: rgb(255 255 255 / 0.28);
+}
+
+.app-sidebar nav::-webkit-scrollbar-thumb:hover {
+  background-color: rgb(255 255 255 / 0.45);
 }
 
 /* Normal tables fill the content area. Their own min-width utilities still

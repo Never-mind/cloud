@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>搜索下拉样式预览</title>
+<style>
+  /* 色值直接取自 src/app/globals.css 的设计令牌，保证与系统一致 */
+  :root {
+    --ink: #303133;
+    --ink-2: #606266;
+    --ink-3: #909399;
+    --ink-4: #c0c4cc;
+    --line: #dcdfe6;
+    --line-soft: #ebeef5;
+    --canvas: #f5f7fa;
+    --canvas-deep: #f0f2f5;
+    --primary: #1890ff;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 28px 32px 80px;
+    background: var(--canvas);
+    color: var(--ink);
+    font: 14px/1.5 -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+  }
+  h1 { font-size: 20px; font-weight: 600; margin: 0 0 6px; }
+  h2 { font-size: 15px; font-weight: 600; margin: 34px 0 12px; }
+  .note { color: var(--ink-3); font-size: 13px; margin: 0 0 4px; }
+  .card {
+    background: #fff;
+    border: 1px solid var(--line-soft);
+    border-radius: 4px;
+    padding: 22px 24px 26px;
+  }
+
+  /* ---------- 输入框 ---------- */
+  .input {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 36px;
+    width: 100%;
+    padding: 0 12px;
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    font-size: 14px;
+  }
+  .input.focus { border-color: var(--primary); box-shadow: 0 0 0 2px rgb(24 144 255 / 0.2); }
+  .input .value { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .input .placeholder { flex: 1; color: var(--ink-4); }
+  .input .icon { flex: none; color: var(--ink-4); font-size: 12px; line-height: 1; }
+  .input-row { display: flex; gap: 20px; flex-wrap: wrap; }
+  .input-row > div { width: 300px; }
+  .label { font-size: 12px; color: var(--ink-3); margin-bottom: 6px; }
+
+  /* ---------- 展开面板 ---------- */
+  .picker { position: relative; width: 300px; }
+  .panel {
+    margin-top: 4px;                 /* 输入框下方 4px 缝 */
+    border: 1px solid var(--line);
+    border-radius: 4px;              /* rounded */
+    background: #fff;
+    box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1); /* 偏重阴影 */
+    padding: 2px 0;
+    width: max-content;              /* 按内容自适应宽度，保证全称能显示 */
+    min-width: 100%;
+    max-width: 620px;
+  }
+  .option { padding: 6px 12px; cursor: pointer; }   /* px-3 */
+  .option:hover, .option.active { background: var(--canvas-deep); }
+  .option .main {
+    font-size: 14px;                 /* 主值略大 */
+    font-weight: 600;                /* 主值加粗 */
+    color: var(--ink);
+    white-space: nowrap;
+  }
+  .option .hint {
+    font-size: 12px;                 /* 补充文字 text-xs */
+    font-weight: 400;                /* 不加粗 */
+    color: var(--ink-3);
+    white-space: nowrap;
+  }
+  .option .main + .hint { margin-top: 4px; }        /* 变体 B（推荐） */
+  .panel.gap-a .option .main + .hint { margin-top: 2px; }
+  .panel.gap-c .option .main + .hint { margin-top: 12px; }
+
+  /* 关键词高亮：只加粗命中片段 */
+  .panel b { font-weight: 700; }
+
+  .empty { padding: 6px 12px; color: var(--ink-3); font-size: 13px; }
+
+  table.cmp { border-collapse: collapse; font-size: 13px; }
+  table.cmp th, table.cmp td { border: 1px solid var(--line-soft); padding: 6px 10px; text-align: left; }
+  table.cmp th { background: var(--canvas); font-weight: 600; }
+</style>
+</head>
+<body>
+  <h1>搜索下拉样式预览</h1>
+  <p class="note">色值取自系统设计令牌；这是一份静态预览，不依赖系统构建，直接双击本文件即可打开。</p>
+
+  <div class="card">
+    <h2 style="margin-top:0">1. 输入框（折叠状态）</h2>
+    <div class="input-row">
+      <div>
+        <div class="label">空</div>
+        <div class="input"><span class="placeholder">搜索实例编码</span><span class="icon">▾</span></div>
+      </div>
+      <div>
+        <div class="label">已选</div>
+        <div class="input"><span class="value">06112478</span><span class="icon">▾</span></div>
+      </div>
+      <div>
+        <div class="label">聚焦（展开中）</div>
+        <div class="input focus"><span class="value">0611</span><span class="icon">▾</span></div>
+      </div>
+    </div>
+
+    <h2>2. 展开的面板（按你给的样式）</h2>
+    <p class="note">主值加粗、14px；补充文字 12px 灰色、不加粗；面板宽度按内容自适应（保证全称完整）；命中关键词加粗。</p>
+    <div class="picker">
+      <div class="input focus"><span class="value">0611</span><span class="icon">▾</span></div>
+      <div class="panel">
+        <div class="option active">
+          <div class="main"><b>0611</b>2478</div>
+          <div class="hint">aSV746.0.0.n a2ZAS01 SSD Storage1</div>
+        </div>
+        <div class="option">
+          <div class="main"><b>0611</b>4026</div>
+          <div class="hint">aSV746.0.0.n a2ZAS01 SSD Storage1</div>
+        </div>
+        <div class="option">
+          <div class="main"><b>0611</b>4506-001</div>
+          <div class="hint">aSV746.0.0.n a2ZAS01 SSD Storage1</div>
+        </div>
+        <div class="option">
+          <div class="main"><b>0611</b>4965</div>
+          <div class="hint">aSV746.0.0.n a2ZAS01 SSD Storage1</div>
+        </div>
+      </div>
+    </div>
+
+    <h2>3. 伙伴类下拉（同一套样式）</h2>
+    <div class="picker">
+      <div class="input focus"><span class="value">HT</span><span class="icon">▾</span></div>
+      <div class="panel">
+        <div class="option active">
+          <div class="main"><b>HT</b>98</div>
+          <div class="hint">XFUSION INTERNATIONAL PTE. LTD.</div>
+        </div>
+        <div class="option">
+          <div class="main">DC</div>
+          <div class="hint">Da Chuang Precision Intelligent Manufacturing (Kunshan) Co.,Ltd.</div>
+        </div>
+        <div class="option">
+          <div class="main">Luz 巴西</div>
+          <div class="hint">LUZ BRAZIL LTDA</div>
+        </div>
+      </div>
+    </div>
+
+    <h2>4. 空态</h2>
+    <div class="picker">
+      <div class="input focus"><span class="value">zzz</span><span class="icon">▾</span></div>
+      <div class="panel">
+        <div class="empty">没有匹配的实例档案</div>
+      </div>
+    </div>
+
+    <h2>5. 两行间距对比（这一项想请你挑一个）</h2>
+    <p class="note">差别只在"主值"和"补充文字"之间的垂直间距。</p>
+    <div class="input-row" style="gap:36px">
+      <div>
+        <div class="label">A：2px（最紧凑）</div>
+        <div class="panel gap-a">
+          <div class="option active">
+            <div class="main">06112478</div>
+            <div class="hint">aSV746.0.0.n a2ZAS01 SSD Storage1</div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="label">B：4px（推荐，你列的是 gap-3）</div>
+        <div class="panel">
+          <div class="option active">
+            <div class="main">06112478</div>
+            <div class="hint">aSV746.0.0.n a2ZAS01 SSD Storage1</div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="label">C：12px（gap-3 的字面值）</div>
+        <div class="panel gap-c">
+          <div class="option active">
+            <div class="main">06112478</div>
+            <div class="hint">aSV746.0.0.n a2ZAS01 SSD Storage1</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <h2>6. 本次规则对照</h2>
+    <table class="cmp">
+      <tr><th>项</th><th>取值</th></tr>
+      <tr><td>输入框右侧图标</td><td>保留下拉箭头 ▾</td></tr>
+      <tr><td>展开位置</td><td>输入框下方 4px</td></tr>
+      <tr><td>面板宽度</td><td>按内容自适应，保证全称显示</td></tr>
+      <tr><td>圆角 / 阴影</td><td>rounded(4px) / 偏重阴影</td></tr>
+      <tr><td>行高</td><td>随内容（两行）</td></tr>
+      <tr><td>左右内边距</td><td>px-3（12px）</td></tr>
+      <tr><td>主值</td><td>加粗、14px</td></tr>
+      <tr><td>补充文字</td><td>不加粗、12px、灰色</td></tr>
+      <tr><td>关键词命中</td><td>加粗</td></tr>
+    </table>
+  </div>
+</body>
+</html>

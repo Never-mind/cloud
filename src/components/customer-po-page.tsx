@@ -657,7 +657,7 @@ function PartySearchSelect({ kind, label, required, value, selectedLabel, disabl
           value: option.value,
           label: option.shortName || option.label,
           code: option.code,
-          hint: option.label,
+          hint: option.code,
           keywords: option.label,
         }))}
         placeholder={`请选择${label}`}

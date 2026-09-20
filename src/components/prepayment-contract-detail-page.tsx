@@ -7,7 +7,7 @@ import { useSearchParams } from "next/navigation";
 import { formatDateInputValue, formatDisplayValue } from "@/lib/display-format";
 import { getPrepaymentContractEditState } from "@/lib/prepayment-contract-ui";
 import { fetchAllEntityRows } from "@/lib/client-entity-fetch";
-import { getReturnTo } from "@/lib/client-list-navigation";
+import { buildDetailRoute, getReturnTo } from "@/lib/client-list-navigation";
 import { postWorkspaceMessage } from "@/lib/tab-workspace";
 import { Button, Input, Panel, Select, Textarea } from "./ui";
 import { NumberInput } from "./number-input";
@@ -83,6 +83,7 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
   const searchParams = useSearchParams();
   const returnTo = getReturnTo(searchParams.get("returnTo"), "/finance/prepayment-contracts");
   const [contract, setContract] = useState<Contract | null>(null);
+  const [contractNoDraft, setContractNoDraft] = useState(contractNo);
   const [lines, setLines] = useState<Line[]>([]);
   const [editing, setEditing] = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -133,6 +134,7 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
       effectiveDate: formatDateInputValue(data.contract.effectiveDate),
       totalAmount: Number(data.contract.totalAmount ?? 0),
     });
+    setContractNoDraft(String(data.contract.contractNo ?? contractNo));
     const sourceLines = (data.lines ?? []) as Line[];
     const instanceCountries = new Set(
       sourceLines
@@ -250,11 +252,18 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
       notify("费用明细必须选择国家后才能保存", "info");
       return false;
     }
+    const nextContractNo = contractNoDraft.trim();
+    if (!nextContractNo) {
+      notify("预付款合同号不能为空", "info");
+      return false;
+    }
+    const renamed = nextContractNo !== contract.contractNo;
     setSaving(true);
     const response = await fetch(`/api/prepayments/contracts/${encodeURIComponent(contract.contractNo)}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        contractNo: nextContractNo,
         effectiveDate: contract.effectiveDate,
         lines,
       }),
@@ -264,6 +273,13 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
     if (!response.ok) {
       notify(data.error ?? "保存失败", "info");
       return false;
+    }
+    if (renamed) {
+      // 合同号变了，详情路由也要跟着换，否则后续操作会指向旧单号。
+      notify(`已保存，预付款合同号改为 ${nextContractNo}`, "success");
+      setEditing(false);
+      router.replace(buildDetailRoute(`/finance/prepayment-contracts/${encodeURIComponent(nextContractNo)}`, returnTo), { scroll: false });
+      return true;
     }
     await loadData();
     setEditing(false);
@@ -369,7 +385,7 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
       <Panel>
         <div className="border-b border-line-soft px-4 py-3 font-medium text-ink">主单信息</div>
         <div className="grid grid-cols-5 gap-4 p-4">
-          <Field disabled label="预付款合同号" value={contract.contractNo} onChange={() => undefined} />
+          <Field disabled={!canEdit} label="预付款合同号" value={contractNoDraft} onChange={setContractNoDraft} />
           <Field disabled label="状态" value={contract.status} onChange={() => undefined} />
           <Field disabled={!canEdit} label="币种" value={contract.currency ?? ""} onChange={(value) => updateContract({ currency: value })} />
           <Field disabled={!canEdit} label="生效日期" type="date" value={contract.effectiveDate} onChange={(value) => updateContract({ effectiveDate: value })} />

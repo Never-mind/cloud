@@ -30,8 +30,21 @@ export type SearchSelectOption = {
   keywords?: string;
 };
 
+/** 命中的关键词加粗，跟浏览器原生下拉的高亮一致。 */
+function highlightMatch(text: string, keyword: string) {
+  if (!keyword) return text;
+  const index = text.toLowerCase().indexOf(keyword);
+  if (index === -1) return text;
+  return (
+    <>
+      {text.slice(0, index)}
+      <strong className="font-semibold">{text.slice(index, index + keyword.length)}</strong>
+      {text.slice(index + keyword.length)}
+    </>
+  );
+}
+
 const DEFAULT_MAX_VISIBLE = 50;
-const MENU_MIN_WIDTH = 260;
 
 export function SearchSelect({
   className,
@@ -64,7 +77,7 @@ export function SearchSelect({
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
-  const [menuPosition, setMenuPosition] = useState({ left: 0, top: 0, width: MENU_MIN_WIDTH });
+  const [menuPosition, setMenuPosition] = useState({ left: 0, top: 0, minWidth: 0, maxWidth: 480 });
 
   const selected = options.find((option) => option.value === value);
   const selectedLabel = selected ? selected.label ?? selected.value : value;
@@ -96,8 +109,11 @@ export function SearchSelect({
       if (!rect) return;
       setMenuPosition({
         left: rect.left,
+        // 输入框下方留 4px 缝
         top: rect.bottom + 4,
-        width: Math.max(rect.width, MENU_MIN_WIDTH),
+        // 宽度按内容自适应（保证全称完整），最窄不窄于输入框，最宽不超出视口
+        minWidth: rect.width,
+        maxWidth: Math.max(200, window.innerWidth - rect.left - 12),
       });
     };
     update();
@@ -175,7 +191,7 @@ export function SearchSelect({
       <Input
         aria-autocomplete="list"
         aria-expanded={open}
-        className={`${className ?? ""} ${clearable || !disabled ? "pr-8" : ""}`}
+        className={`${className ?? ""} ${disabled ? "" : "pr-8"}`}
         disabled={disabled}
         placeholder={placeholder}
         ref={inputRef}
@@ -210,22 +226,30 @@ export function SearchSelect({
         >
           <X size={15} />
         </button>
-      ) : (
+      ) : disabled ? null : (
         <ChevronDown className="pointer-events-none absolute right-2 top-2.5 text-ink-4" size={15} />
       )}
       {open && !disabled ? (
         <div
-          className="fixed z-[120] max-h-64 overflow-y-auto rounded border border-line bg-white py-1 shadow-lg"
+          className="fixed z-[120] max-h-72 overflow-y-auto overflow-x-hidden rounded border border-line bg-white py-0.5 shadow-lg"
           data-search-select-panel=""
-          style={menuPosition}
+          style={{
+            left: menuPosition.left,
+            top: menuPosition.top,
+            width: "max-content",
+            minWidth: menuPosition.minWidth,
+            maxWidth: menuPosition.maxWidth,
+          }}
         >
           {loading ? (
-            <div className="px-3 py-3 text-sm text-ink-3">加载中…</div>
+            <div className="px-3 py-1.5 text-xs text-ink-3">加载中…</div>
           ) : visible.length ? (
             <>
               {visible.map((option, index) => (
                 <button
-                  className={`block w-full px-3 py-2 text-left text-sm ${index === activeIndex ? "bg-canvas" : "hover:bg-canvas"}`}
+                  className={`flex w-full flex-col gap-1 px-3 py-1.5 text-left ${
+                    index === activeIndex ? "bg-canvas-deep" : "hover:bg-canvas-deep"
+                  }`}
                   key={`${option.value}-${index}`}
                   type="button"
                   onMouseDown={(event) => {
@@ -234,21 +258,26 @@ export function SearchSelect({
                   }}
                   onMouseEnter={() => setActiveIndex(index)}
                 >
-                  <span className="block truncate text-ink">
-                    {option.code ? `${option.code} - ` : ""}
-                    {option.label ?? option.value}
+                  {/* 主值：加粗、字号略大 */}
+                  <span className="w-full truncate text-sm font-semibold text-ink">
+                    {highlightMatch(option.label ?? option.value, keyword)}
                   </span>
-                  {option.hint ? <span className="mt-0.5 block truncate text-xs text-ink-3">{option.hint}</span> : null}
+                  {/* 补充文字：不加粗、12px 灰色 */}
+                  {option.hint ? (
+                    <span className="w-full truncate text-xs text-ink-3">
+                      {highlightMatch(option.hint, keyword)}
+                    </span>
+                  ) : null}
                 </button>
               ))}
               {truncated ? (
-                <div className="border-t border-line-soft px-3 py-2 text-xs text-ink-3">
+                <div className="border-t border-line-soft px-3 py-1.5 text-xs text-ink-3">
                   共匹配 {matched.length} 条，仅显示前 {visible.length} 条，请继续输入缩小范围
                 </div>
               ) : null}
             </>
           ) : (
-            <div className="px-3 py-3 text-sm text-ink-3">{emptyText}</div>
+            <div className="px-3 py-1.5 text-xs text-ink-3">{emptyText}</div>
           )}
         </div>
       ) : null}

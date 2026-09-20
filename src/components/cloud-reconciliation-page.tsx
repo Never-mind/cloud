@@ -513,7 +513,7 @@ function PartnerSelect({ kind, label, idValue, nameValue, masters, onChange, req
           value: item.id,
           label: item.shortName || item.name,
           code: item.code,
-          hint: item.shortName && item.name !== item.shortName ? item.name : undefined,
+          hint: item.code,
         }))}
         placeholder="输入编码或简称搜索"
         value={selectedId}
