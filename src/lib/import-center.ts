@@ -133,10 +133,10 @@ const IMPORT_TARGETS: ImportTarget[] = [
   },
   {
     key: "billing-ledgers",
-    title: "月账单台账初始化导入",
-    description: "首次对账时批量初始化月账单台账，并自动生成60个月账单每月核销明细。",
+    title: "月账单合同初始化导入",
+    description: "首次对账时批量初始化月账单合同，并自动生成60个月账单每月核销明细。",
     columns: [
-      { key: "ledgerId", label: "月账单台账ID", note: "为空自动生成" },
+      { key: "ledgerId", label: "月账单合同ID", note: "为空自动生成" },
       { key: "purchaseOrderItemId", label: "采购明细ID", note: "可为空，按需求单号、PO单号、实例编码自动匹配" },
       { key: "countryCode", label: "国家", note: "为空按采购明细自动匹配" },
       { key: "batchName", label: "批次号", note: "为空按采购明细自动匹配" },
@@ -652,7 +652,7 @@ function normalizeBillingRequestType(targetKey: ImportTargetKey, row: Row) {
   if (targetKey !== "billing-ledgers") return "";
   if (isBlank(row.requestType)) row.requestType = "整机";
   return String(row.requestType).trim() === "备件"
-    ? "备件不参与月账单台账和月账单明细生成，请改用预付款合同导入"
+    ? "备件不参与月账单合同和月账单明细生成，请改用预付款合同导入"
     : "";
 }
 

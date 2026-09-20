@@ -499,7 +499,7 @@ export function EntityPage({
   }
 
   async function saveRow(formData: FormData) {
-    if (config.key === "billing-ledgers" && !await confirmDialog("确认调整该月账单台账吗？调整后会重新生成对应的每月核销明细。")) {
+    if (config.key === "billing-ledgers" && !await confirmDialog("确认调整该月账单合同吗？调整后会重新生成对应的每月核销明细。")) {
       return;
     }
     const body: Row = {
@@ -684,7 +684,7 @@ export function EntityPage({
   async function deleteRow(row: Row) {
     const message =
       config.key === "billing-ledgers"
-        ? `确认删除月账单台账 ${String(row[config.primaryKey])} 吗？删除后对应的每月核销明细也会同步删除。`
+        ? `确认删除月账单合同 ${String(row[config.primaryKey])} 吗？删除后对应的每月核销明细也会同步删除。`
         : `确认删除 ${String(row[config.primaryKey])}？`;
     if (!await confirmDialog(message)) return;
     const response = await fetch(`/api/entities/${config.key}/${row[config.primaryKey]}`, { method: "DELETE" });
@@ -711,7 +711,7 @@ export function EntityPage({
 
   async function runBatchDelete() {
     if (!selectedRowIds.length) return;
-    if (!await confirmDialog(`确认退回选中的 ${selectedRowIds.length} 条月账单台账？\n退回后对应的每月核销明细会同步删除，实例回到「待生成月账单」。`)) return;
+    if (!await confirmDialog(`确认退回选中的 ${selectedRowIds.length} 条月账单合同？\n退回后对应的每月核销明细会同步删除，实例回到「待生成月账单」。`)) return;
     setBatchBusy(true);
     try {
       const response = await fetch(`/api/entities/${config.key}/batch`, {

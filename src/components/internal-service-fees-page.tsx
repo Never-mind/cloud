@@ -137,7 +137,7 @@ export function InternalServiceFeesPage() {
   }
 
   async function syncLedgers() {
-    if (!await confirmDialog("将根据月账单台账、采购成本和已确认调整单生成或重算未归档内部服务费，是否继续？")) return;
+    if (!await confirmDialog("将根据月账单合同、采购成本和已确认调整单生成或重算未归档内部服务费，是否继续？")) return;
     const response = await fetch("/api/internal-service-fees", { method: "POST" });
     const data = await response.json();
     if (!response.ok) return notify(data.error ?? "生成失败", "info");
@@ -232,7 +232,7 @@ export function InternalServiceFeesPage() {
             <thead className="bg-canvas text-ink"><tr>{tableColumns.map((column) => <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium" key={column.key}>{renderHeader(column)}</th>)}<th className="whitespace-nowrap sticky right-0 z-10 w-[236px] min-w-[236px] border-b border-line-soft bg-canvas px-3 py-3 text-left font-medium">操作</th></tr></thead>
             <tbody>
               {rows.map((row) => <tr className="hover:bg-surface-2" key={String(row.id)}>{tableColumns.map((column) => <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3" key={column.key}>{formatValue(row[column.key], column.type)}</td>)}<td className="sticky right-0 z-10 w-[236px] min-w-[236px] whitespace-nowrap border-b border-line-soft bg-white px-3 py-3"><div className="flex flex-nowrap items-center gap-2"><Button className="shrink-0 whitespace-nowrap" disabled={Boolean(row.archived)} onClick={() => { setAdjustingRow(row); setAdjustmentStart(String(row.writeOffMonth ?? "")); setAdjustmentEnd(String(row.writeOffMonth ?? "")); setAdjustmentAmount(String(row.internalServiceFeeAmount ?? "")); setAdjustmentReason(""); }}><SlidersHorizontal size={15} />区间调整</Button>{String(row.adjustmentNo ?? "") && !Boolean(row.archived) ? <Button className="shrink-0 whitespace-nowrap" tone="danger" onClick={() => void cancelAdjustment(String(row.adjustmentNo))}>撤销调整</Button> : null}</div></td></tr>)}
-              {!rows.length && <tr><td className="py-12 text-center text-ink-3" colSpan={columns.length + 1}><TableStateContent empty="暂无内部服务费明细，请先生成月账单台账后点击生成" loading={loading} /></td></tr>}
+              {!rows.length && <tr><td className="py-12 text-center text-ink-3" colSpan={columns.length + 1}><TableStateContent empty="暂无内部服务费明细，请先生成月账单合同后点击生成" loading={loading} /></td></tr>}
             </tbody>
           </table>
         </StickyTable>

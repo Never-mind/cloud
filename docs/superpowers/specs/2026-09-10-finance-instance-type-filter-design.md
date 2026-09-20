@@ -33,7 +33,7 @@
 ```sql
 po.status LIKE '%确认%'                       -- 采购订单已确认
 AND req.status <> '草稿'                       -- 需求单非草稿
-AND NOT EXISTS (... billinginstanceledgers ...) -- 未生成月账单台账
+AND NOT EXISTS (... billinginstanceledgers ...) -- 未生成月账单合同
 AND COALESCE(poi.requestType, ri.requestType, req.requestType, '整机') <> '备件'
 ```
 
@@ -103,7 +103,7 @@ im.instanceType = 'Equipment'
 
 ## 5. 影响面
 
-- **存量数据不回滚**：已经生成的月账单台账（`billinginstanceledgers`）和预付款合同明细（`prepaymentcontractitems`）保持原样；这些行本来就被 `NOT EXISTS` 排除在"待生成"之外，改动不会影响它们。
+- **存量数据不回滚**：已经生成的月账单合同（`billinginstanceledgers`）和预付款合同明细（`prepaymentcontractitems`）保持原样；这些行本来就被 `NOT EXISTS` 排除在"待生成"之外，改动不会影响它们。
 - **类型被修改的情况**：某条明细的实例型号类型后来被改成 Component/Material，它仍保留已生成的台账/合同，只是不再出现在待生成列表。
 - **服务费**：服务费基于月账单核销生成，月账单不再产生 ⇒ 组件/配件自然也不会进入服务费流程，无需额外改动。
 - **结差（可选扩展）**：`balance-settlement-service.ts:303` 的"实例结差待生成"列表同样关联了 `instancemodels`，目前**不限制类型**。如果不同步处理，会出现"月账单/预付款只收设备，结差仍收组件/配件"的口径不一致（见第 7 节问题 2）。
@@ -124,7 +124,7 @@ im.instanceType = 'Equipment'
 1. **口径选 A（宽松）还是 B（严格）？** 差别只在"实例型号未维护"的明细上，本地当前有 1 条（PO-20260829001）。
 2. **是否一并限制"实例结差待生成"列表？** 建议一并处理，保持财务口径一致；如果要单独处理也可以，改动方式相同（多 2 处：列表 + 筛选候选项）。
 3. **是否需要在前端加说明文案？** 例如在两个列表页标题下注明"仅显示设备类型实例"。
-4. **存量数据确认**：已生成的月账单台账 / 预付款合同里如果已经有组件、配件，确认保持不动（本方案默认不动）。
+4. **存量数据确认**：已生成的月账单合同 / 预付款合同里如果已经有组件、配件，确认保持不动（本方案默认不动）。
 
 ## 8. 实施步骤与工作量
 

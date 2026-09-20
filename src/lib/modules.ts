@@ -38,7 +38,7 @@ export type EntityConfig = {
   filters: EntityField[];
   defaultSort?: string;
   showSequence?: boolean;
-  /** 开启后列表支持勾选行并批量操作（目前仅月账单台账使用批量删除退回）。 */
+  /** 开启后列表支持勾选行并批量操作（目前仅月账单合同使用批量删除退回）。 */
   batchDelete?: boolean;
 };
 
@@ -629,7 +629,7 @@ export const entityConfigs: EntityConfig[] = [
     primaryKey: "id",
     navGroup: "财务管理",
     route: "/finance/billing-available",
-    description: "从已确认下单且尚未生成月账单台账的实例中生成60个月账单。",
+    description: "从已确认下单且尚未生成月账单合同的实例中生成60个月账单。",
     filters: [
       { key: "keyword", label: "待生成月账单", placeholder: "请输入国家、批次、需求单、PO或实例编码" },
       { key: "requestType", label: "类型", type: "select", options: REQUEST_TYPE_OPTIONS },
@@ -649,7 +649,7 @@ export const entityConfigs: EntityConfig[] = [
   },
   {
     key: "billing-ledgers",
-    title: "月账单台账",
+    title: "月账单合同",
     table: "billinginstanceledgers",
     primaryKey: "ledgerId",
     navGroup: "财务管理",
@@ -657,7 +657,7 @@ export const entityConfigs: EntityConfig[] = [
     description: "查看已确认月账单实例的合同价格锁定信息。",
     batchDelete: true,
     filters: [
-      { key: "keyword", label: "月账单台账", placeholder: "请输入国家、批次、需求单、PO或实例编码" },
+      { key: "keyword", label: "月账单合同", placeholder: "请输入国家、批次、需求单、PO或实例编码" },
       { key: "requestType", label: "类型", type: "select", options: REQUEST_TYPE_OPTIONS },
     ],
     listFields: [
@@ -711,7 +711,7 @@ export const entityConfigs: EntityConfig[] = [
     primaryKey: "id",
     navGroup: "财务管理",
     route: "/finance/monthly-billing-writeoffs",
-    description: "查看月账单台账生成的60个月实例核销明细。",
+    description: "查看月账单合同生成的60个月实例核销明细。",
     filters: [
       { key: "keyword", label: "月账单明细", placeholder: "请输入国家、批次、需求单、PO或实例编码" },
       { key: "requestType", label: "类型", type: "select", options: REQUEST_TYPE_OPTIONS },
@@ -2212,7 +2212,7 @@ entityConfigs.push({
   primaryKey: "ledgerId",
   navGroup: "隐藏",
   route: "/finance/internal-service-fee-available",
-  description: "显示已有月账单台账但尚未生成内部服务费的实例。",
+  description: "显示已有月账单合同但尚未生成内部服务费的实例。",
   filters: [],
   listFields: [],
   formFields: [],

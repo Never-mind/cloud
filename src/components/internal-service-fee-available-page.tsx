@@ -120,7 +120,7 @@ export function InternalServiceFeeAvailablePage() {
     <div className="space-y-5">
       <div>
         <h1 className="text-xl font-medium text-ink">待初始化内部服务费实例</h1>
-        <p className="mt-1 text-sm text-ink-3">展示已有月账单台账但尚未生成内部服务费的实例，确认后自动建立 60 个月内部服务费计划。</p>
+        <p className="mt-1 text-sm text-ink-3">展示已有月账单合同但尚未生成内部服务费的实例，确认后自动建立 60 个月内部服务费计划。</p>
       </div>
       <Panel>
         <div className="flex flex-wrap items-center gap-2 border-b border-line-soft p-4">

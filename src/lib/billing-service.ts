@@ -467,7 +467,7 @@ export async function updateBillingLedger(
   input: { instanceContractNo?: string | null; startMonth?: string | null },
 ) {
   const ledger = await getBillingLedgerDraft(ledgerId);
-  if (!ledger) throw new Error("月账单台账不存在");
+  if (!ledger) throw new Error("月账单合同不存在");
 
   const contractRows = await queryRows<BillingInstanceContract>(
     `
@@ -899,7 +899,7 @@ export async function confirmBillingAdjustment(adjustmentNo: string) {
 }
 
 /**
- * 退回草稿：把调整单状态回退后，按"没有这张调整单"的口径重算受影响的月账单台账与内部服务费。
+ * 退回草稿：把调整单状态回退后，按"没有这张调整单"的口径重算受影响的月账单合同与内部服务费。
  */
 export async function rollbackBillingAdjustment(adjustmentNo: string) {
   const { adjustment, items } = await getBillingAdjustment(adjustmentNo);
@@ -945,7 +945,7 @@ async function findBillingAdjustmentLedgerIds(items: Row[], strict: boolean) {
       },
     );
     if (!ledgers.length && strict) {
-      throw new Error(`未找到匹配的月账单台账：${item.countryCode}/${item.batchName}/${item.deviceCode}`);
+      throw new Error(`未找到匹配的月账单合同：${item.countryCode}/${item.batchName}/${item.deviceCode}`);
     }
     ledgers.forEach((ledger) => ledgerIds.add(String(ledger.ledgerId)));
   }

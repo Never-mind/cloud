@@ -247,7 +247,7 @@ export function BillingAvailablePage() {
     <div className="space-y-5 pb-24">
       <div>
         <h1 className="text-xl font-medium text-ink">待生成月账单实例</h1>
-        <p className="mt-1 text-sm text-ink-3">已确认下单且尚未生成月账单台账的实例会在这里集中确认。</p>
+        <p className="mt-1 text-sm text-ink-3">已确认下单且尚未生成月账单合同的实例会在这里集中确认。</p>
       </div>
       <Panel>
         <div className="flex flex-wrap items-center gap-2 border-b border-line-soft p-4">

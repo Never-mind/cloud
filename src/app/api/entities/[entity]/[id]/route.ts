@@ -80,7 +80,7 @@ export async function PUT(request: NextRequest, context: { params: Promise<{ ent
       return NextResponse.json(row);
     } catch (error) {
       return NextResponse.json(
-        { error: error instanceof Error ? error.message : "月账单台账更新失败" },
+        { error: error instanceof Error ? error.message : "月账单合同更新失败" },
         { status: 400 },
       );
     }

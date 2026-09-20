@@ -7,7 +7,7 @@ import { getPermissionDomainKey } from "@/lib/permission-definitions";
 
 /**
  * 实体批量操作。
- * 目前只开放月账单台账（billing-ledgers）的批量删除退回：删除台账会级联清掉
+ * 目前只开放月账单合同（billing-ledgers）的批量删除退回：删除台账会级联清掉
  * 对应 60 个月月账单、内部服务费台账与分摊，实例回到「待生成月账单」。
  *
  * 逐条处理，单条失败不影响其余，返回逐条结果由前端汇总提示。
@@ -25,7 +25,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ en
     const ids = Array.from(
       new Set((Array.isArray(body.ids) ? body.ids : []).map((value) => String(value ?? "").trim()).filter((value) => value.length > 0)),
     );
-    if (!ids.length) return NextResponse.json({ error: "请先选择要退回的月账单台账" }, { status: 400 });
+    if (!ids.length) return NextResponse.json({ error: "请先选择要退回的月账单合同" }, { status: 400 });
 
     const actor = await getOperationActor(request);
     const requestId = getOperationRequestId(request);

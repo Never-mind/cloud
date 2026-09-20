@@ -238,7 +238,7 @@ export async function listInternalServiceSnapshotFilterOptions(searchParams: URL
 
 export async function regenerateInternalServiceLedger(ledgerId: string) {
   const ledger = await getLedger(ledgerId);
-  if (!ledger) throw new Error("未找到对应的月账单台账");
+  if (!ledger) throw new Error("未找到对应的月账单合同");
   const [billingRows, existingRows, adjustments, pricingAdjustments] = await Promise.all([
     queryRows<Row>(
       "SELECT monthlyTotalAmount FROM monthlybillingwriteoffs WHERE ledgerId = :ledgerId ORDER BY monthIndex",
@@ -421,7 +421,7 @@ export async function saveInternalServiceAdjustment(input: {
   reason?: string;
 }) {
   const ledger = await getLedger(input.ledgerId);
-  if (!ledger) throw new Error("月账单台账不存在");
+  if (!ledger) throw new Error("月账单合同不存在");
   const startMonth = firstDayOfMonth(input.startMonth);
   const endMonth = firstDayOfMonth(input.endMonth);
   if (!startMonth || !endMonth || startMonth > endMonth) throw new Error("调整月份范围不正确");

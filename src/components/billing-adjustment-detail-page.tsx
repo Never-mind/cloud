@@ -169,7 +169,7 @@ export function BillingAdjustmentDetailPage({ adjustmentNo: routeAdjustmentNo }:
   }
 
   async function rollbackAdjustment() {
-    if (!await confirmDialog(`确认将该调整单退回草稿？\n退回后会按"没有这张调整单"的口径重新计算受影响的月账单台账与内部服务费。`)) return;
+    if (!await confirmDialog(`确认将该调整单退回草稿？\n退回后会按"没有这张调整单"的口径重新计算受影响的月账单合同与内部服务费。`)) return;
     setSaving(true);
     try {
       const response = await fetch(`/api/billing/adjustments/${encodeURIComponent(adjustmentNo)}/rollback`, { method: "POST" });
