@@ -45,6 +45,7 @@ describe("entity import templates", () => {
     const row = mapEntityImportRow(config!, {
       运输方式: "海运",
       CRD: "2026-01-05",
+      供应商反馈ETA: "2026-01-08",
       APD交单: "2026-01-10",
       ASD提货: "2026-01-12",
       "起飞/开船": "2026-01-15",
@@ -56,6 +57,7 @@ describe("entity import templates", () => {
     expect(row).toMatchObject({
       transportMode: "海运",
       crd: "2026-01-05",
+      supplierEtaAt: "2026-01-08",
       apdAt: "2026-01-10",
       pickupAt: "2026-01-12",
       departedAt: "2026-01-15",

@@ -7,8 +7,17 @@ import {
   normalizeRequestNos,
 } from "./procurement-workflow";
 import type { OperationActor } from "./operation-actor";
-import { getFrappeDemandLogistics, type FrappeDemandLogisticsSnapshot } from "./frappe-demand-sync-service";
-import { loadRemoteShipmentTimelines, SHIPMENT_TIMELINE_COLUMNS } from "./remote-shipment-timeline";
+import {
+  getFrappeDemandLogistics,
+  loadRemoteShipmentTimelines,
+  type FrappeDemandLogisticsSnapshot,
+} from "./frappe-demand-sync-service";
+import {
+  pickReleaseTimeline,
+  REMOTE_ONLY_SHIPMENT_COLUMNS,
+  SHIPMENT_TIMELINE_COLUMNS,
+  type RemoteShipmentTimeline,
+} from "./remote-shipment-timeline";
 
 type RequestItemRow = {
   id: string;
@@ -53,6 +62,40 @@ type ExistingShipmentRow = Row & {
   remoteLogisticsSourceStatus: string | null;
 };
 
+/**
+ * 物流行 → 采购明细的关联条件。
+ *
+ * 采购明细 id 是 `POI-<purchaseOrderId>-<序号>`，而部分物流行（历史数据与按批次
+ * 生成的数据）存的是 `POI-<poNo><purchaseOrderId>-<序号>`，多了一段 poNo 前缀，
+ * 直接用 id 相等关联会全部对不上（实测 277/283 落空，导致误报"未关联需求单"）。
+ * 所以再补一条"物流 id 以明细 id 去掉 `POI-` 前缀后的内容结尾"的后缀关联，
+ * 两种格式都能命中。
+ */
+const SHIPMENT_TO_PO_ITEM_JOIN =
+  "LEFT JOIN purchaseorderitems poi ON poi.id = s.purchaseOrderItemId" +
+  " OR s.purchaseOrderItemId LIKE CONCAT('%', SUBSTRING(poi.id, 5))";
+
+/** 远端快照可以直接覆盖的物流列（含 Release 时间与 releaseId）。 */
+const REMOTE_WRITABLE_COLUMNS: string[] = [
+  "dcCode",
+  "dcNameZh",
+  "destinationLocationId",
+  "recipientContactId",
+  "snapshotDestinationAddress",
+  "snapshotRecipientName",
+  "snapshotRecipientPhone",
+  "remoteDemandOrderId",
+  "remoteDatacenterId",
+  "remoteDeliveryLocationId",
+  "remoteRecipientListId",
+  "remoteLogisticsSourceStatus",
+  "remoteLogisticsModifiedAt",
+  "logisticsSnapshotJson",
+  "logisticsSnapshotAt",
+  "transportMode",
+  ...REMOTE_ONLY_SHIPMENT_COLUMNS,
+];
+
 export function shipmentRemoteLogisticsFields(snapshot: FrappeDemandLogisticsSnapshot): Row {
   return {
     // The original columns are retained only for history/import compatibility.
@@ -64,6 +107,8 @@ export function shipmentRemoteLogisticsFields(snapshot: FrappeDemandLogisticsSna
     snapshotDestinationAddress: snapshot.destinationAddress,
     snapshotRecipientName: snapshot.recipientName,
     snapshotRecipientPhone: snapshot.recipientPhone,
+    // 远端没有维护运输方式时留空，避免把本地已有的值清成空串。
+    ...(snapshot.transportMode ? { transportMode: snapshot.transportMode } : {}),
     remoteDemandOrderId: snapshot.remoteDemandOrderId,
     remoteDatacenterId: snapshot.remoteDatacenterId,
     remoteDeliveryLocationId: snapshot.remoteDeliveryLocationId,
@@ -77,7 +122,7 @@ export function shipmentRemoteLogisticsFields(snapshot: FrappeDemandLogisticsSna
 
 /**
  * 远端不可用时先生成物流单：远端字段留空，标记为 pending（待远端补全）。
- * 远端恢复后由「补齐待补全物流」或「同步已确认采购订单」重新拉取并改回 remote。
+ * 远端恢复后由「批量刷新远端物流」或「同步已确认采购订单」重新拉取并改回 remote。
  */
 export function pendingShipmentRemoteLogisticsFields(): Row {
   return {
@@ -92,6 +137,48 @@ export function pendingShipmentRemoteLogisticsFields(): Row {
     logisticsSnapshotJson: null,
     logisticsSnapshotAt: null,
   };
+}
+
+/**
+ * 本地实例编码 → 远端物料编码，走需求同步维护的实例型号映射。
+ * 远端 DOI 用物料标识明细，物流行靠它把自己定位到所属 Release。
+ */
+async function loadRemoteMaterialByDeviceCode(deviceCodes: string[]) {
+  const codes = [...new Set(deviceCodes.map((value) => value.trim()).filter(Boolean))];
+  const map = new Map<string, string>();
+  if (!codes.length) return map;
+  const rows = await queryRows<Row>(
+    `
+      SELECT localEntityId, sourceCode, sourceId
+        FROM merge_power_demand_sync_mappings
+       WHERE sourceType = 'material' AND (localEntityId IN (:codes) OR sourceCode IN (:codes))
+    `,
+    { codes },
+  );
+  for (const row of rows) {
+    const sourceId = String(row.sourceId ?? "").trim();
+    if (!sourceId) continue;
+    for (const candidate of [row.localEntityId, row.sourceCode]) {
+      const key = String(candidate ?? "").trim();
+      if (key) map.set(key, sourceId);
+    }
+  }
+  return map;
+}
+
+/**
+ * 取本地物流行所属 Release 的 `releaseId` 与时间节点。
+ * 定位不到 Release（多 Release 且物料对不上）时返回空对象：宁可留空，
+ * 也不把别的明细的时间写进来。
+ */
+function releaseTimelineFields(
+  timeline: RemoteShipmentTimeline | undefined,
+  materialByDeviceCode: Map<string, string>,
+  deviceCode: unknown,
+) {
+  const material = materialByDeviceCode.get(String(deviceCode ?? "").trim()) ?? "";
+  const release = pickReleaseTimeline(timeline, material);
+  return release ? { releaseId: release.releaseId, ...release.fields } : {};
 }
 
 export async function createPurchaseOrderFromRequest(requestNo: string, poNo?: string, actor: OperationActor | null = null) {
@@ -180,7 +267,7 @@ export async function confirmPurchaseOrder(purchaseOrderIdOrPoNo: string, actor:
   }
 
   // 远端不稳定时不再阻断确认：物流单先生成，远端字段标记为 pending，
-  // 等远端恢复后再用「补齐待补全物流」拉回机房、收货地址与收件人。
+  // 等远端恢复后再用「批量刷新远端物流」拉回机房、收货地址与收件人。
   const result = await synchronizePurchaseOrderShipments(purchaseOrderId, { tolerateRemoteFailure: true });
 
   await execute(`UPDATE purchaseorders
@@ -271,12 +358,12 @@ async function synchronizePurchaseOrderShipments(
     const existing = existingByLine.get(index);
     return !existing || String(existing.remoteLogisticsSourceStatus ?? "").trim() !== "remote";
   });
-  const remoteFieldsByRequestNo = new Map<string, Row>();
+  const remoteFieldsByItemId = new Map<string, Row>();
   const remoteErrors: string[] = [];
   if (remoteLines.length) {
     try {
-      for (const [requestNo, fields] of await loadRemoteShipmentFields(remoteLines)) {
-        remoteFieldsByRequestNo.set(requestNo, fields);
+      for (const [itemId, fields] of await loadRemoteShipmentFields(remoteLines)) {
+        remoteFieldsByItemId.set(itemId, fields);
       }
     } catch (error) {
       if (!options.tolerateRemoteFailure) throw error;
@@ -292,27 +379,22 @@ async function synchronizePurchaseOrderShipments(
   for (const [index, shipment] of shipments.entries()) {
     const line = shipmentLines[index];
     const existing = existingByLine.get(index);
-    const remoteFields = remoteFieldsByRequestNo.get(String(line.requestNo ?? "").trim());
+    const remoteFields = remoteFieldsByItemId.get(String(line.purchaseOrderItemId));
     const pendingRemote = remoteLines.includes(line) && !remoteFields;
-    const nextShipment = { ...shipment, ...(remoteFields ?? (pendingRemote ? pendingShipmentRemoteLogisticsFields() : {})) };
+    // 远端专属列先补 null：定位不到 Release 时这些列要有确定值，避免参数缺失。
+    const remoteOnlyDefaults = Object.fromEntries(REMOTE_ONLY_SHIPMENT_COLUMNS.map((key) => [key, null]));
+    const nextShipment = {
+      ...shipment,
+      ...remoteOnlyDefaults,
+      ...(remoteFields ?? (pendingRemote ? pendingShipmentRemoteLogisticsFields() : {})),
+    };
 
     if (existing) {
       const remoteAssignments = remoteFields
-        ? `, dcCode = :dcCode,
-              dcNameZh = :dcNameZh,
-              destinationLocationId = :destinationLocationId,
-              recipientContactId = :recipientContactId,
-              snapshotDestinationAddress = :snapshotDestinationAddress,
-              snapshotRecipientName = :snapshotRecipientName,
-              snapshotRecipientPhone = :snapshotRecipientPhone,
-              remoteDemandOrderId = :remoteDemandOrderId,
-              remoteDatacenterId = :remoteDatacenterId,
-              remoteDeliveryLocationId = :remoteDeliveryLocationId,
-              remoteRecipientListId = :remoteRecipientListId,
-              remoteLogisticsSourceStatus = :remoteLogisticsSourceStatus,
-              remoteLogisticsModifiedAt = :remoteLogisticsModifiedAt,
-              logisticsSnapshotJson = :logisticsSnapshotJson,
-              logisticsSnapshotAt = :logisticsSnapshotAt`
+        ? REMOTE_WRITABLE_COLUMNS
+            .filter((key) => remoteFields[key] !== undefined)
+            .map((key) => `, ${key} = :${key}`)
+            .join("")
         : pendingRemote
           ? ", remoteLogisticsSourceStatus = :remoteLogisticsSourceStatus"
           : "";
@@ -343,12 +425,14 @@ async function synchronizePurchaseOrderShipments(
           (shipmentId, poNo, batchName, purchaseOrderItemId, deviceCode, nameEn, supplierId, undertakingUnitId, dcCode, dcNameZh,
            destinationLocationId, recipientContactId, snapshotDestinationAddress, snapshotRecipientName, snapshotRecipientPhone,
            remoteDemandOrderId, remoteDatacenterId, remoteDeliveryLocationId, remoteRecipientListId, remoteLogisticsSourceStatus,
-           remoteLogisticsModifiedAt, logisticsSnapshotJson, logisticsSnapshotAt, transportMode, isReceived)
+           remoteLogisticsModifiedAt, logisticsSnapshotJson, logisticsSnapshotAt, transportMode, releaseId,
+           crd, supplierEtaAt, apdAt, pickupAt, departedAt, arrivedAt, customsClearedAt, deliveredAt, isReceived)
         VALUES
           (:shipmentId, :poNo, :batchName, :purchaseOrderItemId, :deviceCode, :nameEn, :supplierId, :undertakingUnitId, :dcCode, :dcNameZh,
            :destinationLocationId, :recipientContactId, :snapshotDestinationAddress, :snapshotRecipientName, :snapshotRecipientPhone,
            :remoteDemandOrderId, :remoteDatacenterId, :remoteDeliveryLocationId, :remoteRecipientListId, :remoteLogisticsSourceStatus,
-           :remoteLogisticsModifiedAt, :logisticsSnapshotJson, :logisticsSnapshotAt, :transportMode, :isReceived)
+           :remoteLogisticsModifiedAt, :logisticsSnapshotJson, :logisticsSnapshotAt, :transportMode, :releaseId,
+           :crd, :supplierEtaAt, :apdAt, :pickupAt, :departedAt, :arrivedAt, :customsClearedAt, :deliveredAt, :isReceived)
       `,
       nextShipment,
     );
@@ -376,12 +460,21 @@ async function loadRemoteShipmentFields(lines: ShipmentLineRow[]) {
   });
   if (errors.length) throw new Error(`无法生成物流快照：${errors.join("；")}`);
 
-  return new Map(
-    requestNos.flatMap((requestNo) => {
-      const snapshot = lookup.snapshotsByRequestNo.get(requestNo);
-      return snapshot ? [[requestNo, shipmentRemoteLogisticsFields(snapshot)] as const] : [];
-    }),
-  );
+  const timelineByRequestNo = await loadRemoteShipmentTimelines(requestNos);
+  const materialByDeviceCode = await loadRemoteMaterialByDeviceCode(lines.map((line) => String(line.deviceCode ?? "")));
+
+  // 按采购明细逐行返回：同一需求单跨多个 Release 时，每行的时间取自己所属 Release 的。
+  const fieldsByItemId = new Map<string, Row>();
+  for (const line of lines) {
+    const requestNo = String(line.requestNo ?? "").trim();
+    const snapshot = lookup.snapshotsByRequestNo.get(requestNo);
+    if (!snapshot) continue;
+    fieldsByItemId.set(String(line.purchaseOrderItemId), {
+      ...shipmentRemoteLogisticsFields(snapshot),
+      ...releaseTimelineFields(timelineByRequestNo.get(requestNo), materialByDeviceCode, line.deviceCode),
+    });
+  }
+  return fieldsByItemId;
 }
 
 export async function refreshShipmentRemoteLogistics(shipmentId: string) {
@@ -389,10 +482,11 @@ export async function refreshShipmentRemoteLogistics(shipmentId: string) {
     `
       SELECT s.shipmentId,
              COALESCE(NULLIF(poi.requestNo, ''), ri.requestNo) AS requestNo,
+             s.deviceCode,
              s.dcNameZh, s.snapshotDestinationAddress, s.snapshotRecipientName, s.snapshotRecipientPhone,
-             s.transportMode, s.crd, s.apdAt, s.pickupAt, s.departedAt, s.arrivedAt, s.customsClearedAt, s.deliveredAt
+             s.transportMode, s.crd, s.supplierEtaAt, s.apdAt, s.pickupAt, s.departedAt, s.arrivedAt, s.customsClearedAt, s.deliveredAt
         FROM shipments s
-        LEFT JOIN purchaseorderitems poi ON poi.id = s.purchaseOrderItemId
+        ${SHIPMENT_TO_PO_ITEM_JOIN}
         LEFT JOIN requestitems ri ON ri.id = poi.requestItemId
        WHERE s.shipmentId = :shipmentId
        LIMIT 1
@@ -404,11 +498,18 @@ export async function refreshShipmentRemoteLogistics(shipmentId: string) {
   const requestNo = String(shipment.requestNo ?? "").trim();
   if (!requestNo) throw new Error("物流记录未关联需求单，无法重新读取远端物流信息");
 
-  const remoteFields = await loadRemoteShipmentFields([{ purchaseOrderItemId: shipmentId, requestNo, batchName: null, deviceCode: null, nameEn: null, supplierId: null, undertakingUnitId: null }]);
-  const snapshotFields = remoteFields.get(requestNo);
-  if (!snapshotFields) throw new Error("远端物流信息不存在");
-  const timeline = await loadRemoteShipmentTimelines([requestNo]);
-  const fields = { ...snapshotFields, ...(timeline.get(requestNo) ?? {}) };
+  // 物资编码取自本行，才能定位到该明细所属 Release 的时间。
+  const remoteFields = await loadRemoteShipmentFields([{
+    purchaseOrderItemId: shipmentId,
+    requestNo,
+    batchName: null,
+    deviceCode: shipment.deviceCode === null || shipment.deviceCode === undefined ? null : String(shipment.deviceCode),
+    nameEn: null,
+    supplierId: null,
+    undertakingUnitId: null,
+  }]);
+  const fields = remoteFields.get(shipmentId);
+  if (!fields) throw new Error("远端物流信息不存在");
   const changes = describeRemoteChanges(shipment, fields);
   await applyRemoteLogisticsFields(shipmentId, fields);
   return { shipmentId, ...fields, changes };
@@ -423,20 +524,30 @@ const REMOTE_DIFF_FIELDS: Array<[string, string]> = [
   ...SHIPMENT_TIMELINE_COLUMNS,
 ];
 
+/** 差异提示里的展示值：DATE/DATETIME 列会被驱动返回 Date 对象，按本地日期显示。 */
+function displayValue(value: unknown) {
+  if (value instanceof Date) {
+    const pad = (part: number) => String(part).padStart(2, "0");
+    return `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}`;
+  }
+  return String(value ?? "").trim();
+}
+
 function describeRemoteChanges(current: Row, next: Row) {
   return REMOTE_DIFF_FIELDS.flatMap(([key, label]) => {
-    const before = String(current[key] ?? "").trim();
-    const after = String(next[key] ?? "").trim();
+    const before = displayValue(current[key]);
+    const after = displayValue(next[key]);
     if (!after || before === after) return [];
     return [`${label}：${before || "（空）"} → ${after}`];
   });
 }
 
 async function applyRemoteLogisticsFields(shipmentId: string, fields: Row) {
-  // 时间节点（运输方式、CRD、APD 等）只有远端真正给值时才写，避免把本地维护的值清空。
-  const timelineAssignments = SHIPMENT_TIMELINE_COLUMNS
-    .filter(([key]) => fields[key] !== undefined)
-    .map(([key]) => `, ${key} = :${key}`)
+  // 时间节点（运输方式、CRD、供应商反馈ETA、APD 等）与 releaseId 只有远端真正给值时才写，
+  // 避免把本地维护的值清空。
+  const timelineAssignments = ["releaseId", ...SHIPMENT_TIMELINE_COLUMNS.map(([key]) => key)]
+    .filter((key) => fields[key] !== undefined)
+    .map((key) => `, ${key} = :${key}`)
     .join("");
   await execute(
     `
@@ -463,23 +574,27 @@ async function applyRemoteLogisticsFields(shipmentId: string, fields: Row) {
 }
 
 /**
- * 补齐待补全物流：确认采购时远端不可用而留空的物流行，按需求单号统一重拉远端快照。
- * 命中即写入机房/地址/收件人并把来源改回 remote，未命中则保留 pending 并回报原因。
+ * 批量刷新远端物流：把**不是远端来源**的物流行（待补全 `pending` 与历史导入 `legacy`）
+ * 按需求单号统一重拉远端快照与 Release 时间节点。
+ *
+ * 命中即写入机房/地址/收件人/运输方式/时间并把来源改回 `remote`；
+ * 远端确实没有该需求单时保持原样并回报原因，不会把 legacy 改成 pending。
  */
-export async function synchronizePendingRemoteLogistics() {
+export async function synchronizeRemoteLogistics() {
   const rows = await queryRows<Row>(
     `
       SELECT s.shipmentId,
              COALESCE(NULLIF(poi.requestNo, ''), ri.requestNo) AS requestNo,
+             s.deviceCode,
              s.dcNameZh, s.snapshotDestinationAddress, s.snapshotRecipientName, s.snapshotRecipientPhone,
-             s.transportMode, s.crd, s.apdAt, s.pickupAt, s.departedAt, s.arrivedAt, s.customsClearedAt, s.deliveredAt
+             s.transportMode, s.crd, s.supplierEtaAt, s.apdAt, s.pickupAt, s.departedAt, s.arrivedAt, s.customsClearedAt, s.deliveredAt
         FROM shipments s
-        LEFT JOIN purchaseorderitems poi ON poi.id = s.purchaseOrderItemId
+        ${SHIPMENT_TO_PO_ITEM_JOIN}
         LEFT JOIN requestitems ri ON ri.id = poi.requestItemId
-       WHERE s.remoteLogisticsSourceStatus = :pendingStatus
+       WHERE s.remoteLogisticsSourceStatus IS NULL OR s.remoteLogisticsSourceStatus <> :remoteStatus
        ORDER BY s.shipmentId
     `,
-    { pendingStatus: "pending" },
+    { remoteStatus: "remote" },
   );
   if (!rows.length) {
     return { scanned: 0, updated: 0, skipped: 0, changes: [] as string[], errors: [] as string[] };
@@ -494,8 +609,9 @@ export async function synchronizePendingRemoteLogistics() {
     const message = error instanceof Error ? error.message : String(error);
     return { scanned: rows.length, updated: 0, skipped: rows.length, changes: [] as string[], errors: [message] };
   }
-  // 远端时间节点模块尚未接通，这里返回空 Map；接通后时间节点会随快照一起补齐（远端有值即为准）。
+  // 时间节点按 Release 取：每行用自己的实例编码定位到所属 Release，远端有值才覆盖。
   const timelineByRequestNo = await loadRemoteShipmentTimelines(requestNos);
+  const materialByDeviceCode = await loadRemoteMaterialByDeviceCode(rows.map((row) => String(row.deviceCode ?? "")));
   const changes: string[] = [];
   const errors = requestNos.flatMap((requestNo) => {
     const message = lookup.errorsByRequestNo.get(requestNo);
@@ -517,7 +633,10 @@ export async function synchronizePendingRemoteLogistics() {
       skipped += 1;
       continue;
     }
-    const fields = { ...shipmentRemoteLogisticsFields(snapshot), ...(timelineByRequestNo.get(requestNo) ?? {}) };
+    const fields = {
+      ...shipmentRemoteLogisticsFields(snapshot),
+      ...releaseTimelineFields(timelineByRequestNo.get(requestNo), materialByDeviceCode, row.deviceCode),
+    };
     for (const change of describeRemoteChanges(row, fields)) changes.push(`${shipmentId} ${change}`);
     await applyRemoteLogisticsFields(shipmentId, fields);
     updated += 1;

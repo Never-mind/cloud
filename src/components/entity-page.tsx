@@ -580,27 +580,27 @@ export function EntityPage({
   }
 
   async function fillPendingShipmentLogistics() {
-    if (!await confirmDialog("将为所有“待远端补全”的物流重新拉取远端机房、收货地址与收件人。远端仍未恢复的会保留待补全状态，是否继续？")) {
+    if (!await confirmDialog("将为所有“待补全”和“历史导入”的物流重新拉取远端的机房、收货地址、收件人、运输方式与各时间节点。远端确实没有该需求单的会保持原样，是否继续？")) {
       return;
     }
     setFillingPendingShipments(true);
     try {
-      const response = await fetch("/api/procurement/shipments/pending-logistics", { method: "POST" });
+      const response = await fetch("/api/procurement/shipments/refresh-logistics", { method: "POST" });
       const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.error ?? "补齐待补全物流失败");
+      if (!response.ok) throw new Error(data.error ?? "批量刷新远端物流失败");
       const errors = Array.isArray(data.errors) ? data.errors : [];
       const changes = Array.isArray(data.changes) ? data.changes : [];
       const head = data.scanned
-        ? `待补全 ${data.scanned} 条，成功补全 ${data.updated ?? 0} 条，仍未取到远端数据 ${data.skipped ?? 0} 条。`
-        : "当前没有待补全的物流。";
+        ? `待刷新 ${data.scanned} 条，刷新成功 ${data.updated ?? 0} 条，远端没有对应数据 ${data.skipped ?? 0} 条。`
+        : "当前没有需要刷新远端数据的物流。";
       const detail = [
-        changes.length ? `补全明细：\n${changes.slice(0, 10).join("\n")}${changes.length > 10 ? `\n…共 ${changes.length} 项` : ""}` : "",
-        errors.length ? `仍失败：${errors.slice(0, 5).join("；")}` : "",
+        changes.length ? `刷新明细：\n${changes.slice(0, 10).join("\n")}${changes.length > 10 ? `\n…共 ${changes.length} 项` : ""}` : "",
+        errors.length ? `未取到远端：${errors.slice(0, 5).join("；")}` : "",
       ].filter(Boolean).join("\n");
       notify(detail ? `${head}\n${detail}` : head, data.updated ? "success" : errors.length ? "error" : "info");
       await loadRows();
     } catch (error) {
-      notify(error instanceof Error ? error.message : "补齐待补全物流失败", "error");
+      notify(error instanceof Error ? error.message : "批量刷新远端物流失败", "error");
     } finally {
       setFillingPendingShipments(false);
     }
@@ -892,7 +892,7 @@ export function EntityPage({
               </Button>
               <Button disabled={fillingPendingShipments} tone="success" onClick={() => void fillPendingShipmentLogistics()}>
                 <RefreshCw size={15} />
-                {fillingPendingShipments ? "补齐中..." : "补齐待补全物流"}
+                {fillingPendingShipments ? "刷新中..." : "批量刷新远端物流"}
               </Button>
             </>
           ) : null}

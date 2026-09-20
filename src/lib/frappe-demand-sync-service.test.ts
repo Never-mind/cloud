@@ -4,6 +4,7 @@ import {
   hasEligibleStatus,
   isCancelledStatus,
   localRequestNo,
+  localTransportMode,
   nearestPlannedDeliveryDate,
   requestGroupType,
   requestItemType,
@@ -126,5 +127,24 @@ describe("远端状态同步范围（默认黑名单口径）", () => {
     configure({ FRAPPE_DEMAND_CANCELLED_STATUSES: "Cancelled,Withdrawn" });
     expect(isCancelledStatus("Withdrawn")).toBe(true);
     expect(hasEligibleStatus("Withdrawn")).toBe(false);
+  });
+});
+
+describe("远端运输方式映射到本地文案", () => {
+  it("把远端的 Sea/Air 映射成物流列表用的海运/空运", () => {
+    expect(localTransportMode("Sea")).toBe("海运");
+    expect(localTransportMode("Air")).toBe("空运");
+    expect(localTransportMode("sea")).toBe("海运");
+    expect(localTransportMode(" Air ")).toBe("空运");
+  });
+
+  it("远端没维护时返回空，交给调用方保留本地值", () => {
+    expect(localTransportMode("")).toBe("");
+    expect(localTransportMode(null)).toBe("");
+    expect(localTransportMode(undefined)).toBe("");
+  });
+
+  it("远端以后新增取值时原样带回，不擅自改成待安排", () => {
+    expect(localTransportMode("Rail")).toBe("Rail");
   });
 });

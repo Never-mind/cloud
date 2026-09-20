@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const queryRows = vi.fn();
 const execute = vi.fn();
 const getFrappeDemandLogistics = vi.fn();
+const loadRemoteShipmentTimelines = vi.fn();
 
 vi.mock("./db", () => ({
   execute: (...args: unknown[]) => execute(...args),
@@ -11,9 +12,10 @@ vi.mock("./db", () => ({
 
 vi.mock("./frappe-demand-sync-service", () => ({
   getFrappeDemandLogistics: (...args: unknown[]) => getFrappeDemandLogistics(...args),
+  loadRemoteShipmentTimelines: (...args: unknown[]) => loadRemoteShipmentTimelines(...args),
 }));
 
-const { synchronizePendingRemoteLogistics } = await import("./procurement-service");
+const { synchronizeRemoteLogistics } = await import("./procurement-service");
 
 function snapshot(overrides: Record<string, unknown> = {}) {
   return {
@@ -41,15 +43,41 @@ function lookup(snapshots: Array<[string, unknown]>, errors: Array<[string, stri
 
 beforeEach(() => {
   queryRows.mockReset();
+  // 除显式排队的返回值外，其余查询（例如实例编码→物料映射）一律返回空表。
+  queryRows.mockResolvedValue([]);
   execute.mockReset();
   getFrappeDemandLogistics.mockReset();
+  loadRemoteShipmentTimelines.mockReset();
+  loadRemoteShipmentTimelines.mockResolvedValue(new Map());
 });
 
 describe("filling pending shipment logistics", () => {
+  it("刷新范围覆盖历史导入行，不只待补全行", async () => {
+    queryRows.mockResolvedValueOnce([
+      // legacy：历史上从 Excel 导入、从来没走过远端拉取的行。
+      { shipmentId: "SHP-legacy", requestNo: "DO-00049", dcNameZh: "", snapshotDestinationAddress: null, snapshotRecipientName: null, snapshotRecipientPhone: null, transportMode: "空运" },
+    ]);
+    getFrappeDemandLogistics.mockResolvedValueOnce(lookup([["DO-00049", snapshot({ transportMode: "海运" })]]));
+    execute.mockResolvedValue(undefined);
+
+    const result = await synchronizeRemoteLogistics();
+
+    expect(result.updated).toBe(1);
+    const [sql, params] = execute.mock.calls[0];
+    // 查询条件只排除 remote，pending 与 legacy 都在刷新范围内。
+    const selectSql = String(queryRows.mock.calls[0][0]);
+    expect(selectSql).toContain("<> :remoteStatus");
+    expect(queryRows.mock.calls[0][1]).toEqual({ remoteStatus: "remote" });
+    // 运输方式被远端纠正，来源改成 remote。
+    expect(String(sql)).toContain("transportMode = :transportMode");
+    expect(params).toMatchObject({ shipmentId: "SHP-legacy", transportMode: "海运", remoteLogisticsSourceStatus: "remote" });
+    expect(result.changes).toContain("SHP-legacy 运输方式：空运 → 海运");
+  });
+
   it("does nothing when there is no pending shipment", async () => {
     queryRows.mockResolvedValueOnce([]);
 
-    const result = await synchronizePendingRemoteLogistics();
+    const result = await synchronizeRemoteLogistics();
 
     expect(result).toEqual({ scanned: 0, updated: 0, skipped: 0, changes: [], errors: [] });
     expect(getFrappeDemandLogistics).not.toHaveBeenCalled();
@@ -63,7 +91,7 @@ describe("filling pending shipment logistics", () => {
     getFrappeDemandLogistics.mockResolvedValueOnce(lookup([["DO-00049", snapshot()]]));
     execute.mockResolvedValue(undefined);
 
-    const result = await synchronizePendingRemoteLogistics();
+    const result = await synchronizeRemoteLogistics();
 
     expect(result.scanned).toBe(1);
     expect(result.updated).toBe(1);
@@ -91,7 +119,7 @@ describe("filling pending shipment logistics", () => {
     ]);
     getFrappeDemandLogistics.mockResolvedValueOnce(lookup([], [["DO-00049", "读取远端 Demand Order 失败：fetch failed"]]));
 
-    const result = await synchronizePendingRemoteLogistics();
+    const result = await synchronizeRemoteLogistics();
 
     expect(result).toMatchObject({ scanned: 1, updated: 0, skipped: 1, changes: [] });
     expect(result.errors).toEqual(["需求单 DO-00049：读取远端 Demand Order 失败：fetch failed"]);
@@ -104,7 +132,7 @@ describe("filling pending shipment logistics", () => {
     ]);
     getFrappeDemandLogistics.mockRejectedValueOnce(new Error("读取远端 Demand Order 失败：fetch failed"));
 
-    const result = await synchronizePendingRemoteLogistics();
+    const result = await synchronizeRemoteLogistics();
 
     expect(result).toMatchObject({ scanned: 1, updated: 0, skipped: 1, changes: [] });
     expect(result.errors).toEqual(["读取远端 Demand Order 失败：fetch failed"]);

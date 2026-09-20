@@ -2005,6 +2005,16 @@ async function main() {
     "logisticsSnapshotAt",
     "`logisticsSnapshotAt` DATETIME NULL COMMENT 'remote logistics snapshot time' AFTER `logisticsSnapshotJson`",
   );
+  await addColumnIfMissing(
+    "shipments",
+    "releaseId",
+    "`releaseId` VARCHAR(64) NULL COMMENT 'remote EDI Order release id' AFTER `logisticsSnapshotAt`",
+  );
+  await addColumnIfMissing(
+    "shipments",
+    "supplierEtaAt",
+    "`supplierEtaAt` DATE NULL COMMENT 'supplier committed ETA from remote EDI Order' AFTER `deliveredAt`",
+  );
   await addIndexIfMissing(
     "shipments",
     "idx_Shipments_batchName",

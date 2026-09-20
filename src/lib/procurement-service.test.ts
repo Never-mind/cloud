@@ -12,6 +12,7 @@ describe("remote shipment logistics snapshots", () => {
       destinationAddress: "Rua A, 100, São Paulo, Brazil",
       recipientName: "Maria Silva",
       recipientPhone: "+55 11 99999-8888",
+      transportMode: "海运",
       remoteModifiedAt: "2026-09-10 15:30:00",
       snapshotJson: "{\"source\":\"frappe\"}",
       snapshotAt: "2026-09-10T15:31:00.000Z",
@@ -25,6 +26,7 @@ describe("remote shipment logistics snapshots", () => {
       snapshotDestinationAddress: "Rua A, 100, São Paulo, Brazil",
       snapshotRecipientName: "Maria Silva",
       snapshotRecipientPhone: "+55 11 99999-8888",
+      transportMode: "海运",
       remoteLogisticsSourceStatus: "remote",
     });
   });

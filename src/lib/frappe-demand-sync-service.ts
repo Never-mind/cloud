@@ -3,6 +3,12 @@ import type { PoolConnection, RowDataPacket } from "mysql2/promise";
 import { executeRaw, getDb, queryRowsRaw, type Row } from "./db";
 import { resolveFrappeEndpoint, resolvePageSize, resolveTimeoutMs } from "./frappe-config";
 import type { OperationActor } from "./operation-actor";
+import {
+  REMOTE_SHIPMENT_TIMELINE_FIELDS,
+  remoteFieldsFor,
+  type RemoteReleaseTimeline,
+  type RemoteShipmentTimeline,
+} from "./remote-shipment-timeline";
 
 const SOURCE_SYSTEM = "frappe";
 const MAPPING_TABLE = "merge_power_demand_sync_mappings";
@@ -40,8 +46,21 @@ type RemoteDemandOrder = {
   customerPoNo: string;
   datacenterId: string;
   deliveryRecipientListId: string;
+  transportMode: string;
   modified: string;
 };
+
+/**
+ * 远端 `transport_mode`（Air / Sea）→ 本地物流列表的运输方式文案。
+ * 远端以后出现新值时原样带回，避免本地凭空造一个"待安排"。
+ */
+export function localTransportMode(value: unknown) {
+  const remote = text(value).toLowerCase();
+  if (!remote) return "";
+  if (remote === "sea") return "海运";
+  if (remote === "air") return "空运";
+  return text(value);
+}
 
 type RemoteSource = {
   type: SourceType;
@@ -98,6 +117,7 @@ export type FrappeDemandLogisticsSnapshot = {
   destinationAddress: string;
   recipientName: string;
   recipientPhone: string;
+  transportMode: string;
   remoteModifiedAt: string | null;
   snapshotJson: string;
   snapshotAt: string;
@@ -233,7 +253,7 @@ async function fetchFrappeList(doctype: string, fields: string[]) {
 async function loadRemoteSnapshot(): Promise<RemoteSnapshot> {
   const [rawItems, rawOrders, rawSuppliers, rawMaterials, rawDatacenters] = await Promise.all([
     fetchFrappeList("Demand Order Item", ["name", "demand_order", "material", "supplier", "status", "customer_batch_no", "quantity", "requested_delivery_date", "modified"]),
-    fetchFrappeList("Demand Order", ["name", "customer_po_no", "datacenter", "delivery_recipient_list", "modified"]),
+    fetchFrappeList("Demand Order", ["name", "customer_po_no", "datacenter", "delivery_recipient_list", "transport_mode", "modified"]),
     fetchFrappeList("Business Partner", ["name", "partner_code", "partner_alias", "name_zh", "modified", "is_supplier"]),
     fetchFrappeList("Material", ["name", "customer_item_code", "customer_part_no", "material_code", "model", "name_zh", "material_type", "modified"]),
     fetchFrappeList("Datacenter", ["name", "datacenter_code", "name_zh", "name_en", "country", "delivery_location", "modified"]),
@@ -247,7 +267,8 @@ async function loadRemoteSnapshot(): Promise<RemoteSnapshot> {
   const orders = new Map(rawOrders.map((row) => {
     const item: RemoteDemandOrder = {
       id: text(row.name), customerPoNo: text(row.customer_po_no), datacenterId: text(row.datacenter),
-      deliveryRecipientListId: text(row.delivery_recipient_list), modified: text(row.modified),
+      deliveryRecipientListId: text(row.delivery_recipient_list), transportMode: text(row.transport_mode),
+      modified: text(row.modified),
     };
     return [item.id, item] as const;
   }).filter(([id]) => id));
@@ -309,6 +330,7 @@ function buildRemoteLogisticsSnapshot(
     destinationAddress,
     recipientName,
     recipientPhone,
+    transportMode: localTransportMode(order.transportMode),
     remoteModifiedAt,
     snapshotAt,
     snapshotJson: JSON.stringify({
@@ -340,11 +362,137 @@ function buildRemoteLogisticsSnapshot(
       demandOrder: {
         id: order.id,
         customerPoNo: order.customerPoNo,
+        transportMode: order.transportMode,
         modifiedAt: order.modified || null,
       },
       sourceFetchedAt,
     }),
   };
+}
+
+/**
+ * 读取远端物流时间节点，按需求单号分组、按 Release 拆分。
+ *
+ * 关联链：Demand Order（customer_po_no）→ Demand Order Item（DOI）
+ * → EDI Order Item（子表 demand_order_item）→ EDI Order（Release）
+ * → SL Shipment（edi_order）。
+ *
+ * 实测（2026-09-20）：277 条 DOI 全部能挂到唯一 Release，0 冲突；163 个 Release
+ * 中 123 个已有 SL Shipment。取消状态的明细不参与，避免和同物料的正常明细抢 Release。
+ */
+export async function loadRemoteShipmentTimelines(requestNos: string[]): Promise<Map<string, RemoteShipmentTimeline>> {
+  // 远端单号与调用方传入的大小写可能不同，返回时统一还原成调用方的写法，
+  // 否则调用方用原始需求单号取值会取不到。
+  const originalByNormalized = new Map<string, string>();
+  for (const value of requestNos) {
+    const key = normalized(value);
+    if (key && !originalByNormalized.has(key)) originalByNormalized.set(key, value);
+  }
+  const wanted = new Set(originalByNormalized.keys());
+  const byRequestNo = new Map<string, RemoteShipmentTimeline>();
+  if (!wanted.size) return byRequestNo;
+
+  const shipmentFields = remoteFieldsFor("shipment");
+  const releaseFields = remoteFieldsFor("release");
+  const itemFields = remoteFieldsFor("demandItem");
+
+  const [rawOrders, rawItems, rawReleases, rawShipments] = await Promise.all([
+    fetchFrappeList("Demand Order", ["name", "customer_po_no"]),
+    fetchFrappeList("Demand Order Item", ["name", "demand_order", "material", "status", ...itemFields]),
+    fetchFrappeList("EDI Order", ["name", "release_id", "demand_order", ...releaseFields, "edi_order_items.demand_order_item"]),
+    fetchFrappeList("SL Shipment", ["name", "edi_order", ...shipmentFields]),
+  ]);
+
+  const requestNoByOrderId = new Map<string, string>();
+  for (const row of rawOrders) {
+    const orderId = text(row.name);
+    const requestNo = normalized(row.customer_po_no);
+    if (orderId && requestNo) requestNoByOrderId.set(orderId, requestNo);
+  }
+
+  const shipmentByReleaseName = new Map<string, Record<string, unknown>>();
+  for (const row of rawShipments) {
+    const ediOrder = text(row.edi_order);
+    if (ediOrder) shipmentByReleaseName.set(ediOrder, row);
+  }
+
+  const releaseNameByItemId = new Map<string, string>();
+  const releaseMetaByName = new Map<string, { releaseId: string; requestNo: string; materials: string[] }>();
+  for (const row of rawReleases) {
+    const releaseName = text(row.name);
+    const releaseId = text(row.release_id);
+    const requestNo = requestNoByOrderId.get(text(row.demand_order)) ?? "";
+    if (!releaseName || !releaseId || !requestNo || !wanted.has(requestNo)) continue;
+    const linked = text(row.demand_order_item);
+    if (linked) releaseNameByItemId.set(linked, releaseName);
+    const meta = releaseMetaByName.get(releaseName) ?? { releaseId, requestNo, materials: [] };
+    releaseMetaByName.set(releaseName, meta);
+  }
+
+  const materialsByReleaseName = new Map<string, string[]>();
+  for (const row of rawItems) {
+    const itemId = text(row.name);
+    const releaseName = releaseNameByItemId.get(itemId);
+    if (!releaseName) continue;
+    if (normalized(row.status) === "cancelled") continue;
+    const material = text(row.material);
+    if (!material) continue;
+    const list = materialsByReleaseName.get(releaseName) ?? [];
+    if (!list.includes(material)) list.push(material);
+    materialsByReleaseName.set(releaseName, list);
+  }
+
+  const releaseTimelines = new Map<string, RemoteReleaseTimeline>();
+  for (const [releaseName, meta] of releaseMetaByName) {
+    const fields: Record<string, string> = timelineFieldsFrom(rawReleases.find((row) => text(row.name) === releaseName) ?? {}, "release");
+    const shipment = shipmentByReleaseName.get(releaseName);
+    if (shipment) Object.assign(fields, timelineFieldsFrom(shipment, "shipment"));
+    releaseTimelines.set(releaseName, {
+      releaseId: meta.releaseId,
+      releaseName,
+      materials: materialsByReleaseName.get(releaseName) ?? [],
+      fields,
+    });
+  }
+
+  // CRD 属于明细：按 Release 覆盖明细里第一个非空的要求到货日。
+  for (const row of rawItems) {
+    const releaseName = releaseNameByItemId.get(text(row.name));
+    if (!releaseName) continue;
+    if (normalized(row.status) === "cancelled") continue;
+    const release = releaseTimelines.get(releaseName);
+    if (!release || release.fields.crd) continue;
+    const crd = timelineFieldsFrom(row, "demandItem").crd;
+    if (crd) release.fields.crd = crd;
+  }
+
+  for (const release of releaseTimelines.values()) {
+    const requestNo = releaseMetaByName.get(release.releaseName)?.requestNo;
+    if (!requestNo) continue;
+    // requestNo 是归一化后的值，按调用方原始写法落 key。
+    const key = originalByNormalized.get(requestNo) ?? requestNo;
+    const entry = byRequestNo.get(key) ?? { releases: [] };
+    entry.releases.push(release);
+    byRequestNo.set(key, entry);
+  }
+  for (const entry of byRequestNo.values()) {
+    entry.releases.sort((left, right) => left.releaseName.localeCompare(right.releaseName));
+  }
+  return byRequestNo;
+}
+
+/** 按映射表把远端一行里属于该实体的字段取成"本地列名 → 值"。 */
+function timelineFieldsFrom(row: Record<string, unknown>, source: "demandItem" | "release" | "shipment") {
+  const fields: Record<string, string> = {};
+  for (const field of REMOTE_SHIPMENT_TIMELINE_FIELDS_FOR_SOURCE(source)) {
+    const value = text(row[field.remote]);
+    if (value) fields[field.local] = value.slice(0, 10);
+  }
+  return fields;
+}
+
+function REMOTE_SHIPMENT_TIMELINE_FIELDS_FOR_SOURCE(source: "demandItem" | "release" | "shipment") {
+  return REMOTE_SHIPMENT_TIMELINE_FIELDS.filter((field) => field.source === source);
 }
 
 /**
@@ -359,7 +507,7 @@ export async function getFrappeDemandLogistics(requestNos: string[]): Promise<Fr
   if (!normalizedRequestNos.length) return { snapshotsByRequestNo, errorsByRequestNo };
 
   const [rawOrders, rawDatacenters, rawLocations, rawRecipients] = await Promise.all([
-    fetchFrappeList("Demand Order", ["name", "customer_po_no", "datacenter", "delivery_recipient_list", "modified"]),
+    fetchFrappeList("Demand Order", ["name", "customer_po_no", "datacenter", "delivery_recipient_list", "transport_mode", "modified"]),
     fetchFrappeList("Datacenter", ["name", "datacenter_code", "name_zh", "name_en", "country", "delivery_location", "modified"]),
     fetchFrappeList("Delivery Location", ["name", "location_type", "country", "state", "city", "address", "modified"]),
     fetchFrappeList("Delivery Recipient List", ["name", "raw_contact", "raw_phone", "recipients_summary", "status", "modified"]),
@@ -371,6 +519,7 @@ export async function getFrappeDemandLogistics(requestNos: string[]): Promise<Fr
       id: text(row.name),
       customerPoNo: text(row.customer_po_no),
       datacenterId: text(row.datacenter),
+      transportMode: text(row.transport_mode),
       deliveryRecipientListId: text(row.delivery_recipient_list),
       modified: text(row.modified),
     };
@@ -981,7 +1130,7 @@ export async function runFrappeDemandSync({ triggerType = "manual", dryRun = fal
         for (const item of items) {
           summary.blockedItems += 1;
           summary.errors.push({ sourceItemId: item.id, error: message });
-          if (!dryRun) await persistBlockedItem(item, { id: orderId, customerPoNo: "", datacenterId: "", deliveryRecipientListId: "", modified: "" }, createHash("sha256").update(item.id).digest("hex"), message);
+          if (!dryRun) await persistBlockedItem(item, { id: orderId, customerPoNo: "", datacenterId: "", deliveryRecipientListId: "", transportMode: "", modified: "" }, createHash("sha256").update(item.id).digest("hex"), message);
         }
         continue;
       }
