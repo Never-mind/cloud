@@ -676,8 +676,6 @@ function sourceHash(item: RemoteDemandItem, order: RemoteDemandOrder) {
   })).digest("hex");
 }
 
-/** 可建档状态：远端履约流程里除取消以外的全部状态。 */
-const DEFAULT_SYNC_STATUSES = ["Issued to Supplier", "Confirmed", "Committed", "Handed Over", "Shipped", "Arrived", "Received"];
 const DEFAULT_CANCELLED_STATUSES = ["Cancelled"];
 
 function statusList(value: string | undefined, fallback: readonly string[]) {
@@ -685,15 +683,23 @@ function statusList(value: string | undefined, fallback: readonly string[]) {
   return configured.length ? configured : fallback.map(normalized);
 }
 
-/** 需要创建本地需求单草稿的远端状态。 */
-function hasEligibleStatus(status: string) {
-  // 兼容旧配置名 FRAPPE_DEMAND_ELIGIBLE_STATUS，未配置时默认放开除取消外的全部状态。
-  const configured = process.env.FRAPPE_DEMAND_SYNC_STATUSES || process.env.FRAPPE_DEMAND_ELIGIBLE_STATUS;
-  return statusList(configured, DEFAULT_SYNC_STATUSES).includes(normalized(status));
+/**
+ * 需要创建本地需求单草稿的远端状态。
+ *
+ * 默认是**黑名单口径**：除取消状态以外的全部状态都建档，远端以后新增状态
+ * 不需要改代码就会自动进入同步范围。只有当显式配置 `FRAPPE_DEMAND_SYNC_STATUSES`
+ * 时才按该白名单收窄（配置为空的明细会记成 out_of_scope 台账，不建档）。
+ * 状态为空说明远端的值缺失，按"未知"处理，不建档。
+ */
+export function hasEligibleStatus(status: string) {
+  const value = normalized(status);
+  if (!value) return false;
+  const configured = statusList(process.env.FRAPPE_DEMAND_SYNC_STATUSES, []);
+  return configured.length ? configured.includes(value) : !isCancelledStatus(status);
 }
 
 /** 取消状态：写入台账但不建档，也不计入待处理。 */
-function isCancelledStatus(status: string) {
+export function isCancelledStatus(status: string) {
   return statusList(process.env.FRAPPE_DEMAND_CANCELLED_STATUSES, DEFAULT_CANCELLED_STATUSES).includes(normalized(status));
 }
 

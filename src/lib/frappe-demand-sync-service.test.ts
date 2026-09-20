@@ -1,5 +1,13 @@
-import { describe, expect, it } from "vitest";
-import { describeRemoteChanges, localRequestNo, nearestPlannedDeliveryDate, requestGroupType, requestItemType } from "./frappe-demand-sync-service";
+import { afterEach, describe, expect, it } from "vitest";
+import {
+  describeRemoteChanges,
+  hasEligibleStatus,
+  isCancelledStatus,
+  localRequestNo,
+  nearestPlannedDeliveryDate,
+  requestGroupType,
+  requestItemType,
+} from "./frappe-demand-sync-service";
 
 describe("Frappe demand synchronization rules", () => {
   it("uses customer PO number as the local request number without a prefix", () => {
@@ -47,5 +55,76 @@ describe("Frappe demand synchronization rules", () => {
     expect(describeRemoteChanges(null, current)).toEqual([]);
     const previous = JSON.stringify({ ...current, modified: "2026-09-07 19:08:03" });
     expect(describeRemoteChanges(previous, current)).toEqual([]);
+  });
+});
+
+describe("远端状态同步范围（默认黑名单口径）", () => {
+  const statusKeys = ["FRAPPE_DEMAND_SYNC_STATUSES", "FRAPPE_DEMAND_CANCELLED_STATUSES"] as const;
+  const saved = statusKeys.map((key) => [key, process.env[key]] as const);
+
+  afterEach(() => {
+    for (const [key, value] of saved) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  });
+
+  function configure(values: Partial<Record<(typeof statusKeys)[number], string>>) {
+    for (const key of statusKeys) delete process.env[key];
+    Object.assign(process.env, values);
+  }
+
+  it("默认放开除取消以外的全部状态", () => {
+    configure({});
+    for (const status of ["Issued to Supplier", "Confirmed", "Committed", "Handed Over", "Shipped", "Arrived", "Received"]) {
+      expect(hasEligibleStatus(status), status).toBe(true);
+    }
+    expect(hasEligibleStatus("Cancelled")).toBe(false);
+  });
+
+  it("远端以后新增的状态默认也在同步范围内，不需要改代码", () => {
+    configure({});
+    expect(hasEligibleStatus("Customs Cleared")).toBe(true);
+  });
+
+  it("状态为空按未知处理，不建档", () => {
+    configure({});
+    expect(hasEligibleStatus("")).toBe(false);
+    expect(hasEligibleStatus("   ")).toBe(false);
+  });
+
+  it("显式配置 FRAPPE_DEMAND_SYNC_STATUSES 时按白名单收窄", () => {
+    configure({ FRAPPE_DEMAND_SYNC_STATUSES: "Committed,Received" });
+    expect(hasEligibleStatus("Committed")).toBe(true);
+    expect(hasEligibleStatus("Received")).toBe(true);
+    expect(hasEligibleStatus("Shipped")).toBe(false);
+    expect(hasEligibleStatus("Customs Cleared")).toBe(false);
+  });
+
+  it("白名单配置为空白时按未配置处理，回到放开全部", () => {
+    configure({ FRAPPE_DEMAND_SYNC_STATUSES: "  " });
+    expect(hasEligibleStatus("Shipped")).toBe(true);
+  });
+
+  it("历史变量 FRAPPE_DEMAND_ELIGIBLE_STATUS 不再影响同步范围", () => {
+    configure({});
+    process.env.FRAPPE_DEMAND_ELIGIBLE_STATUS = "Committed";
+    try {
+      expect(hasEligibleStatus("Received")).toBe(true);
+      expect(hasEligibleStatus("Shipped")).toBe(true);
+    } finally {
+      delete process.env.FRAPPE_DEMAND_ELIGIBLE_STATUS;
+    }
+  });
+
+  it("取消状态可配置，默认只有 Cancelled", () => {
+    configure({});
+    expect(isCancelledStatus("Cancelled")).toBe(true);
+    expect(isCancelledStatus("cancelled")).toBe(true);
+    expect(isCancelledStatus("Received")).toBe(false);
+
+    configure({ FRAPPE_DEMAND_CANCELLED_STATUSES: "Cancelled,Withdrawn" });
+    expect(isCancelledStatus("Withdrawn")).toBe(true);
+    expect(hasEligibleStatus("Withdrawn")).toBe(false);
   });
 });
