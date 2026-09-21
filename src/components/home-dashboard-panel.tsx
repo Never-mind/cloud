@@ -20,10 +20,31 @@ type NewInstanceSummary = {
   instanceQuantity: number;
 };
 
+type GrossProfitSeries = { customer: string; values: number[]; total: number };
+
 type DomainPortfolio = {
-  po: { customerPoCount: number; quotationCount: number; settlementProjectCount: number };
-  cloud: { cloudRowCount: number; receivableUsd: number; payableUsd: number };
+  po: {
+    customerPoCount: number;
+    quotationCount: number;
+    settlementProjectCount: number;
+    statusCounts: Record<string, number>;
+  };
+  cloud: {
+    cloudRowCount: number;
+    receivableUsd: number;
+    payableUsd: number;
+    grossProfit: { months: string[]; totals: number[]; byCustomer: GrossProfitSeries[] };
+  };
 };
+
+/** 项目结算五个阶段，按流程顺序展示（与 settlement-project-service 的状态码一致）。 */
+const SETTLEMENT_STATUS_LABELS: Array<[string, string]> = [
+  ["purchasing", "采购中"],
+  ["procurement_completed", "采购完成"],
+  ["accepting", "验收中"],
+  ["acceptance_completed", "验收完成"],
+  ["closed", "已完结"],
+];
 
 type DashboardData = {
   countries: string[];
@@ -43,6 +64,9 @@ export function HomeDashboardPanel() {
   const [countryCode, setCountryCode] = useState("");
   const [data, setData] = useState<DashboardData>(emptyData);
   const [loading, setLoading] = useState(false);
+  // 华为云毛利趋势：全部客户 / 单个客户
+  const [grossProfitMode, setGrossProfitMode] = useState<"all" | "one">("all");
+  const [grossProfitCustomer, setGrossProfitCustomer] = useState("");
 
   async function loadData(nextCountryCode = countryCode) {
     setLoading(true);
@@ -75,6 +99,16 @@ export function HomeDashboardPanel() {
     () => buildServiceFeeChartSeries(data.serviceFees),
     [data.serviceFees],
   );
+  const grossProfit = data.portfolio?.cloud.grossProfit;
+  // 复用服务费那张折线图：全部客户用月度合计，单个客户取该客户的月度序列。
+  const grossProfitChart = useMemo(() => {
+    if (!grossProfit) return { months: [] as string[], series: [] as Array<{ key: string; label: string; values: number[] }> };
+    const row = grossProfit.byCustomer.find((entry) => entry.customer === grossProfitCustomer) ?? grossProfit.byCustomer[0];
+    const series = grossProfitMode === "all"
+      ? [{ key: "all", label: "全部客户合计", values: grossProfit.totals }]
+      : row ? [{ key: row.customer, label: row.customer, values: row.values }] : [];
+    return { months: grossProfit.months, series };
+  }, [grossProfit, grossProfitCustomer, grossProfitMode]);
 
   return (
     <Panel className="mb-5">
@@ -147,23 +181,74 @@ export function HomeDashboardPanel() {
         <DomainCard
           accent="#67c23a"
           title="集采系统"
-          hint={data.portfolio ? "与客户PO、报价单、项目结算列表同源" : "加载中…"}
-          metrics={[
-            { label: "客户PO", value: data.portfolio?.po.customerPoCount ?? 0, unit: "单" },
-            { label: "报价单", value: data.portfolio?.po.quotationCount ?? 0, unit: "单" },
-            { label: "项目结算", value: data.portfolio?.po.settlementProjectCount ?? 0, unit: "个" },
-          ]}
-        />
-        <DomainCard
-          accent="#7c5cff"
-          title="华为云业务"
-          hint={data.portfolio ? `共 ${data.portfolio.cloud.cloudRowCount} 条对账` : "加载中…"}
-          metrics={[
-            { label: "客户应收（USD）", value: data.portfolio?.cloud.receivableUsd ?? 0, unit: "USD", money: true },
-            { label: "供应商应付（USD）", value: data.portfolio?.cloud.payableUsd ?? 0, unit: "USD", money: true },
-          ]}
+          hint={data.portfolio ? `客户PO ${data.portfolio.po.customerPoCount} · 报价单 ${data.portfolio.po.quotationCount} · 项目结算 ${data.portfolio.po.settlementProjectCount}` : "加载中…"}
+          metrics={SETTLEMENT_STATUS_LABELS.map(([status, label]) => ({
+            label: `项目结算·${label}`,
+            value: data.portfolio?.po.statusCounts?.[status] ?? 0,
+            unit: "个",
+          }))}
         />
       </div>
+
+      <DomainCard
+        accent="#7c5cff"
+        title="华为云业务"
+        hint={data.portfolio ? `共 ${data.portfolio.cloud.cloudRowCount} 条对账 · 应收 ${formatNumber(data.portfolio.cloud.receivableUsd)} USD · 应付 ${formatNumber(data.portfolio.cloud.payableUsd)} USD` : "加载中…"}
+      >
+        <div className="p-4">
+          <div className="mb-2 flex flex-wrap items-center gap-2">
+            <span className="text-sm font-medium text-ink">结算毛利 · 按月</span>
+            <span className="text-xs text-ink-3">数据源 settlementGrossProfit</span>
+            <div className="ml-auto flex items-center gap-2">
+              <Button
+                onClick={() => setGrossProfitMode("all")}
+                tone={grossProfitMode === "all" ? "primary" : "default"}
+              >
+                全部客户
+              </Button>
+              <Button
+                onClick={() => setGrossProfitMode("one")}
+                tone={grossProfitMode === "one" ? "primary" : "default"}
+              >
+                单个客户
+              </Button>
+              {grossProfitMode === "one" && grossProfit?.byCustomer.length ? (
+                <Select value={grossProfitCustomer || grossProfit.byCustomer[0].customer} onChange={(event) => setGrossProfitCustomer(event.target.value)}>
+                  {grossProfit.byCustomer.map((row) => (
+                    <option key={row.customer} value={row.customer}>{row.customer}</option>
+                  ))}
+                </Select>
+              ) : null}
+            </div>
+          </div>
+          <ServiceFeeLineChart chart={grossProfitChart} loading={loading} />
+          {grossProfit?.byCustomer.length ? (
+            <div className="mt-4 border-t border-dashed border-line-soft pt-3">
+              <div className="mb-2 text-xs text-ink-3">
+                {grossProfit.months[grossProfit.months.length - 1]} 各客户结算毛利（点击切换上方折线）
+              </div>
+              {grossProfit.byCustomer.map((row) => {
+                const latest = Number(row.values[row.values.length - 1] ?? 0);
+                const top = Math.max(1, ...grossProfit.byCustomer.map((entry) => Number(entry.values[entry.values.length - 1] ?? 0)));
+                return (
+                  <button
+                    className={`grid w-full grid-cols-[160px_1fr_110px] items-center gap-2.5 rounded px-1 py-1 text-left text-xs hover:bg-surface-2 ${grossProfitMode === "one" && grossProfitCustomer === row.customer ? "bg-info-soft" : ""}`}
+                    key={row.customer}
+                    onClick={() => { setGrossProfitCustomer(row.customer); setGrossProfitMode("one"); }}
+                    type="button"
+                  >
+                    <span className="truncate text-ink-2" title={row.customer}>{row.customer}</span>
+                    <span className="h-3 overflow-hidden rounded bg-canvas-deep">
+                      <span className="block h-full rounded bg-[#7c5cff]" style={{ width: `${Math.max(1, Math.round((latest / top) * 100))}%` }} />
+                    </span>
+                    <span className="text-right font-medium tabular-nums text-ink">{formatNumber(latest)}</span>
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
+        </div>
+      </DomainCard>
     </Panel>
   );
 }
