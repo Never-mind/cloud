@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { addCloudAttachment, listCloudAttachments } from "@/lib/cloud-service";
 import { getOperationActor } from "@/lib/operation-actor";
 
-const OWNER_TYPES = new Set(["reconciliation", "collection", "supplier_payment"]);
+// invoice = 客户开票附件；supplier_payment = 供应商付款发票附件。
+const OWNER_TYPES = new Set(["reconciliation", "collection", "invoice", "supplier_payment"]);
 
 export async function GET(_request: NextRequest, context: { params: Promise<{ ownerType: string; ownerId: string }> }) {
   const { ownerType, ownerId } = await context.params;
