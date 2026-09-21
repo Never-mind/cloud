@@ -627,11 +627,21 @@ export function AppShell({
                   className={isDisplayed ? "block h-full w-full border-0" : isTarget ? "pointer-events-none absolute inset-0 block h-full w-full border-0 opacity-0" : "hidden"}
                   data-workspace-tab-id={tabId}
                   key={`${tabId}:${tabFrameVersions[tabId] ?? 0}`}
-                  onLoad={() => {
+                  onLoad={(event) => {
                     setReadyTabIds((current) => new Set(current).add(tabId));
                     if (activeRouteRef.current === tab.route) {
                       setDisplayedTabId(tabId);
                     }
+                    // 页面跑在 iframe 里，焦点在 iframe 内时父窗口收不到按键事件，
+                    // 所以把 Ctrl/Cmd+K 也挂到 iframe 的 document 上，否则会落到浏览器自己的搜索栏。
+                    const frameWindow = event.currentTarget.contentWindow;
+                    if (!frameWindow) return;
+                    frameWindow.addEventListener("keydown", (frameEvent: KeyboardEvent) => {
+                      if ((frameEvent.metaKey || frameEvent.ctrlKey) && frameEvent.key.toLowerCase() === "k") {
+                        frameEvent.preventDefault();
+                        setModuleSearchOpen((value) => !value);
+                      }
+                    });
                   }}
                   src={getEmbeddedRoute(tabFrameRoutes[tabId] ?? tab.route)}
                   title={tab.title}
