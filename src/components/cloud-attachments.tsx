@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { FileDown, Paperclip, Trash2 } from "lucide-react";
 import { confirmDialog, notify } from "./app-dialog";
+import { Modal } from "./modal";
+import { Button } from "./ui";
 
 type CloudAttachment = {
   id: string;
@@ -73,7 +75,7 @@ export function CloudAttachments({
   }
 
   return (
-    <span className="relative inline-flex">
+    <>
       <button
         aria-expanded={open}
         aria-label={label}
@@ -86,38 +88,49 @@ export function CloudAttachments({
         {items.length ? items.length : ""}
       </button>
       {open ? (
-        <div className="absolute right-0 top-9 z-30 w-72 rounded-lg border border-line-soft bg-surface p-2 shadow-lg">
+        // 用弹层而不是表格内的下拉面板：表格容器是 overflow-auto，
+        // 绝对定位的面板会被裁掉、也会被后面的行盖住。
+        <Modal
+          footer={<Button onClick={() => setOpen(false)}>关闭</Button>}
+          onClose={() => setOpen(false)}
+          title={`${label}（${items.length}）`}
+          widthClass="max-w-[560px]"
+        >
           {!items.length ? (
-            <div className="px-2 py-3 text-center text-xs text-ink-3">暂无附件</div>
+            <div className="py-8 text-center text-sm text-ink-3">暂无附件</div>
           ) : (
-            items.map((item) => (
-              <div className="flex items-center gap-2 rounded px-2 py-1.5 text-xs hover:bg-surface-2" key={item.id}>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-ink" title={item.fileName}>{item.fileName}</span>
-                  <span className="text-ink-4">{formatSize(item.fileSize)}</span>
-                </span>
-                <a
-                  className="inline-flex h-6 w-6 items-center justify-center rounded text-ink-3 hover:bg-canvas hover:text-primary"
-                  href={`/api/cloud/attachments/${encodeURIComponent(item.id)}`}
-                  title="下载"
-                >
-                  <FileDown size={13} />
-                </a>
-                <button
-                  aria-label="删除附件"
-                  className="inline-flex h-6 w-6 items-center justify-center rounded text-ink-3 hover:bg-canvas hover:text-danger disabled:opacity-50"
-                  disabled={busy}
-                  onClick={() => void remove(item)}
-                  title="删除"
-                  type="button"
-                >
-                  <Trash2 size={13} />
-                </button>
-              </div>
-            ))
+            <div className="divide-y divide-line-soft">
+              {items.map((item) => (
+                <div className="flex items-center gap-3 py-2.5 text-sm" key={item.id}>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-ink" title={item.fileName}>{item.fileName}</span>
+                    <span className="text-xs text-ink-4">{formatSize(item.fileSize)}</span>
+                  </span>
+                  <a
+                    className="inline-flex h-7 items-center gap-1 rounded border border-line bg-white px-2 text-xs text-ink-2 hover:border-primary hover:text-primary"
+                    href={`/api/cloud/attachments/${encodeURIComponent(item.id)}`}
+                    title="下载"
+                  >
+                    <FileDown size={13} />
+                    下载
+                  </a>
+                  <button
+                    aria-label="删除附件"
+                    className="inline-flex h-7 items-center gap-1 rounded border border-line bg-white px-2 text-xs text-ink-2 hover:border-danger hover:text-danger disabled:opacity-50"
+                    disabled={busy}
+                    onClick={() => void remove(item)}
+                    title="删除"
+                    type="button"
+                  >
+                    <Trash2 size={13} />
+                    删除
+                  </button>
+                </div>
+              ))}
+            </div>
           )}
-        </div>
+        </Modal>
       ) : null}
-    </span>
+    </>
   );
 }
