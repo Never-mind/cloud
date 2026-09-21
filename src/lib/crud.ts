@@ -1108,18 +1108,56 @@ export async function getEntityRow(config: EntityConfig, id: string) {
   return rows[0] ? normalizeQuotationPartyRow(config, rows[0]) : null;
 }
 
+/**
+ * 物流列表这几列是 NOT NULL 且数据库没有默认值，导入时留空会直接抛
+ * "Column 'x' cannot be null" 这种英文数据库错误。按「待补充」兜底，
+ * 与采购确认生成物流单（buildBaseShipmentDraft）的口径保持一致。
+ */
+const SHIPMENT_BLANK_FALLBACK_COLUMNS = [
+  "destinationLocationId",
+  "recipientContactId",
+  "snapshotDestinationAddress",
+  "snapshotRecipientName",
+  "snapshotRecipientPhone",
+] as const;
+
 export async function createEntityRow(config: EntityConfig, body: Row) {
   const normalizedBody = await normalizeEntityBody(config, withPrimaryKey(config, body));
   const nextBody = await assignCustomerPoItemLineNo(config, normalizedBody);
   validateRequiredFields(config, nextBody);
-  const fields = getInsertFields(config).filter((field) => field !== getStorageKey(config));
+  /**
+   * 只插入**有值**的列。
+   *
+   * 之前是把配置里的字段全列进 INSERT、没值的写 null，结果显式 null 会把数据库的
+   * NOT NULL DEFAULT 覆盖掉（例如 remoteLogisticsSourceStatus 的默认值 'legacy'），
+   * 导入物流时逐列报 "cannot be null"。不写这些列，数据库默认值才能生效。
+   */
+  const fields = getInsertFields(config)
+    .filter((field) => field !== getStorageKey(config))
+    .filter((field) => {
+      const value = getPersistenceValue(config, field, nextBody[field]);
+      return value !== undefined && value !== null;
+    });
   const table = quoteIdentifier(config.table);
-  const columns = fields.map(quoteIdentifier).join(", ");
-  const values = fields.map((field) => `:${field}`).join(", ");
   const params = Object.fromEntries(fields.map((field) => [field, getPersistenceValue(config, field, nextBody[field])]));
-
+  /**
+   * 物流的机房 / 地址 / 收件人这几列是引用型字段：`getPersistenceValue` 会拿值去解析档案，
+   * 解析不到就返回 null，而这几列又是 NOT NULL 且没有数据库默认值，于是导入直接报
+   * "Field 'x' doesn't have a default value"。所以兜底必须放在**引用解析之后**：
+   * 解析结果为空就按业务口径写「待补充」，与采购确认生成物流单保持一致。
+   */
+  if (config.key === "shipments") {
+    for (const field of SHIPMENT_BLANK_FALLBACK_COLUMNS) {
+      if (params[field] === undefined || params[field] === null || String(params[field]).trim() === "") {
+        params[field] = "待补充";
+        fields.push(field);
+      }
+    }
+  }
+  const finalColumns = fields.map(quoteIdentifier).join(", ");
+  const finalValues = fields.map((field) => `:${field}`).join(", ");
   await clearOtherDefaultRelationRows(config, nextBody, String(nextBody[getPublicKey(config)] ?? ""));
-  await execute(`INSERT INTO ${table} (${columns}) VALUES (${values})`, params);
+  await execute(`INSERT INTO ${table} (${finalColumns}) VALUES (${finalValues})`, params);
   await syncPrimaryContact(config, nextBody);
   return getEntityRow(config, String(nextBody[getPublicKey(config)]));
 }
