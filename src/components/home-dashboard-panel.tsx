@@ -20,16 +20,23 @@ type NewInstanceSummary = {
   instanceQuantity: number;
 };
 
+type DomainPortfolio = {
+  po: { customerPoCount: number; quotationCount: number; settlementProjectCount: number };
+  cloud: { cloudRowCount: number; receivableUsd: number; payableUsd: number };
+};
+
 type DashboardData = {
   countries: string[];
   serviceFees: ServiceFeeSummary[];
   newInstances: NewInstanceSummary[];
+  portfolio: DomainPortfolio | null;
 };
 
 const emptyData: DashboardData = {
   countries: [],
   serviceFees: [],
   newInstances: [],
+  portfolio: null,
 };
 
 export function HomeDashboardPanel() {
@@ -47,6 +54,7 @@ export function HomeDashboardPanel() {
       countries: nextData.countries ?? [],
       serviceFees: nextData.serviceFees ?? [],
       newInstances: nextData.newInstances ?? [],
+      portfolio: nextData.portfolio ?? null,
     });
     setLoading(false);
   }
@@ -132,7 +140,63 @@ export function HomeDashboardPanel() {
           />
         </div>
       </div>
+
+      <div className="mt-5 grid gap-4 lg:grid-cols-2">
+        <DomainCard
+          accent="#67c23a"
+          title="集采系统"
+          hint={data.portfolio ? "与客户PO、报价单、项目结算列表同源" : "加载中…"}
+          metrics={[
+            { label: "客户PO", value: data.portfolio?.po.customerPoCount ?? 0, unit: "单" },
+            { label: "报价单", value: data.portfolio?.po.quotationCount ?? 0, unit: "单" },
+            { label: "项目结算", value: data.portfolio?.po.settlementProjectCount ?? 0, unit: "个" },
+          ]}
+        />
+        <DomainCard
+          accent="#7c5cff"
+          title="华为云业务"
+          hint={data.portfolio ? `共 ${data.portfolio.cloud.cloudRowCount} 条对账` : "加载中…"}
+          metrics={[
+            { label: "客户应收（USD）", value: data.portfolio?.cloud.receivableUsd ?? 0, unit: "USD", money: true },
+            { label: "供应商应付（USD）", value: data.portfolio?.cloud.payableUsd ?? 0, unit: "USD", money: true },
+          ]}
+        />
+      </div>
     </Panel>
+  );
+}
+
+/** 首页分域指标卡：集采与华为云各一块，口径与对应模块列表一致。 */
+function DomainCard({
+  title,
+  hint,
+  accent,
+  metrics,
+}: {
+  title: string;
+  hint: string;
+  accent: string;
+  metrics: Array<{ label: string; value: number; unit: string; money?: boolean }>;
+}) {
+  return (
+    <section className="rounded-lg border border-line-soft bg-surface">
+      <div className="flex items-center gap-2 border-b border-line-soft px-4 py-3">
+        <span className="h-2 w-2 flex-none rounded-full" style={{ background: accent }} />
+        <h2 className="text-sm font-medium text-ink">{title}</h2>
+        <span className="text-xs text-ink-3">{hint}</span>
+      </div>
+      <div className="grid gap-3 p-4 sm:grid-cols-2">
+        {metrics.map((metric) => (
+          <div className="rounded-md border border-line-soft bg-surface-2 px-3 py-2.5" key={metric.label}>
+            <div className="text-xs text-ink-3">{metric.label}</div>
+            <div className="mt-1 text-xl font-semibold text-ink">
+              {metric.money ? metric.value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : metric.value}
+              <span className="ml-1 text-xs font-normal text-ink-3">{metric.unit}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 
