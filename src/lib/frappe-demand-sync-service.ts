@@ -913,6 +913,12 @@ async function loadFrappeMappings() {
   return new Map(rows.map((row) => [sourceKey(row.sourceType, row.sourceId), row]));
 }
 
+/** 只按映射解析实例编码：跳过的明细不重建，但认领本地行需要编码。 */
+function deviceCodeFromMappings(item: RemoteDemandItem, mappings: Map<string, Row>) {
+  const material = mappings.get(sourceKey("material", item.materialId));
+  return material?.status === "confirmed" && material.localEntityId ? text(material.localEntityId) : "";
+}
+
 async function prepareLine(
   item: RemoteDemandItem,
   order: RemoteDemandOrder,
@@ -1054,13 +1060,42 @@ async function requestExists(connection: PoolConnection, requestNo: string) {
   return rows.length > 0;
 }
 
-async function persistSkippedExistingItems(connection: PoolConnection, order: RemoteDemandOrder, items: RemoteDemandItem[], requestNo: string) {
+/**
+ * 本地需求单已存在时，只登记台账、不重建明细。
+ *
+ * 但"不重建"不等于"不认领"：台账里要能回答"这条远端明细对应本地哪一条"，
+ * 否则同编码多条明细时无从反推。这里按 (需求单号 + 实例编码) 把本地明细**顺序认领**：
+ * 同一个编码出现多条时，按远端 DOI 的顺序依次对应本地的第 1、2… 条。
+ */
+async function persistSkippedExistingItems(
+  connection: PoolConnection,
+  order: RemoteDemandOrder,
+  lines: Array<{ sourceItem: RemoteDemandItem; deviceCode: string }>,
+  requestNo: string,
+) {
   const message = "本地需求单已存在，未覆盖";
-  for (const item of items) {
+  const [localRows] = await connection.query<RowDataPacket[]>(
+    "SELECT id, deviceCode FROM merge_power_requestitems WHERE requestNo = ? ORDER BY internalId",
+    [requestNo],
+  );
+  const candidatesByDeviceCode = new Map<string, string[]>();
+  for (const row of localRows) {
+    const code = text(row.deviceCode);
+    candidatesByDeviceCode.set(code, [...(candidatesByDeviceCode.get(code) ?? []), text(row.id)]);
+  }
+  const claimedCount = new Map<string, number>();
+
+  for (const line of lines) {
+    const code = text(line.deviceCode);
+    const candidates = candidatesByDeviceCode.get(code) ?? [];
+    const index = claimedCount.get(code) ?? 0;
+    const claimed = candidates[index] ?? null;
+    if (claimed) claimedCount.set(code, index + 1);
+    const item = line.sourceItem;
     // 跳过一律保留变更基线：基线只在"建档/重新拉取"时更新，
     // 否则"远端已变更"的提示会被下一次跳过静默清掉。
     await persistLedgerItem(connection, {
-      item, order, localRequestNo: requestNo, status: "skipped_existing",
+      item, order, localRequestNo: requestNo, localRequestItemId: claimed, status: "skipped_existing",
       errorMessage: message, preserveBaseline: true, reasonCode: "local_exists",
     });
   }
@@ -1069,7 +1104,7 @@ async function persistSkippedExistingItems(connection: PoolConnection, order: Re
 async function createRequestGroup(connection: PoolConnection, order: RemoteDemandOrder, lines: PreparedLine[], actor: OperationActor | null) {
   const requestNo = lines[0].requestNo;
   if (await requestExists(connection, requestNo)) {
-    await persistSkippedExistingItems(connection, order, lines.map((line) => line.sourceItem), requestNo);
+    await persistSkippedExistingItems(connection, order, lines, requestNo);
     return "skipped_existing" as const;
   }
   const countryCodes = new Set(lines.map((line) => line.countryCode));
@@ -1185,7 +1220,14 @@ export async function runFrappeDemandSync({ triggerType = "manual", dryRun = fal
         const message = "本地需求单已存在，未覆盖";
         summary.skippedExisting += items.length;
         summary.results.push({ status: "skipped_existing", sourceOrderId: order.id, localRequestNo: requestNo, itemCount: items.length, reason: message });
-        if (!dryRun) await persistSkippedExistingItems(connection, order, items, requestNo);
+    if (!dryRun) {
+      await persistSkippedExistingItems(
+        connection,
+        order,
+        items.map((item) => ({ sourceItem: item, deviceCode: deviceCodeFromMappings(item, mappings) })),
+        requestNo,
+      );
+    }
         continue;
       }
 
@@ -1197,7 +1239,14 @@ export async function runFrappeDemandSync({ triggerType = "manual", dryRun = fal
         const message = "远端需求此前已同步，本次不自动重新创建";
         summary.skippedExisting += trackedItems.length;
         summary.results.push({ status: "skipped_existing", sourceOrderId: order.id, localRequestNo: requestNo, itemCount: items.length, reason: message });
-        if (!dryRun) await persistSkippedExistingItems(connection, order, trackedItems, requestNo);
+    if (!dryRun) {
+      await persistSkippedExistingItems(
+        connection,
+        order,
+        trackedItems.map((item) => ({ sourceItem: item, deviceCode: deviceCodeFromMappings(item, mappings) })),
+        requestNo,
+      );
+    }
         continue;
       }
 
