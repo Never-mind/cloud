@@ -499,6 +499,10 @@ export async function listCloudRows(params: URLSearchParams) {
   const currencyTotals = await queryRowsRaw<Row>(
     // 别名与表格列 key 保持一致，表尾行才能直接按列取值。
     `SELECT COALESCE(NULLIF(invoiceCurrency, ''), NULLIF(collectionCurrency, ''), 'USD') AS currency,
+            ROUND(SUM(COALESCE(catalogAmount, 0)), 4) AS catalogAmount,
+            ROUND(SUM(COALESCE(partnerAmount, 0)), 4) AS partnerAmount,
+            ROUND(SUM(COALESCE(voucherCustomerAmount, 0)), 4) AS voucherCustomerAmount,
+            ROUND(SUM(COALESCE(voucherSupplierAmount, 0)), 4) AS voucherSupplierAmount,
             ROUND(SUM(COALESCE(supplierPayableTotalAmount, 0)), 4) AS supplierPayableTotalAmount,
             ROUND(SUM(COALESCE(customerReceivableTotalAmount, customerReceivable, 0)), 4) AS customerReceivableTotalAmount,
             ROUND(SUM(COALESCE(collectionTotalAmount, 0)), 4) AS collectionTotalAmount,
