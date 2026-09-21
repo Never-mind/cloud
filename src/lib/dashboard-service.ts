@@ -7,6 +7,9 @@ import {
 } from "./dashboard-workflow";
 import { isConfirmedOrderStatus } from "./order-status";
 
+/** 项目结算的五个阶段，与 `settlement-project-service` 里的状态码保持一致。 */
+const PO_SETTLEMENT_STATUSES = ["purchasing", "procurement_completed", "accepting", "acceptance_completed", "closed"] as const;
+
 /**
  * 首页分域指标。
  *
@@ -15,7 +18,7 @@ import { isConfirmedOrderStatus } from "./order-status";
  * 华为云的应收/应付直接按对账表求和（与对账页"按币种合计"的 USD 段同源）。
  */
 async function loadDomainPortfolio() {
-  const [poRows, cloudRows] = await Promise.all([
+  const [poRows, cloudRows, poStatusRows, grossProfitRows] = await Promise.all([
     queryRows<Row>(
       `SELECT
          (SELECT COUNT(*) FROM merge_po_customer_pos) AS customerPoCount,
@@ -28,19 +31,60 @@ async function loadDomainPortfolio() {
               COALESCE(SUM(COALESCE(supplierPayableTotalAmount, 0)), 0) AS payableUsd
          FROM merge_cloud_rows`,
     ),
+    queryRows<Row>(`SELECT status, COUNT(*) AS rowCount FROM merge_po_settlement_projects GROUP BY status`),
+    // 结算毛利按月 × 客户：月份做横轴（数据会随月份增多），客户做可选序列。
+    queryRows<Row>(
+      `SELECT period, customer, COALESCE(SUM(COALESCE(settlementGrossProfit, 0)), 0) AS amount
+         FROM merge_cloud_rows
+        GROUP BY period, customer
+        ORDER BY period, customer`,
+    ),
   ]);
   const po = poRows[0] ?? {};
   const cloud = cloudRows[0] ?? {};
+  // 五个状态固定给出，缺的补 0，前端按流程顺序展示。
+  const statusCounts: Record<(typeof PO_SETTLEMENT_STATUSES)[number], number> = {
+    purchasing: 0,
+    procurement_completed: 0,
+    accepting: 0,
+    acceptance_completed: 0,
+    closed: 0,
+  };
+  for (const row of poStatusRows) {
+    const status = String(row.status ?? "") as (typeof PO_SETTLEMENT_STATUSES)[number];
+    if (status in statusCounts) statusCounts[status] = Number(row.rowCount ?? 0);
+  }
+  const grossProfitMonths = [...new Set(grossProfitRows.map((row) => String(row.period ?? "")))].filter(Boolean).sort();
+  const customerSeries = new Map<string, number[]>();
+  for (const row of grossProfitRows) {
+    const customer = String(row.customer ?? "").trim() || "（未填客户）";
+    const monthIndex = grossProfitMonths.indexOf(String(row.period ?? ""));
+    if (monthIndex < 0) continue;
+    const values = customerSeries.get(customer) ?? grossProfitMonths.map(() => 0);
+    values[monthIndex] = Number(row.amount ?? 0);
+    customerSeries.set(customer, values);
+  }
+  const grossProfitByCustomer = [...customerSeries.entries()]
+    .map(([customer, values]) => ({ customer, values, total: values.reduce((sum, value) => sum + value, 0) }))
+    .sort((left, right) => right.total - left.total);
   return {
     po: {
       customerPoCount: Number(po.customerPoCount ?? 0),
       quotationCount: Number(po.quotationCount ?? 0),
       settlementProjectCount: Number(po.settlementProjectCount ?? 0),
+      statusCounts,
     },
     cloud: {
       cloudRowCount: Number(cloud.cloudRowCount ?? 0),
       receivableUsd: Number(cloud.receivableUsd ?? 0),
       payableUsd: Number(cloud.payableUsd ?? 0),
+      grossProfit: {
+        months: grossProfitMonths,
+        totals: grossProfitMonths.map((_, index) =>
+          grossProfitByCustomer.reduce((sum, entry) => sum + Number(entry.values[index] ?? 0), 0),
+        ),
+        byCustomer: grossProfitByCustomer,
+      },
     },
   };
 }
