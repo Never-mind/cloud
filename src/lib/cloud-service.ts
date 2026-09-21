@@ -492,26 +492,57 @@ export async function listCloudRows(params: URLSearchParams) {
     values,
   );
   /**
-   * 表尾合计：**按币种分组**，不能跨币种直接相加。
-   * 币种取开票币种优先、其次实收币种、最后按 USD（当前数据币种列都为空，实际只有一组）。
-   * 口径与列表一致：跟随当前筛选（period / 关键词 / 列筛选）。
+   * 表尾合计：**按每一列自己的币种**分组，不能按行取币种。
+   *
+   * 同一行里不同列本来就不是同一币种：目录价 / 伙伴结算金额 / 代金券 / 理论毛利固定按 USD，
+   * 供应商应付与客户应收也按 USD（它们没有独立币种列，列表展示同样是 USD），
+   * 客户实收、客户开票则各自带币种列。按行取币种会把 USD 的列合计进 CNY 行里，
+   * 所以这里分三段：USD 组只出 USD 列，实收、开票各自按自己的币种分行。
+   * 别名与表格列 key 保持一致，表尾行才能直接按列取值。
    */
-  const currencyTotals = await queryRowsRaw<Row>(
-    // 别名与表格列 key 保持一致，表尾行才能直接按列取值。
-    `SELECT COALESCE(NULLIF(invoiceCurrency, ''), NULLIF(collectionCurrency, ''), 'USD') AS currency,
+  const usdTotalsSql = `SELECT 'USD' AS currency,
             ROUND(SUM(COALESCE(catalogAmount, 0)), 4) AS catalogAmount,
             ROUND(SUM(COALESCE(partnerAmount, 0)), 4) AS partnerAmount,
             ROUND(SUM(COALESCE(voucherCustomerAmount, 0)), 4) AS voucherCustomerAmount,
             ROUND(SUM(COALESCE(voucherSupplierAmount, 0)), 4) AS voucherSupplierAmount,
             ROUND(SUM(COALESCE(supplierPayableTotalAmount, 0)), 4) AS supplierPayableTotalAmount,
             ROUND(SUM(COALESCE(customerReceivableTotalAmount, customerReceivable, 0)), 4) AS customerReceivableTotalAmount,
-            ROUND(SUM(COALESCE(collectionTotalAmount, 0)), 4) AS collectionTotalAmount,
-            ROUND(SUM(COALESCE(invoiceTotalAmount, 0)), 4) AS invoiceTotalAmount,
+            NULL AS collectionTotalAmount,
+            NULL AS invoiceTotalAmount,
             ROUND(SUM(COALESCE(theoreticalGrossProfit, 0)), 4) AS theoreticalGrossProfit
+       FROM merge_cloud_rows ${where}`;
+  const collectionTotalsSql = `SELECT COALESCE(NULLIF(collectionCurrency, ''), 'USD') AS currency,
+            NULL AS catalogAmount, NULL AS partnerAmount, NULL AS voucherCustomerAmount, NULL AS voucherSupplierAmount,
+            NULL AS supplierPayableTotalAmount, NULL AS customerReceivableTotalAmount,
+            ROUND(SUM(COALESCE(collectionTotalAmount, 0)), 4) AS collectionTotalAmount,
+            NULL AS invoiceTotalAmount, NULL AS theoreticalGrossProfit
        FROM merge_cloud_rows ${where}
-      GROUP BY currency
-      ORDER BY currency`,
+      GROUP BY currency`;
+  const invoiceTotalsSql = `SELECT COALESCE(NULLIF(invoiceCurrency, ''), 'USD') AS currency,
+            NULL AS catalogAmount, NULL AS partnerAmount, NULL AS voucherCustomerAmount, NULL AS voucherSupplierAmount,
+            NULL AS supplierPayableTotalAmount, NULL AS customerReceivableTotalAmount,
+            NULL AS collectionTotalAmount,
+            ROUND(SUM(COALESCE(invoiceTotalAmount, 0)), 4) AS invoiceTotalAmount,
+            NULL AS theoreticalGrossProfit
+       FROM merge_cloud_rows ${where}
+      GROUP BY currency`;
+  const currencyTotals = await queryRowsRaw<Row>(
+    `${usdTotalsSql} UNION ALL ${collectionTotalsSql} UNION ALL ${invoiceTotalsSql} ORDER BY currency`,
     values,
+  );
+  // 三段结果按币种合并成一行，避免表尾出现"每行只有一两格有值"的空洞行。
+  const totalsByCurrency = new Map<string, Row>();
+  for (const row of currencyTotals) {
+    const key = String(row.currency ?? "USD");
+    const merged = totalsByCurrency.get(key) ?? { currency: key };
+    for (const [field, value] of Object.entries(row)) {
+      if (field === "currency" || value === null || value === undefined) continue;
+      merged[field] = value;
+    }
+    totalsByCurrency.set(key, merged);
+  }
+  const mergedCurrencyTotals = [...totalsByCurrency.values()].sort((left, right) =>
+    String(left.currency).localeCompare(String(right.currency)),
   );
   return {
     items: (await applyCloudAccountMappings(rows)).map(normalizeCloudDateFields),
@@ -519,7 +550,7 @@ export async function listCloudRows(params: URLSearchParams) {
     page,
     pageSize,
     summary: summaryRows[0] ?? { receivable: 0, collected: 0, outstanding: 0, overdueCount: 0 },
-    currencyTotals,
+    currencyTotals: mergedCurrencyTotals,
     periods: periodRows,
   };
 }
