@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { RefreshCw } from "lucide-react";
 import { buildServiceFeeChartSeries } from "@/lib/dashboard-workflow";
-import { formatDisplayValue } from "@/lib/display-format";
+import { formatDisplayValue, formatMoneyValue } from "@/lib/display-format";
 import { Button, Panel, Select } from "./ui";
 import { TableStateContent } from "./table-state";
 
@@ -148,7 +148,7 @@ export function HomeDashboardPanel() {
         <div>
           <div className="mb-2 flex items-center justify-between">
             <div className="font-medium text-ink">每月服务费合计</div>
-            <div className="text-xs text-ink-3">当前合计：{formatNumber(totalServiceFee)}</div>
+            <div className="text-xs text-ink-3">当前合计：{formatMoneyValue(totalServiceFee)}</div>
           </div>
           <ServiceFeeLineChart chart={serviceFeeChart} loading={loading} />
           <SummaryTable
@@ -190,8 +190,8 @@ export function HomeDashboardPanel() {
           <div className="p-4">
             <div className="mb-3 flex flex-wrap gap-x-5 gap-y-1 text-xs text-ink-3">
               <span>项目数 <b className="text-ink">{data.portfolio?.po.settlementProjectCount ?? 0}</b></span>
-              <span>报价收入（USD） <b className="text-ink">{formatNumber(data.portfolio?.po.quotedUsdTotal ?? 0)}</b></span>
-              <span>已确认收入（USD） <b className="text-ink">{formatNumber(data.portfolio?.po.receivedUsdTotal ?? 0)}</b></span>
+              <span>报价收入（USD） <b className="text-ink">{formatMoneyValue(data.portfolio?.po.quotedUsdTotal ?? 0)}</b></span>
+              <span>已确认收入（USD） <b className="text-ink">{formatMoneyValue(data.portfolio?.po.receivedUsdTotal ?? 0)}</b></span>
             </div>
             <div className="grid gap-2 sm:grid-cols-3">
               {SETTLEMENT_STATUS_LABELS.map(([status, label]) => (
@@ -201,7 +201,7 @@ export function HomeDashboardPanel() {
                     {data.portfolio?.po.statusCounts?.[status] ?? 0}
                     <span className="ml-1 text-xs font-normal text-ink-3">个</span>
                   </div>
-                  <div className="text-[11px] text-ink-4">报价 {formatNumber(data.portfolio?.po.statusAmounts?.[status] ?? 0)} USD</div>
+                  <div className="text-[11px] text-ink-4">报价 {formatMoneyValue(data.portfolio?.po.statusAmounts?.[status] ?? 0)} USD</div>
                 </div>
               ))}
             </div>
@@ -216,7 +216,7 @@ export function HomeDashboardPanel() {
                       <span className="h-3 overflow-hidden rounded bg-canvas-deep">
                         <span className="block h-full rounded bg-[#67c23a]" style={{ width: `${Math.max(1, Math.round((row.quotedUsd / top) * 100))}%` }} />
                       </span>
-                      <span className="text-right font-medium tabular-nums text-ink">{formatNumber(row.quotedUsd)}</span>
+                      <span className="text-right font-medium tabular-nums text-ink">{formatMoneyValue(row.quotedUsd)}</span>
                     </div>
                   );
                 })}
@@ -229,7 +229,7 @@ export function HomeDashboardPanel() {
       <DomainCard
         accent="#7c5cff"
         title="华为云业务"
-        hint={data.portfolio ? `共 ${data.portfolio.cloud.cloudRowCount} 条对账 · 应收 ${formatNumber(data.portfolio.cloud.receivableUsd)} USD · 应付 ${formatNumber(data.portfolio.cloud.payableUsd)} USD` : "加载中…"}
+        hint={data.portfolio ? `共 ${data.portfolio.cloud.cloudRowCount} 条对账 · 应收 ${formatMoneyValue(data.portfolio.cloud.receivableUsd)} USD · 应付 ${formatMoneyValue(data.portfolio.cloud.payableUsd)} USD` : "加载中…"}
       >
         <div className="p-4">
           <div className="mb-2 flex flex-wrap items-center gap-2">
@@ -277,7 +277,7 @@ export function HomeDashboardPanel() {
                     <span className="h-3 overflow-hidden rounded bg-canvas-deep">
                       <span className="block h-full rounded bg-[#7c5cff]" style={{ width: `${Math.max(1, Math.round((latest / top) * 100))}%` }} />
                     </span>
-                    <span className="text-right font-medium tabular-nums text-ink">{formatNumber(latest)}</span>
+                    <span className="text-right font-medium tabular-nums text-ink">{formatMoneyValue(latest)}</span>
                   </button>
                 );
               })}
@@ -407,7 +407,7 @@ function ServiceFeeLineChart({
                         stroke={colors[index % colors.length]}
                         strokeWidth="2"
                       >
-                        <title>{`${line.label} ${chart.months[pointIndex]}：${formatNumber(value)}`}</title>
+                        <title>{`${line.label} ${chart.months[pointIndex]}：${formatMoneyValue(value)}`}</title>
                       </circle>
                     ),
                   )}
