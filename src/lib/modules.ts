@@ -562,6 +562,7 @@ export const entityConfigs: EntityConfig[] = [
     listFields: [
       { key: "shipmentId", label: "物流ID" },
       { key: "poNo", label: "PO订单号" },
+      { key: "requestNo", label: "需求单号" },
       { key: "countryCode", label: "国家" },
       { key: "batchName", label: "批次号" },
       { key: "purchaseOrderItemId", label: "采购明细ID", defaultVisible: false },

@@ -96,6 +96,8 @@ const shipmentDisplayFields = new Set([
   "supplierName",
   "undertakingUnitName",
   "customerName",
+  // 需求单号是派生列（物流表没有该字段，靠采购明细回查）
+  "requestNo",
 ]);
 const partyCodeDisplayFields = new Set(["supplierCode", "undertakingUnitCode", "customerCode"]);
 const partyNameDisplayFields = new Set(["supplierName", "undertakingUnitName", "customerName"]);
@@ -887,6 +889,21 @@ function getEntityDisplayFieldExpression(config: EntityConfig, field: string, sh
       return `UPPER(TRIM(SUBSTRING_INDEX(${linkedCountry}, '-', 1)))`;
     }
     if (field === "dcNameZh") return `COALESCE(NULLIF(shipment.dcNameZh, ''), NULLIF(shipment.dcCode, ''))`;
+    /**
+     * 需求单号是派生列：物流表本身没有这一列，靠采购明细回查。
+     * 关联条件与"批量刷新物流"一致 —— 物流行存的 id 可能带 PO 号前缀
+     * （`POI-<poNo><purchaseOrderId>-<序号>`），只按 id 相等会漏掉 277/283 行，
+     * 所以补一条"物流 id 以明细 id 去掉 POI- 前缀后的内容结尾"的兜底。
+     */
+    if (field === "requestNo") {
+      return `(SELECT COALESCE(NULLIF(ri.requestNo, ''), NULLIF(poi.requestNo, ''))
+                 FROM purchaseorderitems poi
+                 LEFT JOIN requestitems ri ON ri.id = poi.requestItemId
+                WHERE poi.id = shipment.purchaseOrderItemId
+                   OR shipment.purchaseOrderItemId LIKE CONCAT('%', SUBSTRING(poi.id, 5))
+                ORDER BY (poi.id = shipment.purchaseOrderItemId) DESC
+                LIMIT 1)`;
+    }
     if (field === "destinationAddress") return `COALESCE(NULLIF(shipment.snapshotDestinationAddress, ''), NULLIF(shipment.destinationLocationId, ''))`;
     if (field === "recipientName") return `COALESCE(NULLIF(shipment.snapshotRecipientName, ''), NULLIF(shipment.recipientContactId, ''))`;
     if (["supplierName", "undertakingUnitName", "customerName"].includes(field)) {
