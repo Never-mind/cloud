@@ -14,7 +14,7 @@ import { getPermissionStateForEmail } from "@/lib/permission-service";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "算力交付管理系统",
+  title: "Cloud业务系统",
   description: "客户需求、采购、物流、财务一体化后台",
 };
 

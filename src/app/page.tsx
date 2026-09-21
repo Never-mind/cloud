@@ -13,7 +13,7 @@ export default function HomePage() {
   return (
     <>
       <div className="mb-5">
-        <h1 className="text-2xl font-medium text-ink">欢迎使用算力交付管理系统</h1>
+        <h1 className="text-2xl font-medium text-ink">欢迎使用 Cloud业务系统</h1>
         <p className="mt-2 text-ink-3">按客户需求、采购、物流、财务链路管理交付业务。</p>
       </div>
       <HomeDashboardPanel />

@@ -28,6 +28,10 @@ type DomainPortfolio = {
     quotationCount: number;
     settlementProjectCount: number;
     statusCounts: Record<string, number>;
+    statusAmounts: Record<string, number>;
+    byCustomer: Array<{ customer: string; projectCount: number; quotedUsd: number; receivedUsd: number }>;
+    quotedUsdTotal: number;
+    receivedUsdTotal: number;
   };
   cloud: {
     cloudRowCount: number;
@@ -182,12 +186,44 @@ export function HomeDashboardPanel() {
           accent="#67c23a"
           title="集采系统"
           hint={data.portfolio ? `客户PO ${data.portfolio.po.customerPoCount} · 报价单 ${data.portfolio.po.quotationCount} · 项目结算 ${data.portfolio.po.settlementProjectCount}` : "加载中…"}
-          metrics={SETTLEMENT_STATUS_LABELS.map(([status, label]) => ({
-            label: `项目结算·${label}`,
-            value: data.portfolio?.po.statusCounts?.[status] ?? 0,
-            unit: "个",
-          }))}
-        />
+        >
+          <div className="p-4">
+            <div className="mb-3 flex flex-wrap gap-x-5 gap-y-1 text-xs text-ink-3">
+              <span>项目数 <b className="text-ink">{data.portfolio?.po.settlementProjectCount ?? 0}</b></span>
+              <span>报价收入（USD） <b className="text-ink">{formatNumber(data.portfolio?.po.quotedUsdTotal ?? 0)}</b></span>
+              <span>已确认收入（USD） <b className="text-ink">{formatNumber(data.portfolio?.po.receivedUsdTotal ?? 0)}</b></span>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-3">
+              {SETTLEMENT_STATUS_LABELS.map(([status, label]) => (
+                <div className="rounded-md border border-line-soft bg-surface-2 px-3 py-2" key={status}>
+                  <div className="text-xs text-ink-3">{label}</div>
+                  <div className="mt-0.5 text-lg font-semibold text-ink">
+                    {data.portfolio?.po.statusCounts?.[status] ?? 0}
+                    <span className="ml-1 text-xs font-normal text-ink-3">个</span>
+                  </div>
+                  <div className="text-[11px] text-ink-4">报价 {formatNumber(data.portfolio?.po.statusAmounts?.[status] ?? 0)} USD</div>
+                </div>
+              ))}
+            </div>
+            {data.portfolio?.po.byCustomer.length ? (
+              <div className="mt-4 border-t border-dashed border-line-soft pt-3">
+                <div className="mb-2 text-xs text-ink-3">客户项目金额排名（报价收入 USD）</div>
+                {data.portfolio.po.byCustomer.map((row) => {
+                  const top = Math.max(1, ...data.portfolio!.po.byCustomer.map((entry) => entry.quotedUsd));
+                  return (
+                    <div className="grid grid-cols-[160px_1fr_120px] items-center gap-2.5 py-1 text-xs" key={row.customer}>
+                      <span className="truncate text-ink-2" title={row.customer}>{row.customer}</span>
+                      <span className="h-3 overflow-hidden rounded bg-canvas-deep">
+                        <span className="block h-full rounded bg-[#67c23a]" style={{ width: `${Math.max(1, Math.round((row.quotedUsd / top) * 100))}%` }} />
+                      </span>
+                      <span className="text-right font-medium tabular-nums text-ink">{formatNumber(row.quotedUsd)}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : null}
+          </div>
+        </DomainCard>
       </div>
 
       <DomainCard
@@ -276,8 +312,7 @@ function DomainCard({
         <span className="text-xs text-ink-3">{hint}</span>
         <span className="ml-auto text-xs text-ink-3">{open ? "▾" : "▸"}</span>
       </button>
-      {open ? <div className="border-t border-line-soft">{children}</div> : null}
-      {!children ? <div className="grid gap-3 p-4 sm:grid-cols-2">
+      {open ? <div className="border-t border-line-soft">{children ?? <div className="grid gap-3 p-4 sm:grid-cols-2">
         {metrics?.map((metric) => (
           <div className="rounded-md border border-line-soft bg-surface-2 px-3 py-2.5" key={metric.label}>
             <div className="text-xs text-ink-3">{metric.label}</div>
@@ -286,7 +321,7 @@ function DomainCard({
               <span className="ml-1 text-xs font-normal text-ink-3">{metric.unit}</span>
             </div>
           </div>
-        ))}
+        ))}</div>}
       </div> : null}
     </section>
   );

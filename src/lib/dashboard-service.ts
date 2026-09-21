@@ -18,7 +18,7 @@ const PO_SETTLEMENT_STATUSES = ["purchasing", "procurement_completed", "acceptin
  * 华为云的应收/应付直接按对账表求和（与对账页"按币种合计"的 USD 段同源）。
  */
 async function loadDomainPortfolio() {
-  const [poRows, cloudRows, poStatusRows, grossProfitRows] = await Promise.all([
+  const [poRows, cloudRows, poStatusRows, poCustomerRows, grossProfitRows] = await Promise.all([
     queryRows<Row>(
       `SELECT
          (SELECT COUNT(*) FROM merge_po_customer_pos) AS customerPoCount,
@@ -31,7 +31,22 @@ async function loadDomainPortfolio() {
               COALESCE(SUM(COALESCE(supplierPayableTotalAmount, 0)), 0) AS payableUsd
          FROM merge_cloud_rows`,
     ),
-    queryRows<Row>(`SELECT status, COUNT(*) AS rowCount FROM merge_po_settlement_projects GROUP BY status`),
+    queryRows<Row>(
+      `SELECT status, COUNT(*) AS rowCount,
+              COALESCE(SUM(COALESCE(quotedSalesRevenueUsd, 0)), 0) AS quotedUsd
+         FROM merge_po_settlement_projects
+        GROUP BY status`,
+    ),
+    // 客户项目金额：本地可能只有一两个客户，生产会逐步变多，结构按金额降序。
+    queryRows<Row>(
+      `SELECT COALESCE(NULLIF(customerName, ''), '（未填客户）') AS customer,
+              COUNT(*) AS projectCount,
+              COALESCE(SUM(COALESCE(quotedSalesRevenueUsd, 0)), 0) AS quotedUsd,
+              COALESCE(SUM(COALESCE(receivedRevenueUsd, 0)), 0) AS receivedUsd
+         FROM merge_po_settlement_projects
+        GROUP BY customer
+        ORDER BY quotedUsd DESC`,
+    ),
     // 结算毛利按月 × 客户：月份做横轴（数据会随月份增多），客户做可选序列。
     queryRows<Row>(
       `SELECT period, customer, COALESCE(SUM(COALESCE(settlementGrossProfit, 0)), 0) AS amount
@@ -54,6 +69,16 @@ async function loadDomainPortfolio() {
     const status = String(row.status ?? "") as (typeof PO_SETTLEMENT_STATUSES)[number];
     if (status in statusCounts) statusCounts[status] = Number(row.rowCount ?? 0);
   }
+  const statusAmounts: Record<string, number> = {};
+  for (const row of poStatusRows) {
+    statusAmounts[String(row.status ?? "")] = Number(row.quotedUsd ?? 0);
+  }
+  const poByCustomer = poCustomerRows.map((row) => ({
+    customer: String(row.customer ?? ""),
+    projectCount: Number(row.projectCount ?? 0),
+    quotedUsd: Number(row.quotedUsd ?? 0),
+    receivedUsd: Number(row.receivedUsd ?? 0),
+  }));
   const grossProfitMonths = [...new Set(grossProfitRows.map((row) => String(row.period ?? "")))].filter(Boolean).sort();
   const customerSeries = new Map<string, number[]>();
   for (const row of grossProfitRows) {
@@ -73,6 +98,10 @@ async function loadDomainPortfolio() {
       quotationCount: Number(po.quotationCount ?? 0),
       settlementProjectCount: Number(po.settlementProjectCount ?? 0),
       statusCounts,
+      statusAmounts,
+      byCustomer: poByCustomer,
+      quotedUsdTotal: poByCustomer.reduce((sum, row) => sum + row.quotedUsd, 0),
+      receivedUsdTotal: poByCustomer.reduce((sum, row) => sum + row.receivedUsd, 0),
     },
     cloud: {
       cloudRowCount: Number(cloud.cloudRowCount ?? 0),
