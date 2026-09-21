@@ -105,6 +105,7 @@ export function HomeDashboardPanel() {
         </div>
       </div>
 
+      <DomainCard accent="#409eff" hint="服务费、新增实例" title="算力系统">
       <div className="grid gap-4 p-4 lg:grid-cols-[1.15fr_0.85fr]">
         <div>
           <div className="mb-2 flex items-center justify-between">
@@ -140,6 +141,7 @@ export function HomeDashboardPanel() {
           />
         </div>
       </div>
+      </DomainCard>
 
       <div className="mt-5 grid gap-4 lg:grid-cols-2">
         <DomainCard
@@ -172,21 +174,26 @@ function DomainCard({
   hint,
   accent,
   metrics,
+  children,
 }: {
   title: string;
   hint: string;
   accent: string;
-  metrics: Array<{ label: string; value: number; unit: string; money?: boolean }>;
+  metrics?: Array<{ label: string; value: number; unit: string; money?: boolean }>;
+  children?: React.ReactNode;
 }) {
+  const [open, setOpen] = useState(true);
   return (
     <section className="rounded-lg border border-line-soft bg-surface">
-      <div className="flex items-center gap-2 border-b border-line-soft px-4 py-3">
+      <button className="flex w-full items-center gap-2 px-4 py-3 text-left" onClick={() => setOpen((value) => !value)} type="button">
         <span className="h-2 w-2 flex-none rounded-full" style={{ background: accent }} />
         <h2 className="text-sm font-medium text-ink">{title}</h2>
         <span className="text-xs text-ink-3">{hint}</span>
-      </div>
-      <div className="grid gap-3 p-4 sm:grid-cols-2">
-        {metrics.map((metric) => (
+        <span className="ml-auto text-xs text-ink-3">{open ? "▾" : "▸"}</span>
+      </button>
+      {open ? <div className="border-t border-line-soft">{children}</div> : null}
+      {!children ? <div className="grid gap-3 p-4 sm:grid-cols-2">
+        {metrics?.map((metric) => (
           <div className="rounded-md border border-line-soft bg-surface-2 px-3 py-2.5" key={metric.label}>
             <div className="text-xs text-ink-3">{metric.label}</div>
             <div className="mt-1 text-xl font-semibold text-ink">
@@ -195,7 +202,7 @@ function DomainCard({
             </div>
           </div>
         ))}
-      </div>
+      </div> : null}
     </section>
   );
 }
