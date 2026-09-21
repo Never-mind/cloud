@@ -491,12 +491,31 @@ export async function listCloudRows(params: URLSearchParams) {
        FROM merge_cloud_rows ${where}`,
     values,
   );
+  /**
+   * 表尾合计：**按币种分组**，不能跨币种直接相加。
+   * 币种取开票币种优先、其次实收币种、最后按 USD（当前数据币种列都为空，实际只有一组）。
+   * 口径与列表一致：跟随当前筛选（period / 关键词 / 列筛选）。
+   */
+  const currencyTotals = await queryRowsRaw<Row>(
+    // 别名与表格列 key 保持一致，表尾行才能直接按列取值。
+    `SELECT COALESCE(NULLIF(invoiceCurrency, ''), NULLIF(collectionCurrency, ''), 'USD') AS currency,
+            ROUND(SUM(COALESCE(supplierPayableTotalAmount, 0)), 4) AS supplierPayableTotalAmount,
+            ROUND(SUM(COALESCE(customerReceivableTotalAmount, customerReceivable, 0)), 4) AS customerReceivableTotalAmount,
+            ROUND(SUM(COALESCE(collectionTotalAmount, 0)), 4) AS collectionTotalAmount,
+            ROUND(SUM(COALESCE(invoiceTotalAmount, 0)), 4) AS invoiceTotalAmount,
+            ROUND(SUM(COALESCE(theoreticalGrossProfit, 0)), 4) AS theoreticalGrossProfit
+       FROM merge_cloud_rows ${where}
+      GROUP BY currency
+      ORDER BY currency`,
+    values,
+  );
   return {
     items: (await applyCloudAccountMappings(rows)).map(normalizeCloudDateFields),
     total: Number(count[0]?.total ?? 0),
     page,
     pageSize,
     summary: summaryRows[0] ?? { receivable: 0, collected: 0, outstanding: 0, overdueCount: 0 },
+    currencyTotals,
     periods: periodRows,
   };
 }
