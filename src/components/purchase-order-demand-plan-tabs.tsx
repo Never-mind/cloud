@@ -36,7 +36,7 @@ export function PurchaseOrderDemandPlanTabs({
           enableFieldSettings
           fixedFilters={fixedFilters}
           fixedValues={fixedValues}
-          hideCreateImportTemplate={false}
+          hideCreate hideImportTemplate={false}
           hideHeading
         />
       </div>

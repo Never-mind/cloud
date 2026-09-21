@@ -37,7 +37,8 @@ const PARTY_ENTITY_KEYS = new Set(["suppliers", "customers", "undertaking-units"
 
 export function EntityPage({
   config,
-  hideCreateImportTemplate = false,
+  hideCreate = false,
+  hideImportTemplate = false,
   fixedFilters = EMPTY_FILTERS,
   fixedValues = EMPTY_VALUES,
   hideHeading = false,
@@ -47,7 +48,10 @@ export function EntityPage({
   onSaved,
 }: {
   config: EntityConfig;
-  hideCreateImportTemplate?: boolean;
+  /** 隐藏「新建」：主从结构（如物流）不允许绕过上游流程手工造单。 */
+  hideCreate?: boolean;
+  /** 隐藏「批量导入 + 下载模板」：历史数据补录用，默认开放。 */
+  hideImportTemplate?: boolean;
   fixedFilters?: Record<string, string>;
   fixedValues?: Row;
   hideHeading?: boolean;
@@ -848,8 +852,7 @@ export function EntityPage({
           >
             重置
           </Button>
-          {!hideCreateImportTemplate ? (
-            <>
+          {!hideCreate ? (
               <Button
                 tone="primary"
                 onClick={() => {
@@ -866,6 +869,9 @@ export function EntityPage({
                 <Plus size={15} />
                 新建
               </Button>
+          ) : null}
+          {!hideImportTemplate ? (
+            <>
               <Button disabled={importing} tone="success" onClick={() => fileRef.current?.click()}>
                 <Upload size={15} />
                 {importing ? "导入中..." : "批量导入"}
@@ -926,7 +932,7 @@ export function EntityPage({
               </button>
             </div>
           ) : null}
-          {!hideCreateImportTemplate ? (
+          {!hideImportTemplate ? (
             <input
               ref={fileRef}
               className="hidden"

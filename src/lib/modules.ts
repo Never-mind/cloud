@@ -564,7 +564,7 @@ export const entityConfigs: EntityConfig[] = [
       { key: "poNo", label: "PO订单号" },
       { key: "countryCode", label: "国家" },
       { key: "batchName", label: "批次号" },
-      { key: "purchaseOrderItemId", label: "采购明细ID" },
+      { key: "purchaseOrderItemId", label: "采购明细ID", defaultVisible: false },
       { key: "deviceCode", label: "实例编码" },
       { key: "nameEn", label: "实例名称（英文）" },
       { key: "undertakingUnitName", label: "承接单位" },
