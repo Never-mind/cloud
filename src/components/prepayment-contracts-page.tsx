@@ -40,6 +40,10 @@ export function PrepaymentContractsPage() {
   const [statusTab, setStatusTab] = useState<"draft" | "confirmed">(() => searchParams.get("statusTab") === "confirmed" ? "confirmed" : "draft");
   const [loading, setLoading] = useState(false);
   const [unbalancedCount, setUnbalancedCount] = useState(0);
+  const [writeOffFilter, setWriteOffFilter] = useState<"" | "未平" | "已平">(() => {
+    const value = searchParams.get("writeOffStatus");
+    return value === "未平" || value === "已平" ? value : "";
+  });
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [total, setTotal] = useState(0);
@@ -64,14 +68,17 @@ export function PrepaymentContractsPage() {
     params.set("statusTab", statusTab);
     if (appliedKeyword.trim()) params.set("keyword", appliedKeyword);
     else params.delete("keyword");
+    if (statusTab === "confirmed" && writeOffFilter) params.set("writeOffStatus", writeOffFilter);
+    else params.delete("writeOffStatus");
     const nextRoute = buildListRoute(pathname, params);
     if (nextRoute !== currentRoute) router.replace(nextRoute, { scroll: false });
-  }, [appliedKeyword, currentRoute, pathname, router, searchParams, statusTab]);
+  }, [appliedKeyword, currentRoute, pathname, router, searchParams, statusTab, writeOffFilter]);
 
   /** 导出当前筛选结果：带上状态页签、关键词、排序与列筛选，和列表口径一致。 */
   const exportHref = useMemo(() => {
     const params = new URLSearchParams({ status: statusTab === "confirmed" ? "已确认" : "草稿" });
     if (appliedKeyword.trim()) params.set("keyword", appliedKeyword.trim());
+    if (statusTab === "confirmed" && writeOffFilter) params.set("writeOffStatus", writeOffFilter);
     if (sortField && sortOrder) {
       params.set("sortField", sortField);
       params.set("sortOrder", sortOrder);
@@ -80,7 +87,7 @@ export function PrepaymentContractsPage() {
       values.forEach((value) => params.append(`filter.${key}`, value));
     }
     return `/api/entities/prepayment-contracts/export?${params.toString()}`;
-  }, [appliedKeyword, columnFilters, sortField, sortOrder, statusTab]);
+  }, [appliedKeyword, columnFilters, sortField, sortOrder, statusTab, writeOffFilter]);
 
   /** 核销平衡状态：实时计算，调平后自动变“已平”。 */
   async function mergeWriteOffStatus() {
@@ -96,11 +103,18 @@ export function PrepaymentContractsPage() {
     }
   }
 
-  async function loadData(nextPage = page, nextPageSize = pageSizeRef.current, nextStatusTab = statusTab, nextKeyword = appliedKeyword) {
+  async function loadData(
+    nextPage = page,
+    nextPageSize = pageSizeRef.current,
+    nextStatusTab = statusTab,
+    nextKeyword = appliedKeyword,
+    nextWriteOffFilter = writeOffFilter,
+  ) {
     setLoading(true);
     try {
       const params = new URLSearchParams({ page: String(nextPage), pageSize: String(nextPageSize), status: nextStatusTab === "confirmed" ? "已确认" : "草稿" });
       if (nextKeyword.trim()) params.set("keyword", nextKeyword.trim());
+      if (nextStatusTab === "confirmed" && nextWriteOffFilter) params.set("writeOffStatus", nextWriteOffFilter);
       if (sortField && sortOrder) { params.set("sortField", sortField); params.set("sortOrder", sortOrder); }
       for (const [key, values] of Object.entries(columnFilters)) values.forEach((value) => params.append(`filter.${key}`, value));
       const response = await fetch(`/api/entities/prepayment-contracts?${params}`);
@@ -269,7 +283,7 @@ export function PrepaymentContractsPage() {
 
       <Panel>
         <div className="flex items-center gap-2 border-b border-line-soft bg-surface-2 p-3">
-          <Button tone={statusTab === "draft" ? "primary" : "default"} onClick={() => { setStatusTab("draft"); setSelectedNos([]); setPage(1); void loadData(1, pageSizeRef.current, "draft"); }}>
+          <Button tone={statusTab === "draft" ? "primary" : "default"} onClick={() => { setStatusTab("draft"); setSelectedNos([]); setPage(1); setWriteOffFilter(""); void loadData(1, pageSizeRef.current, "draft", appliedKeyword, ""); }}>
             草稿
             <span className="ml-1 rounded bg-white/35 px-1.5 text-xs">
               {statusTab === "draft" ? total : ""}
@@ -285,6 +299,25 @@ export function PrepaymentContractsPage() {
 
         <div className="flex flex-wrap items-center gap-2 border-b border-line-soft p-4">
           <Input placeholder="搜索合同号/状态/币种" value={keyword} onChange={(event) => setKeyword(event.target.value)} />
+          {statusTab === "confirmed" ? (
+            <Select
+              aria-label="核销状态"
+              className="min-w-[136px]"
+              title="按合同金额与已生效月核销金额的差额筛选，草稿合同不参与核销"
+              value={writeOffFilter}
+              onChange={(event) => {
+                const next = event.target.value === "已平" ? "已平" : event.target.value === "未平" ? "未平" : "";
+                setWriteOffFilter(next);
+                setSelectedNos([]);
+                setPage(1);
+                void loadData(1, pageSizeRef.current, statusTab, appliedKeyword, next);
+              }}
+            >
+              <option value="">核销状态：全部</option>
+              <option value="未平">核销状态：未平</option>
+              <option value="已平">核销状态：已平</option>
+            </Select>
+          ) : null}
           <Button tone="secondary" onClick={() => { setAppliedKeyword(keyword); setPage(1); void loadData(1, pageSizeRef.current, statusTab, keyword); }}>
             <Search size={15} />
             查询
@@ -328,8 +361,24 @@ export function PrepaymentContractsPage() {
         </div>
 
         {unbalancedCount > 0 ? (
-          <div className="border-b border-warning-border bg-warning-soft px-4 py-2 text-sm text-warning-ink">
-            有 {unbalancedCount} 张合同的核销金额与合同金额不一致，可在「预付款核销调整单」里继续调整；调平后此提示会自动消失。
+          <div className="flex flex-wrap items-center gap-2 border-b border-warning-border bg-warning-soft px-4 py-2 text-sm text-warning-ink">
+            <span>
+              有 {unbalancedCount} 张合同的核销金额与合同金额不一致，可在「预付款核销调整单」里继续调整；调平后此提示会自动消失。
+            </span>
+            {statusTab === "confirmed" && writeOffFilter !== "未平" ? (
+              <button
+                className="underline hover:no-underline"
+                onClick={() => {
+                  setWriteOffFilter("未平");
+                  setSelectedNos([]);
+                  setPage(1);
+                  void loadData(1, pageSizeRef.current, "confirmed", appliedKeyword, "未平");
+                }}
+                type="button"
+              >
+                只看未平
+              </button>
+            ) : null}
           </div>
         ) : null}
         <StickyTable className="table-scroll table-viewport overflow-auto" tableKey="prepayment-contracts">
@@ -341,7 +390,8 @@ export function PrepaymentContractsPage() {
                 </th>
                 {columns.map((column) => (
                   <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium" key={column.key}>
-                    {renderHeader(column)}
+                    {/* 核销状态是前端并入的派生值，服务端不支持排序；筛选改由上方「核销状态」下拉负责 */}
+                    {column.key === "writeOffStatus" ? column.label : renderHeader(column)}
                   </th>
                 ))}
                 <th className="whitespace-nowrap sticky right-0 border-b border-line-soft bg-canvas px-3 py-3 text-left font-medium">操作</th>

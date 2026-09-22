@@ -409,6 +409,17 @@ export async function listEntityRows(config: EntityConfig, searchParams: URLSear
     if (filter.key === "keyword") continue;
     const value = searchParams.get(filter.key)?.trim();
     if (value) {
+      /**
+       * 预付款合同的核销状态是派生值（合同金额 vs 该合同已生效的月核销合计），没有对应字段，
+       * 所以用子查询在库侧筛选，这样分页 total、翻页、导出跟列表口径完全一致。
+       * 草稿合同不参与核销（没有月核销明细），一律不纳入已平 / 未平判断，避免出现"未平（少 X）"的误导。
+       */
+      if (config.key === "prepayment-contracts" && filter.key === "writeOffStatus") {
+        const written = `COALESCE((SELECT SUM(writeOffSort.monthlyAmount) FROM monthlyprepaymentwriteoffs writeOffSort WHERE writeOffSort.contractNo = ${table}.contractNo), 0)`;
+        const target = `COALESCE((SELECT SUM(writeOffItem.contractTotalAmount) FROM prepaymentcontractitems writeOffItem WHERE writeOffItem.contractNo = ${table}.contractNo), 0)`;
+        whereParts.push(`${table}.status = '已确认' AND ROUND(${written}, 2) ${value === "已平" ? "=" : "<>"} ROUND(${target}, 2)`);
+        continue;
+      }
       if (config.key === "shipments" && filter.key === "receiptStatus") {
         if (value === "received") whereParts.push(`${fieldReference("deliveredAt")} IS NOT NULL`);
         if (value === "unreceived") whereParts.push(`${fieldReference("deliveredAt")} IS NULL`);
