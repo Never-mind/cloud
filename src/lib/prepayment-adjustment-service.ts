@@ -45,11 +45,21 @@ export async function appendPrepaymentWriteOffMonth(payload: { contractLineId: s
   );
   if (!line) throw new Error("合同明细不存在");
 
+  /**
+   * 这里算的是"预期已核销"，要**把草稿调整单里已录入的调整一起算进去**。
+   *
+   * 否则会出现死锁：用户建好草稿调整单（把某月改成 0）后，确认会被余额校验拦下，
+   * 而追加尾期又按"还没生效"的原金额求和、认为已核销完，两边都不让过。
+   * 已确认的调整单早已就地改写 monthlyAmount，所以只补草稿状态的。
+   */
   const [existing] = await queryRows<Row>(
-    `SELECT COALESCE(SUM(monthlyAmount), 0) AS written,
-            COALESCE(MAX(monthIndex), 0) AS lastIndex,
-            MAX(writeOffMonth) AS lastMonth
-       FROM monthlyprepaymentwriteoffs WHERE contractLineId = :contractLineId`,
+    `SELECT COALESCE(SUM(COALESCE(draft.adjustedMonthlyAmount, w.monthlyAmount)), 0) AS written,
+            COALESCE(MAX(w.monthIndex), 0) AS lastIndex,
+            MAX(w.writeOffMonth) AS lastMonth
+       FROM monthlyprepaymentwriteoffs w
+       LEFT JOIN prepaymentwriteoffadjustmentitems draft ON draft.monthlyWriteOffId = w.id
+        AND draft.adjustmentNo IN (SELECT adjustmentNo FROM prepaymentwriteoffadjustments WHERE status <> '已确认')
+      WHERE w.contractLineId = :contractLineId`,
     { contractLineId },
   );
   const originalAmount = roundMoney(Number(line.contractTotalAmount ?? 0));
@@ -355,6 +365,40 @@ export async function confirmPrepaymentWriteOffAdjustment(adjustmentNo: string) 
   if (!adjustment) throw new Error("调整单不存在");
   if (String(adjustment.status) === "已确认") return { adjustment, items };
   if (!items.length) throw new Error("调整单明细不能为空");
+
+  /**
+   * 确认前先校验：调整后每条合同明细的各期合计必须等于明细总额。
+   *
+   * 这是"核销金额对不上总额"的根治点 —— 客户少核销某个月时，之前要到财务对账
+   * 才会发现差钱；这里提前拦下来并告诉用户差多少、可以追加尾期。
+   * 校验放在应用改动**之前**，避免改一半报错留下半截数据。
+   */
+  const adjustedById = new Map(items.map((item) => [String(item.monthlyWriteOffId), Number(item.adjustedMonthlyAmount ?? 0)]));
+  const lineIds = [...new Set(items.map((item) => String(item.contractLineId ?? "")).filter(Boolean))];
+  for (const contractLineId of lineIds) {
+    const [line] = await queryRows<Row>(
+      "SELECT contractTotalAmount FROM prepaymentcontractitems WHERE id = :contractLineId LIMIT 1",
+      { contractLineId },
+    );
+    if (!line) continue;
+    const rows = await queryRows<Row>(
+      "SELECT id, monthlyAmount FROM monthlyprepaymentwriteoffs WHERE contractLineId = :contractLineId",
+      { contractLineId },
+    );
+    const total = roundMoney(rows.reduce(
+      (sum, row) => sum + (adjustedById.has(String(row.id)) ? adjustedById.get(String(row.id))! : Number(row.monthlyAmount ?? 0)),
+      0,
+    ));
+    const target = roundMoney(Number(line.contractTotalAmount ?? 0));
+    if (total !== target) {
+      const gap = roundMoney(target - total);
+      throw new Error(
+        gap > 0
+          ? `调整后该合同明细各期合计 ${total}，比明细金额 ${target} 少 ${gap}，请先追加尾期再确认`
+          : `调整后该合同明细各期合计 ${total}，超过明细金额 ${target} ${Math.abs(gap)}，请调整金额后再确认`,
+      );
+    }
+  }
 
   for (const item of items) {
     await execute(
