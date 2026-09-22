@@ -11,6 +11,7 @@ import { findProductByCode } from "./po-product-service";
 import { normalizeDateOnlyValue } from "./date-only";
 import { normalizePurchaseOrderItemCurrency } from "./purchase-order-form";
 import { DEFAULT_INSTANCE_MODEL_TYPE, requireInstanceModelType } from "./instance-model-type";
+import { WRITE_OFF_BALANCE_TOLERANCE } from "./prepayment-writeoff-balance";
 
 function quoteIdentifier(identifier: string) {
   return `\`${identifier.replace(/`/g, "``")}\``;
@@ -420,7 +421,12 @@ export async function listEntityRows(config: EntityConfig, searchParams: URLSear
       if (config.key === "prepayment-contracts" && filter.key === "writeOffStatus") {
         const written = `COALESCE((SELECT SUM(writeOffSort.monthlyAmount) FROM monthlyprepaymentwriteoffs writeOffSort WHERE writeOffSort.contractNo = ${table}.contractNo), 0)`;
         const target = `COALESCE((SELECT SUM(writeOffItem.contractTotalAmount) FROM prepaymentcontractitems writeOffItem WHERE writeOffItem.contractNo = ${table}.contractNo), 0)`;
-        whereParts.push(`${table}.status = '已确认' AND ROUND(${written}, 2) ${value === "已平" ? "=" : "<>"} ROUND(${target}, 2)`);
+        const gap = `ABS(ROUND(${written}, 2) - ROUND(${target}, 2))`;
+        whereParts.push(
+          value === "已平"
+            ? `${table}.status = '已确认' AND ${gap} <= ${WRITE_OFF_BALANCE_TOLERANCE}`
+            : `${table}.status = '已确认' AND ${gap} > ${WRITE_OFF_BALANCE_TOLERANCE}`,
+        );
         continue;
       }
       if (config.key === "shipments" && filter.key === "receiptStatus") {

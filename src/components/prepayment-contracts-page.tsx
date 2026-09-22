@@ -305,7 +305,7 @@ export function PrepaymentContractsPage() {
             <Select
               aria-label="核销状态"
               className="min-w-[136px]"
-              title="按合同金额与已生效月核销金额的差额筛选，草稿合同不参与核销"
+              title="按合同金额与已生效月核销金额的差额筛选，差额绝对值在 3 以内视为已平；草稿合同不参与核销"
               value={writeOffFilter}
               onChange={(event) => {
                 const next = event.target.value === "已平" ? "已平" : event.target.value === "未平" ? "未平" : "";
@@ -365,7 +365,7 @@ export function PrepaymentContractsPage() {
         {unbalancedCount > 0 ? (
           <div className="flex flex-wrap items-center gap-2 border-b border-warning-border bg-warning-soft px-4 py-2 text-sm text-warning-ink">
             <span>
-              有 {unbalancedCount} 张合同的核销金额与合同金额不一致，可在「预付款核销调整单」里继续调整；调平后此提示会自动消失。
+              有 {unbalancedCount} 张合同的核销金额与合同金额差额超过 3（尾差在 3 以内视为已平），可在「预付款核销调整单」里继续调整；调平后此提示会自动消失。
             </span>
             {statusTab === "confirmed" && writeOffFilter !== "未平" ? (
               <button

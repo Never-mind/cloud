@@ -1086,7 +1086,7 @@ export const entityConfigs: EntityConfig[] = [
     filters: [
       { key: "keyword", label: "预付款合同", placeholder: "请输入合同号、状态或币种" },
       { key: "status", label: "状态", placeholder: "请选择状态" },
-      // 派生筛选：按「合同金额 vs 已生效月核销合计」筛已平 / 未平，库侧子查询实现（见 crud.ts）。
+      // 派生筛选：按「合同金额 vs 已生效月核销合计」筛已平 / 未平（差额绝对值 ≤ 3 视为已平），库侧子查询实现（见 crud.ts）。
       { key: "writeOffStatus", label: "核销状态" },
     ],
     listFields: [

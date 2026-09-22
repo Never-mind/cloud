@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { queryRows, type Row } from "@/lib/db";
+import { isWriteOffBalanced, WRITE_OFF_BALANCE_TOLERANCE } from "@/lib/prepayment-writeoff-balance";
 
 /**
  * 预付款合同的核销平衡状态。
@@ -9,6 +10,7 @@ import { queryRows, type Row } from "@/lib/db";
  *   已核销 = 该合同全部月核销明细的 monthlyAmount 之和（只算已生效金额）
  *   合同金额 = 该合同全部明细的 contractTotalAmount 之和
  * 差多少就报多少，**实时计算不做状态存储**，所以调平之后下次打开自动变"已平"。
+ * 差额绝对值在容差（WRITE_OFF_BALANCE_TOLERANCE）以内按已平处理，避免 24 期均摊尾差刷屏。
  */
 export async function GET() {
   try {
@@ -32,18 +34,20 @@ export async function GET() {
       const written = roundMoney(Number(row.written ?? 0));
       const target = roundMoney(Number(row.target ?? 0));
       const gap = roundMoney(target - written);
+      const balanced = isWriteOffBalanced(gap);
       return {
         contractNo: String(row.contractNo ?? ""),
         written,
         target,
         gap,
-        status: gap === 0 ? "已平" : gap > 0 ? "少" : "多",
-        label: gap === 0 ? "已平" : `未平（${gap > 0 ? "少" : "多"} ${Math.abs(gap)}）`,
+        status: balanced ? "已平" : gap > 0 ? "少" : "多",
+        label: balanced ? "已平" : `未平（${gap > 0 ? "少" : "多"} ${Math.abs(gap)}）`,
       };
     });
     return NextResponse.json({
       items,
       unbalancedCount: items.filter((item) => item.status !== "已平").length,
+      tolerance: WRITE_OFF_BALANCE_TOLERANCE,
     });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "核销状态加载失败" }, { status: 500 });
