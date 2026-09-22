@@ -305,6 +305,8 @@ export async function listEntityRows(config: EntityConfig, searchParams: URLSear
     ? partyDisplayFields
     : config.key === "purchase-orders"
       ? new Set(["requestType", "countryCode"])
+      : config.key === "prepayment-contracts"
+        ? new Set(["countryCode"])
       : config.key === "service-fee-snapshots"
         ? new Set(["receivingUnitCode", "payerCustomerCode", "undertakingUnitName", "customerName"])
         : derivedRequestTypeEntityKeys.has(config.key)
@@ -338,7 +340,8 @@ export async function listEntityRows(config: EntityConfig, searchParams: URLSear
       config.listFields
         .filter((field) =>
           (derivedRequestTypeEntityKeys.has(config.key) && field.key === "requestType")
-          || (config.key === "purchase-orders" && field.key === "countryCode"),
+          || (config.key === "purchase-orders" && field.key === "countryCode")
+          || (config.key === "prepayment-contracts" && field.key === "countryCode"),
         )
         .map((field) => `${getEntityDisplayFieldExpression(config, field.key)} AS ${quoteIdentifier(field.key)}`),
     )
@@ -520,6 +523,22 @@ export async function listEntityRows(config: EntityConfig, searchParams: URLSear
   for (const field of config.listFields) {
     const values = Array.from(new Set(searchParams.getAll(`filter.${field.key}`).map((value) => value.trim()).filter(Boolean)));
     if (!values.length) continue;
+    /**
+     * 预付款合同的国家挂在明细上，且主单列展示的是"多国用 / 连接"，直接 IN 匹配不上，
+     * 所以用 EXISTS 命中明细里的任一国家，保证多国合同也能被单个国家筛出来。
+     */
+    if (config.key === "prepayment-contracts" && field.key === "countryCode") {
+      whereParts.push(`
+        EXISTS (
+          SELECT 1
+          FROM prepaymentcontractitems countryFilterItem
+          WHERE countryFilterItem.contractNo = ${table}.contractNo
+            AND UPPER(TRIM(SUBSTRING_INDEX(countryFilterItem.countryCode, '-', 1))) IN (:columnFilter_countryCode)
+        )
+      `);
+      params.columnFilter_countryCode = values.map((value) => normalizeCountryCodeFilter(value));
+      continue;
+    }
     const parameterName = `columnFilter_${field.key.replace(/[^a-zA-Z0-9_]/g, "_")}`;
     const expression = filterableStorageFields.has(field.key)
       ? getEntityFilterFieldExpression(config, field.key, shipmentAlias)
@@ -674,6 +693,8 @@ function getEntitySortReference(config: EntityConfig, field: string, shipmentAli
         ? new Set(["customerId"])
         : config.key === "customer-product-aliases"
           ? new Set(["customerName"])
+    : config.key === "prepayment-contracts"
+    ? new Set(["countryCode"])
     : config.key === "shipments"
     ? shipmentDisplayFields
     : config.key === "service-fee-snapshots"
@@ -682,6 +703,8 @@ function getEntitySortReference(config: EntityConfig, field: string, shipmentAli
         ? new Set(["requestType", ...partyDisplayFields])
       : config.key === "purchase-orders"
         ? new Set(["requestType", "countryCode"])
+        : config.key === "prepayment-contracts"
+          ? new Set(["countryCode"])
         : financePartyEntityKeys.has(config.key)
           ? partyDisplayFields
           : new Set<string>();
@@ -727,6 +750,40 @@ export async function listEntityFilterOptions(
         ORDER BY value
         LIMIT 500
       `,
+      params,
+    );
+    return { options: rows.map((row) => ({ value: String(row.value ?? ""), label: getFilterOptionLabel(String(row.value ?? ""), fieldConfig), count: Number(row.count ?? 0) })) };
+  }
+
+  /**
+   * 预付款合同主单没有国家字段，国家来自明细。列上展示的是去重后的"多国用 / 连接"，
+   * 但筛选候选值必须是**单个国家**（否则选中 "MX / BR" 无法与明细匹配），
+   * 所以这里单独按明细去重取值，配合列表侧的 EXISTS 筛选。
+   */
+  if (config.key === "prepayment-contracts" && field === "countryCode") {
+    const params: Row = {};
+    const whereParts = [`TRIM(COALESCE(optionItem.countryCode, '')) <> ''`];
+    const status = searchParams.get("status")?.trim();
+    if (status) {
+      whereParts.push(`optionContract.status = :optionStatus`);
+      params.optionStatus = status;
+    }
+    if (keyword) {
+      whereParts.push(`UPPER(TRIM(SUBSTRING_INDEX(optionItem.countryCode, '-', 1))) LIKE :optionKeyword`);
+      params.optionKeyword = `%${keyword.toUpperCase()}%`;
+    }
+    const rows = await queryRows<{ value: string; count: number }>(
+      `SELECT optionValues.value, COUNT(*) AS count
+         FROM (
+           SELECT DISTINCT optionContract.contractNo,
+                  UPPER(TRIM(SUBSTRING_INDEX(optionItem.countryCode, '-', 1))) AS value
+             FROM prepaymentcontracts optionContract
+             INNER JOIN prepaymentcontractitems optionItem ON optionItem.contractNo = optionContract.contractNo
+            WHERE ${whereParts.join(" AND ")}
+         ) optionValues
+        GROUP BY optionValues.value
+        ORDER BY optionValues.value
+        LIMIT 500`,
       params,
     );
     return { options: rows.map((row) => ({ value: String(row.value ?? ""), label: getFilterOptionLabel(String(row.value ?? ""), fieldConfig), count: Number(row.count ?? 0) })) };
@@ -839,6 +896,14 @@ function getEntityDisplayFieldExpression(config: EntityConfig, field: string, sh
       WHERE countryItem.purchaseOrderId = ${source}purchaseOrderId
         AND COALESCE(countryRequest.countryCode, '') <> ''
       ORDER BY countryRequest.countryCode LIMIT 1)`;
+  }
+  // 预付款合同主单同样没有国家字段：按明细去重汇总，多国用 " / " 连接（与采购订单的类型列同一展示口径）。
+  if (config.key === "prepayment-contracts" && field === "countryCode") {
+    const country = `UPPER(TRIM(SUBSTRING_INDEX(prepaymentCountryItem.countryCode, '-', 1)))`;
+    return `(SELECT GROUP_CONCAT(DISTINCT ${country} ORDER BY ${country} SEPARATOR ' / ')
+       FROM prepaymentcontractitems prepaymentCountryItem
+      WHERE prepaymentCountryItem.contractNo = ${source}contractNo
+        AND COALESCE(TRIM(prepaymentCountryItem.countryCode), '') <> '')`;
   }
   if (config.key === "customer-pos") {
     if (field === "undertakingUnitName") {
@@ -1014,6 +1079,9 @@ function getEntityFilterFieldExpression(config: EntityConfig, field: string, shi
   const fieldConfig = config.listFields.find((item) => item.key === field);
   // 采购订单的国家来自来源需求单，取同一份派生表达式，保证筛选与列表口径一致。
   if (config.key === "purchase-orders" && field === "countryCode") {
+    return getEntityDisplayFieldExpression(config, field, shipmentAlias);
+  }
+  if (config.key === "prepayment-contracts" && field === "countryCode") {
     return getEntityDisplayFieldExpression(config, field, shipmentAlias);
   }
   if (field === "countryCode") return normalizeCountryExpression(reference);

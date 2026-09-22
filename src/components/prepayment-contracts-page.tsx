@@ -29,6 +29,8 @@ const columns: Array<{ key: string; label: string; type?: string }> = [
 ] .map((column) => ({ ...column, sortable: true, filterable: true }));
 // 核销状态是前端按合同实时并入的派生列，服务端不支持排序/筛选，所以不参与上面的 map
 columns.splice(2, 0, { key: "writeOffStatus", label: "核销状态" });
+// 国家由服务端按合同明细汇总（多国用 " / " 连接），紧跟合同号显示
+columns.splice(1, 0, { key: "countryCode", label: "国家" });
 
 export function PrepaymentContractsPage() {
   const pathname = usePathname();

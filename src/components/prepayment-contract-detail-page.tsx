@@ -183,6 +183,17 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
     () => roundMoney(lines.reduce((total, line) => total + Number(line.contractTotalAmount ?? 0), 0)),
     [lines],
   );
+  /** 主单国家：取明细里的国家去重汇总（多国用 " / " 连接），与列表列口径一致。 */
+  const contractCountries = useMemo(() => {
+    const codes = new Set(lines.map((line) => String(line.countryCode ?? "").trim()).filter(Boolean));
+    return Array.from(codes)
+      .sort()
+      .map((code) => {
+        const country = countries.find((row) => String(row.code ?? "") === code);
+        return country ? `${code} - ${String(country.nameZh ?? code)}` : code;
+      })
+      .join(" / ");
+  }, [countries, lines]);
 
   function updateContract(patch: Partial<Contract>) {
     setContract((current) => (current ? { ...current, ...patch } : current));
@@ -409,8 +420,9 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
 
       <Panel>
         <div className="border-b border-line-soft px-4 py-3 font-medium text-ink">主单信息</div>
-        <div className="grid grid-cols-5 gap-4 p-4">
+        <div className="grid grid-cols-2 gap-4 p-4 md:grid-cols-3 xl:grid-cols-6">
           <Field disabled={!canEdit} label="预付款合同号" value={contractNoDraft} onChange={setContractNoDraft} />
+          <Field disabled label="国家" value={contractCountries} onChange={() => undefined} />
           <Field disabled label="状态" value={contract.status} onChange={() => undefined} />
           <Field disabled={!canEdit} label="币种" value={contract.currency ?? ""} onChange={(value) => updateContract({ currency: value })} />
           <Field disabled={!canEdit} label="生效日期" type="date" value={contract.effectiveDate} onChange={(value) => updateContract({ effectiveDate: value })} />

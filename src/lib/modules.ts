@@ -1091,6 +1091,8 @@ export const entityConfigs: EntityConfig[] = [
     ],
     listFields: [
       { key: "contractNo", label: "预付款合同号" },
+      // 派生列：主单没有国家字段，取明细里的国家去重汇总（多国用 " / " 连接），见 crud.ts。
+      { key: "countryCode", label: "国家" },
       { key: "status", label: "状态" },
       { key: "currency", label: "币种" },
       { key: "effectiveDate", label: "生效日期", type: "date" },
