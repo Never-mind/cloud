@@ -367,35 +367,43 @@ export async function confirmPrepaymentWriteOffAdjustment(adjustmentNo: string) 
   if (!items.length) throw new Error("调整单明细不能为空");
 
   /**
-   * 确认前先校验：调整后每条合同明细的各期合计必须等于明细总额。
+   * 确认时只做**提醒**，不做拦截。
    *
-   * 这是"核销金额对不上总额"的根治点 —— 客户少核销某个月时，之前要到财务对账
-   * 才会发现差钱；这里提前拦下来并告诉用户差多少、可以追加尾期。
-   * 校验放在应用改动**之前**，避免改一半报错留下半截数据。
+   * 实际业务里"某个月先调多、某个月再调少"很常见，而且哪个客户约定还没谈好，
+   * 强制配平会把用户卡死；对账时看的也是**整个合同**，同一合同内明细之间互相
+   * 对冲（A 明细少 1000、B 明细多 1000）本来就应该是平的。
+   *
+   * 所以这里按**合同**聚合判断，把差额作为 warnings 返回给前端做黄色提示，
+   * 调整单照常确认。真正的"未平"由预付款合同的核销状态提醒兜底。
+   * 注意：只统计**已生效**金额 + 本次调整，草稿调整单不算数（草稿可能不确认）。
    */
   const adjustedById = new Map(items.map((item) => [String(item.monthlyWriteOffId), Number(item.adjustedMonthlyAmount ?? 0)]));
-  const lineIds = [...new Set(items.map((item) => String(item.contractLineId ?? "")).filter(Boolean))];
-  for (const contractLineId of lineIds) {
-    const [line] = await queryRows<Row>(
-      "SELECT contractTotalAmount FROM prepaymentcontractitems WHERE id = :contractLineId LIMIT 1",
-      { contractLineId },
-    );
-    if (!line) continue;
+  const warnings: string[] = [];
+  const contractNos = [...new Set(items.map((item) => String(item.contractNo ?? "")).filter(Boolean))];
+  for (const contractNo of contractNos) {
     const rows = await queryRows<Row>(
-      "SELECT id, monthlyAmount FROM monthlyprepaymentwriteoffs WHERE contractLineId = :contractLineId",
-      { contractLineId },
+      "SELECT id, monthlyAmount, contractLineId, originalAmount FROM monthlyprepaymentwriteoffs WHERE contractNo = :contractNo",
+      { contractNo },
     );
+    if (!rows.length) continue;
     const total = roundMoney(rows.reduce(
       (sum, row) => sum + (adjustedById.has(String(row.id)) ? adjustedById.get(String(row.id))! : Number(row.monthlyAmount ?? 0)),
       0,
     ));
-    const target = roundMoney(Number(line.contractTotalAmount ?? 0));
-    if (total !== target) {
-      const gap = roundMoney(target - total);
-      throw new Error(
+    // 合同金额 = 各明细的 originalAmount 之和（每条明细的月核销行都带着自己的明细金额，
+    // 按 contractLineId 去重后再求和，避免按行重复累加）
+    const originalByLine = new Map<string, number>();
+    for (const row of rows) {
+      const lineId = String(row.contractLineId ?? "");
+      if (!originalByLine.has(lineId)) originalByLine.set(lineId, Number(row.originalAmount ?? 0));
+    }
+    const contractTarget = roundMoney([...originalByLine.values()].reduce((sum, value) => sum + value, 0));
+    const gap = roundMoney(contractTarget - total);
+    if (gap !== 0) {
+      warnings.push(
         gap > 0
-          ? `调整后该合同明细各期合计 ${total}，比明细金额 ${target} 少 ${gap}，请先追加尾期再确认`
-          : `调整后该合同明细各期合计 ${total}，比明细金额 ${target} 多 ${Math.abs(gap)}，请调整金额后再确认`,
+          ? `预付款合同 ${contractNo} 当前核销合计 ${total}，比合同金额 ${contractTarget} 少 ${gap}`
+          : `预付款合同 ${contractNo} 当前核销合计 ${total}，比合同金额 ${contractTarget} 多 ${Math.abs(gap)}`,
       );
     }
   }
@@ -427,7 +435,9 @@ export async function confirmPrepaymentWriteOffAdjustment(adjustmentNo: string) 
     { adjustmentNo },
   );
 
-  return getPrepaymentWriteOffAdjustment(adjustmentNo);
+  // 返回 warnings 供前端做黄色提醒；调整单本身照常确认（不拦截）。
+  const result = await getPrepaymentWriteOffAdjustment(adjustmentNo);
+  return { ...result, warnings };
 }
 
 /**

@@ -215,10 +215,17 @@ export function PrepaymentWriteOffAdjustmentDetailPage({ adjustmentNo: routeAdju
       notify(data.error ?? "确认失败", "error");
       return;
     }
-    setStatus("已确认");
-    setConfirmedItems(data.items ?? []);
-    notify("预付款核销调整单已确认", "success");
-    router.push(returnTo);
+      setStatus("已确认");
+      setConfirmedItems(data.items ?? []);
+      // 核销与合同金额不一致时只提醒、不拦截：允许"先调多后调少"或等与客户约定后再配平。
+      const warnings = Array.isArray(data.warnings) ? data.warnings : [];
+      notify(
+        warnings.length
+          ? `预付款核销调整单已确认。\n注意：\n${warnings.join("\n")}\n可在预付款核销调整单里继续调整，或用「追加尾期」补齐。`
+          : "预付款核销调整单已确认",
+        warnings.length ? "info" : "success",
+      );
+      router.push(returnTo);
   }
 
   /**
