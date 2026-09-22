@@ -395,7 +395,7 @@ export async function confirmPrepaymentWriteOffAdjustment(adjustmentNo: string) 
       throw new Error(
         gap > 0
           ? `调整后该合同明细各期合计 ${total}，比明细金额 ${target} 少 ${gap}，请先追加尾期再确认`
-          : `调整后该合同明细各期合计 ${total}，超过明细金额 ${target} ${Math.abs(gap)}，请调整金额后再确认`,
+          : `调整后该合同明细各期合计 ${total}，比明细金额 ${target} 多 ${Math.abs(gap)}，请调整金额后再确认`,
       );
     }
   }
