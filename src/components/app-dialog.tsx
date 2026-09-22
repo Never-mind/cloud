@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { AlertTriangle, CheckCircle2, Info, X } from "lucide-react";
 import { Button } from "./ui";
 
@@ -14,6 +15,17 @@ import { Button } from "./ui";
  *
  * 宿主 <AppDialogHost /> 挂在 AppShell 上，覆盖所有页面。
  */
+
+/**
+ * 层级约定（与 modal.tsx 的 MODAL_Z_INDEX、search-select 的 z-[120]、工作区导航 z-[130] 配套）：
+ *
+ *   表格列菜单 80 ＜ 遮罩 90 ＜ 普通弹窗/抽屉面板 100 ＜ 确认框 110 ＜ 搜索下拉面板 120 ＜ 轻提示 125 ＜ 工作区导航 130
+ *
+ * 确认框和轻提示**必须高于普通弹窗**：它们经常是从弹窗里点出来的（例如在「追加尾期」弹窗里
+ * 点删除要二次确认），低于弹窗就会被弹窗盖住、点不到。历史上这里是 90/95，正是被盖住的根因。
+ */
+export const CONFIRM_Z_INDEX = "z-[110]";
+export const TOAST_Z_INDEX = "z-[125]";
 
 export type ConfirmOptions = {
   message: string;
@@ -51,8 +63,15 @@ const NOTICE_DURATION_MS = 4_000;
 export function AppDialogHost() {
   const [confirmRequest, setConfirmRequest] = useState<ConfirmRequest | null>(null);
   const [notices, setNotices] = useState<NoticeRequest[]>([]);
+  const [mounted, setMounted] = useState(false);
   const sequence = useRef(0);
   const queue = useRef<ConfirmRequest[]>([]);
+
+  // 通过 portal 挂到 body：避免被页面里的层叠上下文（transform / z-index 容器）困住，
+  // 保证确认框永远压在当前弹窗之上。
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const showNextConfirm = useCallback(() => {
     const next = queue.current.shift() ?? null;
@@ -106,12 +125,14 @@ export function AppDialogHost() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [confirmRequest, finishConfirm]);
 
-  return (
+  if (!mounted) return null;
+
+  return createPortal(
     <>
       {confirmRequest ? (
         <div
           aria-modal="true"
-          className="fixed inset-0 z-[90] flex items-center justify-center bg-black/40 p-4"
+          className={`fixed inset-0 ${CONFIRM_Z_INDEX} flex items-center justify-center bg-black/40 p-4`}
           role="dialog"
         >
           <div className="w-full max-w-md rounded border border-line-soft bg-white shadow-xl">
@@ -143,7 +164,7 @@ export function AppDialogHost() {
       ) : null}
 
       {notices.length ? (
-        <div aria-live="polite" className="pointer-events-none fixed right-4 top-4 z-[95] flex w-[min(90vw,360px)] flex-col gap-2">
+        <div aria-live="polite" className={`pointer-events-none fixed right-4 top-4 ${TOAST_Z_INDEX} flex w-[min(90vw,360px)] flex-col gap-2`}>
           {notices.map((notice) => (
             <div
               className={`pointer-events-auto flex items-start gap-2 rounded border bg-white px-3 py-2.5 text-sm shadow-lg ${noticeToneClass(notice.tone)}`}
@@ -164,7 +185,8 @@ export function AppDialogHost() {
           ))}
         </div>
       ) : null}
-    </>
+    </>,
+    document.body,
   );
 }
 

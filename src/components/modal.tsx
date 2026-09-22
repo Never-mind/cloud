@@ -15,7 +15,12 @@ import { X } from "lucide-react";
  * 需要把整个弹窗作为表单提交时传 panelAs="form" 与 panelProps={{ action: saveRow }}。
  */
 
-/** 弹层层级约定：普通弹窗 100，确认框 90，轻提示 95，工作区导航 130。 */
+/**
+ * 弹层层级约定：列菜单 80 ＜ 遮罩 90 ＜ 普通弹窗/抽屉面板 100 ＜ 确认框 110 ＜ 搜索下拉 120 ＜ 轻提示 125 ＜ 工作区导航 130。
+ *
+ * 确认框与轻提示刻意排在普通弹窗**之上**：它们经常从弹窗内部触发（例如弹窗里点删除要二次确认），
+ * 排在下面会被弹窗盖住。层级常量见 app-dialog.tsx 的 CONFIRM_Z_INDEX / TOAST_Z_INDEX。
+ */
 export const MODAL_Z_INDEX = "z-[100]";
 
 type ModalProps = {

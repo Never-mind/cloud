@@ -397,7 +397,8 @@ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
 ```
 
 - 遮罩统一 `bg-black/40`，面板统一 `rounded border border-line-soft`，标题区带下边框、底部按钮区带上边框。
-- 层级约定：普通弹窗 `z-[100]`、确认框 `z-[90]`、轻提示 `z-[95]`、工作区导航 `z-[130]`。
+- 层级约定：列菜单 `z-[80]` ＜ 遮罩 `z-[90]` ＜ 普通弹窗/抽屉面板 `z-[100]` ＜ 确认框 `z-[110]` ＜ 搜索下拉 `z-[120]` ＜ 轻提示 `z-[125]` ＜ 工作区导航 `z-[130]`。
+- **确认框与轻提示必须高于普通弹窗**（`CONFIRM_Z_INDEX` / `TOAST_Z_INDEX`，见 `app-dialog.tsx`）：它们经常从弹窗内部触发（弹窗里点删除要二次确认），层级排在弹窗之下就会被盖住、点不到。历史上这里是 90/95，出现过"追加尾期弹窗里的删除确认被弹窗遮挡"的问题。`AppDialogHost` 通过 portal 挂到 `body`，避免被页面内层叠上下文困住。
 - 需要偏离默认层级时传 `zClass`（仅工作区导航用 `z-[130]`），不要在业务页里复制外壳。
 - 内置 Esc 关闭与 `role="dialog" aria-modal="true"`。
 - 需要整块作为表单提交时传 `panelAs="form"` 与 `panelProps={{ action: saveRow }}`。

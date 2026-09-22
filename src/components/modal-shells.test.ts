@@ -4,6 +4,8 @@ import { describe, expect, it, vi } from "vitest";
 import { Drawer } from "./drawer";
 import { Modal } from "./modal";
 import { WorkspaceNavigationDialog } from "./workspace-navigation-dialog";
+import { CONFIRM_Z_INDEX, TOAST_Z_INDEX } from "./app-dialog";
+import { MODAL_Z_INDEX } from "./modal";
 
 describe("shared overlay shells", () => {
   it("renders the modal title, description, body and footer", () => {
@@ -74,5 +76,13 @@ describe("shared overlay shells", () => {
     expect(html).toContain("z-[130]");
     expect(html).toContain("留在当前页");
     expect(html).toContain("查看明细");
+  });
+
+  it("keeps the confirm box and toast above the modal so in-dialog confirmations stay clickable", () => {
+    const layerOf = (value: string) => Number(value.replace(/\D/g, ""));
+    expect(layerOf(CONFIRM_Z_INDEX)).toBeGreaterThan(layerOf(MODAL_Z_INDEX));
+    expect(layerOf(TOAST_Z_INDEX)).toBeGreaterThan(layerOf(CONFIRM_Z_INDEX));
+    // 列菜单 80、遮罩 90、弹窗 100 之下的层级不能被确认框/轻提示越过导航（130）
+    expect(layerOf(TOAST_Z_INDEX)).toBeLessThan(130);
   });
 });
