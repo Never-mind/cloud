@@ -22,6 +22,53 @@ function formatDate(value: Date) {
 }
 
 /**
+ * 按合同号列出可追加尾期的明细。
+ *
+ * "追加尾期"是独立动作，不看当前调整单里加了哪些明细：财务输入合同号后，
+ * 这里把该合同每条明细的已核销 / 剩余 / 下一期月份一次算好，前端直接列表选择。
+ * 只统计**已生效**金额（草稿调整单不算），与预付款合同的核销状态提醒口径一致。
+ */
+export async function listAppendableWriteOffMonths(contractNo: string) {
+  const value = String(contractNo ?? "").trim();
+  if (!value) throw new Error("请输入预付款合同号");
+  const lines = await queryRows<Row>(
+    `SELECT i.id, i.deviceCode, i.modelCode, i.nameEn, i.contractTotalAmount,
+            COALESCE(w.written, 0) AS written,
+            w.lastMonth,
+            COALESCE(w.lastIndex, 0) AS lastIndex
+       FROM prepaymentcontractitems i
+       LEFT JOIN (
+         SELECT contractLineId, SUM(monthlyAmount) AS written,
+                MAX(writeOffMonth) AS lastMonth, MAX(monthIndex) AS lastIndex
+           FROM monthlyprepaymentwriteoffs GROUP BY contractLineId
+       ) w ON w.contractLineId = i.id
+      WHERE i.contractNo = :contractNo
+      ORDER BY i.id`,
+    { contractNo: value },
+  );
+  if (!lines.length) throw new Error(`预付款合同 ${value} 不存在或没有明细`);
+  return lines.map((line) => {
+    const lineAmount = roundMoney(Number(line.contractTotalAmount ?? 0));
+    const written = roundMoney(Number(line.written ?? 0));
+    const remaining = roundMoney(lineAmount - written);
+    const base = new Date(String(line.lastMonth ?? new Date()));
+    const next = new Date(base.getFullYear(), base.getMonth() + 1, 1);
+    return {
+      contractLineId: String(line.id ?? ""),
+      deviceCode: String(line.deviceCode ?? ""),
+      modelCode: String(line.modelCode ?? ""),
+      nameEn: String(line.nameEn ?? ""),
+      lineAmount,
+      written,
+      remaining,
+      monthIndex: Number(line.lastIndex ?? 0) + 1,
+      nextMonth: formatDate(next),
+      settled: remaining <= 0,
+    };
+  });
+}
+
+/**
  * 追加尾期：合同明细按默认期数铺满后总额还没核销完时的出口。
  *
  * 场景：客户某个月少核销（甚至核销为 0），明细的核销月份不够用，
@@ -45,20 +92,12 @@ export async function appendPrepaymentWriteOffMonth(payload: { contractLineId: s
   );
   if (!line) throw new Error("合同明细不存在");
 
-  /**
-   * 这里算的是"预期已核销"，要**把草稿调整单里已录入的调整一起算进去**。
-   *
-   * 否则会出现死锁：用户建好草稿调整单（把某月改成 0）后，确认会被余额校验拦下，
-   * 而追加尾期又按"还没生效"的原金额求和、认为已核销完，两边都不让过。
-   * 已确认的调整单早已就地改写 monthlyAmount，所以只补草稿状态的。
-   */
+  // 只统计**已生效**金额：草稿调整单可能不确认，算进来会误导（与合同核销状态提醒口径一致）。
   const [existing] = await queryRows<Row>(
-    `SELECT COALESCE(SUM(COALESCE(draft.adjustedMonthlyAmount, w.monthlyAmount)), 0) AS written,
+    `SELECT COALESCE(SUM(w.monthlyAmount), 0) AS written,
             COALESCE(MAX(w.monthIndex), 0) AS lastIndex,
             MAX(w.writeOffMonth) AS lastMonth
        FROM monthlyprepaymentwriteoffs w
-       LEFT JOIN prepaymentwriteoffadjustmentitems draft ON draft.monthlyWriteOffId = w.id
-        AND draft.adjustmentNo IN (SELECT adjustmentNo FROM prepaymentwriteoffadjustments WHERE status <> '已确认')
       WHERE w.contractLineId = :contractLineId`,
     { contractLineId },
   );
@@ -68,11 +107,18 @@ export async function appendPrepaymentWriteOffMonth(payload: { contractLineId: s
   if (remaining <= 0) throw new Error(`该明细已核销完（总额 ${originalAmount}），无需追加尾期`);
 
   const amount = payload.amount === undefined || payload.amount === null ? remaining : roundMoney(Number(payload.amount));
-  if (!Number.isFinite(amount) || amount <= 0) throw new Error("追加金额必须大于 0");
-  const nextTotal = roundMoney(written + amount);
-  if (nextTotal > originalAmount) {
-    throw new Error(`追加后各期合计 ${nextTotal} 超过合同明细金额 ${originalAmount}，请调整金额`);
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throw new Error(remaining > 0 ? "追加金额必须大于 0" : `该明细已核销完（总额 ${originalAmount}），如需继续核销请手动填写金额`);
   }
+  /**
+   * 超额**不拦，只提醒**：业务上允许先冲后调、也允许同一合同内明细互相对冲，
+   * 与调整单"只提醒不拦截"的口径保持一致；真正的未平由合同列表的核销状态提醒兜底。
+   */
+  const nextTotal = roundMoney(written + amount);
+  const warning =
+    nextTotal > originalAmount
+      ? `追加后该明细各期合计 ${nextTotal}，已超过明细金额 ${originalAmount} ${roundMoney(nextTotal - originalAmount)}`
+      : "";
 
   const monthIndex = Number(existing?.lastIndex ?? 0) + 1;
   const baseDate = new Date(String(existing?.lastMonth ?? line.writeOffStartMonth ?? new Date()));
@@ -121,7 +167,7 @@ export async function appendPrepaymentWriteOffMonth(payload: { contractLineId: s
     { monthIndex, contractLineId },
   );
 
-  return { id, contractLineId, writeOffMonth, monthIndex, amount, remainingBefore: remaining, writtenTotal: nextTotal, originalAmount };
+  return { id, contractLineId, writeOffMonth, monthIndex, amount, remainingBefore: remaining, writtenTotal: nextTotal, originalAmount, warning };
 }
 
 export async function listAvailablePrepaymentWriteOffs(searchParams: URLSearchParams) {

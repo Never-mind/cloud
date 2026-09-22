@@ -1,7 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { appendPrepaymentWriteOffMonth } from "@/lib/prepayment-adjustment-service";
+import { listAppendableWriteOffMonths } from "@/lib/prepayment-adjustment-service";
 import { getOperationActor } from "@/lib/operation-actor";
 import { getOperationRequestId, recordOperationLog } from "@/lib/operation-log";
+
+/** 按合同号列出可追加尾期的明细（财务先输合同号，再选明细追加）。 */
+export async function GET(request: NextRequest) {
+  try {
+    const contractNo = request.nextUrl.searchParams.get("contractNo") ?? "";
+    return NextResponse.json({ items: await listAppendableWriteOffMonths(contractNo) });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : "可追加明细加载失败" }, { status: 400 });
+  }
+}
 
 /**
  * 追加尾期：某条合同明细按默认期数核销不完时，顺延一期承接剩余金额。

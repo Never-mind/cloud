@@ -13,6 +13,7 @@ import { Button, Input, Panel } from "./ui";
 import { NumberInput } from "./number-input";
 import { AutoGrowTextarea } from "./auto-grow-textarea";
 import { confirmDialog, notify } from "./app-dialog";
+import { Modal } from "./modal";
 import { PaginationBar } from "./pagination-bar";
 import { StickyTable } from "./sticky-table";
 import { DEFAULT_PAGE_SIZE } from "@/lib/pagination";
@@ -56,6 +57,18 @@ const confirmedColumns: Array<{ key: string; label: string; type?: string }> = [
   { key: "updatedAt", label: "更新时间", type: "datetime" },
 ];
 
+/** 追加尾期弹窗里的合同明细列：金额一律取已生效口径。 */
+const tailColumns: Array<{ key: string; label: string; type?: string }> = [
+  { key: "deviceCode", label: "实例编码" },
+  { key: "modelCode", label: "机型" },
+  { key: "nameEn", label: "英文名称" },
+  { key: "lineAmount", label: "明细金额", type: "number" },
+  { key: "written", label: "已核销", type: "number" },
+  { key: "remaining", label: "剩余可追加", type: "number" },
+  { key: "monthIndex", label: "追加期号" },
+  { key: "nextMonth", label: "追加月份" },
+];
+
 export function PrepaymentWriteOffAdjustmentDetailPage({ adjustmentNo: routeAdjustmentNo }: { adjustmentNo: string }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -63,7 +76,10 @@ export function PrepaymentWriteOffAdjustmentDetailPage({ adjustmentNo: routeAdju
   const isNew = routeAdjustmentNo === "new";
   const [adjustmentNo, setAdjustmentNo] = useState(isNew ? buildAdjustmentNo() : routeAdjustmentNo);
   const [status, setStatus] = useState("草稿");
-  const [appendingTail, setAppendingTail] = useState(false);
+  const [tailOpen, setTailOpen] = useState(false);
+  const [tailContractNo, setTailContractNo] = useState("");
+  const [tailLines, setTailLines] = useState<Row[]>([]);
+  const [tailBusy, setTailBusy] = useState(false);
   const [reason, setReason] = useState("");
   const [searchRows, setSearchRows] = useState<Row[]>([]);
   const [selectedRows, setSelectedRows] = useState<Row[]>([]);
@@ -229,42 +245,48 @@ export function PrepaymentWriteOffAdjustmentDetailPage({ adjustmentNo: routeAdju
   }
 
   /**
-   * 追加尾期：客户某个月少核销（或核销为 0）时，合同明细按默认期数核销不完，
-   * 调整单里没有可选的月份承接剩余金额。这里对当前已添加的合同明细逐条追加一期，
-   * 金额由服务端按「明细总额 − 已生成各期实际金额之和」自动算出（草稿调整单里的调整也算在内），
-   * 追加出来的月份会像普通月份一样出现在可选列表里，可以继续调整金额。
+   * 追加尾期：财务先输入预付款合同号，再从该合同的明细里挑一条追加一期。
+   * 与当前调整单里加了哪些明细无关 —— 追加是独立动作，客户真要延长时间时才做。
    */
-  async function appendTailMonths() {
-    const lineIds = Array.from(new Set(selectedRows.map((row) => String(row.contractLineId ?? "")).filter(Boolean)));
-    if (!lineIds.length) {
-      notify("请先添加需要调整的明细，再追加尾期", "error");
-      return;
-    }
-    if (!await confirmDialog(`为这 ${lineIds.length} 条合同明细各追加一期？\n金额按「明细总额 − 已核销金额」自动计算，追加后可以继续调整。`)) return;
-    setAppendingTail(true);
-    const added: string[] = [];
-    const skipped: string[] = [];
+  async function loadTailLines() {
+    const contractNo = tailContractNo.trim();
+    if (!contractNo) { notify("请输入预付款合同号", "error"); return; }
+    setTailBusy(true);
     try {
-      for (const contractLineId of lineIds) {
-        const response = await fetch("/api/prepayment-adjustments/append-month", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ contractLineId }),
-        });
-        const data = await response.json().catch(() => ({}));
-        if (!response.ok) {
-          skipped.push(String(data.error ?? "追加失败"));
-          continue;
-        }
-        added.push(`${data.writeOffMonth} / ${data.amount}`);
-      }
-      if (added.length) {
-        notify(`已追加 ${added.length} 期：\n${added.slice(0, 5).join("\n")}${added.length > 5 ? `\n…共 ${added.length} 期` : ""}`, "success");
-        await loadSearchRows();
-      }
-      if (skipped.length) notify(`未追加 ${skipped.length} 条：${skipped.slice(0, 3).join("；")}`, "info");
+      const response = await fetch(`/api/prepayment-adjustments/append-month?contractNo=${encodeURIComponent(contractNo)}`);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error ?? "查询可追加明细失败");
+      setTailLines(Array.isArray(data.items) ? data.items : []);
+    } catch (error) {
+      setTailLines([]);
+      notify(error instanceof Error ? error.message : "查询可追加明细失败", "error");
     } finally {
-      setAppendingTail(false);
+      setTailBusy(false);
+    }
+  }
+
+  async function appendTail(line: Row) {
+    setTailBusy(true);
+    try {
+      const response = await fetch("/api/prepayment-adjustments/append-month", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contractLineId: String(line.contractLineId ?? "") }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error ?? "追加尾期失败");
+      notify(
+        data.warning
+          ? `已追加 ${data.writeOffMonth} / ${data.amount}\n注意：${data.warning}`
+          : `已追加 ${data.writeOffMonth} / ${data.amount}`,
+        data.warning ? "info" : "success",
+      );
+      await loadTailLines();
+      await loadSearchRows();
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "追加尾期失败", "error");
+    } finally {
+      setTailBusy(false);
     }
   }
 
@@ -396,9 +418,9 @@ export function PrepaymentWriteOffAdjustmentDetailPage({ adjustmentNo: routeAdju
                   <Save size={15} />
                   {saving ? "保存中" : "保存草稿"}
                 </Button>
-                <Button disabled={saving || appendingTail} onClick={() => void appendTailMonths()}>
+                <Button disabled={saving} onClick={() => setTailOpen(true)}>
                   <Plus size={15} />
-                  {appendingTail ? "追加中..." : "追加尾期"}
+                  追加尾期
                 </Button>
                 <Button disabled={saving} tone="success" onClick={() => void confirmAdjustment()}>
                   <CheckCircle2 size={15} />
@@ -430,6 +452,91 @@ export function PrepaymentWriteOffAdjustmentDetailPage({ adjustmentNo: routeAdju
           </>
         )}
       </Panel>
+
+      {tailOpen ? (
+        <Modal
+          description="输入预付款合同号后选择明细追加。追加与当前调整单无关，只按已生效的核销金额计算剩余额度。"
+          footer={<Button onClick={() => setTailOpen(false)}>关闭</Button>}
+          onClose={() => setTailOpen(false)}
+          title="追加尾期"
+          widthClass="max-w-4xl"
+        >
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-end gap-2">
+              <label className="min-w-[220px] flex-1">
+                <span className="mb-1 block text-sm font-medium text-ink-2">预付款合同号</span>
+                <Input
+                  placeholder="例如 PPC-20260911"
+                  value={tailContractNo}
+                  onChange={(event) => setTailContractNo(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      void loadTailLines();
+                    }
+                  }}
+                />
+              </label>
+              <Button disabled={tailBusy} tone="secondary" onClick={() => void loadTailLines()}>
+                <Search size={15} />
+                {tailBusy ? "查询中" : "查询"}
+              </Button>
+            </div>
+
+            <div className="table-scroll max-h-[380px] overflow-auto rounded border border-line-soft">
+              <table className="min-w-full border-collapse text-sm">
+                <thead className="bg-canvas text-ink">
+                  <tr>
+                    {tailColumns.map((column) => (
+                      <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium" key={column.key}>
+                        {column.label}
+                      </th>
+                    ))}
+                    <th className="whitespace-nowrap border-b border-line-soft px-3 py-3 text-left font-medium">操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {tailLines.map((line) => {
+                    const id = String(line.contractLineId ?? "");
+                    const settled = Boolean(line.settled);
+                    return (
+                      <tr className={settled ? "bg-surface-2 text-ink-3" : "hover:bg-surface-2"} key={id}>
+                        {tailColumns.map((column) => (
+                          <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3" key={column.key}>
+                            {formatValue(line[column.key], column.type)}
+                          </td>
+                        ))}
+                        <td className="whitespace-nowrap border-b border-line-soft px-3 py-3">
+                          <Button
+                            disabled={tailBusy || settled}
+                            title={settled ? "该明细已核销完，无需追加" : undefined}
+                            tone="primary"
+                            onClick={() => void appendTail(line)}
+                          >
+                            <Plus size={15} />
+                            {settled ? "已核销完" : "追加"}
+                          </Button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {!tailLines.length ? (
+                    <tr>
+                      <td className="py-10 text-center text-ink-3" colSpan={tailColumns.length + 1}>
+                        <TableStateContent empty="请输入预付款合同号后点击查询" loading={tailBusy} />
+                      </td>
+                    </tr>
+                  ) : null}
+                </tbody>
+              </table>
+            </div>
+
+            <p className="text-xs text-ink-3">
+              追加月份默认顺延该明细的最后一期；追加金额默认按「明细金额 − 已核销金额」计算，超额只提醒不拦截，可再用调整单调平。
+            </p>
+          </div>
+        </Modal>
+      ) : null}
     </div>
   );
 }
