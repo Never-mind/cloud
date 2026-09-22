@@ -1,6 +1,7 @@
 import { execute, executeInTransaction, queryRows, withTransaction, type Row } from "./db";
 import type { PoolConnection } from "mysql2/promise";
 import { firstDayOfMonth } from "./prepayment-workflow";
+import { isAppendedTailPeriod, WRITE_OFF_MONTHS } from "./prepayment-workflow";
 import { appendTableFilterOptionConditions, appendTableInFilter, getTableFilterOptionsOrderBy, getTableSort } from "./table-query";
 import {
   buildPrepaymentWriteOffAdjustmentItems,
@@ -50,9 +51,9 @@ export async function listAppendableWriteOffMonths(contractNo: string) {
   const tailRows = await queryRows<Row>(
     `SELECT id, contractLineId, writeOffMonth, monthIndex, monthlyAmount
        FROM monthlyprepaymentwriteoffs
-      WHERE contractNo = :contractNo AND sourceType = '追加尾期'
+      WHERE contractNo = :contractNo AND monthIndex > :writeOffMonths
       ORDER BY contractLineId, monthIndex`,
-    { contractNo: value },
+    { contractNo: value, writeOffMonths: WRITE_OFF_MONTHS },
   );
   const tailsByLine = new Map<string, Array<Record<string, unknown>>>();
   for (const row of tailRows) {
@@ -104,13 +105,26 @@ export async function appendPrepaymentWriteOffMonth(payload: { contractLineId: s
   if (!contractLineId) throw new Error("请先选择合同明细");
 
   const [line] = await queryRows<Row>(
-    `SELECT id, contractNo, contractTotalAmount, currency, contractCurrency, writeOffStartMonth,
-            lineType, requestType, countryCode, batchName, requestNo, poNo, deviceCode, modelCode, nameEn,
-            supplierId, undertakingUnitId, customerId, quantity
-       FROM prepaymentcontractitems WHERE id = :contractLineId LIMIT 1`,
+    `SELECT line.id, line.contractNo, line.contractTotalAmount, line.currency, line.contractCurrency, line.writeOffStartMonth,
+            line.lineType, line.requestType, line.countryCode, line.batchName, line.requestNo, line.poNo, line.deviceCode,
+            line.modelCode, line.nameEn, line.supplierId, line.undertakingUnitId, line.customerId, line.quantity,
+            contract.status AS contractStatus
+       FROM prepaymentcontractitems line
+       LEFT JOIN prepaymentcontracts contract ON contract.contractNo = line.contractNo
+      WHERE line.id = :contractLineId LIMIT 1`,
     { contractLineId },
   );
   if (!line) throw new Error("合同明细不存在");
+  /**
+   * 只允许给**已确认**的合同追加尾期。
+   *
+   * 草稿合同确认时会先清空该合同的全部月核销明细再重新生成 24 期，
+   * 这时追加的期会被直接覆盖，等于白加；而且草稿合同没有已生成的前 24 期，
+   * 追加出来的期号会落在 1~24 里，和合同首次生成的期次分不开（尾期判据失效）。
+   */
+  if (String(line.contractStatus ?? "") !== "已确认") {
+    throw new Error("请先确认预付款合同再追加尾期：草稿合同确认时会重新生成前 24 期，追加的期会被覆盖");
+  }
 
   // 只统计**已生效**金额：草稿调整单可能不确认，算进来会误导（与合同核销状态提醒口径一致）。
   const [existing] = await queryRows<Row>(
@@ -197,10 +211,14 @@ export async function appendPrepaymentWriteOffMonth(payload: { contractLineId: s
  * 合同的核销状态（实时比对合同金额与已生效核销合计）会自动重新计算。
  *
  * 边界（按业务确认的口径）：
- * - **只允许删 `sourceType = '追加尾期'` 的行**。合同确认时首次生成的期、以及被调整单改写的期
- *   都不给删，避免破坏合同基线和调整留痕；那两类要改就走预付款核销调整单。
- * - 被下游引用时阻断：核销调整单（草稿/已确认都算）、服务费对账单。这些单据已经把该期金额
- *   算进对账口径，删掉会账实不符，必须先处理对应单据。
+ * - **只允许删「追加尾期」产生的期**，判据是"期号 > 默认期数(24)"而不是 `sourceType`：
+ *   调整单确认会把来源改成「调整单」、退回草稿又会重置成「首次生成」，来源字段会被覆盖，
+ *   拿它判断会出现"明明是追加来的期，却因为来源被改而删不掉"的死结。
+ *   合同确认只会生成第 1~24 期，所以期号超过 24 的必然是追加产生的。
+ * - **已确认的核销调整单引用**时阻断：它已经把金额算进生效口径，必须先退回草稿。
+ * - **草稿调整单引用**时不阻断，删除时顺手把该期从草稿里摘掉（草稿本来就没有生效），
+ *   并重算这些草稿的明细条数与差额合计，避免留下悬空明细。
+ * - 被服务费对账单引用时阻断：对账口径已经把这期金额算进去了，删掉会账实不符。
  * - 删除同时把该明细剩余各期的 `totalMonths` 重算成剩余最大期号，列表口径才一致。
  */
 export async function deletePrepaymentWriteOffTail(id: string) {
@@ -213,8 +231,8 @@ export async function deletePrepaymentWriteOffTail(id: string) {
     { writeOffId },
   );
   if (!row) throw new Error("该月核销明细不存在，可能已被删除");
-  if (String(row.sourceType ?? "") !== "追加尾期") {
-    throw new Error("只有「追加尾期」生成的期次可以删除；合同首次生成或被调整单改写的期次请用预付款核销调整单处理");
+  if (!isAppendedTailPeriod(row.monthIndex)) {
+    throw new Error(`只有追加产生的尾期（第 ${WRITE_OFF_MONTHS + 1} 期及以后）可以删除；合同确认生成的前 ${WRITE_OFF_MONTHS} 期请用预付款核销调整单处理`);
   }
 
   const adjustments = await queryRows<Row>(
@@ -225,10 +243,12 @@ export async function deletePrepaymentWriteOffTail(id: string) {
       ORDER BY item.adjustmentNo`,
     { writeOffId },
   );
-  if (adjustments.length) {
-    const detail = adjustments.map((item) => `${String(item.adjustmentNo ?? "")}（${String(item.status ?? "")}）`).join("、");
-    throw new Error(`该尾期已被预付款核销调整单 ${detail} 引用，请先删除或退回对应调整单`);
+  const confirmedAdjustments = adjustments.filter((item) => String(item.status ?? "") === "已确认");
+  if (confirmedAdjustments.length) {
+    const detail = confirmedAdjustments.map((item) => String(item.adjustmentNo ?? "")).join("、");
+    throw new Error(`该尾期已被已确认的预付款核销调整单 ${detail} 引用，请先把它退回草稿或删除后再删尾期`);
   }
+  const draftAdjustments = Array.from(new Set(adjustments.map((item) => String(item.adjustmentNo ?? "")).filter(Boolean)));
 
   const [snapshot] = await queryRows<Row>(
     `SELECT COUNT(*) AS total
@@ -250,6 +270,24 @@ export async function deletePrepaymentWriteOffTail(id: string) {
 
   await withTransaction(async (connection) => {
     await executeInTransaction(connection, "DELETE FROM monthlyprepaymentwriteoffs WHERE id = :writeOffId", { writeOffId });
+    // 草稿调整单引用过这一期：草稿没有生效，直接摘掉明细并重算统计，避免留下悬空明细。
+    if (draftAdjustments.length) {
+      await executeInTransaction(
+        connection,
+        "DELETE FROM prepaymentwriteoffadjustmentitems WHERE monthlyWriteOffId = :writeOffId",
+        { writeOffId },
+      );
+      for (const adjustmentNo of draftAdjustments) {
+        await executeInTransaction(
+          connection,
+          `UPDATE prepaymentwriteoffadjustments target
+              SET target.itemCount = (SELECT COUNT(*) FROM prepaymentwriteoffadjustmentitems item WHERE item.adjustmentNo = target.adjustmentNo),
+                  target.differenceTotal = (SELECT COALESCE(SUM(item.differenceAmount), 0) FROM prepaymentwriteoffadjustmentitems item WHERE item.adjustmentNo = target.adjustmentNo)
+            WHERE target.adjustmentNo = :adjustmentNo`,
+          { adjustmentNo },
+        );
+      }
+    }
     // 期数变了，同明细剩余各期的 totalMonths 一起回退，列表口径才一致。
     if (lastIndex > 0) {
       await executeInTransaction(
@@ -268,6 +306,7 @@ export async function deletePrepaymentWriteOffTail(id: string) {
     monthIndex: Number(row.monthIndex ?? 0),
     amount: roundMoney(Number(row.monthlyAmount ?? 0)),
     totalMonths: lastIndex,
+    cleanedDraftAdjustments: draftAdjustments,
   };
 }
 

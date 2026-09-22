@@ -92,7 +92,15 @@ describe("追加尾期：超额只提醒不拦截", () => {
     contractTotalAmount: "1000.0000",
     writeOffStartMonth: new Date(2026, 8, 1),
     currency: "USD",
+    contractStatus: "已确认",
   };
+
+  it("草稿合同不允许追加尾期（确认时会重新生成 24 期，加了也会被覆盖）", async () => {
+    queryRows.mockResolvedValueOnce([{ ...line, contractStatus: "草稿" }]);
+
+    await expect(appendPrepaymentWriteOffMonth({ contractLineId: "PPCI-001" })).rejects.toThrow("请先确认预付款合同");
+    expect(execute).not.toHaveBeenCalled();
+  });
 
   it("默认金额按剩余额度补齐，期末合计等于明细金额时不提示", async () => {
     queryRows.mockResolvedValueOnce([line]).mockResolvedValueOnce([
@@ -157,19 +165,49 @@ describe("追加尾期：误加后撤销", () => {
     await expect(deletePrepaymentWriteOffTail("MWO-NONE")).rejects.toThrow("不存在");
   });
 
-  it("合同首次生成或被调整单改写的期次不允许删除", async () => {
-    queryRows.mockResolvedValueOnce([{ ...tailRow, sourceType: "首次生成" }]);
-    await expect(deletePrepaymentWriteOffTail(tailRow.id)).rejects.toThrow("追加尾期");
+  it("合同确认生成的前 24 期不允许删除（哪怕来源被改成调整单）", async () => {
+    queryRows.mockResolvedValueOnce([{ ...tailRow, monthIndex: 24, sourceType: "调整单" }]);
+    await expect(deletePrepaymentWriteOffTail(tailRow.id)).rejects.toThrow("只有追加产生的尾期");
     expect(withTransaction).not.toHaveBeenCalled();
   });
 
-  it("被核销调整单引用时阻断并给出单号", async () => {
+  it("来源被调整单覆盖成“首次生成”的尾期依然可以删（按第 25 期判定）", async () => {
+    queryRows
+      .mockResolvedValueOnce([{ ...tailRow, sourceType: "首次生成" }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ total: 0 }])
+      .mockResolvedValueOnce([{ lastIndex: 24 }]);
+
+    const result = await deletePrepaymentWriteOffTail(tailRow.id);
+
+    expect(result).toEqual(expect.objectContaining({ id: tailRow.id, monthIndex: 25, totalMonths: 24, cleanedDraftAdjustments: [] }));
+    expect(executeInTransaction).toHaveBeenCalledTimes(2);
+  });
+
+  it("被已确认的调整单引用时阻断并给出单号", async () => {
     queryRows
       .mockResolvedValueOnce([tailRow])
-      .mockResolvedValueOnce([{ adjustmentNo: "PWA-20260922", status: "草稿" }]);
+      .mockResolvedValueOnce([{ adjustmentNo: "PWA-20260922", status: "已确认" }]);
 
-    await expect(deletePrepaymentWriteOffTail(tailRow.id)).rejects.toThrow("PWA-20260922（草稿）");
+    await expect(deletePrepaymentWriteOffTail(tailRow.id)).rejects.toThrow("PWA-20260922");
     expect(withTransaction).not.toHaveBeenCalled();
+  });
+
+  it("只被草稿调整单引用时不阻断，删除时把该期从草稿里摘掉并重算统计", async () => {
+    queryRows
+      .mockResolvedValueOnce([tailRow])
+      .mockResolvedValueOnce([{ adjustmentNo: "PWA-DRAFT", status: "草稿" }])
+      .mockResolvedValueOnce([{ total: 0 }])
+      .mockResolvedValueOnce([{ lastIndex: 25 }]);
+
+    const result = await deletePrepaymentWriteOffTail(tailRow.id);
+
+    expect(result.cleanedDraftAdjustments).toEqual(["PWA-DRAFT"]);
+    const statements = executeInTransaction.mock.calls.map((call) => String(call[1]));
+    expect(statements[0]).toContain("DELETE FROM monthlyprepaymentwriteoffs");
+    expect(statements[1]).toContain("DELETE FROM prepaymentwriteoffadjustmentitems");
+    expect(statements[2]).toContain("target.itemCount");
+    expect(statements[3]).toContain("SET totalMonths = :lastIndex");
   });
 
   it("被服务费对账单引用时阻断", async () => {

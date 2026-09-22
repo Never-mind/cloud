@@ -118,7 +118,20 @@ type MonthlyWriteOffRow = {
   sourceType: "首次生成" | "调整单";
 };
 
-const WRITE_OFF_MONTHS = 24;
+/** 预付款核销默认期数：合同确认时每条明细固定生成这么多期。 */
+export const WRITE_OFF_MONTHS = 24;
+
+/**
+ * 判断某一期是不是「追加尾期」产生的。
+ *
+ * 不能用 `sourceType` 判断：调整单确认会把它改成「调整单」，调整单退回草稿又会重置成
+ * 「首次生成」，来源字段描述的是"这一期有没有被调整"，不是"这一期的出身"。
+ * 而合同确认只会生成第 1~WRITE_OFF_MONTHS 期，所以**期号超过默认期数的只能是后续追加的尾期**，
+ * 这个规则不受调整单影响，是目前唯一稳定的出身判据。
+ */
+export function isAppendedTailPeriod(monthIndex: unknown) {
+  return Number(monthIndex ?? 0) > WRITE_OFF_MONTHS;
+}
 
 export function toPrepaymentContractLineStorage(
   line: PrepaymentContractLineDraft,

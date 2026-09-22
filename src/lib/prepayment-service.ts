@@ -9,6 +9,7 @@ import {
 import { attachPartyCodes } from "./party-display";
 import { DEFAULT_PAGE_SIZE, getKnownNumber, getKnownTotal, normalizePageSize } from "./pagination";
 import { EQUIPMENT_ONLY_INSTANCE_CONDITION } from "./instance-model-type";
+import { WRITE_OFF_MONTHS } from "./prepayment-workflow";
 import { appendTableFilterOptionConditions, appendTableInFilter, formatTableDateExpression, getTableSort, listSqlFilterOptions } from "./table-query";
 import {
   buildMonthlyWriteOffRows,
@@ -656,6 +657,7 @@ export async function listMonthlyPrepaymentWriteOffs(searchParams: URLSearchPara
         mpw.quantity,
         mpw.sourceType,
         mpw.adjustmentNo,
+        CASE WHEN mpw.monthIndex > ${WRITE_OFF_MONTHS} THEN 1 ELSE 0 END AS isAppendedTail,
         DATE_FORMAT(mpw.createdAt, '%Y-%m-%d') AS createdAt,
         DATE_FORMAT(mpw.updatedAt, '%Y-%m-%d') AS updatedAt
       FROM monthlyprepaymentwriteoffs AS mpw

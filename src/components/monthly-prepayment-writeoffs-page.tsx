@@ -250,10 +250,16 @@ export function MonthlyPrepaymentWriteOffsPage() {
                   {columns.map((column) => (
                     <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3" key={column.key}>
                       {renderLinkedValue(row, column, currentRoute)}
+                      {/* 来源字段会被调整单覆盖（确认→调整单、退回→首次生成），所以尾期另打标记 */}
+                      {column.key === "sourceType" && Number(row.isAppendedTail ?? 0) === 1 ? (
+                        <span className="ml-2 rounded bg-surface-2 px-1.5 py-0.5 text-xs text-ink-2" title="由「追加尾期」产生的一期">
+                          尾期
+                        </span>
+                      ) : null}
                     </td>
                   ))}
                   <td className="sticky right-0 whitespace-nowrap border-b border-line-soft bg-white px-3 py-3">
-                    {String(row.sourceType ?? "") === "追加尾期" ? (
+                    {Number(row.isAppendedTail ?? 0) === 1 ? (
                       <Button disabled={deletingId === String(row.id)} tone="danger" onClick={() => void deleteTail(row)}>
                         <Trash2 size={15} />
                         {deletingId === String(row.id) ? "删除中" : "删除尾期"}
