@@ -27,6 +27,8 @@ const columns: Array<{ key: string; label: string; type?: string }> = [
   { key: "createdAt", label: "创建时间", type: "datetime" },
   { key: "updatedAt", label: "更新时间", type: "datetime" },
 ] .map((column) => ({ ...column, sortable: true, filterable: true }));
+// 核销状态是前端按合同实时并入的派生列，服务端不支持排序/筛选，所以不参与上面的 map
+columns.splice(2, 0, { key: "writeOffStatus", label: "核销状态" });
 
 export function PrepaymentContractsPage() {
   const pathname = usePathname();
@@ -37,6 +39,7 @@ export function PrepaymentContractsPage() {
   const [appliedKeyword, setAppliedKeyword] = useState(() => searchParams.get("keyword") ?? "");
   const [statusTab, setStatusTab] = useState<"draft" | "confirmed">(() => searchParams.get("statusTab") === "confirmed" ? "confirmed" : "draft");
   const [loading, setLoading] = useState(false);
+  const [unbalancedCount, setUnbalancedCount] = useState(0);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [total, setTotal] = useState(0);
@@ -79,6 +82,20 @@ export function PrepaymentContractsPage() {
     return `/api/entities/prepayment-contracts/export?${params.toString()}`;
   }, [appliedKeyword, columnFilters, sortField, sortOrder, statusTab]);
 
+  /** 核销平衡状态：实时计算，调平后自动变“已平”。 */
+  async function mergeWriteOffStatus() {
+    try {
+      const response = await fetch("/api/prepayments/writeoff-status");
+      const data = await response.json();
+      if (!response.ok) return;
+      const map = new Map<string, string>((data.items ?? []).map((item: Row) => [String(item.contractNo), String(item.label)]));
+      setUnbalancedCount(Number(data.unbalancedCount ?? 0));
+      setRows((current) => current.map((row) => ({ ...row, writeOffStatus: map.get(String(row.contractNo)) ?? "" })));
+    } catch {
+      // 核销状态取不到不影响合同列表
+    }
+  }
+
   async function loadData(nextPage = page, nextPageSize = pageSizeRef.current, nextStatusTab = statusTab, nextKeyword = appliedKeyword) {
     setLoading(true);
     try {
@@ -90,6 +107,7 @@ export function PrepaymentContractsPage() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? "合同加载失败");
       setRows(data.rows ?? []);
+        void mergeWriteOffStatus();
       setTotal(Number(data.total ?? 0));
       setPage(Number(data.page ?? nextPage));
     } catch (error) {
@@ -309,6 +327,11 @@ export function PrepaymentContractsPage() {
           </Link>
         </div>
 
+        {unbalancedCount > 0 ? (
+          <div className="border-b border-warning-border bg-warning-soft px-4 py-2 text-sm text-warning-ink">
+            有 {unbalancedCount} 张合同的核销金额与合同金额不一致，可在「预付款核销调整单」里继续调整；调平后此提示会自动消失。
+          </div>
+        ) : null}
         <StickyTable className="table-scroll table-viewport overflow-auto" tableKey="prepayment-contracts">
           <table className="min-w-full border-collapse text-sm">
             <thead className="bg-canvas text-ink">
