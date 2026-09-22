@@ -47,6 +47,25 @@ export async function listAppendableWriteOffMonths(contractNo: string) {
     { contractNo: value },
   );
   if (!lines.length) throw new Error(`预付款合同 ${value} 不存在或没有明细`);
+  const tailRows = await queryRows<Row>(
+    `SELECT id, contractLineId, writeOffMonth, monthIndex, monthlyAmount
+       FROM monthlyprepaymentwriteoffs
+      WHERE contractNo = :contractNo AND sourceType = '追加尾期'
+      ORDER BY contractLineId, monthIndex`,
+    { contractNo: value },
+  );
+  const tailsByLine = new Map<string, Array<Record<string, unknown>>>();
+  for (const row of tailRows) {
+    const key = String(row.contractLineId ?? "");
+    const list = tailsByLine.get(key) ?? [];
+    list.push({
+      id: String(row.id ?? ""),
+      writeOffMonth: formatDate(new Date(String(row.writeOffMonth ?? ""))),
+      monthIndex: Number(row.monthIndex ?? 0),
+      amount: roundMoney(Number(row.monthlyAmount ?? 0)),
+    });
+    tailsByLine.set(key, list);
+  }
   return lines.map((line) => {
     const lineAmount = roundMoney(Number(line.contractTotalAmount ?? 0));
     const written = roundMoney(Number(line.written ?? 0));
@@ -64,6 +83,7 @@ export async function listAppendableWriteOffMonths(contractNo: string) {
       monthIndex: Number(line.lastIndex ?? 0) + 1,
       nextMonth: formatDate(next),
       settled: remaining <= 0,
+      tails: tailsByLine.get(String(line.id ?? "")) ?? [],
     };
   });
 }
@@ -168,6 +188,87 @@ export async function appendPrepaymentWriteOffMonth(payload: { contractLineId: s
   );
 
   return { id, contractLineId, writeOffMonth, monthIndex, amount, remainingBefore: remaining, writtenTotal: nextTotal, originalAmount, warning };
+}
+
+/**
+ * 删除「追加尾期」生成的一期。
+ *
+ * 追加尾期是财务手动加的期次，加错了必须能撤：撤掉之后该期从月核销明细消失，
+ * 合同的核销状态（实时比对合同金额与已生效核销合计）会自动重新计算。
+ *
+ * 边界（按业务确认的口径）：
+ * - **只允许删 `sourceType = '追加尾期'` 的行**。合同确认时首次生成的期、以及被调整单改写的期
+ *   都不给删，避免破坏合同基线和调整留痕；那两类要改就走预付款核销调整单。
+ * - 被下游引用时阻断：核销调整单（草稿/已确认都算）、服务费对账单。这些单据已经把该期金额
+ *   算进对账口径，删掉会账实不符，必须先处理对应单据。
+ * - 删除同时把该明细剩余各期的 `totalMonths` 重算成剩余最大期号，列表口径才一致。
+ */
+export async function deletePrepaymentWriteOffTail(id: string) {
+  const writeOffId = String(id ?? "").trim();
+  if (!writeOffId) throw new Error("请选择要删除的尾期");
+
+  const [row] = await queryRows<Row>(
+    `SELECT id, contractNo, contractLineId, writeOffMonth, monthIndex, monthlyAmount, sourceType
+       FROM monthlyprepaymentwriteoffs WHERE id = :writeOffId LIMIT 1`,
+    { writeOffId },
+  );
+  if (!row) throw new Error("该月核销明细不存在，可能已被删除");
+  if (String(row.sourceType ?? "") !== "追加尾期") {
+    throw new Error("只有「追加尾期」生成的期次可以删除；合同首次生成或被调整单改写的期次请用预付款核销调整单处理");
+  }
+
+  const adjustments = await queryRows<Row>(
+    `SELECT item.adjustmentNo, adjustment.status
+       FROM prepaymentwriteoffadjustmentitems item
+       LEFT JOIN prepaymentwriteoffadjustments adjustment ON adjustment.adjustmentNo = item.adjustmentNo
+      WHERE item.monthlyWriteOffId = :writeOffId
+      ORDER BY item.adjustmentNo`,
+    { writeOffId },
+  );
+  if (adjustments.length) {
+    const detail = adjustments.map((item) => `${String(item.adjustmentNo ?? "")}（${String(item.status ?? "")}）`).join("、");
+    throw new Error(`该尾期已被预付款核销调整单 ${detail} 引用，请先删除或退回对应调整单`);
+  }
+
+  const [snapshot] = await queryRows<Row>(
+    `SELECT COUNT(*) AS total
+       FROM servicefeesnapshotitems
+      WHERE FIND_IN_SET(:writeOffId, COALESCE(prepaymentSourceIds, '')) > 0`,
+    { writeOffId },
+  );
+  if (Number(snapshot?.total ?? 0) > 0) {
+    throw new Error("该尾期已被服务费对账单引用，请先处理对应服务费对账单");
+  }
+
+  const contractLineId = String(row.contractLineId ?? "");
+  const [remaining] = await queryRows<Row>(
+    `SELECT COALESCE(MAX(monthIndex), 0) AS lastIndex FROM monthlyprepaymentwriteoffs
+      WHERE contractLineId = :contractLineId AND id <> :writeOffId`,
+    { contractLineId, writeOffId },
+  );
+  const lastIndex = Number(remaining?.lastIndex ?? 0);
+
+  await withTransaction(async (connection) => {
+    await executeInTransaction(connection, "DELETE FROM monthlyprepaymentwriteoffs WHERE id = :writeOffId", { writeOffId });
+    // 期数变了，同明细剩余各期的 totalMonths 一起回退，列表口径才一致。
+    if (lastIndex > 0) {
+      await executeInTransaction(
+        connection,
+        "UPDATE monthlyprepaymentwriteoffs SET totalMonths = :lastIndex WHERE contractLineId = :contractLineId",
+        { lastIndex, contractLineId },
+      );
+    }
+  });
+
+  return {
+    id: writeOffId,
+    contractNo: String(row.contractNo ?? ""),
+    contractLineId,
+    writeOffMonth: formatDate(new Date(String(row.writeOffMonth ?? ""))),
+    monthIndex: Number(row.monthIndex ?? 0),
+    amount: roundMoney(Number(row.monthlyAmount ?? 0)),
+    totalMonths: lastIndex,
+  };
 }
 
 export async function listAvailablePrepaymentWriteOffs(searchParams: URLSearchParams) {

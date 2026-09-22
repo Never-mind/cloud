@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { appendPrepaymentWriteOffMonth } from "@/lib/prepayment-adjustment-service";
 import { listAppendableWriteOffMonths } from "@/lib/prepayment-adjustment-service";
+import { deletePrepaymentWriteOffTail } from "@/lib/prepayment-adjustment-service";
 import { getOperationActor } from "@/lib/operation-actor";
 import { getOperationRequestId, recordOperationLog } from "@/lib/operation-log";
 
@@ -39,5 +40,35 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(result, { status: 201 });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "追加尾期失败" }, { status: 400 });
+  }
+}
+
+/**
+ * 撤销追加尾期：加错了直接删掉那一期。
+ * 只允许删 `sourceType = '追加尾期'` 的行，且被核销调整单或服务费对账单引用时阻断（见 service 注释）。
+ */
+export async function DELETE(request: NextRequest) {
+  try {
+    const id = request.nextUrl.searchParams.get("id") ?? "";
+    const result = await deletePrepaymentWriteOffTail(id);
+    await recordOperationLog({
+      actor: await getOperationActor(request),
+      domainKey: "power",
+      moduleKey: "prepayment-writeoff-adjustments",
+      action: "delete",
+      entityType: "prepayment-writeoff-month",
+      entityId: result.id,
+      requestId: getOperationRequestId(request),
+      detail: {
+        contractNo: result.contractNo,
+        contractLineId: result.contractLineId,
+        month: result.writeOffMonth,
+        amount: result.amount,
+        monthIndex: result.monthIndex,
+      },
+    });
+    return NextResponse.json(result);
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : "删除尾期失败" }, { status: 400 });
   }
 }

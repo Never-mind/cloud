@@ -69,6 +69,14 @@ const tailColumns: Array<{ key: string; label: string; type?: string }> = [
   { key: "nextMonth", label: "追加月份" },
 ];
 
+/** 某条明细已经追加过的尾期（可撤销，用来处理"加错了"）。 */
+type TailEntry = { id: string; writeOffMonth: string; monthIndex: number; amount: number };
+
+function readTails(line: Row): TailEntry[] {
+  const value = (line as unknown as { tails?: unknown }).tails;
+  return Array.isArray(value) ? (value as TailEntry[]) : [];
+}
+
 export function PrepaymentWriteOffAdjustmentDetailPage({ adjustmentNo: routeAdjustmentNo }: { adjustmentNo: string }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -290,6 +298,25 @@ export function PrepaymentWriteOffAdjustmentDetailPage({ adjustmentNo: routeAdju
     }
   }
 
+  /** 撤销追加尾期：误加的尾期直接删掉，删完合同核销状态会重新算。 */
+  async function deleteTail(line: Row, tail: TailEntry) {
+    const label = `${tail.writeOffMonth}（第 ${tail.monthIndex} 期 / ${formatValue(tail.amount, "number")}）`;
+    if (!await confirmDialog(`确认删除追加的尾期 ${label}？\n删除后该期从预付款月核销明细消失，合同的核销状态会重新计算。`)) return;
+    setTailBusy(true);
+    try {
+      const response = await fetch(`/api/prepayment-adjustments/append-month?id=${encodeURIComponent(tail.id)}`, { method: "DELETE" });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error ?? "删除尾期失败");
+      notify(`已删除尾期 ${String(data.writeOffMonth ?? tail.writeOffMonth)}`, "success");
+      await loadTailLines();
+      await loadSearchRows();
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "删除尾期失败", "error");
+    } finally {
+      setTailBusy(false);
+    }
+  }
+
   async function rollbackAdjustment() {
     if (!await confirmDialog(`确认将该调整单退回草稿？\n退回后受影响的预付款月核销金额会还原成调整前的值，相当于这张调整单从未确认。`)) return;
     setSaving(true);
@@ -492,6 +519,7 @@ export function PrepaymentWriteOffAdjustmentDetailPage({ adjustmentNo: routeAdju
                         {column.label}
                       </th>
                     ))}
+                    <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">已追加尾期</th>
                     <th className="whitespace-nowrap border-b border-line-soft px-3 py-3 text-left font-medium">操作</th>
                   </tr>
                 </thead>
@@ -499,6 +527,7 @@ export function PrepaymentWriteOffAdjustmentDetailPage({ adjustmentNo: routeAdju
                   {tailLines.map((line) => {
                     const id = String(line.contractLineId ?? "");
                     const settled = Boolean(line.settled);
+                    const tails = readTails(line);
                     return (
                       <tr className={settled ? "bg-surface-2 text-ink-3" : "hover:bg-surface-2"} key={id}>
                         {tailColumns.map((column) => (
@@ -506,6 +535,25 @@ export function PrepaymentWriteOffAdjustmentDetailPage({ adjustmentNo: routeAdju
                             {formatValue(line[column.key], column.type)}
                           </td>
                         ))}
+                        <td className="border-b border-r border-line-soft px-3 py-3 align-top">
+                          {tails.length ? (
+                            <div className="space-y-1">
+                              {tails.map((tail) => (
+                                <div className="flex items-center gap-2" key={tail.id}>
+                                  <span className="whitespace-nowrap text-xs text-ink-2">
+                                    {tail.writeOffMonth} · 第 {tail.monthIndex} 期 · {formatValue(tail.amount, "number")}
+                                  </span>
+                                  <Button disabled={tailBusy} tone="danger" onClick={() => void deleteTail(line, tail)}>
+                                    <Trash2 size={14} />
+                                    删除
+                                  </Button>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <span className="text-xs text-ink-3">—</span>
+                          )}
+                        </td>
                         <td className="whitespace-nowrap border-b border-line-soft px-3 py-3">
                           <Button
                             disabled={tailBusy || settled}
@@ -522,7 +570,7 @@ export function PrepaymentWriteOffAdjustmentDetailPage({ adjustmentNo: routeAdju
                   })}
                   {!tailLines.length ? (
                     <tr>
-                      <td className="py-10 text-center text-ink-3" colSpan={tailColumns.length + 1}>
+                      <td className="py-10 text-center text-ink-3" colSpan={tailColumns.length + 2}>
                         <TableStateContent empty="请输入预付款合同号后点击查询" loading={tailBusy} />
                       </td>
                     </tr>

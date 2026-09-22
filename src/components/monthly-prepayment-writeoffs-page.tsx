@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { FileDown, RefreshCw, Search } from "lucide-react";
+import { FileDown, RefreshCw, Search, Trash2 } from "lucide-react";
 import { formatDisplayValue } from "@/lib/display-format";
 import { appendKnownTotal, DEFAULT_PAGE_SIZE } from "@/lib/pagination";
 import { PaginationBar } from "./pagination-bar";
@@ -12,7 +12,7 @@ import { TableColumnMenu, type TableFilterOption, type TableSortOrder } from "./
 import { useRequestGuard } from "@/lib/table-query-client";
 import { buildDetailRoute, buildListRoute, getCurrentRoute, getPositiveNumber, useListScrollPosition } from "@/lib/client-list-navigation";
 import { Button, Input, Panel, Select } from "./ui";
-import { notify } from "./app-dialog";
+import { confirmDialog, notify } from "./app-dialog";
 import { monthlyPrepaymentWriteOffColumns } from "@/lib/writeoff-export-columns";
 import { TableStateContent } from "./table-state";
 
@@ -48,6 +48,7 @@ export function MonthlyPrepaymentWriteOffsPage() {
   const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>(() =>
     Object.fromEntries(columns.map((column) => [column.key, searchParams.getAll(`filter.${column.key}`)])),
   );
+  const [deletingId, setDeletingId] = useState("");
   const pageSizeRef = useRef(pageSize);
   const skipNextPageChangeRef = useRef(false);
   const queryMountedRef = useRef(false);
@@ -109,6 +110,27 @@ export function MonthlyPrepaymentWriteOffsPage() {
 
   function renderHeader(column: (typeof columns)[number]) {
     return <TableColumnMenu column={column} filterValues={columnFilters[column.key] ?? []} loadOptions={(keyword) => loadColumnOptions(column.key, keyword)} onFilter={(values) => { setColumnFilters((current) => ({ ...current, [column.key]: values })); setPage(1); }} onSort={(order) => { setSortField(order ? column.key : ""); setSortOrder(order); setPage(1); }} sortOrder={sortField === column.key ? sortOrder : ""} />;
+  }
+
+  /**
+   * 撤销追加尾期：财务误加的尾期直接删掉。
+   * 后端只放行 `来源 = 追加尾期` 的行，且被核销调整单 / 服务费对账单引用时会给出提示。
+   */
+  async function deleteTail(row: Row) {
+    const label = `${String(row.writeOffMonth ?? "")} 第 ${String(row.monthIndex ?? "")} 期 ${formatValue(row.monthlyAmount, "money")}`;
+    if (!await confirmDialog(`确认删除追加的尾期（${label}）？\n删除后该期从预付款月核销明细消失，合同的核销状态会重新计算。`)) return;
+    setDeletingId(String(row.id ?? ""));
+    try {
+      const response = await fetch(`/api/prepayment-adjustments/append-month?id=${encodeURIComponent(String(row.id ?? ""))}`, { method: "DELETE" });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error ?? "删除尾期失败");
+      notify(`已删除尾期 ${String(data.writeOffMonth ?? "")}`, "success");
+      await loadData(page, pageSizeRef.current, appliedFilters, true);
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "删除尾期失败", "error");
+    } finally {
+      setDeletingId("");
+    }
   }
 
   async function fetchData(nextPage: number, nextPageSize: number, exportAll = false, filters = appliedFilters, reuseKnownTotals = false): Promise<ListResponse> {
@@ -219,6 +241,7 @@ export function MonthlyPrepaymentWriteOffsPage() {
                     {renderHeader(column)}
                   </th>
                 ))}
+                <th className="whitespace-nowrap sticky right-0 border-b border-line-soft bg-canvas px-3 py-3 text-left font-medium">操作</th>
               </tr>
             </thead>
             <tbody>
@@ -229,11 +252,21 @@ export function MonthlyPrepaymentWriteOffsPage() {
                       {renderLinkedValue(row, column, currentRoute)}
                     </td>
                   ))}
+                  <td className="sticky right-0 whitespace-nowrap border-b border-line-soft bg-white px-3 py-3">
+                    {String(row.sourceType ?? "") === "追加尾期" ? (
+                      <Button disabled={deletingId === String(row.id)} tone="danger" onClick={() => void deleteTail(row)}>
+                        <Trash2 size={15} />
+                        {deletingId === String(row.id) ? "删除中" : "删除尾期"}
+                      </Button>
+                    ) : (
+                      <span className="text-xs text-ink-3">—</span>
+                    )}
+                  </td>
                 </tr>
               ))}
               {!rows.length ? (
                 <tr>
-                  <td className="py-12 text-center text-ink-3" colSpan={columns.length}>
+                  <td className="py-12 text-center text-ink-3" colSpan={columns.length + 1}>
                     <TableStateContent empty="暂无核销明细" loading={loading} />
                   </td>
                 </tr>
