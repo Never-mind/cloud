@@ -63,6 +63,7 @@ export function PrepaymentWriteOffAdjustmentDetailPage({ adjustmentNo: routeAdju
   const isNew = routeAdjustmentNo === "new";
   const [adjustmentNo, setAdjustmentNo] = useState(isNew ? buildAdjustmentNo() : routeAdjustmentNo);
   const [status, setStatus] = useState("草稿");
+  const [appendingTail, setAppendingTail] = useState(false);
   const [reason, setReason] = useState("");
   const [searchRows, setSearchRows] = useState<Row[]>([]);
   const [selectedRows, setSelectedRows] = useState<Row[]>([]);
@@ -211,13 +212,53 @@ export function PrepaymentWriteOffAdjustmentDetailPage({ adjustmentNo: routeAdju
     });
     const data = await response.json();
     if (!response.ok) {
-      notify(data.error ?? "确认失败", "info");
+      notify(data.error ?? "确认失败", "error");
       return;
     }
     setStatus("已确认");
     setConfirmedItems(data.items ?? []);
     notify("预付款核销调整单已确认", "success");
     router.push(returnTo);
+  }
+
+  /**
+   * 追加尾期：客户某个月少核销（或核销为 0）时，合同明细按默认期数核销不完，
+   * 调整单里没有可选的月份承接剩余金额。这里对当前已添加的合同明细逐条追加一期，
+   * 金额由服务端按「明细总额 − 已生成各期实际金额之和」自动算出（草稿调整单里的调整也算在内），
+   * 追加出来的月份会像普通月份一样出现在可选列表里，可以继续调整金额。
+   */
+  async function appendTailMonths() {
+    const lineIds = Array.from(new Set(selectedRows.map((row) => String(row.contractLineId ?? "")).filter(Boolean)));
+    if (!lineIds.length) {
+      notify("请先添加需要调整的明细，再追加尾期", "error");
+      return;
+    }
+    if (!await confirmDialog(`为这 ${lineIds.length} 条合同明细各追加一期？\n金额按「明细总额 − 已核销金额」自动计算，追加后可以继续调整。`)) return;
+    setAppendingTail(true);
+    const added: string[] = [];
+    const skipped: string[] = [];
+    try {
+      for (const contractLineId of lineIds) {
+        const response = await fetch("/api/prepayment-adjustments/append-month", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ contractLineId }),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          skipped.push(String(data.error ?? "追加失败"));
+          continue;
+        }
+        added.push(`${data.writeOffMonth} / ${data.amount}`);
+      }
+      if (added.length) {
+        notify(`已追加 ${added.length} 期：\n${added.slice(0, 5).join("\n")}${added.length > 5 ? `\n…共 ${added.length} 期` : ""}`, "success");
+        await loadSearchRows();
+      }
+      if (skipped.length) notify(`未追加 ${skipped.length} 条：${skipped.slice(0, 3).join("；")}`, "info");
+    } finally {
+      setAppendingTail(false);
+    }
   }
 
   async function rollbackAdjustment() {
@@ -347,6 +388,10 @@ export function PrepaymentWriteOffAdjustmentDetailPage({ adjustmentNo: routeAdju
                 <Button disabled={saving} tone="primary" onClick={() => void saveDraft()}>
                   <Save size={15} />
                   {saving ? "保存中" : "保存草稿"}
+                </Button>
+                <Button disabled={saving || appendingTail} onClick={() => void appendTailMonths()}>
+                  <Plus size={15} />
+                  {appendingTail ? "追加中..." : "追加尾期"}
                 </Button>
                 <Button disabled={saving} tone="success" onClick={() => void confirmAdjustment()}>
                   <CheckCircle2 size={15} />
