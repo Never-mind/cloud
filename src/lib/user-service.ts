@@ -20,6 +20,10 @@ type UserPermission = {
 };
 
 export type ManagedUser = Pick<AuthUser, "userId" | "displayName" | "email" | "role" | "status"> & {
+  loginType: string;
+  feishuBound: boolean;
+  feishuName: string | null;
+  feishuBoundAt: string | null;
   lastLoginAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -27,6 +31,8 @@ export type ManagedUser = Pick<AuthUser, "userId" | "displayName" | "email" | "r
 };
 
 type UserRow = ManagedUser & {
+  feishuOpenId: string | null;
+  feishuUnionId: string | null;
   lastLoginAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -46,6 +52,12 @@ function normalizeEmail(value: unknown) {
 
 function normalizeStatus(value: unknown) {
   return value === "disabled" ? "disabled" : "active";
+}
+
+/** 登录方式：local=仅密码、feishu=仅飞书、both=两者都可；非法值按 both。 */
+function normalizeLoginType(value: unknown) {
+  const normalized = String(value ?? "").trim();
+  return normalized === "local" || normalized === "feishu" || normalized === "both" ? normalized : "both";
 }
 
 async function assertAdmin(email: string) {
@@ -90,10 +102,24 @@ async function loadPermissions(userId: string) {
 export async function listManagedUsers(email: string) {
   await assertAdmin(email);
   const users = await queryRowsRaw<UserRow>(
-    `SELECT userId, displayName, email, role, status, lastLoginAt, createdAt, updatedAt
+    `SELECT userId, displayName, email, role, status, lastLoginAt, createdAt, updatedAt,
+            COALESCE(loginType, 'both') AS loginType, feishuOpenId, feishuUnionId, feishuName, feishuBoundAt
      FROM merge_common_users ORDER BY createdAt ASC, email ASC`,
   );
-  return Promise.all(users.map(async (user) => ({ ...user, permissions: await loadPermissions(user.userId) })));
+  return Promise.all(
+    users.map(async (user) => ({
+      ...user,
+      feishuBound: Boolean(user.feishuOpenId),
+      feishuOpenId: undefined,
+      feishuUnionId: undefined,
+      permissions: await loadPermissions(user.userId),
+    })),
+  );
+}
+
+/** 供其它模块复用：确认操作人是启用状态的管理员。 */
+export async function assertAdminActor(email: string) {
+  return assertAdmin(email);
 }
 
 export async function createManagedUser(adminEmail: string, input: Record<string, unknown>) {
@@ -101,24 +127,27 @@ export async function createManagedUser(adminEmail: string, input: Record<string
   const email = normalizeEmail(input.email);
   const displayName = String(input.displayName ?? "").trim();
   const password = String(input.password ?? "");
+  const loginType = normalizeLoginType(input.loginType);
   if (!email || !email.includes("@")) throw new Error("请输入有效的账号");
   if (!displayName) throw new Error("请输入用户名称");
-  if (password.length < 6) throw new Error("密码长度不能少于6位");
+  // 飞书登录的账号不需要密码；只有允许密码登录时才强制校验。
+  if (loginType !== "feishu" && password.length < 6) throw new Error("密码长度不能少于6位");
 
   const userId = randomUUID();
-  const salt = createPasswordSalt();
+  const salt = password ? createPasswordSalt() : "";
   await executeRaw(
     `INSERT INTO merge_common_users
-      (userId, displayName, email, passwordHash, passwordSalt, role, status)
-     VALUES (:userId, :displayName, :email, :passwordHash, :passwordSalt, :role, :status)`,
+      (userId, displayName, email, passwordHash, passwordSalt, role, status, loginType)
+     VALUES (:userId, :displayName, :email, :passwordHash, :passwordSalt, :role, :status, :loginType)`,
     {
       userId,
       displayName,
       email,
-      passwordHash: hashPassword(password, salt),
+      passwordHash: password ? hashPassword(password, salt) : "",
       passwordSalt: salt,
       role: input.role === "admin" ? "admin" : "user",
       status: normalizeStatus(input.status),
+      loginType,
     },
   );
   return { userId };
@@ -148,6 +177,10 @@ export async function updateManagedUser(adminEmail: string, userId: string, inpu
   if (input.role !== undefined) {
     fields.push("role = :role");
     params.role = input.role === "admin" ? "admin" : "user";
+  }
+  if (input.loginType !== undefined) {
+    fields.push("loginType = :loginType");
+    params.loginType = normalizeLoginType(input.loginType);
   }
   const password = String(input.password ?? "");
   if (password) {

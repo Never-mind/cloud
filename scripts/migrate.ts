@@ -285,6 +285,26 @@ async function ensureFrappeDemandSyncTables() {
   ] as const) {
     await addColumnIfMissing("merge_power_requests", columnName, ddl);
   }
+  /**
+   * 飞书登录：账号与飞书身份绑定关系。
+   *
+   * loginType 语义：local=仅密码（管理员兜底）、feishu=仅飞书、both=两者都可。
+   * 默认 both，保证已有账号在改配置后能直接用飞书登录；新账号由管理员界面决定。
+   */
+  for (const [columnName, ddl] of [
+    ["feishuOpenId", "`feishuOpenId` VARCHAR(64) NULL COMMENT 'feishu open_id'"],
+    ["feishuUnionId", "`feishuUnionId` VARCHAR(64) NULL COMMENT 'feishu union_id'"],
+    ["feishuName", "`feishuName` VARCHAR(255) NULL COMMENT 'feishu display name'"],
+    ["feishuBoundAt", "`feishuBoundAt` DATETIME NULL COMMENT 'feishu binding time'"],
+    ["loginType", "`loginType` VARCHAR(16) NOT NULL DEFAULT 'both' COMMENT 'local/feishu/both'"],
+  ] as const) {
+    await addColumnIfMissing("merge_common_users", columnName, ddl);
+  }
+  await addIndexIfMissing(
+    "merge_common_users",
+    "idx_CommonUsers_feishuOpenId",
+    "UNIQUE KEY `idx_CommonUsers_feishuOpenId` (`feishuOpenId`)",
+  );
 }
 
 async function ensureOperationLogTable() {

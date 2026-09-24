@@ -1,13 +1,16 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { LockKeyhole, Mail } from "lucide-react";
+import { LockKeyhole, Mail, MessageCircle } from "lucide-react";
 import { Button, Input } from "./ui";
 
-export function LoginPage() {
+export function LoginPage({ feishuEnabled = false }: { feishuEnabled?: boolean }) {
   const [email, setEmail] = useState("admin@luzcorp.com");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
+  const [error, setError] = useState(() => {
+    if (typeof window === "undefined") return "";
+    return new URLSearchParams(window.location.search).get("error") ?? "";
+  });
   const [submitting, setSubmitting] = useState(false);
   const nextUrl = useMemo(() => {
     if (typeof window === "undefined") return "/";
@@ -47,9 +50,23 @@ export function LoginPage() {
       <section className="w-full max-w-[420px] border border-line bg-white p-8 shadow-sm">
         <div className="mb-7">
           <div className="mb-2 text-2xl font-medium text-ink">Cloud业务系统</div>
-          <div className="text-sm text-ink-3">请输入账号和密码登录后台</div>
+          <div className="text-sm text-ink-3">请使用飞书账号登录；管理员可用邮箱密码登录</div>
         </div>
-        <form className="space-y-4" onSubmit={submit}>
+
+        {error ? <div className="mb-4 border border-danger-border bg-danger-soft px-3 py-2 text-sm text-danger">{error}</div> : null}
+
+        <a className="block" href={`/api/auth/feishu/start?next=${encodeURIComponent(nextUrl)}`}>
+          <Button className="w-full" disabled={!feishuEnabled} tone="primary" type="button">
+            <MessageCircle size={16} />
+            使用飞书登录
+          </Button>
+        </a>
+        {feishuEnabled ? null : <div className="mt-2 text-xs text-ink-3">飞书登录尚未配置（FEISHU_APP_ID / FEISHU_APP_SECRET），请联系管理员。</div>}
+        <div className="mt-2 text-xs text-ink-3">首次登录会自动与本地账号绑定；未开通账号请联系管理员添加。</div>
+
+        <details className="mt-6 border-t border-line-soft pt-4">
+          <summary className="cursor-pointer text-sm text-ink-3 hover:text-ink">管理员邮箱密码登录</summary>
+          <form className="mt-4 space-y-4" onSubmit={submit}>
           <label className="block">
             <span className="mb-1 block text-sm text-ink-2">账号</span>
             <div className="relative">
@@ -78,11 +95,11 @@ export function LoginPage() {
               />
             </div>
           </label>
-          {error ? <div className="border border-danger-border bg-danger-soft px-3 py-2 text-sm text-danger">{error}</div> : null}
           <Button className="w-full" disabled={submitting} tone="primary" type="submit">
             {submitting ? "登录中..." : "登录"}
           </Button>
-        </form>
+          </form>
+        </details>
       </section>
     </main>
   );

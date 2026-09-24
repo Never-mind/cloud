@@ -17,7 +17,8 @@ import { decodePermissionState } from "@/lib/permission-middleware";
 import { getRoutePermission, hasPermission } from "@/lib/permission-definitions";
 import { AUTH_PERMISSION_COOKIE_NAME } from "@/lib/permission-middleware";
 
-const publicPaths = ["/login", "/api/auth/login"];
+// 无需登录即可访问：登录页、密码登录接口、飞书登录入口与回调（回调必须匿名可访问）。
+const publicPaths = ["/login", "/api/auth/login", "/api/auth/feishu"];
 
 function applyEmbeddedCookie(response: NextResponse, request: NextRequest, embedded = false) {
   if (!embedded || request.cookies.get(EMBEDDED_COOKIE_NAME)?.value === "1") return response;
