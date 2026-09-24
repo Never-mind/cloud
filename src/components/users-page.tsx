@@ -61,6 +61,7 @@ export function UsersPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [bindOpenId, setBindOpenId] = useState("");
 
   async function load() {
     setLoading(true);
@@ -130,6 +131,29 @@ export function UsersPage() {
     }
   }
 
+  /** 管理员用 open_id 手工绑定飞书（成员没有企业邮箱时使用）。 */
+  async function bindFeishu(user: ManagedUser) {
+    const openId = bindOpenId.trim();
+    if (!openId) return;
+    setSaving(true);
+    try {
+      const response = await fetch(`/api/system/users/${encodeURIComponent(user.userId)}/feishu-binding`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ openId }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error ?? "绑定失败");
+      setBindOpenId("");
+      setSelected(null);
+      await load();
+    } catch (bindError) {
+      setError(bindError instanceof Error ? bindError.message : "绑定失败");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   /** 飞书解绑：只清飞书绑定关系，账号与权限保留。 */
   async function unbindFeishu(user: ManagedUser) {
     if (!confirm(`确认解绑 ${user.displayName || user.email} 的飞书账号？\n解绑后该账号只能用邮箱密码登录（若已关闭密码登录，请联系管理员重新绑定）。`)) return;
@@ -184,7 +208,7 @@ export function UsersPage() {
           </div>
         </div>
         <div className="min-w-0 border border-line-soft p-4">
-          {selected ? <><div className="mb-3 flex items-center justify-between"><div className="font-medium">编辑用户</div><div className="flex items-center gap-2">{selected.feishuBound ? <Button disabled={saving} onClick={() => void unbindFeishu(selected)} tone="warning">解绑飞书</Button> : null}<Button disabled={saving} onClick={() => void saveUser()} tone="primary"><Save size={15} />保存</Button></div></div><div className="grid gap-3 sm:grid-cols-2"><Input value={form.displayName} onChange={(event) => setForm({ ...form, displayName: event.target.value })} placeholder="用户名称" /><Input value={form.email} disabled placeholder="账号" /><Input value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} placeholder="留空表示不修改密码" type="password" /><Select aria-label="用户角色" value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value as ManagedUser["role"] })}><option value="user">普通用户</option><option value="admin">管理员</option></Select><Select aria-label="用户登录方式" value={form.loginType} onChange={(event) => setForm({ ...form, loginType: event.target.value as ManagedUser["loginType"] })}><option value="feishu">仅飞书</option><option value="both">飞书 + 密码</option><option value="local">仅邮箱密码</option></Select><Select aria-label="用户状态" value={selected.status} onChange={(event) => setSelected({ ...selected, status: event.target.value as ManagedUser["status"] })}><option value="active">启用</option><option value="disabled">停用</option></Select></div><div className="mt-5 overflow-auto"><table className="min-w-[760px] w-full text-sm"><thead className="bg-canvas"><tr><th className="whitespace-nowrap px-3 py-3 text-left font-medium">目录/功能</th>{permissionKeys.map(([, label]) => <th className="whitespace-nowrap px-2 py-3 text-center font-medium" key={label}>{label}</th>)}</tr></thead><tbody>{selected.permissions.map((permission) => <tr key={permission.moduleKey}><td className="border-b border-line-soft px-3 py-2" style={{ paddingLeft: `${12 + Math.max(0, (permission.level ?? 3) - 1) * 20}px` }}><span className={permission.kind !== "module" ? "font-medium" : ""}>{permission.title ?? permission.moduleKey}</span></td>{permissionKeys.map(([key, label]) => <td className="border-b border-line-soft px-2 py-2 text-center" key={label}><input aria-label={`${permission.moduleKey}-${label}`} checked={permission[key]} onChange={() => togglePermission(permission.moduleKey, key)} type="checkbox" /></td>)}</tr>)}</tbody></table></div></> : <div className="py-12 text-center text-sm text-ink-3">请选择用户</div>}
+          {selected ? <><div className="mb-3 flex items-center justify-between"><div className="font-medium">编辑用户</div><div className="flex items-center gap-2">{selected.feishuBound ? <Button disabled={saving} onClick={() => void unbindFeishu(selected)} tone="warning">解绑飞书</Button> : null}<Button disabled={saving} onClick={() => void saveUser()} tone="primary"><Save size={15} />保存</Button></div></div><div className="grid gap-3 sm:grid-cols-2"><Input value={form.displayName} onChange={(event) => setForm({ ...form, displayName: event.target.value })} placeholder="用户名称" /><Input value={form.email} disabled placeholder="账号" /><Input value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} placeholder="留空表示不修改密码" type="password" /><Select aria-label="用户角色" value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value as ManagedUser["role"] })}><option value="user">普通用户</option><option value="admin">管理员</option></Select><Select aria-label="用户登录方式" value={form.loginType} onChange={(event) => setForm({ ...form, loginType: event.target.value as ManagedUser["loginType"] })}><option value="feishu">仅飞书</option><option value="both">飞书 + 密码</option><option value="local">仅邮箱密码</option></Select><Select aria-label="用户状态" value={selected.status} onChange={(event) => setSelected({ ...selected, status: event.target.value as ManagedUser["status"] })}><option value="active">启用</option><option value="disabled">停用</option></Select></div>{!selected.feishuBound ? <div className="mt-3 flex flex-wrap items-end gap-2 rounded border border-line-soft bg-surface-2 p-3"><label className="min-w-0 flex-1"><span className="mb-1 block text-xs text-ink-3">飞书 open_id（成员登录报错里会显示，或从飞书管理后台复制；没有企业邮箱的成员用这里手工绑定）</span><Input className="w-full" placeholder="ou_xxxxxxxxxxxxxxxx" value={bindOpenId} onChange={(event) => setBindOpenId(event.target.value)} /></label><Button disabled={saving || !bindOpenId.trim()} onClick={() => void bindFeishu(selected)} tone="primary">绑定飞书</Button></div> : null}<div className="mt-5 overflow-auto"><table className="min-w-[760px] w-full text-sm"><thead className="bg-canvas"><tr><th className="whitespace-nowrap px-3 py-3 text-left font-medium">目录/功能</th>{permissionKeys.map(([, label]) => <th className="whitespace-nowrap px-2 py-3 text-center font-medium" key={label}>{label}</th>)}</tr></thead><tbody>{selected.permissions.map((permission) => <tr key={permission.moduleKey}><td className="border-b border-line-soft px-3 py-2" style={{ paddingLeft: `${12 + Math.max(0, (permission.level ?? 3) - 1) * 20}px` }}><span className={permission.kind !== "module" ? "font-medium" : ""}>{permission.title ?? permission.moduleKey}</span></td>{permissionKeys.map(([key, label]) => <td className="border-b border-line-soft px-2 py-2 text-center" key={label}><input aria-label={`${permission.moduleKey}-${label}`} checked={permission[key]} onChange={() => togglePermission(permission.moduleKey, key)} type="checkbox" /></td>)}</tr>)}</tbody></table></div></> : <div className="py-12 text-center text-sm text-ink-3">请选择用户</div>}
         </div>
       </div>
     </Panel>

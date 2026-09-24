@@ -182,10 +182,18 @@ export async function resolveFeishuLoginUser(profile: FeishuProfile): Promise<Fe
   }
 
   if (!feishuAutoProvisionEnabled()) {
-    return { ok: false, reason: "该飞书账号尚未在系统里开通，请联系管理员添加账号" };
+    return {
+      ok: false,
+      reason: profile.email
+        ? `该飞书账号（${profile.email}）尚未在系统里开通，请联系管理员添加账号`
+        : `未获取到该飞书账号的企业邮箱（飞书返回为空，可能未设置企业邮箱或应用缺少 contact:user.email:readonly 权限）。请联系管理员在「用户管理 → 绑定飞书」里用 open_id 手工绑定：${profile.openId}`,
+    };
   }
   if (!profile.email) {
-    return { ok: false, reason: "飞书账号没有企业邮箱，无法自动建号，请联系管理员手工添加" };
+    return {
+      ok: false,
+      reason: `飞书账号没有企业邮箱，无法自动建号。请联系管理员在「用户管理 → 绑定飞书」里用 open_id 手工绑定：${profile.openId}`,
+    };
   }
   const userId = `feishu-${profile.openId}`.slice(0, 80);
   await executeRaw(
@@ -229,6 +237,41 @@ export async function unbindFeishuIdentity(userId: string) {
         SET feishuOpenId = NULL, feishuUnionId = NULL, feishuName = NULL, feishuBoundAt = NULL
       WHERE userId = :userId`,
     { userId },
+  );
+}
+
+/**
+ * 管理员用 open_id 手工绑定（飞书账号没有企业邮箱时的兜底入口）。
+ * open_id 是应用内唯一标识，绑上之后该成员就能用飞书登录，不再依赖邮箱匹配。
+ */
+export async function bindFeishuOpenId({
+  userId,
+  openId,
+  unionId,
+  feishuName,
+}: {
+  userId: string;
+  openId: string;
+  unionId?: string;
+  feishuName?: string;
+}) {
+  const target = String(openId ?? "").trim();
+  if (!target) throw new Error("请输入飞书 open_id");
+  if (!/^ou_[0-9a-zA-Z]+$/.test(target)) throw new Error("飞书 open_id 格式不正确，应以 ou_ 开头");
+  await executeRaw(
+    `UPDATE merge_common_users
+        SET feishuOpenId = :openId,
+            feishuUnionId = :unionId,
+            feishuName = :feishuName,
+            feishuBoundAt = CURRENT_TIMESTAMP,
+            loginType = CASE WHEN loginType = 'local' THEN 'both' ELSE loginType END
+      WHERE userId = :userId`,
+    {
+      userId,
+      openId: target,
+      unionId: String(unionId ?? "").trim() || null,
+      feishuName: String(feishuName ?? "").trim() || null,
+    },
   );
 }
 
