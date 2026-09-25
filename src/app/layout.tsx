@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
 import { cookies, headers } from "next/headers";
+import { redirect } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
-import { getAuthenticatedUser } from "@/lib/auth";
+import { getAuthenticatedUser, isAuthenticatedCookie } from "@/lib/auth";
+import { AUTH_COOKIE_NAME } from "@/lib/auth-session";
 import {
   decodeModuleFeatureState,
   MODULE_FEATURE_COOKIE_NAME,
@@ -27,6 +29,14 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
     cookieStore.get(MODULE_FEATURE_COOKIE_NAME)?.value,
   );
   const currentUser = await getAuthenticatedUser({ cookies: cookieStore } as any);
+  /**
+   * 会话自愈：会话 cookie 还在，但账号已经查不到（被删除/改了邮箱）或已停用，
+   * 说明是失效会话。这时必须清 cookie 回登录页 —— 否则页面会以"空权限"渲染，
+   * 用户看到的现象就是"登录后只剩首页、左侧目录全没了"。
+   */
+  if (isAuthenticatedCookie(cookieStore.get(AUTH_COOKIE_NAME)?.value) && (!currentUser || currentUser.status !== "active")) {
+    redirect("/api/auth/logout?next=%2Flogin");
+  }
   let initialPermissionState = { role: currentUser?.role ?? "user", grants: {} };
   if (currentUser) {
     try {
