@@ -308,7 +308,13 @@ const PERMISSION_MODULE_ORDER: Record<string, string[]> = {
 
 const ADMIN_ONLY_MODULES = new Set(["system-users", "system-module-features"]);
 
-const API_ROUTE_RULES: Array<{ prefix: string; moduleKey: string }> = [
+/**
+ * 路由 → 模块/动作的映射规则。
+ * action 可选：填了就覆盖按路径/方法推导出来的动作（用于"按钮属于 A 模块、接口挂在 B 前缀"的场景）。
+ */
+type RoutePermissionRule = { prefix: string; moduleKey: string; action?: PermissionAction };
+
+const API_ROUTE_RULES: RoutePermissionRule[] = [
   { prefix: "/api/system/users", moduleKey: "system-users" },
   { prefix: "/api/system/module-features", moduleKey: "system-module-features" },
   { prefix: "/api/documents", moduleKey: "documents" },
@@ -324,6 +330,11 @@ const API_ROUTE_RULES: Array<{ prefix: string; moduleKey: string }> = [
   { prefix: "/api/cloud", moduleKey: "huawei-cloud" },
   { prefix: "/api/requests/product-lines", moduleKey: "request-items" },
   { prefix: "/api/purchase/product-lines", moduleKey: "purchase-order-items" },
+  // 「确认需求单」：按钮在需求单列表上，接口挂在 /api/procurement 前缀下，
+  // 这里明确按"需求单-确认"鉴权，否则用户把需求单权限开满也点不动（历史上就是这个 bug）。
+  { prefix: "/api/procurement/from-request", moduleKey: "requests", action: "confirm" },
+  // 物流列表上的刷新/同步物流动作，应按物流模块鉴权，而不是采购订单。
+  { prefix: "/api/procurement/shipments", moduleKey: "shipments" },
   { prefix: "/api/procurement", moduleKey: "purchase-orders" },
   { prefix: "/api/integrations/material-sync", moduleKey: "instance-models" },
   { prefix: "/api/integrations/frappe-demand-sync", moduleKey: "demand-sync-mappings" },
@@ -353,7 +364,7 @@ const API_ROUTE_RULES: Array<{ prefix: string; moduleKey: string }> = [
   { prefix: "/api/service-fees", moduleKey: "service-fees" },
 ];
 
-const PAGE_ROUTE_RULES: Array<{ prefix: string; moduleKey: string }> = [
+const PAGE_ROUTE_RULES: RoutePermissionRule[] = [
   { prefix: "/system/users", moduleKey: "system-users" },
   { prefix: "/system/module-features", moduleKey: "system-module-features" },
   { prefix: "/documents", moduleKey: "documents" },
@@ -437,7 +448,7 @@ export function getRoutePermission(pathname: string, method = "GET") {
   }
   const rules = normalizedPath.startsWith("/api/") ? API_ROUTE_RULES : PAGE_ROUTE_RULES;
   const matched = rules.find((rule) => routeMatches(normalizedPath, rule.prefix));
-  return matched ? { moduleKey: matched.moduleKey, action: getMethodAction(normalizedPath, method) } : null;
+  return matched ? { moduleKey: matched.moduleKey, action: matched.action ?? getMethodAction(normalizedPath, method) } : null;
 }
 
 export function permissionMask(flags: Partial<PermissionFlags>) {

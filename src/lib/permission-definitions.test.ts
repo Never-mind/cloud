@@ -33,6 +33,13 @@ describe("permission definitions", () => {
     expect(getRoutePermission("/api/integrations/frappe-demand-sync", "POST")).toEqual({ moduleKey: "demand-sync-mappings", action: "create" });
     expect(getRoutePermission("/api/cloud/supplier-payments/1", "PATCH")).toEqual({ moduleKey: "huawei-cloud-supplier-payments", action: "update" });
     expect(getRoutePermission("/api/po/quotations/1/confirm", "POST")).toEqual({ moduleKey: "quotations", action: "confirm" });
+    // 按钮在需求单列表、接口挂在 /api/procurement 前缀：必须按"需求单-确认"鉴权，而不是采购订单-新增。
+    expect(getRoutePermission("/api/procurement/from-request", "POST")).toEqual({ moduleKey: "requests", action: "confirm" });
+    // 物流列表上的刷新/同步物流动作按物流模块鉴权。
+    expect(getRoutePermission("/api/procurement/shipments/sync", "POST")).toEqual({ moduleKey: "shipments", action: "create" });
+    expect(getRoutePermission("/api/procurement/shipments/refresh-logistics", "POST")).toEqual({ moduleKey: "shipments", action: "create" });
+    // 采购订单自身的确认仍然是采购订单模块。
+    expect(getRoutePermission("/api/procurement/PO-1/confirm", "POST")).toEqual({ moduleKey: "purchase-orders", action: "confirm" });
     expect(getRoutePermission("/product-catalog/models", "GET")).toEqual({ moduleKey: "product-models", action: "view" });
     expect(getRoutePermission("/product-catalog/2425373d-9180-470d-8054-e1415ff1bd1b", "GET")).toEqual({ moduleKey: "product-masters", action: "view" });
     expect(getRoutePermission("/suppliers/84699818-259e-4966-9f50-78c0a3a8c475", "GET")).toEqual({ moduleKey: "suppliers", action: "view" });
