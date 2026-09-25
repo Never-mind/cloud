@@ -224,7 +224,8 @@ export async function resolveFeishuLoginUser(profile: FeishuProfile): Promise<Fe
 
 /**
  * 新员工的默认权限（仅自动建号时使用）。
- * 默认「只读」：所有模块可查看，写操作仍由管理员在用户管理里逐项开放。
+ * 默认「full」：除账户管理、功能启用两个管理员模块外，其余模块的全部操作都开启；
+ * 这两个管理员模块不写任何权限行，等管理员在用户管理里单独开放。
  */
 async function applyDefaultPermissionsForNewUser(userId: string) {
   const mode = feishuDefaultPermissionMode();
@@ -241,6 +242,7 @@ async function applyDefaultPermissionsForNewUser(userId: string) {
       {
         userId,
         moduleKey: definition.moduleKey,
+        canView: 1,
         canCreate: full ? 1 : 0,
         canUpdate: full ? 1 : 0,
         canDelete: full ? 1 : 0,

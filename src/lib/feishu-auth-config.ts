@@ -33,13 +33,16 @@ export function feishuAutoProvisionEnabled() {
 
 /**
  * 飞书首次登录自动建号时给新员工的默认权限：
- *   readonly（默认）：所有模块只读（可查看，不能改数据）
+ *   full（默认）：除「账户管理」「功能启用」两个管理员模块外，其余模块的
+ *                 查看/新增/修改/删除/导入/导出/确认全部开启
+ *   readonly：所有模块只读（可查看，不能改数据）
  *   none：不授任何权限，等管理员分配
- *   full：除管理员专属模块外，全部操作权限
+ *
+ * 无论哪种模式，管理员专属模块（账户管理、功能启用）都不授任何权限，必须由管理员单独开启。
  */
 export function feishuDefaultPermissionMode(): "readonly" | "none" | "full" {
-  const value = (process.env.FEISHU_AUTO_PROVISION_PERMISSIONS ?? "readonly").trim().toLowerCase();
-  return value === "none" || value === "full" ? value : "readonly";
+  const value = (process.env.FEISHU_AUTO_PROVISION_PERMISSIONS ?? "full").trim().toLowerCase();
+  return value === "none" || value === "readonly" ? value : "full";
 }
 
 /** 没有企业邮箱的成员用这个后缀生成内部账号标识（仅用于会话与列表展示）。 */

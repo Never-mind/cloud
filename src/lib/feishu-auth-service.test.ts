@@ -56,6 +56,7 @@ describe("飞书账号落地到本地账号", () => {
     queryRowsRaw.mockReset();
     executeRaw.mockReset();
     delete process.env.FEISHU_AUTO_PROVISION;
+    delete process.env.FEISHU_AUTO_PROVISION_PERMISSIONS;
     delete process.env.FEISHU_TENANT_KEY;
   });
 
@@ -131,7 +132,7 @@ describe("飞书账号落地到本地账号", () => {
     expect(insert).toContain("'user', 'active', 'feishu'");
   });
 
-  it("成员没有企业邮箱时也能自动建号（用 open_id 派生内部账号，并给只读权限）", async () => {
+  it("成员没有企业邮箱时也能自动建号（用 open_id 派生内部账号，并默认全功能开启）", async () => {
     process.env.FEISHU_AUTO_PROVISION = "1";
     queryRowsRaw.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
 
@@ -140,13 +141,32 @@ describe("飞书账号落地到本地账号", () => {
     expect(result).toEqual(expect.objectContaining({ ok: true, email: "ou_test_open_id@feishu.local" }));
     const insert = String(executeRaw.mock.calls[0][0]);
     expect(insert).toContain("INSERT INTO merge_common_users");
-    // 默认只读：先插用户，再逐条插权限，且不含管理员专属模块。
+    // 默认全功能：除管理员专属模块外，所有操作位都是 1。
     const permissionCalls = executeRaw.mock.calls.filter((call) => String(call[0]).includes("merge_common_user_permissions"));
     expect(permissionCalls.length).toBeGreaterThan(5);
-    expect(permissionCalls.every((call) => call[1].canCreate === 0 && call[1].canUpdate === 0)).toBe(true);
+    expect(
+      permissionCalls.every((call) =>
+        call[1].canView === 1 && call[1].canCreate === 1 && call[1].canUpdate === 1 && call[1].canDelete === 1
+        && call[1].canExport === 1 && call[1].canImport === 1 && call[1].canConfirm === 1),
+    ).toBe(true);
     const moduleKeys = permissionCalls.map((call) => String(call[1].moduleKey));
+    // 账户管理与功能启用默认全关，必须由管理员单独开启。
     expect(moduleKeys).not.toContain("system-users");
     expect(moduleKeys).not.toContain("system-module-features");
+  });
+
+  it("默认权限可配成 readonly（只读，全部写操作为 0）", async () => {
+    process.env.FEISHU_AUTO_PROVISION = "1";
+    process.env.FEISHU_AUTO_PROVISION_PERMISSIONS = "readonly";
+    queryRowsRaw.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
+
+    const result = await resolveFeishuLoginUser({ ...profile, email: "" });
+
+    expect(result.ok).toBe(true);
+    const permissionCalls = executeRaw.mock.calls.filter((call) => String(call[0]).includes("merge_common_user_permissions"));
+    expect(permissionCalls.length).toBeGreaterThan(5);
+    expect(permissionCalls.every((call) => call[1].canView === 1 && call[1].canCreate === 0 && call[1].canConfirm === 0)).toBe(true);
+    delete process.env.FEISHU_AUTO_PROVISION_PERMISSIONS;
   });
 
   it("默认权限可配成 none（不授任何权限，等管理员分配）", async () => {
