@@ -560,7 +560,6 @@ export function AppShell({
           </div>
           <div className="app-header-user ml-auto flex min-w-0 shrink-0 items-center gap-2 text-ink-2 sm:gap-4">
             <span className="app-header-user-name max-w-[24vw] truncate">{currentUserName || "用户"}</span>
-            <div className="h-8 w-8 rounded bg-skeleton" />
             <button
               aria-label="退出登录"
               className="app-logout inline-flex h-8 shrink-0 items-center gap-1 rounded border border-line px-2 text-xs hover:border-primary hover:text-primary"
