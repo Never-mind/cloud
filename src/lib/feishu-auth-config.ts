@@ -31,6 +31,22 @@ export function feishuAutoProvisionEnabled() {
   return process.env.FEISHU_AUTO_PROVISION === "1";
 }
 
+/**
+ * 飞书首次登录自动建号时给新员工的默认权限：
+ *   readonly（默认）：所有模块只读（可查看，不能改数据）
+ *   none：不授任何权限，等管理员分配
+ *   full：除管理员专属模块外，全部操作权限
+ */
+export function feishuDefaultPermissionMode(): "readonly" | "none" | "full" {
+  const value = (process.env.FEISHU_AUTO_PROVISION_PERMISSIONS ?? "readonly").trim().toLowerCase();
+  return value === "none" || value === "full" ? value : "readonly";
+}
+
+/** 没有企业邮箱的成员用这个后缀生成内部账号标识（仅用于会话与列表展示）。 */
+export function feishuSyntheticEmail(openId: string) {
+  return `${String(openId ?? "").trim()}@feishu.local`;
+}
+
 export function feishuTenantKey() {
   return (process.env.FEISHU_TENANT_KEY ?? "").trim();
 }

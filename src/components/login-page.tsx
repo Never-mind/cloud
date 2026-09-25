@@ -4,7 +4,13 @@ import { useEffect, useMemo, useState } from "react";
 import { LockKeyhole, Mail, MessageCircle } from "lucide-react";
 import { Button, Input } from "./ui";
 
-export function LoginPage({ feishuEnabled = false }: { feishuEnabled?: boolean }) {
+export function LoginPage({
+  feishuEnabled = false,
+  feishuAutoProvision = false,
+}: {
+  feishuEnabled?: boolean;
+  feishuAutoProvision?: boolean;
+}) {
   const [email, setEmail] = useState("admin@luzcorp.com");
   const [password, setPassword] = useState("");
   const [error, setError] = useState(() => {
@@ -78,7 +84,11 @@ export function LoginPage({ feishuEnabled = false }: { feishuEnabled?: boolean }
           </Button>
         </a>
         {feishuEnabled ? null : <div className="mt-2 text-xs text-ink-3">飞书登录尚未配置（FEISHU_APP_ID / FEISHU_APP_SECRET），请联系管理员。</div>}
-        <div className="mt-2 text-xs text-ink-3">首次登录会自动与本地账号绑定；未开通账号请联系管理员添加。</div>
+        <div className="mt-2 text-xs text-ink-3">
+          {feishuAutoProvision
+            ? "首次飞书登录会自动建立账号（默认可查看、不能改动数据），权限由管理员在「用户管理」里调整。"
+            : "首次登录会自动与本地账号绑定；未开通账号请联系管理员添加。"}
+        </div>
         {feishuRedirectUri ? (
           <div className="mt-3 rounded border border-line-soft bg-surface-2 px-3 py-2 text-xs text-ink-3">
             飞书回调地址（报 20029 时请把这一行原样填入飞书后台「安全设置 → 重定向 URL」）：

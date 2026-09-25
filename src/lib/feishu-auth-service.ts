@@ -2,7 +2,15 @@ import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 
 import { AUTH_SESSION_VALUE } from "./auth-session";
 import { executeRaw, queryRowsRaw } from "./db";
-import { FEISHU_API_BASE, feishuAutoProvisionEnabled, feishuTenantKey, getFeishuCredentials } from "./feishu-auth-config";
+import {
+  FEISHU_API_BASE,
+  feishuAutoProvisionEnabled,
+  feishuDefaultPermissionMode,
+  feishuSyntheticEmail,
+  feishuTenantKey,
+  getFeishuCredentials,
+} from "./feishu-auth-config";
+import { getManagedPermissionDefinitions, MANAGED_ADMIN_ONLY_MODULE_KEYS } from "./user-service";
 
 /** 飞书授权回调带回的 state 有效期（毫秒）。 */
 const STATE_TTL_MS = 10 * 60 * 1000;
@@ -189,12 +197,12 @@ export async function resolveFeishuLoginUser(profile: FeishuProfile): Promise<Fe
         : `未获取到该飞书账号的企业邮箱（飞书返回为空，可能未设置企业邮箱或应用缺少 contact:user.email:readonly 权限）。请联系管理员在「用户管理 → 绑定飞书」里用 open_id 手工绑定：${profile.openId}`,
     };
   }
-  if (!profile.email) {
-    return {
-      ok: false,
-      reason: `飞书账号没有企业邮箱，无法自动建号。请联系管理员在「用户管理 → 绑定飞书」里用 open_id 手工绑定：${profile.openId}`,
-    };
-  }
+  /**
+   * 自动建号：**不依赖企业邮箱**。
+   * 有些成员（尤其是测试号/外包号）在飞书通讯录里没有邮箱，此时用 open_id 派生一个内部
+   * 账号标识（xxx@feishu.local）作为会话主体，身份识别仍以 open_id 为准，管理员可在用户管理里改。
+   */
+  const email = profile.email || feishuSyntheticEmail(profile.openId);
   const userId = `feishu-${profile.openId}`.slice(0, 80);
   await executeRaw(
     `INSERT INTO merge_common_users
@@ -203,14 +211,45 @@ export async function resolveFeishuLoginUser(profile: FeishuProfile): Promise<Fe
        (:userId, :displayName, :email, '', '', 'user', 'active', 'feishu', :openId, :unionId, :feishuName, CURRENT_TIMESTAMP)`,
     {
       userId,
-      displayName: profile.name || profile.email,
-      email: profile.email,
+      displayName: profile.name || profile.email || profile.openId,
+      email,
       openId: profile.openId,
       unionId: profile.unionId || null,
       feishuName: profile.name || null,
     },
   );
-  return { ok: true, userId, email: profile.email, displayName: profile.name || profile.email, bound: true };
+  await applyDefaultPermissionsForNewUser(userId);
+  return { ok: true, userId, email, displayName: profile.name || email, bound: true };
+}
+
+/**
+ * 新员工的默认权限（仅自动建号时使用）。
+ * 默认「只读」：所有模块可查看，写操作仍由管理员在用户管理里逐项开放。
+ */
+async function applyDefaultPermissionsForNewUser(userId: string) {
+  const mode = feishuDefaultPermissionMode();
+  if (mode === "none") return;
+  const definitions = getManagedPermissionDefinitions();
+  for (const definition of definitions) {
+    if (MANAGED_ADMIN_ONLY_MODULE_KEYS.has(definition.moduleKey)) continue;
+    const full = mode === "full";
+    await executeRaw(
+      `INSERT INTO merge_common_user_permissions
+        (userId, moduleKey, canView, canCreate, canUpdate, canDelete, canExport, canImport, canConfirm, updatedByUserId)
+       VALUES (:userId, :moduleKey, 1, :canCreate, :canUpdate, :canDelete, :canExport, :canImport, :canConfirm, NULL)
+       ON DUPLICATE KEY UPDATE canView = 1`,
+      {
+        userId,
+        moduleKey: definition.moduleKey,
+        canCreate: full ? 1 : 0,
+        canUpdate: full ? 1 : 0,
+        canDelete: full ? 1 : 0,
+        canExport: full ? 1 : 0,
+        canImport: full ? 1 : 0,
+        canConfirm: full ? 1 : 0,
+      },
+    );
+  }
 }
 
 export async function bindFeishuIdentity(userId: string, profile: FeishuProfile) {

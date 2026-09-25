@@ -131,6 +131,36 @@ describe("飞书账号落地到本地账号", () => {
     expect(insert).toContain("'user', 'active', 'feishu'");
   });
 
+  it("成员没有企业邮箱时也能自动建号（用 open_id 派生内部账号，并给只读权限）", async () => {
+    process.env.FEISHU_AUTO_PROVISION = "1";
+    queryRowsRaw.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
+
+    const result = await resolveFeishuLoginUser({ ...profile, email: "" });
+
+    expect(result).toEqual(expect.objectContaining({ ok: true, email: "ou_test_open_id@feishu.local" }));
+    const insert = String(executeRaw.mock.calls[0][0]);
+    expect(insert).toContain("INSERT INTO merge_common_users");
+    // 默认只读：先插用户，再逐条插权限，且不含管理员专属模块。
+    const permissionCalls = executeRaw.mock.calls.filter((call) => String(call[0]).includes("merge_common_user_permissions"));
+    expect(permissionCalls.length).toBeGreaterThan(5);
+    expect(permissionCalls.every((call) => call[1].canCreate === 0 && call[1].canUpdate === 0)).toBe(true);
+    const moduleKeys = permissionCalls.map((call) => String(call[1].moduleKey));
+    expect(moduleKeys).not.toContain("system-users");
+    expect(moduleKeys).not.toContain("system-module-features");
+  });
+
+  it("默认权限可配成 none（不授任何权限，等管理员分配）", async () => {
+    process.env.FEISHU_AUTO_PROVISION = "1";
+    process.env.FEISHU_AUTO_PROVISION_PERMISSIONS = "none";
+    queryRowsRaw.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
+
+    const result = await resolveFeishuLoginUser({ ...profile, email: "" });
+
+    expect(result.ok).toBe(true);
+    expect(executeRaw.mock.calls.filter((call) => String(call[0]).includes("merge_common_user_permissions"))).toHaveLength(0);
+    delete process.env.FEISHU_AUTO_PROVISION_PERMISSIONS;
+  });
+
   it("配置了租户白名单时，非本公司租户直接拒绝", async () => {
     process.env.FEISHU_TENANT_KEY = "tenant_other";
     const result = await resolveFeishuLoginUser(profile);

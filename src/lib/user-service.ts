@@ -46,6 +46,17 @@ const permissionDefinitions = getPermissionDefinitions([
   { key: "system-module-features", title: "功能模块管理", navGroup: "数据工具", adminOnly: true },
 ]);
 
+/**
+ * 管理员专属模块：只读默认权限不应包含它们，否则新员工会多出两个点不开的目录。
+ * 与上面 getPermissionDefinitions 里传 adminOnly 的那两项保持一致。
+ */
+export const MANAGED_ADMIN_ONLY_MODULE_KEYS = new Set(["system-users", "system-module-features"]);
+
+/** 供飞书自动建号等场景复用同一份权限清单，避免两处定义漂移。 */
+export function getManagedPermissionDefinitions() {
+  return permissionDefinitions;
+}
+
 function normalizeEmail(value: unknown) {
   return String(value ?? "").trim().toLowerCase();
 }

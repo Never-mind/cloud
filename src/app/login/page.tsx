@@ -1,6 +1,6 @@
 import { LoginPage } from "@/components/login-page";
-import { isFeishuLoginEnabled } from "@/lib/feishu-auth-config";
+import { feishuAutoProvisionEnabled, isFeishuLoginEnabled } from "@/lib/feishu-auth-config";
 
 export default function Page() {
-  return <LoginPage feishuEnabled={isFeishuLoginEnabled()} />;
+  return <LoginPage feishuEnabled={isFeishuLoginEnabled()} feishuAutoProvision={feishuAutoProvisionEnabled()} />;
 }
