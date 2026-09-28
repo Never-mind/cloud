@@ -5,6 +5,7 @@ import {
   normalizeCloudInvoiceStatus,
   resolveCloudImportField,
 } from "./cloud-import-headers";
+import { CLOUD_IMPORT_HEADERS } from "./cloud-service";
 
 // 与 cloud-service 里的别名表保持同样的关键写法（这里只取易出错的几列）。
 const ALIASES: Record<string, string> = {
@@ -62,6 +63,28 @@ describe("resolveCloudImportField", () => {
   it("系统自己导出的列能被识别回来", () => {
     expect(resolveCloudImportField("客户开票状态", fields)).toBe("collectionInvoice");
     expect(resolveCloudImportField("已收款", fields)).toBe("collected");
+  });
+
+  // 对账模板（业务简化版）的表头必须 100% 能映射，漏一个就等于那列静默丢失。
+  it("简化后的对账模板表头全部能识别", () => {
+    const templateHeaders = [
+      "账期", "客户名称", "华为ID",
+      "目录价", "伙伴结算金额", "代金券-客户", "代金券-万众",
+      "供应商应付金额（不含税）", "供应商税率", "伙伴税金", "伙伴应还金额（含税）",
+      "客户应还金额（不含税）", "客户税率", "客户应还金额（含税）",
+      "理论毛利", "结算毛利", "特殊折扣", "备注",
+    ];
+    // 用线上真实的别名表来校验，避免测试里再维护一份副本而失真。
+    const realFields = buildCloudImportFieldMap(CLOUD_IMPORT_HEADERS);
+    const unresolved = templateHeaders.filter((header) => !resolveCloudImportField(header, realFields));
+
+    expect(unresolved).toEqual([]);
+  });
+
+  it("特殊折扣按文本映射到客户折扣字段", () => {
+    const realFields = buildCloudImportFieldMap(CLOUD_IMPORT_HEADERS);
+
+    expect(resolveCloudImportField("特殊折扣", realFields)).toBe("customerDiscount");
   });
 });
 

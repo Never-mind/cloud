@@ -337,7 +337,7 @@ const FIELD_COMMENTS = {
   voucherSupplierAmount: "代金券-供应商（USD）",
   calculationLogic: "计算逻辑",
   customCalculationLogic: "自定义计算逻辑",
-  customerDiscount: "客户折扣",
+  customerDiscount: "特殊折扣（文本，如：伙伴85%，客户100%）",
   supplierPayable: "供应商应付金额",
   supplierPayablePayer: "供应商应付付款单位",
   supplierPayablePayee: "供应商应付收款单位",

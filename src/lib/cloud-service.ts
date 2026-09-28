@@ -2,7 +2,12 @@ import { createHash, randomUUID } from "node:crypto";
 import * as XLSX from "xlsx";
 import { executeRaw, queryRows, queryRowsRaw, type Row } from "./db";
 import { calculateCloudTaxGroup, CLOUD_TAX_GROUPS, type CloudTaxGroup } from "./cloud-tax";
-import { buildCloudImportFieldMap, normalizeCloudInvoiceStatus, resolveCloudImportField } from "./cloud-import-headers";
+import {
+  buildCloudImportFieldMap,
+  normalizeCloudImportHeader,
+  normalizeCloudInvoiceStatus,
+  resolveCloudImportField,
+} from "./cloud-import-headers";
 import { computeCloudSettlementGrossProfit } from "./cloud-gross-profit";
 import { customerDisplayName } from "./customer-display";
 import { formatDisplayValue } from "./display-format";
@@ -234,7 +239,7 @@ const CLOUD_SUPPLIER_PAYMENT_FROM_V2 = `(SELECT
     AND ((g.supplierId IS NOT NULL AND p.supplierId = g.supplierId)
       OR (g.supplierId IS NULL AND p.supplierId IS NULL AND p.supplierName = g.supplierName))) AS cloudSupplierPaymentRows`;
 
-const CLOUD_IMPORT_HEADERS: Record<string, string> = {
+export const CLOUD_IMPORT_HEADERS: Record<string, string> = {
   "期间": "period", "账期": "period", period: "period",
   "批次号": "batchCode", "批次": "batchCode", batch: "batchCode", batchcode: "batchCode",
   "客户": "customer", customer: "customer", "客户名称": "customer",
@@ -270,6 +275,23 @@ const CLOUD_IMPORT_HEADERS: Record<string, string> = {
   // 系统自身导出的文件会带这三列；不映射的话回导时会被静默丢弃。
   "客户开票状态": "collectionInvoice", collectioninvoice: "collectionInvoice",
   "已收款": "collected", collected: "collected",
+  // 对账模板（业务口径）用「伙伴 / 应还金额」的叫法，和历史模板的「供应商 / 应收应付」并存。
+  "伙伴结算金额": "partnerAmount",
+  "伙伴结算金额（不含税）": "partnerAmount",
+  "代金券-万众": "voucherSupplierAmount",
+  "代金券-供应商": "voucherSupplierAmount",
+  "供应商应付金额": "supplierPayableNetAmount",
+  "供应商应付金额（不含税）": "supplierPayableNetAmount",
+  "伙伴应还金额": "supplierPayableTotalAmount",
+  "伙伴应还金额（含税）": "supplierPayableTotalAmount",
+  "伙伴税金": "supplierTaxAmount",
+  "客户应还金额": "customerReceivableNetAmount",
+  "客户应还金额（不含税）": "customerReceivableNetAmount",
+  "客户应还金额（含税）": "customerReceivableTotalAmount",
+  "理论毛利": "theoreticalGrossProfit",
+  "结算毛利": "settlementGrossProfit",
+  // 模板里的「特殊折扣」就是原来的「客户折扣」，只是内容从数字改成了文本说明。
+  "特殊折扣": "customerDiscount",
   "客户开票未税金额": "invoiceNetAmount", "客户开票税率": "invoiceTaxRate", "客户开票税金": "invoiceTaxAmount",
   "客户开票含税金额": "invoiceTotalAmount", "客户开票汇率": "invoiceExchangeRate", "客户开票日期": "invoiceDate",
   "备注": "remark", remark: "remark",
@@ -277,6 +299,9 @@ const CLOUD_IMPORT_HEADERS: Record<string, string> = {
 
 /** 归一化后的表头 → 字段，见 cloud-import-headers.ts 的说明。 */
 const CLOUD_IMPORT_FIELD_BY_HEADER = buildCloudImportFieldMap(CLOUD_IMPORT_HEADERS);
+
+/** 归一化后的"已知但不导入"的表头：业务模板里有、系统刻意不要，不参与未识别列提示。 */
+const CLOUD_IGNORED_IMPORT_HEADERS = new Set(["万众margin"]);
 
 function text(value: unknown) {
   return value === null || value === undefined ? "" : String(value).trim();
@@ -362,7 +387,7 @@ function changedCloudTaxFields(existing: Row, merged: Row, fields: readonly stri
 const CLOUD_NUMERIC_COLUMNS = new Set([
   "catalogAmount", "partnerAmount", "voucherCustomerAmount", "voucherSupplierAmount", "supplierPayableNetAmount", "supplierTaxAmount",
   "supplierPayableTotalAmount", "supplierPayable", "customerReceivableNetAmount", "customerReceivableTaxAmount", "customerReceivableTotalAmount",
-  "customerReceivable", "theoreticalGrossProfit", "settlementGrossProfit", "grossProfit", "customerDiscount", "collectionExchangeRate",
+  "customerReceivable", "theoreticalGrossProfit", "settlementGrossProfit", "grossProfit", "collectionExchangeRate",
   "collectionNetAmount", "collectionTaxAmount", "collectionTotalAmount", "invoiceNetAmount", "invoiceTaxAmount", "invoiceTotalAmount", "invoiceExchangeRate",
   "paymentExchangeRate", "paymentNetAmount", "paymentTaxAmount", "paymentTotalAmount",
 ]);
@@ -639,7 +664,8 @@ export async function createCloudRow(body: Row, actor: OperationActor | null) {
     settlementGrossProfit,
     grossProfit: settlementGrossProfit,
     calculationLogic: text(body.calculationLogic) || null,
-    customerDiscount: nullableNumber(body.customerDiscount),
+    // 特殊折扣是文本（如「伙伴85%，客户100%」），不能再按数字解析。
+    customerDiscount: text(body.customerDiscount) || null,
     remark: text(body.remark) || null,
     collectionInvoice: text(body.collectionInvoice) || "not_issued",
     collected: body.collected ? 1 : 0,
@@ -1214,7 +1240,9 @@ export async function importCloudWorkbook(buffer: Buffer, fileName: string, peri
       const field = resolveCloudImportField(key, CLOUD_IMPORT_FIELD_BY_HEADER);
       if (field) return [field, value];
       // sheet_to_json 会给空列生成 __EMPTY 之类的占位键，不算"没识别的业务列"。
-      if (key && !key.startsWith("__EMPTY")) unmappedHeaders.add(key);
+      if (key && !key.startsWith("__EMPTY") && !CLOUD_IGNORED_IMPORT_HEADERS.has(normalizeCloudImportHeader(key))) {
+        unmappedHeaders.add(key);
+      }
       return [key, value];
     })))
     .filter((source) => !isCloudImportNoteRow(source));
@@ -1286,7 +1314,7 @@ export async function importCloudWorkbook(buffer: Buffer, fileName: string, peri
       customerReceivablePayer: text(mappedSource.customerReceivablePayer) || customerFlow[0] || text(source.customer), customerReceivablePayee: text(mappedSource.customerReceivablePayee) || customerFlow[1] || text(source.customerReceivablePayee) || "承接单位", customerReceivableNetAmount: customerNet,
       customerTaxRate, customerReceivableTaxAmount: customerTax, customerReceivableTotalAmount: totalAmount(customerNet, customerTax, source.customerReceivableTotalAmount), customerReceivable: customerNet,
       theoreticalGrossProfit: nullableNumber(source.theoreticalGrossProfit), settlementGrossProfit, grossProfit: settlementGrossProfit,
-      calculationLogic: text(source.calculationLogic), customerDiscount: nullableNumber(source.customerDiscount), remark: text(source.remark),
+      calculationLogic: text(source.calculationLogic), customerDiscount: text(source.customerDiscount) || null, remark: text(source.remark),
       collectionInvoice: normalizeCloudInvoiceStatus(source.collectionInvoice) || "not_issued", collected: text(source.collected) === "是" || text(source.collected) === "1" ? 1 : 0,
        collectionPayer: collectionPayer.name || text(mappedSource.collectionPayer), collectionPayee: collectionPayee.name || text(mappedSource.collectionPayee), collectionPayerCustomerId: collectionPayer.id, collectionPayeeUndertakingUnitId: collectionPayee.id, collectionCurrency: text(source.collectionCurrency),
       collectionExchangeRate: nullableNumber(source.collectionExchangeRate),
@@ -1362,7 +1390,10 @@ export async function importCloudWorkbook(buffer: Buffer, fileName: string, peri
 function isCloudImportNoteRow(row: Record<string, unknown>) {
   const values = Object.values(row).map(text).filter(Boolean);
   if (!values.length) return true;
-  return values.every((value) => value === "必填" || value === "可选" || value.startsWith("必填：") || value.startsWith("可选："));
+  if (values.every((value) => value === "必填" || value === "可选" || value.startsWith("必填：") || value.startsWith("可选："))) return true;
+  // 模板底部常见的"合计/统计"行：只有金额、既没有账期也没有华为ID，不可能是账单数据。
+  // 以前这种行会直接报"客户和华为ID不能为空"，导致业务自己的模板没法原样导入。
+  return !text(row.period) && !text(row.account);
 }
 
 export async function listCloudAttachments(ownerType: string, ownerId: string) {

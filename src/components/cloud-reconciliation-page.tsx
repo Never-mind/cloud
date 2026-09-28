@@ -431,7 +431,7 @@ function CloudRowForm({ value, masters, onChange, onCancel, onSave }: { value: R
     ["supplierPayableTotalAmount", "供应商应付（含税）", "number"], ["customerReceivablePayer", "客户应收-客户"], ["customerReceivablePayee", "客户应收-承接单位"],
     ["customerReceivableNetAmount", "客户应收（不含税）", "number"], ["customerTaxRate", "客户承担税率", "number"], ["customerReceivableTaxAmount", "客户税金", "number"],
     ["customerReceivableTotalAmount", "客户应收（含税）", "number"], ["theoreticalGrossProfit", "万众理论毛利（USD）", "number"], ["settlementGrossProfit", "万众结算毛利（USD）", "number"],
-    ["customerDiscount", "客户折扣", "number"], ["calculationLogic", "计算逻辑"],
+    ["customerDiscount", "特殊折扣（文本）"], ["calculationLogic", "计算逻辑"],
   ];
   const changeField = (key: string, type: string | undefined, input: string) => {
     let next: Row | null = null;
