@@ -2,7 +2,8 @@ import { createHash, randomUUID } from "node:crypto";
 import * as XLSX from "xlsx";
 import { executeRaw, queryRows, queryRowsRaw, type Row } from "./db";
 import { calculateCloudTaxGroup, CLOUD_TAX_GROUPS, type CloudTaxGroup } from "./cloud-tax";
-import { buildCloudImportFieldMap, resolveCloudImportField } from "./cloud-import-headers";
+import { buildCloudImportFieldMap, normalizeCloudInvoiceStatus, resolveCloudImportField } from "./cloud-import-headers";
+import { computeCloudSettlementGrossProfit } from "./cloud-gross-profit";
 import { customerDisplayName } from "./customer-display";
 import { formatDisplayValue } from "./display-format";
 import type { OperationActor } from "./operation-actor";
@@ -266,6 +267,9 @@ const CLOUD_IMPORT_HEADERS: Record<string, string> = {
   "客户实收汇率": "collectionExchangeRate",
   "客户实收税金": "collectionTaxAmount", "客户实收含税金额": "collectionTotalAmount", "客户实收日期": "collectionDate", "应收日期": "receivableDate", "客户实收应收日期": "receivableDate",
   "客户开票号": "invoiceNo", "客户开票币种": "invoiceCurrency", "客户开票-付款单位": "invoicePayer", "客户开票-收款单位": "invoicePayee",
+  // 系统自身导出的文件会带这三列；不映射的话回导时会被静默丢弃。
+  "客户开票状态": "collectionInvoice", collectioninvoice: "collectionInvoice",
+  "已收款": "collected", collected: "collected",
   "客户开票未税金额": "invoiceNetAmount", "客户开票税率": "invoiceTaxRate", "客户开票税金": "invoiceTaxAmount",
   "客户开票含税金额": "invoiceTotalAmount", "客户开票汇率": "invoiceExchangeRate", "客户开票日期": "invoiceDate",
   "备注": "remark", remark: "remark",
@@ -593,7 +597,11 @@ export async function createCloudRow(body: Row, actor: OperationActor | null) {
   const customerTax = taxAmount(customerNet, customerTaxRate, body.customerReceivableTaxAmount);
   const collectionTax = taxAmount(collectionNet, collectionTaxRate, body.collectionTaxAmount);
   const invoiceTax = taxAmount(invoiceNet, invoiceTaxRate, body.invoiceTaxAmount);
-  const settlementGrossProfit = nullableNumber(body.settlementGrossProfit) ?? nullableNumber(body.grossProfit) ?? 0;
+  // 未填结算毛利时，按 客户应收（不含税） − 供应商应付（不含税） 兜底计算。
+  const settlementGrossProfit = nullableNumber(body.settlementGrossProfit)
+    ?? nullableNumber(body.grossProfit)
+    ?? computeCloudSettlementGrossProfit({ customerReceivableNet: customerNet, supplierPayableNet: supplierNet })
+    ?? 0;
   const row: Row = {
     id: randomUUID(),
     importBatchId: null,
@@ -964,12 +972,17 @@ const CLOUD_SUPPLIER_PAYMENT_USER_COLUMNS = [
 ] as const;
 
 /**
- * 汇总分组与付款行使用同一套供应商身份：有供应商 ID 用 ID，否则退回名称。
- * 必须与 CLOUD_SUPPLIER_PAYMENT_FROM_V2 的关联条件保持一致。
+ * 汇总分组与付款行的匹配键：账期 + 供应商身份（有供应商 ID 用 ID，否则退回名称）。
+ *
+ * 账期必须参与匹配。付款行的唯一键是 (period, supplierId)，而汇总分组是按账期逐条来的：
+ * 如果键里只有供应商，某账期的分组可能"吃掉"另一账期的付款行，更新时把那一行的 period
+ * 改成当前账期，直接撞上 uk_cloud_supplier_payment_period
+ * （Duplicate entry '202601-xxxx'，导入补充数据时会直接报错）。
  */
 export function cloudSupplierPaymentMatchKey(row: Row) {
   const supplierId = text(row.supplierId);
-  return supplierId ? `id:${supplierId}` : `name:${text(row.supplierName)}`;
+  const supplier = supplierId ? `id:${supplierId}` : `name:${text(row.supplierName)}`;
+  return `${normalizeCloudPeriod(row.period)}|${supplier}`;
 }
 
 /** 付款行上是否已有业务手工录入的实付/开票数据，重算汇总时不能静默删除。 */
@@ -1232,7 +1245,11 @@ export async function importCloudWorkbook(buffer: Buffer, fileName: string, peri
     const customerTax = taxAmount(customerNet, customerTaxRate, source.customerReceivableTaxAmount);
     const collectionTax = taxAmount(collectionNet, collectionTaxRate, source.collectionTaxAmount);
     const invoiceTax = taxAmount(invoiceNet, invoiceTaxRate, source.invoiceTaxAmount);
-    const settlementGrossProfit = nullableNumber(source.settlementGrossProfit) ?? 0;
+    // 文件里没填结算毛利时，按 客户应收（不含税） − 供应商应付（不含税） 兜底计算；
+    // 文件里有值就保留原值（实际存在带额外扣减的行，不能被公式覆盖）。
+    const settlementGrossProfit = nullableNumber(source.settlementGrossProfit)
+      ?? computeCloudSettlementGrossProfit({ customerReceivableNet: customerNet, supplierPayableNet: supplierNet })
+      ?? 0;
     const supplierFlow = accountMapping ? [accountMapping.undertakingUnitName, accountMapping.supplierName] : text(source.supplierPayablePayer).split(/\s*(?:→|->)\s*/).filter(Boolean);
     const customerFlow = accountMapping ? [accountMapping.customerName, accountMapping.undertakingUnitName] : text(source.customerReceivablePayee).split(/\s*(?:→|->)\s*/).filter(Boolean);
     const collectionPayer = await resolveCloudPartner("customers", mappedSource.collectionPayer);
@@ -1252,7 +1269,7 @@ export async function importCloudWorkbook(buffer: Buffer, fileName: string, peri
       customerTaxRate, customerReceivableTaxAmount: customerTax, customerReceivableTotalAmount: totalAmount(customerNet, customerTax, source.customerReceivableTotalAmount), customerReceivable: customerNet,
       theoreticalGrossProfit: nullableNumber(source.theoreticalGrossProfit), settlementGrossProfit, grossProfit: settlementGrossProfit,
       calculationLogic: text(source.calculationLogic), customerDiscount: nullableNumber(source.customerDiscount), remark: text(source.remark),
-      collectionInvoice: text(source.collectionInvoice) || "not_issued", collected: text(source.collected) === "是" || text(source.collected) === "1" ? 1 : 0,
+      collectionInvoice: normalizeCloudInvoiceStatus(source.collectionInvoice) || "not_issued", collected: text(source.collected) === "是" || text(source.collected) === "1" ? 1 : 0,
        collectionPayer: collectionPayer.name || text(mappedSource.collectionPayer), collectionPayee: collectionPayee.name || text(mappedSource.collectionPayee), collectionPayerCustomerId: collectionPayer.id, collectionPayeeUndertakingUnitId: collectionPayee.id, collectionCurrency: text(source.collectionCurrency),
       collectionExchangeRate: nullableNumber(source.collectionExchangeRate),
        collectionNetAmount: collectionNet, collectionTaxRate, collectionTaxAmount: collectionTax, collectionTotalAmount: totalAmount(collectionNet, collectionTax, source.collectionTotalAmount), collectionDate: dateOnly(source.collectionDate), receivableDate: dateOnly(source.receivableDate),

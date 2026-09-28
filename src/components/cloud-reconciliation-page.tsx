@@ -8,6 +8,7 @@ import { Modal } from "./modal";
 import { PaginationBar } from "./pagination-bar";
 import { SearchSelect } from "./search-select";
 import { NumberInput } from "./number-input";
+import { computeCloudSettlementGrossProfit } from "@/lib/cloud-gross-profit";
 import { confirmDialog } from "./app-dialog";
 import { CloudAttachments } from "./cloud-attachments";
 import { StickyTable } from "./sticky-table";
@@ -433,13 +434,26 @@ function CloudRowForm({ value, masters, onChange, onCancel, onSave }: { value: R
     ["customerDiscount", "客户折扣", "number"], ["calculationLogic", "计算逻辑"],
   ];
   const changeField = (key: string, type: string | undefined, input: string) => {
+    let next: Row | null = null;
     if (type === "number") {
       for (const group of ["supplierPayable", "customerReceivable"] as const) {
         const field = cloudTaxInputField(group, key);
-        if (field) return updateCloudTaxValue(value, group, field, input);
+        if (field) {
+          next = updateCloudTaxValue(value, group, field, input);
+          break;
+        }
       }
     }
-    return { ...value, [key]: input };
+    const result = next ?? { ...value, [key]: input };
+    // 应收/应付一改，若"万众结算毛利"还是空的，就按 应收（不含税） − 应付（不含税） 自动带出。
+    // 已经填过的值（导入或人工改过）不动，避免把带额外扣减的行算错。
+    if (key !== "customerReceivableNetAmount" && key !== "supplierPayableNetAmount") return result;
+    if (String(result.settlementGrossProfit ?? "").trim() !== "") return result;
+    const auto = computeCloudSettlementGrossProfit({
+      customerReceivableNet: result.customerReceivableNetAmount,
+      supplierPayableNet: result.supplierPayableNetAmount,
+    });
+    return auto === null ? result : { ...result, settlementGrossProfit: String(auto) };
   };
   return <Modal footer={<><Button onClick={onCancel}>取消</Button><Button onClick={onSave} tone="primary">保存</Button></>} onClose={onCancel} title={`${value.id ? "修改" : "手动新增"}华为云对账单`} widthClass="max-w-4xl"><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3"><PartnerSelect required kind="customers" label="客户名称" idValue={value.customerId} nameValue={value.customer} masters={masters} onChange={(selected) => onChange({ ...value, customerId: selected.id, customer: selected.name })} />{fields.map(([key, label, type]) => <label className="space-y-1 text-sm text-ink-2" key={key}><span>{label}{key === "period" || key === "account" ? <b className="ml-1 text-danger">*</b> : null}</span><Input autoFocus={key === "account" && !value.id} className="w-full" type={type ?? "text"} value={String(value[key] ?? "")} onChange={(event) => onChange(changeField(key, type, event.target.value))} /></label>)}<label className="space-y-1 text-sm text-ink-2 sm:col-span-2 lg:col-span-3"><span>备注</span><textarea className="min-h-20 w-full rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary" value={String(value.remark ?? "")} onChange={(event) => onChange({ ...value, remark: event.target.value })} /></label></div></Modal>;
 }

@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { buildCloudImportFieldMap, normalizeCloudImportHeader, resolveCloudImportField } from "./cloud-import-headers";
+import {
+  buildCloudImportFieldMap,
+  normalizeCloudImportHeader,
+  normalizeCloudInvoiceStatus,
+  resolveCloudImportField,
+} from "./cloud-import-headers";
 
 // 与 cloud-service 里的别名表保持同样的关键写法（这里只取易出错的几列）。
 const ALIASES: Record<string, string> = {
@@ -12,6 +17,8 @@ const ALIASES: Record<string, string> = {
   "供应商应付（不含税）": "supplierPayableNetAmount",
   "供应商应付（含税）": "supplierPayableTotalAmount",
   "备注": "remark",
+  "客户开票状态": "collectionInvoice",
+  "已收款": "collected",
 };
 
 const fields = buildCloudImportFieldMap(ALIASES);
@@ -50,5 +57,24 @@ describe("resolveCloudImportField", () => {
   it("认不出来的列返回 null，供导入结果提示用户", () => {
     expect(resolveCloudImportField("结算毛利", fields)).toBeNull();
     expect(resolveCloudImportField("随便一列", fields)).toBeNull();
+  });
+
+  it("系统自己导出的列能被识别回来", () => {
+    expect(resolveCloudImportField("客户开票状态", fields)).toBe("collectionInvoice");
+    expect(resolveCloudImportField("已收款", fields)).toBe("collected");
+  });
+});
+
+describe("normalizeCloudInvoiceStatus", () => {
+  it("把导出的中文状态换回内部枚举", () => {
+    expect(normalizeCloudInvoiceStatus("已开票")).toBe("issued");
+    expect(normalizeCloudInvoiceStatus("未开票")).toBe("not_issued");
+  });
+
+  it("内部枚举原样透传，空值保持为空", () => {
+    expect(normalizeCloudInvoiceStatus("issued")).toBe("issued");
+    expect(normalizeCloudInvoiceStatus("not_issued")).toBe("not_issued");
+    expect(normalizeCloudInvoiceStatus("")).toBe("");
+    expect(normalizeCloudInvoiceStatus(null)).toBe("");
   });
 });

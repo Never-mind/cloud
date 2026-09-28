@@ -33,3 +33,16 @@ export function buildCloudImportFieldMap(aliases: Record<string, string>): Cloud
 export function resolveCloudImportField(header: string, map: CloudImportFieldMap) {
   return map[normalizeCloudImportHeader(header)] ?? null;
 }
+
+/**
+ * 客户开票状态的值归一。
+ * 系统导出时写的是「已开票 / 未开票」，而库里存的是 `issued / not_issued`，
+ * 直接回导会把这两个中文值原样写进库，前端就认不出来了。
+ */
+export function normalizeCloudInvoiceStatus(value: unknown) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return "";
+  if (raw === "已开票" || raw === "是" || raw === "1" || raw === "issued") return "issued";
+  if (raw === "未开票" || raw === "否" || raw === "0" || raw === "not_issued") return "not_issued";
+  return raw;
+}
