@@ -258,14 +258,15 @@ export function StickyTable({ children, className, tableKey, topOffset = 0 }: St
    * 挤到屏幕外，而 `.table-viewport` 上的 `overscroll-behavior: contain` 又把滚动
    * 锁在列表内部，只能把鼠标移到外层区域才能继续滚。
    *
-   * 这里改成按实际测量算：max-height = 滚动容器可视高度 − 表格顶部偏移 − 表格下方剩余内容。
+   * 这里改成按实际测量算：先把表格放开到自然高度，量出整页超出一屏多少，再把超出的部分
+   * 从表格高度里收回来（见 computeTableMaxHeight）。
    * 结果让整页刚好铺满视口，既保住表头吸顶（容器自己滚动），又不会产生外层滚动条。
    */
   useEffect(() => {
     const viewport = bodyRef.current;
     if (!viewport) return;
     let frame = 0;
-    let appliedHeight = -1;
+    let lastSignature = "";
 
     const fit = () => {
       if (frame) return;
@@ -276,37 +277,42 @@ export function StickyTable({ children, className, tableKey, topOffset = 0 }: St
         if (isInsideFixedOverlay(element)) return;
 
         const scroller = findScrollContainer(element) ?? document.documentElement;
-        const scrollerRect = scroller === document.documentElement
-          ? { top: 0, height: document.documentElement.clientHeight || window.innerHeight }
-          : scroller.getBoundingClientRect();
-        const scrollTop = scroller === document.documentElement
-          ? window.scrollY || document.documentElement.scrollTop || 0
-          : scroller.scrollTop;
-        const rect = element.getBoundingClientRect();
+        // 先做一次便宜的比较：表格内容高度与可视高度都没变就不用重新量。
+        // 否则每次无关的重渲染（例如在搜索框里打字）都会多做一轮放开→测量→收口。
+        const signature = `${element.scrollHeight}:${scroller.clientHeight}`;
+        if (signature === lastSignature) return;
+        lastSignature = signature;
+
+        // 量自然高度前先解除限制。两次写样式在同一个任务里完成，中间不会绘制，所以不会闪烁。
+        // 注意：无论算出的高度是否变化，都必须把 max-height 写回去，否则会停在 "none" 上。
+        element.style.maxHeight = "none";
+        const naturalHeight = element.getBoundingClientRect().height;
+        const overflow = scroller.scrollHeight - scroller.clientHeight;
         const nextHeight = computeTableMaxHeight({
-          viewportTop: scrollerRect.top,
-          viewportHeight: scrollerRect.height,
-          tableTop: rect.top,
-          tableBottom: rect.bottom,
-          scrollTop,
-          contentHeight: scroller.scrollHeight,
+          naturalHeight,
+          overflow,
         });
-        if (Math.abs(nextHeight - appliedHeight) < 1) return;
-        appliedHeight = nextHeight;
         element.style.maxHeight = `${nextHeight}px`;
       });
     };
 
     fit();
-    // 口径与滚动位置无关（rect 与 scrollTop 同步变化会互相抵消），所以不用监听 scroll。
+    // 高度只跟"表格内容多少"和"可视区多高"有关，与滚动位置无关，所以不用监听 scroll。
     window.addEventListener("resize", fit);
     const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(fit);
     observer?.observe(viewport);
     if (document.body) observer?.observe(document.body);
 
+    // 外层 main 带 min-h-screen，数据渲染前后 document 高度可能一直是"满屏"，
+    // ResizeObserver 收不到变化 —— 首屏空表算出来的高度就会一直卡住。
+    // 这里直接盯表格内容的增删（数据回来、翻页、改每页条数），变化后重新量一次。
+    const mutation = typeof MutationObserver === "undefined" ? null : new MutationObserver(fit);
+    mutation?.observe(viewport, { childList: true, subtree: true });
+
     return () => {
       window.removeEventListener("resize", fit);
       observer?.disconnect();
+      mutation?.disconnect();
       if (frame) window.cancelAnimationFrame(frame);
     };
   }, []);
