@@ -11,6 +11,7 @@ import {
   verifyFeishuState,
 } from "@/lib/feishu-auth-service";
 import { getOperationRequestId, recordOperationLog } from "@/lib/operation-log";
+import { resolveRequestOrigin } from "@/lib/request-origin";
 
 /**
  * 飞书授权回调：校验 state → code 换用户令牌 → 读飞书用户信息 → 落到本地账号 → 下发会话 cookie。
@@ -20,9 +21,12 @@ export async function GET(request: NextRequest) {
   const params = request.nextUrl.searchParams;
   const state = params.get("state") ?? "";
   const code = params.get("code") ?? "";
+  // 跳转地址按真实请求头拼：Next 的 nextUrl.origin 可能是 localhost，
+  // 与浏览器实际访问的 127.0.0.1/域名不同，会导致"跨主机跳转 → cookie 丢失 → 又回登录页"。
+  const origin = resolveRequestOrigin(request);
   const next = readNextFromState(state);
   const fail = (reason: string) =>
-    NextResponse.redirect(new URL(`/login?error=${encodeURIComponent(reason)}`, request.nextUrl.origin));
+    NextResponse.redirect(new URL(`/login?error=${encodeURIComponent(reason)}`, origin));
 
   if (!state || !verifyFeishuState(state)) return fail("登录会话已过期，请重新发起飞书登录");
   if (!code) {
@@ -60,7 +64,7 @@ export async function GET(request: NextRequest) {
       requestId: getOperationRequestId(request),
       detail: { result: "success", method: "feishu", firstBind: result.bound },
     });
-    const response = NextResponse.redirect(new URL(next, request.nextUrl.origin));
+    const response = NextResponse.redirect(new URL(next, origin));
     await applyLoginCookies(response, request, result.email);
     return response;
   } catch (error) {

@@ -10,6 +10,8 @@
  *   FEISHU_API_BASE        可选，默认 https://open.feishu.cn（Lark 国际版用 open.larksuite.com）
  */
 
+import { resolveRequestOrigin } from "./request-origin";
+
 export const FEISHU_API_BASE = (process.env.FEISHU_API_BASE ?? "https://open.feishu.cn").replace(/\/+$/, "");
 
 const CALLBACK_PATH = "/api/auth/feishu/callback";
@@ -62,9 +64,5 @@ export function feishuTenantKey() {
 export function resolveFeishuRedirectUri(request: { nextUrl: URL; headers: Headers }) {
   const override = (process.env.FEISHU_REDIRECT_URI ?? "").trim();
   if (override) return override;
-  const forwardedHost = request.headers.get("x-forwarded-host");
-  const host = (forwardedHost ?? request.headers.get("host") ?? request.nextUrl.host).split(",")[0].trim();
-  const forwardedProto = request.headers.get("x-forwarded-proto");
-  const proto = (forwardedProto ?? request.nextUrl.protocol.replace(":", "")).split(",")[0].trim();
-  return `${proto}://${host}${CALLBACK_PATH}`;
+  return `${resolveRequestOrigin(request)}${CALLBACK_PATH}`;
 }

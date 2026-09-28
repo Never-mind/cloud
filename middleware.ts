@@ -17,8 +17,9 @@ import { decodePermissionState } from "@/lib/permission-middleware";
 import { getRoutePermission, hasPermission } from "@/lib/permission-definitions";
 import { AUTH_PERMISSION_COOKIE_NAME } from "@/lib/permission-middleware";
 
-// 无需登录即可访问：登录页、密码登录接口、飞书登录入口与回调（回调必须匿名可访问）。
-const publicPaths = ["/login", "/api/auth/login", "/api/auth/feishu"];
+// 无需登录即可访问：登录页、密码登录接口、飞书登录入口与回调（回调必须匿名可访问）、
+// 退出接口（会话已失效时也要能清 cookie 回到登录页，否则会停在 401 的 JSON 上）。
+const publicPaths = ["/login", "/api/auth/login", "/api/auth/feishu", "/api/auth/logout"];
 
 function applyEmbeddedCookie(response: NextResponse, request: NextRequest, embedded = false) {
   if (!embedded || request.cookies.get(EMBEDDED_COOKIE_NAME)?.value === "1") return response;
