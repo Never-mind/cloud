@@ -1032,7 +1032,10 @@ async function persistLedgerItem(
     `INSERT INTO ${ITEM_TABLE}
        (sourceItemId,sourceOrderId,localRequestNo,localRequestItemId,sourceModifiedAt,sourceHash,status,errorMessage,sourceDataJson,changeJson,reasonCode)
      VALUES (?,?,?,?,?,?,?,?,?,?,?)
-     ON DUPLICATE KEY UPDATE sourceOrderId=VALUES(sourceOrderId), localRequestNo=VALUES(localRequestNo),
+     ON DUPLICATE KEY UPDATE sourceOrderId=VALUES(sourceOrderId),
+       -- 不能用 VALUES(localRequestNo) 直接覆盖：阻断等场景传的是 null，会把台账里已有的本地需求单号抹掉，
+       -- 于是「按本地单号搜台账」就查不到这张单了（历史 bug）。有值才更新，null 保留原值。
+       localRequestNo=COALESCE(VALUES(localRequestNo), localRequestNo),
        localRequestItemId=VALUES(localRequestItemId), status=VALUES(status), errorMessage=VALUES(errorMessage),
        changeJson=VALUES(changeJson), reasonCode=VALUES(reasonCode)${baselineAssignments}`,
     [
@@ -1049,7 +1052,19 @@ async function persistLedgerItem(
 async function persistBlockedItem(item: RemoteDemandItem, order: RemoteDemandOrder, _hash: string, message: string) {
   const connection = await getDb().getConnection();
   try {
-    await persistLedgerItem(connection, { item, order, localRequestNo: null, status: "blocked", errorMessage: message, reasonCode: "blocked_mapping" });
+    /**
+     * 阻断也要登记"这条远端明细对应哪个本地需求单号"：本地单号是从远端 customer_po_no 推出来的，
+     * 与是否创建成功无关。之前这里传 null，配合 upsert 的赋值会把台账里已有的单号抹掉，
+     * 造成"创建失败后按单号在台账里搜不到"。
+     */
+    await persistLedgerItem(connection, {
+      item,
+      order,
+      localRequestNo: localRequestNo(order.customerPoNo) || null,
+      status: "blocked",
+      errorMessage: message,
+      reasonCode: "blocked_mapping",
+    });
   } finally {
     connection.release();
   }
@@ -1683,4 +1698,5 @@ export async function listFrappeDemandSyncRuns() {
   };
 }
 
-export { requestItemType, sourceHash };
+// 台账写入逻辑对外暴露，供单元测试锁住"阻断不能清空本地需求单号"这条回归用例。
+export { persistBlockedItem, persistLedgerItem, requestItemType, sourceHash };
