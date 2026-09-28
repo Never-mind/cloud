@@ -144,7 +144,8 @@ export function CloudReconciliationPage() {
     try {
       const response = await fetch("/api/cloud/import", { method: "POST", body: form });
       const data = await response.json(); if (!response.ok) throw new Error(String(data.error ?? "导入失败"));
-       setNotice(`账单已导入：${data.batchCode}，共${data.rowCount}行`); setImportFile(null); await load();
+       const unmapped: string[] = Array.isArray(data.unmappedHeaders) ? data.unmappedHeaders : [];
+       setNotice(`账单已导入：${data.batchCode}，共${data.rowCount}行${unmapped.length ? `；未识别列（数据未导入）：${unmapped.join("、")}` : ""}`); setImportFile(null); await load();
     } catch (error) { setNotice(error instanceof Error ? error.message : "导入失败"); }
     finally { setBusy(false); }
   }

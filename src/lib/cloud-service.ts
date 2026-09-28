@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import * as XLSX from "xlsx";
 import { executeRaw, queryRows, queryRowsRaw, type Row } from "./db";
 import { calculateCloudTaxGroup, CLOUD_TAX_GROUPS, type CloudTaxGroup } from "./cloud-tax";
+import { buildCloudImportFieldMap, resolveCloudImportField } from "./cloud-import-headers";
 import { customerDisplayName } from "./customer-display";
 import { formatDisplayValue } from "./display-format";
 import type { OperationActor } from "./operation-actor";
@@ -270,9 +271,13 @@ const CLOUD_IMPORT_HEADERS: Record<string, string> = {
   "备注": "remark", remark: "remark",
 };
 
+/** 归一化后的表头 → 字段，见 cloud-import-headers.ts 的说明。 */
+const CLOUD_IMPORT_FIELD_BY_HEADER = buildCloudImportFieldMap(CLOUD_IMPORT_HEADERS);
+
 function text(value: unknown) {
   return value === null || value === undefined ? "" : String(value).trim();
 }
+
 
 function dateOnly(value: unknown) {
   if (value instanceof Date && !Number.isNaN(value.getTime())) {
@@ -1189,8 +1194,16 @@ export async function importCloudWorkbook(buffer: Buffer, fileName: string, peri
   if (!sheet) throw new Error("工作簿没有可导入的工作表");
   const raw = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "" });
   if (!raw.length) throw new Error("工作表没有数据");
+  // 认不出来的列名单独收集：以前这类列会被静默丢弃，用户只看到"这个月是 0"，查不出原因。
+  const unmappedHeaders = new Set<string>();
   const normalized = raw
-    .map((source) => Object.fromEntries(Object.entries(source).map(([key, value]) => [CLOUD_IMPORT_HEADERS[key.toLowerCase().replace(/\s+/g, "")] ?? CLOUD_IMPORT_HEADERS[key] ?? key, value])))
+    .map((source) => Object.fromEntries(Object.entries(source).map(([key, value]) => {
+      const field = resolveCloudImportField(key, CLOUD_IMPORT_FIELD_BY_HEADER);
+      if (field) return [field, value];
+      // sheet_to_json 会给空列生成 __EMPTY 之类的占位键，不算"没识别的业务列"。
+      if (key && !key.startsWith("__EMPTY")) unmappedHeaders.add(key);
+      return [key, value];
+    })))
     .filter((source) => !isCloudImportNoteRow(source));
   if (!normalized.length) throw new Error("工作表没有可导入的账单数据");
   const accountMappings = await findCloudAccountMappings(normalized.map((source) => text(source.account)));
@@ -1265,7 +1278,13 @@ export async function importCloudWorkbook(buffer: Buffer, fileName: string, peri
   }
   // 账期一旦导入完成，立即生成该账期的供应商应付汇总，不再等到点击开票/付款。
   await syncCloudSupplierPaymentPeriods([...affectedPeriods]);
-  return { batchId, batchCode, period: resolvedPeriod, rowCount: normalized.length };
+  return {
+    batchId,
+    batchCode,
+    period: resolvedPeriod,
+    rowCount: normalized.length,
+    unmappedHeaders: [...unmappedHeaders],
+  };
 }
 
 function isCloudImportNoteRow(row: Record<string, unknown>) {

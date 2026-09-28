@@ -207,8 +207,10 @@ export function PrepaymentAvailablePage() {
     }
   }
 
+  // pb-24 是给"勾选后出现在底部的固定操作条"预留的让位空间。
+  // 没勾选时那条不渲染，留白就会变成页面底部的纯空白，所以按需加。
   return (
-    <div className="space-y-5 pb-24">
+    <div className={`space-y-5 ${selectedIds.length ? "pb-24" : ""}`}>
       <div>
         <h1 className="text-xl font-medium text-ink">待生成预付款实例</h1>
         <p className="mt-1 text-sm text-ink-3">
