@@ -40,6 +40,12 @@ export type EntityConfig = {
   showSequence?: boolean;
   /** 开启后列表支持勾选行并批量操作（目前仅月账单合同使用批量删除退回）。 */
   batchDelete?: boolean;
+  /**
+   * 数据走专用接口、不支持通用实体接口。
+   * 这类模块（如发票汇总、待生成预付款）在导航和权限矩阵里要有条目，但列表数据由专用
+   * endpoint 提供；标记后通用接口会返回明确的 400 提示，而不是暴露 SQL 报错（历史上是 500）。
+   */
+  genericListDisabled?: boolean;
 };
 
 export type NavGroup = {
@@ -1054,6 +1060,8 @@ export const entityConfigs: EntityConfig[] = [
     navGroup: "财务管理",
     route: "/finance/prepayment-available",
     description: "从已下单采购实例中勾选生成预付款合同草稿。",
+    // 数据走专用接口 /api/prepayments/available（带设备类型过滤与占用校验），通用实体接口不支持。
+    genericListDisabled: true,
     filters: [
       { key: "keyword", label: "待生成实例", placeholder: "请输入批次、需求单、PO或实例编码" },
       { key: "requestType", label: "类型", type: "select", options: REQUEST_TYPE_OPTIONS },
@@ -1838,89 +1846,6 @@ entityConfigs.push({
     { key: "needNom", label: "NOM认证", type: "boolean", readonly: true },
   ],
   defaultSort: "masterCode ASC",
-}, {
-  key: "product-models",
-  title: "品牌型号",
-  table: "merge_po_product_models",
-  primaryKey: "id",
-  uniqueKeys: ["modelCode"],
-  navGroup: "隐藏",
-  route: "/product-catalog/models",
-  description: "产品主档下的品牌和型号。",
-  filters: [{ key: "keyword", label: "品牌型号", placeholder: "请输入型号编码、品牌或型号" }],
-  listFields: [
-    { key: "masterId", label: "产品主档ID" },
-    { key: "modelCode", label: "品牌型号编码" },
-    { key: "brand", label: "品牌" },
-    { key: "model", label: "型号" },
-    { key: "series", label: "系列" },
-    { key: "supplierId", label: "供应商" },
-    { key: "purchaseCurrency", label: "采购币种" },
-    { key: "suggestedPurchaseUnitPrice", label: "建议采购价", type: "money" },
-    { key: "status", label: "状态" },
-  ],
-  formFields: [
-    { key: "id", label: "内部ID", hidden: true },
-    { key: "masterId", label: "产品主档ID", required: true },
-    { key: "modelCode", label: "品牌型号编码", required: true },
-    { key: "brand", label: "品牌", required: true },
-    { key: "model", label: "型号", required: true },
-    { key: "series", label: "系列" },
-    { key: "supplierId", label: "供应商" },
-    { key: "purchaseCurrency", label: "采购币种", required: true },
-    { key: "suggestedPurchaseUnitPrice", label: "建议采购价", type: "money" },
-    { key: "length", label: "长", type: "number" },
-    { key: "width", label: "宽", type: "number" },
-    { key: "height", label: "高", type: "number" },
-    { key: "grossWeight", label: "毛重", type: "number" },
-    { key: "hsCodeCn", label: "中国HS编码" },
-    { key: "hsCodeMx", label: "目的地HS编码" },
-    { key: "isMagnetic", label: "磁性", type: "boolean" },
-    { key: "isElectric", label: "带电", type: "boolean" },
-    { key: "needNom", label: "需要NOM", type: "boolean" },
-    { key: "status", label: "状态", type: "select", required: true, options: [{ label: "启用", value: "active" }, { label: "停用", value: "disabled" }] },
-  ],
-  defaultSort: "updatedAt DESC",
-}, {
-  key: "product-specifications",
-  title: "产品规格",
-  table: "merge_po_product_specifications",
-  primaryKey: "id",
-  uniqueKeys: ["specProductCode", "specCode"],
-  navGroup: "隐藏",
-  route: "/product-catalog/specifications",
-  description: "每个品牌型号下的规格与独立产品编码。",
-  filters: [{ key: "keyword", label: "产品规格", placeholder: "请输入产品编码、规格编码或名称" }],
-  listFields: [
-    { key: "modelId", label: "品牌型号ID" },
-    { key: "specProductCode", label: "产品编码" },
-    { key: "specCode", label: "规格编码" },
-    { key: "specKey", label: "规格键" },
-    { key: "specName", label: "规格名称" },
-    { key: "mode", label: "规格模式" },
-    { key: "parameterValue", label: "参数值", type: "number" },
-    { key: "parameterUnit", label: "参数单位" },
-    { key: "status", label: "状态" },
-  ],
-  formFields: [
-    { key: "id", label: "内部ID", hidden: true },
-    { key: "modelId", label: "品牌型号ID", required: true },
-    { key: "specProductCode", label: "产品编码", required: true },
-    { key: "specCode", label: "规格编码" },
-    { key: "specKey", label: "规格键", required: true },
-    { key: "specName", label: "规格名称", required: true },
-    { key: "mode", label: "规格模式", type: "select", options: [{ label: "固定规格", value: "fixed" }, { label: "参数规格", value: "parameter" }] },
-    { key: "parameterValue", label: "参数值", type: "number" },
-    { key: "parameterUnit", label: "参数单位" },
-    { key: "purchaseCurrency", label: "采购币种", required: true },
-    { key: "suggestedPurchaseUnitPrice", label: "建议采购价", type: "money" },
-    { key: "length", label: "长", type: "number" },
-    { key: "width", label: "宽", type: "number" },
-    { key: "height", label: "高", type: "number" },
-    { key: "grossWeight", label: "毛重", type: "number" },
-    { key: "status", label: "状态", type: "select", required: true, options: [{ label: "启用", value: "active" }, { label: "停用", value: "disabled" }] },
-  ],
-  defaultSort: "updatedAt DESC",
 });
 
 entityConfigs.push(
@@ -1959,6 +1884,8 @@ entityConfigs.push(
     navGroup: "发票汇总",
     route: "/po/invoices",
     description: "集中查看集采项目结算中的收入和成本发票。",
+    // 数据走专用接口 /api/po/invoices（按项目汇总收入/成本发票），通用实体接口不支持。
+    genericListDisabled: true,
     filters: [{ key: "keyword", label: "发票汇总", placeholder: "请输入项目、客户、报价单号或发票号" }],
     listFields: [
       { key: "projectNo", label: "项目单号", sortable: true, filterable: true },

@@ -339,11 +339,12 @@ export async function listEntityRows(config: EntityConfig, searchParams: URLSear
     })
     .concat(
       config.listFields
-        .filter((field) =>
-          (derivedRequestTypeEntityKeys.has(config.key) && field.key === "requestType")
-          || (config.key === "purchase-orders" && field.key === "countryCode")
-          || (config.key === "prepayment-contracts" && field.key === "countryCode"),
-        )
+       .filter((field) =>
+         (derivedRequestTypeEntityKeys.has(config.key) && field.key === "requestType")
+         || (config.key === "purchase-orders" && field.key === "countryCode")
+         || (config.key === "prepayment-contracts" && field.key === "countryCode")
+         || (config.key === "shipments" && field.key === "requestNo"),
+       )
         .map((field) => `${getEntityDisplayFieldExpression(config, field.key)} AS ${quoteIdentifier(field.key)}`),
     )
     .concat(config.key === "customer-pos"
@@ -366,11 +367,6 @@ export async function listEntityRows(config: EntityConfig, searchParams: URLSear
         .filter((field) => field.key === "customerName")
         .map((field) => `${getEntityDisplayFieldExpression(config, field.key)} AS ${quoteIdentifier(field.key)}`)
       : [])
-    .concat(config.key === "product-models"
-        ? [
-            "(SELECT COUNT(*) FROM `merge_po_product_specifications` productSpecification WHERE productSpecification.`modelId` = `merge_po_product_models`.`id` AND productSpecification.`mode` = 'fixed') AS `specCount`",
-          ]
-        : [])
     .concat(config.key === "purchase-orders"
       ? [`
           COALESCE((
@@ -516,11 +512,6 @@ export async function listEntityRows(config: EntityConfig, searchParams: URLSear
   ) {
     whereParts.push("`purchaseOrderId` = :purchaseOrderId");
     params.purchaseOrderId = searchParams.get("purchaseOrderId")!.trim();
-  }
-
-  if (config.key === "product-specifications" && searchParams.get("masterId")?.trim()) {
-    whereParts.push("`modelId` IN (SELECT `id` FROM `merge_po_product_models` WHERE `masterId` = :productMasterId)");
-    params.productMasterId = searchParams.get("masterId")!.trim();
   }
 
   appendImplicitFormFieldFilters(config, searchParams, whereParts, params, fieldReference);
@@ -975,7 +966,9 @@ function getEntityDisplayFieldExpression(config: EntityConfig, field: string, sh
      * 需求单号是派生列：物流表本身没有这一列，靠采购明细回查。
      * 关联条件与"批量刷新物流"一致 —— 物流行存的 id 可能带 PO 号前缀
      * （`POI-<poNo><purchaseOrderId>-<序号>`），只按 id 相等会漏掉 277/283 行，
-     * 所以补一条"物流 id 以明细 id 去掉 POI- 前缀后的内容结尾"的兜底。
+     * 所以补一条"物流 id 以明细 id 去掉 POI- 前缀后的内容结尾"的兜底；
+     * 再补一条"PO 号 + 实例编码"业务键兜底，覆盖物流 id 与本地明细 id 格式
+     * 完全对不上（连后缀都不同）的历史行 —— 这类行以前需求单号会显示为空。
      */
     if (field === "requestNo") {
       return `(SELECT COALESCE(NULLIF(ri.requestNo, ''), NULLIF(poi.requestNo, ''))
@@ -983,7 +976,14 @@ function getEntityDisplayFieldExpression(config: EntityConfig, field: string, sh
                  LEFT JOIN requestitems ri ON ri.id = poi.requestItemId
                 WHERE poi.id = shipment.purchaseOrderItemId
                    OR shipment.purchaseOrderItemId LIKE CONCAT('%', SUBSTRING(poi.id, 5))
-                ORDER BY (poi.id = shipment.purchaseOrderItemId) DESC
+                   OR (
+                     NULLIF(shipment.poNo, '') IS NOT NULL
+                     AND NULLIF(shipment.deviceCode, '') IS NOT NULL
+                     AND poi.poNo = shipment.poNo
+                     AND ri.deviceCode = shipment.deviceCode
+                   )
+                ORDER BY (poi.id = shipment.purchaseOrderItemId) DESC,
+                         (shipment.purchaseOrderItemId LIKE CONCAT('%', SUBSTRING(poi.id, 5))) DESC
                 LIMIT 1)`;
     }
     if (field === "destinationAddress") return `COALESCE(NULLIF(shipment.snapshotDestinationAddress, ''), NULLIF(shipment.destinationLocationId, ''))`;

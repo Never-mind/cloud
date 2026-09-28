@@ -13,6 +13,9 @@ export async function GET(request: NextRequest, context: { params: Promise<{ ent
   if (!config) {
     return NextResponse.json({ error: "Unknown entity" }, { status: 404 });
   }
+  if (config.genericListDisabled) {
+    return NextResponse.json({ error: `${config.title} 使用专用接口，请通过对应页面导出` }, { status: 400 });
+  }
 
   const params = new URLSearchParams(request.nextUrl.searchParams);
   params.set("page", "1");

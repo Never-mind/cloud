@@ -40,7 +40,6 @@ describe("permission definitions", () => {
     expect(getRoutePermission("/api/procurement/shipments/refresh-logistics", "POST")).toEqual({ moduleKey: "shipments", action: "create" });
     // 采购订单自身的确认仍然是采购订单模块。
     expect(getRoutePermission("/api/procurement/PO-1/confirm", "POST")).toEqual({ moduleKey: "purchase-orders", action: "confirm" });
-    expect(getRoutePermission("/product-catalog/models", "GET")).toEqual({ moduleKey: "product-models", action: "view" });
     expect(getRoutePermission("/product-catalog/2425373d-9180-470d-8054-e1415ff1bd1b", "GET")).toEqual({ moduleKey: "product-masters", action: "view" });
     expect(getRoutePermission("/suppliers/84699818-259e-4966-9f50-78c0a3a8c475", "GET")).toEqual({ moduleKey: "suppliers", action: "view" });
     expect(getRoutePermission("/customers/customer-001", "GET")).toEqual({ moduleKey: "customers", action: "view" });

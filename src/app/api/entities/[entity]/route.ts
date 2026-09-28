@@ -14,6 +14,13 @@ export async function GET(request: NextRequest, context: { params: Promise<{ ent
   if (!config) {
     return NextResponse.json({ error: "Unknown entity" }, { status: 404 });
   }
+  /**
+   * 发票汇总、待生成预付款这类模块的数据由专用接口提供（带各自的业务过滤与聚合），
+   * 通用实体接口取不到正确口径；这里直接给明确提示，避免以前那种暴露 SQL 报错的 500。
+   */
+  if (config.genericListDisabled) {
+    return NextResponse.json({ error: `${config.title} 使用专用接口，请通过对应页面查询` }, { status: 400 });
+  }
 
   try {
     const data = await listEntityRows(config, request.nextUrl.searchParams);
