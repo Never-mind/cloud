@@ -97,8 +97,13 @@ export function Panel({ children, className }: { children: React.ReactNode; clas
     // 这里用 overflow-clip 而不是 overflow-hidden：两者裁切效果一致，但 hidden 会把 Panel
     // 变成滚动容器，导致内部 `position: sticky` 的分页条只能相对 Panel 定位（Panel 本身不滚动，
     // 于是吸底失效）。clip 不产生滚动容器，分页条的吸底才真正相对页面生效。
-    // 额外加 flow-root 只是为了保留 overflow-hidden 原本隐含的 BFC，避免外边距塌陷行为变化。
-    <div className={clsx("flow-root min-w-0 max-w-full overflow-clip rounded border border-line-soft bg-white shadow-sm", className)}>{children}</div>
+    //
+    // 注意：不要在这里加任何 display 工具类（曾经为了补回 BFC 加了 display:flow-root，
+    // 结果把调用方的 flex 顶掉了）。Panel 允许外部传 className 覆盖成 flex/grid 布局
+    //（华为云对账就是 `flex min-h-0 flex-1 flex-col`），而 Tailwind 的 display 工具类在样式表里
+    // 排在 flex 之后，会把 flex 顶掉导致整页布局塌掉。
+    // 这里也不需要 BFC：Panel 自带 1px 边框，父子外边距本来就不会塌陷。
+    <div className={clsx("min-w-0 max-w-full overflow-clip rounded border border-line-soft bg-white shadow-sm", className)}>{children}</div>
   );
 }
 
