@@ -24,8 +24,10 @@ export function PaginationBar({
     onPageChange(Number(targetPage || state.page));
   }
 
+  // 吸底：列表高度按实际可用空间自适应后整页已铺满视口，这里再做一层兜底 ——
+  // 页面内容确实很长（例如同时挂了两张表）时，分页条也不会被滚出屏幕，随时可以翻页。
   return (
-    <div className="flex flex-wrap items-center gap-2 border-t border-line-soft p-4 text-sm text-ink-2">
+    <div className="sticky bottom-0 z-20 flex flex-wrap items-center gap-2 border-t border-line-soft bg-white p-4 text-sm text-ink-2">
       <span>共 {state.total} 条</span>
       <span>
         当前 {state.start}-{state.end} 条

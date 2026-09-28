@@ -12,6 +12,7 @@ import {
   type ReactNode,
 } from "react";
 import { applyLockedColumns, getTableLockStorageKey, readLockedColumns } from "./table-column-menu";
+import { computeTableMaxHeight } from "@/lib/table-viewport-height";
 
 type TableElementProps = {
   children?: ReactNode;
@@ -37,6 +38,30 @@ type StickyMetrics = {
 };
 
 const DEFAULT_HEADER_HEIGHT = 48;
+
+/** 找到真正负责滚动的祖先：iframe 内通常是 documentElement，首页这类嵌套布局则是内层容器。 */
+function findScrollContainer(element: HTMLElement): HTMLElement | null {
+  let node: HTMLElement | null = element.parentElement;
+  while (node) {
+    const { overflowY } = window.getComputedStyle(node);
+    if (overflowY === "auto" || overflowY === "scroll" || overflowY === "overlay") return node;
+    node = node.parentElement;
+  }
+  return null;
+}
+
+/**
+ * 弹层（抽屉/弹窗）里的表格不参与整页高度自适应。
+ * 那些容器的可用高度由弹层自己决定，按整页口径去算会把表格压得极小。
+ */
+function isInsideFixedOverlay(element: HTMLElement) {
+  let node: HTMLElement | null = element.parentElement;
+  while (node && node !== document.body) {
+    if (window.getComputedStyle(node).position === "fixed") return true;
+    node = node.parentElement;
+  }
+  return false;
+}
 
 function getStaticText(node: ReactNode): string {
   if (typeof node === "string" || typeof node === "number") return String(node);
@@ -223,6 +248,68 @@ export function StickyTable({ children, className, tableKey, topOffset = 0 }: St
       if (animationFrame) window.cancelAnimationFrame(animationFrame);
     };
   }, [headerHeight, topOffset]);
+
+  /**
+   * 列表高度自适应。
+   *
+   * 历史上这里用 CSS 里的 `calc(100dvh - 210px)` 写死预留值，但列表页表格上下
+   * 的固定内容（页头、工具栏、分页条、页面内边距，还可能有提示条）加起来通常
+   * 超过 210px，于是整页比 iframe 视口高出一截：出现第二根外层滚动条，分页区被
+   * 挤到屏幕外，而 `.table-viewport` 上的 `overscroll-behavior: contain` 又把滚动
+   * 锁在列表内部，只能把鼠标移到外层区域才能继续滚。
+   *
+   * 这里改成按实际测量算：max-height = 滚动容器可视高度 − 表格顶部偏移 − 表格下方剩余内容。
+   * 结果让整页刚好铺满视口，既保住表头吸顶（容器自己滚动），又不会产生外层滚动条。
+   */
+  useEffect(() => {
+    const viewport = bodyRef.current;
+    if (!viewport) return;
+    let frame = 0;
+    let appliedHeight = -1;
+
+    const fit = () => {
+      if (frame) return;
+      frame = window.requestAnimationFrame(() => {
+        frame = 0;
+        const element = bodyRef.current;
+        if (!element) return;
+        if (isInsideFixedOverlay(element)) return;
+
+        const scroller = findScrollContainer(element) ?? document.documentElement;
+        const scrollerRect = scroller === document.documentElement
+          ? { top: 0, height: document.documentElement.clientHeight || window.innerHeight }
+          : scroller.getBoundingClientRect();
+        const scrollTop = scroller === document.documentElement
+          ? window.scrollY || document.documentElement.scrollTop || 0
+          : scroller.scrollTop;
+        const rect = element.getBoundingClientRect();
+        const nextHeight = computeTableMaxHeight({
+          viewportTop: scrollerRect.top,
+          viewportHeight: scrollerRect.height,
+          tableTop: rect.top,
+          tableBottom: rect.bottom,
+          scrollTop,
+          contentHeight: scroller.scrollHeight,
+        });
+        if (Math.abs(nextHeight - appliedHeight) < 1) return;
+        appliedHeight = nextHeight;
+        element.style.maxHeight = `${nextHeight}px`;
+      });
+    };
+
+    fit();
+    // 口径与滚动位置无关（rect 与 scrollTop 同步变化会互相抵消），所以不用监听 scroll。
+    window.addEventListener("resize", fit);
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(fit);
+    observer?.observe(viewport);
+    if (document.body) observer?.observe(document.body);
+
+    return () => {
+      window.removeEventListener("resize", fit);
+      observer?.disconnect();
+      if (frame) window.cancelAnimationFrame(frame);
+    };
+  }, []);
 
   // Mark the action column in both the source table and its fixed-header copy.
   // This also covers rows rendered by child components, which are not visible

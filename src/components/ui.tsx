@@ -91,9 +91,14 @@ export const Select = forwardRef<HTMLSelectElement, React.SelectHTMLAttributes<H
 
 export function Panel({ children, className }: { children: React.ReactNode; className?: string }) {
   return (
-    // 圆角与控件保持一致（4px）。overflow-hidden 让内部的表头色条、表格边框跟着圆角裁切，
+    // 圆角与控件保持一致（4px）。裁切让内部的表头色条、表格边框跟着圆角走，
     // 否则容器是圆角、里面是直角会显得拼凑。已确认浮层都用 createPortal 挂到 body，不会被裁切。
-    <div className={clsx("min-w-0 max-w-full overflow-hidden rounded border border-line-soft bg-white shadow-sm", className)}>{children}</div>
+    //
+    // 这里用 overflow-clip 而不是 overflow-hidden：两者裁切效果一致，但 hidden 会把 Panel
+    // 变成滚动容器，导致内部 `position: sticky` 的分页条只能相对 Panel 定位（Panel 本身不滚动，
+    // 于是吸底失效）。clip 不产生滚动容器，分页条的吸底才真正相对页面生效。
+    // 额外加 flow-root 只是为了保留 overflow-hidden 原本隐含的 BFC，避免外边距塌陷行为变化。
+    <div className={clsx("flow-root min-w-0 max-w-full overflow-clip rounded border border-line-soft bg-white shadow-sm", className)}>{children}</div>
   );
 }
 
