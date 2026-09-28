@@ -1229,6 +1229,24 @@ export async function importCloudWorkbook(buffer: Buffer, fileName: string, peri
   const batchCode = `HC-${resolvedPeriod.replace(/[^0-9]/g, "")}-${Date.now().toString().slice(-6)}`;
   await executeRaw(`INSERT INTO merge_cloud_import_batches (id,batchCode,period,fileName,rowCount,importedByUserId,importedByName) VALUES (:id,:batchCode,:period,:fileName,:rowCount,:userId,:userName)`, { id: batchId, batchCode, period: resolvedPeriod, fileName, rowCount: normalized.length, userId: actor?.userId ?? null, userName: actor?.displayName ?? null });
   const affectedPeriods = new Set<string>();
+  // 先按账期把已有行捞出来，供"账期+账号"匹配：命中就更新，没命中才新增。
+  const targetPeriods = Array.from(new Set(
+    normalized
+      .map((source) => normalizeCloudPeriod(text(source.period) || resolvedPeriod))
+      .filter(Boolean),
+  ));
+  const existingRows = targetPeriods.length
+    ? await queryRowsRaw<Row>(
+      `SELECT id, period, account FROM merge_cloud_rows WHERE ${CLOUD_PERIOD_SQL("period")} IN (:periods)`,
+      { periods: targetPeriods },
+    )
+    : [];
+  const existingByKey = new Map<string, Row>();
+  for (const existing of existingRows) {
+    existingByKey.set(`${normalizeCloudPeriod(existing.period)}|${text(existing.account)}`, existing);
+  }
+  let createdRows = 0;
+  let updatedRows = 0;
   for (const source of normalized) {
     const account = text(source.account);
     const accountMapping = getCloudAccountMapping(accountMappings, account);
@@ -1278,6 +1296,39 @@ export async function importCloudWorkbook(buffer: Buffer, fileName: string, peri
       invoiceExchangeRate: nullableNumber(source.invoiceExchangeRate),
       createdByUserId: actor?.userId ?? null, createdByName: actor?.displayName ?? null, updatedByUserId: actor?.userId ?? null, updatedByName: actor?.displayName ?? null,
     };
+    const rowKey = `${text(row.period)}|${account}`;
+    const existingRow = existingByKey.get(rowKey);
+    if (existingRow) {
+      // 只更新文件里确实给了值的字段：空的单元格保持库里原值，
+      // 避免用导入文件的空白把已经录入的实收/开票等信息抹掉。
+      const providedFields = new Set(["mappingId", "supplierId", "supplierName", "undertakingUnitId", "customerId"]);
+      for (const [sourceKey, sourceValue] of Object.entries(source)) {
+        if (sourceValue === null || sourceValue === undefined || String(sourceValue).trim() === "") continue;
+        const field = resolveCloudImportField(sourceKey, CLOUD_IMPORT_FIELD_BY_HEADER) ?? sourceKey;
+        if (field in row && field !== "id") providedFields.add(field);
+      }
+      const assignments = [...providedFields].map((field) => `\`${field}\` = :${field}`);
+      const updateValues: Row = { id: existingRow.id };
+      for (const field of providedFields) updateValues[field] = row[field];
+      // customerReceivable / supplierPayable 是历史别名列，跟着未税金额一起同步。
+      assignments.push("`customerReceivable` = :customerReceivable", "`supplierPayable` = :supplierPayable");
+      updateValues.customerReceivable = row.customerReceivable;
+      updateValues.supplierPayable = row.supplierPayable;
+      // grossProfit 与 settlementGrossProfit 在库里是同一个口径，两者一起改。
+      if (providedFields.has("settlementGrossProfit")) {
+        assignments.push("`grossProfit` = :grossProfit");
+        updateValues.grossProfit = row.grossProfit;
+      }
+      if (actor) {
+        assignments.push("`updatedByUserId` = :userId", "`updatedByName` = :userName");
+        updateValues.userId = actor.userId;
+        updateValues.userName = actor.displayName;
+      }
+      await executeRaw(`UPDATE merge_cloud_rows SET ${assignments.join(", ")} WHERE id = :id`, updateValues);
+      updatedRows += 1;
+      affectedPeriods.add(text(row.period));
+      continue;
+    }
     await executeRaw(`INSERT INTO merge_cloud_rows
       (id,importBatchId,period,batchCode,mappingId,supplierId,supplierName,undertakingUnitId,customerId,customer,account,owner,cloudReconciler,collectionEntity,catalogAmount,partnerAmount,voucherCustomerAmount,voucherSupplierAmount,
        supplierPayablePayer,supplierPayablePayee,supplierPayableNetAmount,supplierTaxRate,supplierTaxAmount,supplierPayableTotalAmount,supplierPayable,
@@ -1291,6 +1342,8 @@ export async function importCloudWorkbook(buffer: Buffer, fileName: string, peri
         :theoreticalGrossProfit,:settlementGrossProfit,:grossProfit,:calculationLogic,:customerDiscount,:remark,:collectionInvoice,:collected,:collectionPayer,:collectionPayee,:collectionPayerCustomerId,:collectionPayeeUndertakingUnitId,:collectionCurrency,:collectionExchangeRate,
         :collectionNetAmount,:collectionTaxRate,:collectionTaxAmount,:collectionTotalAmount,:collectionDate,:receivableDate,:invoiceNo,:invoiceCurrency,:invoicePayer,:invoicePayee,:invoicePayerCustomerId,:invoicePayeeUndertakingUnitId,:invoiceNetAmount,:invoiceTaxRate,
        :invoiceTaxAmount,:invoiceTotalAmount,:invoiceExchangeRate,:invoiceDate,:createdByUserId,:createdByName,:updatedByUserId,:updatedByName)`, row);
+    existingByKey.set(rowKey, { id: row.id });
+    createdRows += 1;
     affectedPeriods.add(text(row.period));
   }
   // 账期一旦导入完成，立即生成该账期的供应商应付汇总，不再等到点击开票/付款。
@@ -1300,6 +1353,8 @@ export async function importCloudWorkbook(buffer: Buffer, fileName: string, peri
     batchCode,
     period: resolvedPeriod,
     rowCount: normalized.length,
+    created: createdRows,
+    updated: updatedRows,
     unmappedHeaders: [...unmappedHeaders],
   };
 }
