@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MIN_TABLE_VIEWPORT_HEIGHT, computeTableMaxHeight } from "./table-viewport-height";
+import { MIN_TABLE_VIEWPORT_HEIGHT, computeTableMaxHeight, hasCallerHeightControl } from "./table-viewport-height";
 
 describe("computeTableMaxHeight", () => {
   it("只收掉超出视口的部分，整页刚好铺满", () => {
@@ -30,5 +30,18 @@ describe("computeTableMaxHeight", () => {
 
   it("小数结果向上取整，避免比可用空间大 1px 又撑出滚动条", () => {
     expect(computeTableMaxHeight({ naturalHeight: 1000.4, overflow: 538.2 })).toBe(463);
+  });
+});
+
+describe("hasCallerHeightControl", () => {
+  it("识别 h-full / h-[...] / max-h-[...]", () => {
+    expect(hasCallerHeightControl(["table-scroll", "h-full", "w-full"])).toBe(true);
+    expect(hasCallerHeightControl(["table-scroll", "max-h-[320px]", "overflow-auto"])).toBe(true);
+    expect(hasCallerHeightControl(["table-scroll", "[height:400px]"])).toBe(true);
+  });
+
+  it("普通列表容器不受影响", () => {
+    expect(hasCallerHeightControl(["table-scroll", "table-viewport", "overflow-auto"])).toBe(false);
+    expect(hasCallerHeightControl(["table-scroll", "min-w-0", "border"])).toBe(false);
   });
 });

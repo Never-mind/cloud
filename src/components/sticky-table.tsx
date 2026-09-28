@@ -12,7 +12,7 @@ import {
   type ReactNode,
 } from "react";
 import { applyLockedColumns, getTableLockStorageKey, readLockedColumns } from "./table-column-menu";
-import { computeTableMaxHeight } from "@/lib/table-viewport-height";
+import { computeTableMaxHeight, hasCallerHeightControl } from "@/lib/table-viewport-height";
 
 type TableElementProps = {
   children?: ReactNode;
@@ -275,6 +275,7 @@ export function StickyTable({ children, className, tableKey, topOffset = 0 }: St
         const element = bodyRef.current;
         if (!element) return;
         if (isInsideFixedOverlay(element)) return;
+        if (hasCallerHeightControl(Array.from(element.classList))) return;
 
         const scroller = findScrollContainer(element) ?? document.documentElement;
         // 先做一次便宜的比较：表格内容高度与可视高度都没变就不用重新量。

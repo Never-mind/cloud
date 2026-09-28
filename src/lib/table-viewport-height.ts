@@ -30,3 +30,16 @@ export function computeTableMaxHeight(metrics: TableViewportMetrics) {
   const overflow = Math.max(0, metrics.overflow);
   return Math.max(metrics.minHeight ?? MIN_TABLE_VIEWPORT_HEIGHT, Math.ceil(metrics.naturalHeight - overflow));
 }
+
+/**
+ * 判断调用方是否已经自己控高（`h-full` / `h-[...]` / `max-h-[...]`）。
+ *
+ * 这类表格不该再套一层整页口径的 max-height：
+ * - `h-full` 的高度由外层弹性布局决定（华为云对账就是这种），两层口径会互相打架；
+ * - `max-h-[...]` 是有意做的小尺寸子表，行内 max-height 会把调用方的设定顶掉。
+ */
+export function hasCallerHeightControl(classNames: readonly string[]) {
+  return classNames.some(
+    (name) => /^(h|max-h)-/.test(name) || name.includes("[height:") || name.includes("[max-height:"),
+  );
+}
