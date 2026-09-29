@@ -1,5 +1,5 @@
 import { execute, executeInTransaction, queryRows, queryRowsInTransaction, type Row, withTransaction } from "./db";
-import { getOrderDeleteBlockReason, type OrderDeleteUsageCounts } from "./order-delete-policy";
+import { getOrderDeleteBlockReason, getPurchaseOrderCascadeBlockReason, type OrderDeleteUsageCounts } from "./order-delete-policy";
 import { isConfirmedOrderStatus } from "./order-status";
 import { normalizeRequestNos } from "./procurement-workflow";
 
@@ -9,6 +9,7 @@ type PoRow = {
   poNo: string;
   requestNo?: string | null;
   sourceRequestNos?: string | null;
+  status?: string | null;
 };
 type RequestRow = { requestNo: string; status?: string | null };
 type QueryRows = <T extends Row>(sql: string, params?: Row) => Promise<T[]>;
@@ -32,9 +33,12 @@ export async function deleteRequestOrder(requestNo: string) {
     { requestNo },
   );
   const purchaseOrders = await queryRows<PoRow>(
-    "SELECT purchaseOrderId, poNo, requestNo, sourceRequestNos FROM purchaseorders WHERE requestNo = :requestNo OR sourceRequestNos LIKE :requestNoLike",
+    "SELECT purchaseOrderId, poNo, requestNo, sourceRequestNos, status FROM purchaseorders WHERE requestNo = :requestNo OR sourceRequestNos LIKE :requestNoLike",
     { requestNo, requestNoLike: `%${requestNo}%` },
   );
+  // 采购订单上人录进去的价格/物流一旦被连带删除就找不回来，先挡一道。
+  const cascadeBlockReason = await getPurchaseOrderCascadeBlockReasonForOrders(purchaseOrders);
+  if (cascadeBlockReason) throw new Error(cascadeBlockReason);
   const requestItemIds = requestItems.map((row) => String(row.id));
   const poNos = purchaseOrders.map((row) => String(row.poNo));
   const purchaseOrderItemIds = await listPurchaseOrderItemIdsByPoNos(poNos);
@@ -117,9 +121,17 @@ export async function deleteRequestOrders(requestNos: string[]) {
       );
       const purchaseOrders = await queryRowsInTransaction<PoRow>(
         connection,
-        "SELECT purchaseOrderId, poNo, requestNo, sourceRequestNos FROM purchaseorders WHERE requestNo = :requestNo OR sourceRequestNos LIKE :requestNoLike FOR UPDATE",
+        "SELECT purchaseOrderId, poNo, requestNo, sourceRequestNos, status FROM purchaseorders WHERE requestNo = :requestNo OR sourceRequestNos LIKE :requestNoLike FOR UPDATE",
         { requestNo, requestNoLike: `%${requestNo}%` },
       );
+      const cascadeBlockReason = await getPurchaseOrderCascadeBlockReasonForOrders(
+        purchaseOrders,
+        (sql, params) => queryRowsInTransaction(connection, sql, params),
+      );
+      if (cascadeBlockReason) {
+        blocked.push({ requestNo, reason: cascadeBlockReason });
+        continue;
+      }
       const requestItemIds = requestItems.map((row) => String(row.id));
       const poNos = purchaseOrders.map((row) => String(row.poNo));
       const purchaseOrderItemIds = await listPurchaseOrderItemIdsByPoNos(poNos, (sql, params) =>
@@ -214,6 +226,52 @@ async function listPurchaseOrderItemIdsByPoNos(poNos: string[], runQuery: QueryR
     params,
   );
   return rows.map((row) => String(row.id));
+}
+
+/**
+ * 采购订单的"人录数据"检查。
+ *
+ * 删除需求单会连带删除它的采购订单，而采购订单上的价格、物流快照、确认状态
+ * 一旦跟着删掉就找不回来了（历史上出现过删需求单再重新拉取、价格全丢的情况）。
+ * 所以这里规定：只有"未确认、没录价格、没有物流单"的采购草稿才允许被连带删除。
+ */
+async function getPurchaseOrderCascadeBlockReasonForOrders(
+  purchaseOrders: readonly PoRow[],
+  runQuery: QueryRows = queryRows,
+): Promise<string | null> {
+  for (const order of purchaseOrders) {
+    const poNo = String(order.poNo ?? "").trim();
+    const purchaseOrderId = String(order.purchaseOrderId ?? "").trim();
+    if (!poNo && !purchaseOrderId) continue;
+    const params = { poNo, purchaseOrderId };
+    const [pricedItemCount, shipmentCount] = await Promise.all([
+      countRows(
+        `SELECT COUNT(*) AS count FROM purchaseorderitems
+          WHERE (purchaseOrderId = :purchaseOrderId OR poNo = :poNo)
+            AND (COALESCE(unitPrice, 0) <> 0 OR taxExcludedUnitPrice IS NOT NULL OR capexUnitPrice IS NOT NULL
+              OR opexUnitPrice IS NOT NULL OR powerFirst24VatIncluded IS NOT NULL
+              OR powerNext36VatIncluded IS NOT NULL OR powerPricingJson IS NOT NULL)`,
+        params,
+        runQuery,
+      ),
+      countRows(
+        `SELECT COUNT(*) AS count FROM shipments
+          WHERE poNo = :poNo
+             OR purchaseOrderItemId IN (
+               SELECT id FROM purchaseorderitems WHERE purchaseOrderId = :purchaseOrderId OR poNo = :poNo)`,
+        params,
+        runQuery,
+      ),
+    ]);
+    const reason = getPurchaseOrderCascadeBlockReason({
+      poNo: poNo || purchaseOrderId,
+      confirmed: isConfirmedOrderStatus("purchase", order.status),
+      pricedItemCount,
+      shipmentCount,
+    });
+    if (reason) return reason;
+  }
+  return null;
 }
 
 async function getUsageCounts({
