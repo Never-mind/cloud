@@ -40,6 +40,7 @@ const MODULE_DOMAIN: Record<string, PermissionDefinition["domainKey"]> = {
   "data-imports": "common",
   "system-users": "common",
   "system-module-features": "common",
+  "notification-rules": "common",
   suppliers: "common",
   customers: "common",
   "undertaking-units": "common",
@@ -109,6 +110,7 @@ const MODULE_GROUP: Record<string, string> = {
   "data-imports": "数据工具",
   "system-users": "账户管理",
   "system-module-features": "功能启用",
+  "notification-rules": "消息通知",
   "customer-pos": "客户PO",
   "customer-po-items": "客户PO",
   quotations: "客户PO",
@@ -149,6 +151,7 @@ const MODULE_ROOT: Record<string, string> = {
   "undertaking-unit-bank-accounts": "domain:business-partners",
   "system-users": "domain:user-management",
   "system-module-features": "domain:user-management",
+  "notification-rules": "domain:user-management",
   documents: "domain:public",
   "data-imports": "domain:public",
 };
@@ -269,7 +272,7 @@ const PERMISSION_GROUP_ORDER: Record<string, string[]> = {
   "domain:po": ["客户PO", "项目结算", "财务管理", "产品管理", "采购管理", "隐藏"],
   "domain:cloud": ["华为云对账", "隐藏"],
   "domain:business-partners": ["供应商管理", "客户管理", "承接单位", "隐藏"],
-  "domain:user-management": ["功能启用", "账户管理", "隐藏"],
+  "domain:user-management": ["消息通知", "功能启用", "账户管理", "隐藏"],
   "domain:public": ["文档管理", "数据工具", "隐藏"],
 };
 
@@ -298,6 +301,7 @@ const PERMISSION_MODULE_ORDER: Record<string, string[]> = {
   "domain:business-partners:承接单位": ["undertaking-units", "undertaking-unit-contacts", "undertaking-unit-bank-accounts"],
   "domain:user-management:功能启用": ["system-module-features"],
   "domain:user-management:账户管理": ["system-users"],
+  "domain:user-management:消息通知": ["notification-rules"],
   "domain:public:文档管理": ["documents"],
   "domain:public:数据工具": ["data-imports"],
 };
@@ -313,6 +317,7 @@ type RoutePermissionRule = { prefix: string; moduleKey: string; action?: Permiss
 const API_ROUTE_RULES: RoutePermissionRule[] = [
   { prefix: "/api/system/users", moduleKey: "system-users" },
   { prefix: "/api/system/module-features", moduleKey: "system-module-features" },
+  { prefix: "/api/notifications", moduleKey: "notification-rules" },
   { prefix: "/api/documents", moduleKey: "documents" },
   { prefix: "/api/import-center", moduleKey: "data-imports" },
   { prefix: "/api/cloud/mappings", moduleKey: "huawei-cloud-mappings" },
@@ -362,6 +367,7 @@ const API_ROUTE_RULES: RoutePermissionRule[] = [
 
 const PAGE_ROUTE_RULES: RoutePermissionRule[] = [
   { prefix: "/system/users", moduleKey: "system-users" },
+  { prefix: "/system/notifications", moduleKey: "notification-rules" },
   { prefix: "/system/module-features", moduleKey: "system-module-features" },
   { prefix: "/documents", moduleKey: "documents" },
   { prefix: "/data-imports", moduleKey: "data-imports" },

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import {
+  Bell,
   Boxes,
   Cloud,
   ChevronDown,
@@ -109,6 +110,28 @@ export function AppShell({
   const [draggingGroupTitle, setDraggingGroupTitle] = useState<string | null>(null);
   const [moduleFeatureState, setModuleFeatureState] = useState<ModuleFeatureState>(() => initialModuleFeatureState);
   const [permissionState] = useState<PermissionState>(() => initialPermissionState);
+  const [unreadNotifications, setUnreadNotifications] = useState(0);
+
+  // 顶部铃铛未读数：每分钟刷新一次；失败静默，铃铛只是提示，不能影响主流程。
+  useEffect(() => {
+    let cancelled = false;
+    const loadUnread = async () => {
+      try {
+        const response = await fetch("/api/notifications?limit=1", { cache: "no-store" });
+        if (!response.ok) return;
+        const data = await response.json();
+        if (!cancelled) setUnreadNotifications(Number(data.unread ?? 0));
+      } catch {
+        /* 忽略 */
+      }
+    };
+    void loadUnread();
+    const timer = window.setInterval(loadUnread, 60_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, []);
   const filteredNavGroups = useMemo(
     () => filterNavGroupsByModuleFeatures(navGroups, moduleFeatureState),
     [moduleFeatureState],
@@ -559,6 +582,20 @@ export function AppShell({
             <span className="shrink-0 text-ink-2">管理后台</span>
           </div>
           <div className="app-header-user ml-auto flex min-w-0 shrink-0 items-center gap-2 text-ink-2 sm:gap-4">
+            <button
+              aria-label="消息通知"
+              className="relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded border border-line hover:border-primary hover:text-primary"
+              onClick={() => openTab({ route: "/system/notifications", title: "消息通知", closable: true })}
+              title={unreadNotifications ? `消息通知（${unreadNotifications} 条未读）` : "消息通知"}
+              type="button"
+            >
+              <Bell size={15} />
+              {unreadNotifications > 0 ? (
+                <span className="absolute -right-1.5 -top-1.5 min-w-[16px] rounded-full bg-danger px-1 text-[10px] font-medium leading-4 text-white">
+                  {unreadNotifications > 99 ? "99+" : unreadNotifications}
+                </span>
+              ) : null}
+            </button>
             <span className="app-header-user-name max-w-[24vw] truncate">{currentUserName || "用户"}</span>
             <button
               aria-label="退出登录"

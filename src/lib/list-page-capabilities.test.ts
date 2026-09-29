@@ -35,6 +35,7 @@ const EXPORT_EXEMPT: Record<string, string> = {
   "document-manager-page.tsx": "文件管理页，不是数据列表",
   "frappe-demand-sync-page.tsx": "需求同步映射工具页，按需再加",
   "import-center-page.tsx": "数据导入工具页，不是数据列表",
+  "notification-settings-page.tsx": "通知配置页，规则与收件人结构特殊，导出意义不大；发送记录本身按时间倒序查看即可",
 };
 
 function listPageFiles() {

@@ -30,6 +30,8 @@
     "data:analyze-remote-backfill": "tsx scripts/analyze-remote-backfill.mjs",
     "migrate": "tsx scripts/migrate.ts",
     "cleanup:operation-logs": "tsx scripts/cleanup-operation-logs.ts",
+    "schema:notifications": "tsx scripts/migrate-notifications.ts",
+    "notify:run": "tsx scripts/run-notifications.ts",
     "sync:cloud-supplier-payments": "tsx scripts/sync-cloud-supplier-payments.ts",
     "sync:materials": "tsx scripts/sync-materials.ts",
     "sync:frappe-demands": "tsx scripts/sync-frappe-demands.ts",

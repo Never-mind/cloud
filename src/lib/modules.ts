@@ -2245,6 +2245,23 @@ const financeChildren: NonNullable<NavGroup["children"]> = [
 
 const userManagementChildren: NonNullable<NavGroup["children"]> = [
   {
+    title: "消息通知",
+    items: [{
+      key: "notification-rules",
+      title: "消息通知",
+      table: "merge_common_notification_rules",
+      primaryKey: "id",
+      navGroup: "用户管理",
+      route: "/system/notifications",
+      description: "配置按业务状态与天数触发的飞书 / 站内消息提醒，并查看发送记录。",
+      // 数据走专用接口（规则带收件人、发送记录），通用实体接口只做占位。
+      genericListDisabled: true,
+      filters: [],
+      listFields: [],
+      formFields: [],
+    }],
+  },
+  {
     title: "功能启用",
     items: [{
       key: "system-module-features",
