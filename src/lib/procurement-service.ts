@@ -7,6 +7,7 @@ import {
   normalizeRequestNos,
 } from "./procurement-workflow";
 import type { OperationActor } from "./operation-actor";
+import { isConfirmedOrderStatus } from "./order-status";
 import {
   getFrappeDemandLogistics,
   loadRemoteShipmentTimelines,
@@ -677,6 +678,87 @@ export async function synchronizeConfirmedPurchaseOrderShipments(purchaseOrderId
     }
   }
   return { orderCount: orders.length, created, updated, remoteSnapshots, pending, errors };
+}
+
+/**
+ * 采购订单能不能退回草稿。
+ *
+ * 已生成月账单或预付款的采购订单不允许退回 —— 那些下游单据是按当前采购内容算出来的，
+ * 退回后一改金额/数量就对不上了，必须先处理下游单据。
+ */
+async function getPurchaseOrderDraftRevertBlockReason(purchaseOrderId: string, poNo: string) {
+  const itemRows = await queryRows<{ id: string }>(
+    "SELECT id FROM purchaseorderitems WHERE purchaseOrderId = :purchaseOrderId OR poNo = :poNo",
+    { purchaseOrderId, poNo },
+  );
+  const itemIds = itemRows.map((row) => String(row.id));
+  const itemParams = Object.fromEntries(itemIds.map((id, index) => [`item${index}`, id]));
+  const itemWhere = itemIds.length
+    ? `purchaseOrderItemId IN (${itemIds.map((_, index) => `:item${index}`).join(", ")})`
+    : "1 = 0";
+
+  const [billingLedgers, monthlyBillings, prepaymentItems, monthlyPrepayments] = await Promise.all([
+    queryRows<{ c: number }>(`SELECT COUNT(*) AS c FROM billinginstanceledgers WHERE poNo = :poNo OR ${itemWhere}`, { poNo, ...itemParams }),
+    queryRows<{ c: number }>("SELECT COUNT(*) AS c FROM monthlybillingwriteoffs WHERE poNo = :poNo", { poNo }),
+    queryRows<{ c: number }>(`SELECT COUNT(*) AS c FROM prepaymentcontractitems WHERE poNo = :poNo OR ${itemWhere}`, { poNo, ...itemParams }),
+    queryRows<{ c: number }>("SELECT COUNT(*) AS c FROM monthlyprepaymentwriteoffs WHERE poNo = :poNo", { poNo }),
+  ]);
+
+  if (Number(billingLedgers[0]?.c ?? 0) > 0 || Number(monthlyBillings[0]?.c ?? 0) > 0) {
+    return "该采购订单已生成月账单，不能退回草稿；请先处理对应的月账单台账与每月明细";
+  }
+  if (Number(prepaymentItems[0]?.c ?? 0) > 0 || Number(monthlyPrepayments[0]?.c ?? 0) > 0) {
+    return "该采购订单已生成预付款，不能退回草稿；请先处理对应的预付款合同与核销明细";
+  }
+  return null;
+}
+
+/**
+ * 退回草稿：已确认的采购订单不允许直接修改，需要先退回草稿。
+ * 退回后采购单可继续编辑，相关的物流单保留（重新确认时会按当前明细刷新）。
+ */
+export async function revertPurchaseOrderToDraft(purchaseOrderIdOrPoNo: string, actor: OperationActor | null = null) {
+  const rows = await queryRows<PurchaseOrderRow>(
+    "SELECT purchaseOrderId, poNo, requestNo, sourceRequestNos, status FROM purchaseorders WHERE purchaseOrderId = :id OR poNo = :id LIMIT 1",
+    { id: purchaseOrderIdOrPoNo },
+  );
+  const order = rows[0];
+  if (!order) throw new Error("采购单不存在");
+  if (!isConfirmedOrderStatus("purchase", order.status)) throw new Error("只有已确认的采购订单可以退回草稿");
+
+  const purchaseOrderId = String(order.purchaseOrderId);
+  const poNo = String(order.poNo);
+  const blockReason = await getPurchaseOrderDraftRevertBlockReason(purchaseOrderId, poNo);
+  if (blockReason) throw new Error(blockReason);
+
+  await execute(
+    `UPDATE purchaseorders
+        SET status = :status, confirmedByUserId = NULL, confirmedByName = NULL,
+            updatedByUserId = :updatedByUserId, updatedByName = :updatedByName
+      WHERE purchaseOrderId = :purchaseOrderId`,
+    {
+      purchaseOrderId,
+      status: "草稿",
+      updatedByUserId: actor?.userId ?? null,
+      updatedByName: actor?.displayName ?? null,
+    },
+  );
+
+  // 需求单跟着退回「待下单」；如果该需求单还有别的已确认采购单，则保持已下单。
+  const requestNos = normalizeRequestNos([String(order.sourceRequestNos ?? order.requestNo ?? "")]).split(",").filter(Boolean);
+  for (const requestNo of requestNos) {
+    const others = await queryRows<{ c: number }>(
+      `SELECT COUNT(*) AS c FROM purchaseorders
+        WHERE (requestNo = :requestNo OR sourceRequestNos LIKE :like)
+          AND purchaseOrderId <> :purchaseOrderId
+          AND status = '已确认'`,
+      { requestNo, like: `%${requestNo}%`, purchaseOrderId },
+    );
+    if (Number(others[0]?.c ?? 0) > 0) continue;
+    await execute("UPDATE requests SET status = '待下单' WHERE requestNo = :requestNo", { requestNo });
+  }
+
+  return { ok: true, poNo, status: "草稿" };
 }
 
 async function markPurchaseOrderRequestsAsOrdered(order: Pick<PurchaseOrderRow, "requestNo" | "sourceRequestNos">, actor: OperationActor | null = null) {

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { ArrowLeft, Calculator, CheckCircle2, Pencil, Save, X } from "lucide-react";
+import { ArrowLeft, Calculator, CheckCircle2, Pencil, Save, Undo2, X } from "lucide-react";
 import { formatDateInputValue, formatDisplayValue } from "@/lib/display-format";
 import type { EntityConfig } from "@/lib/modules";
 import { formatNumericInputValue, parseNumericInputValue } from "@/lib/numeric-input";
@@ -18,8 +18,8 @@ import { getReturnTo } from "@/lib/client-list-navigation";
 import { readJsonResponse } from "@/lib/client-response";
 import { AuditInfoBar, Button, Input, Panel, Select } from "./ui";
 import { EmptyState } from "./table-state";
+import { confirmDialog, notify } from "./app-dialog";
 import { NumberInput as NumberField } from "./number-input";
-import { notify } from "./app-dialog";
 import { StickyTable } from "./sticky-table";
 import { PowerPriceCalculationDrawer } from "./power-price-calculation-drawer";
 
@@ -47,6 +47,7 @@ export function OrderDetailPage({
   const [requestItems, setRequestItems] = useState<Row[]>([]);
   const [instanceModels, setInstanceModels] = useState<Row[]>([]);
   const [editing, setEditing] = useState(false);
+  const [reverting, setReverting] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [masterDraft, setMasterDraft] = useState<Row>({});
   const [detailDrafts, setDetailDrafts] = useState<Row[]>([]);
@@ -167,6 +168,28 @@ export function OrderDetailPage({
     setMasterDraft(master ?? {});
     setDetailDrafts(details);
     setEditing(true);
+  }
+
+  /**
+   * 已确认的采购订单不允许直接改：先退回草稿再改。
+   * 已生成月账单/预付款的会被后端拦下并返回原因。
+   */
+  async function revertToDraft() {
+    if (!await confirmDialog(
+      "确认将该采购订单退回草稿？\n退回后可以继续修改主单与采购明细；已生成的物流单会保留，重新确认时按当前明细刷新。已生成月账单或预付款的订单不能退回。",
+    )) return;
+    setReverting(true);
+    try {
+      const response = await fetch(`/api/procurement/${encodeURIComponent(id)}/revert`, { method: "POST" });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(String(data.error ?? "退回草稿失败"));
+      notify("已退回草稿，可以继续修改", "success");
+      await loadData();
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "退回草稿失败", "error");
+    } finally {
+      setReverting(false);
+    }
   }
 
   function cancelEditing() {
@@ -315,10 +338,17 @@ export function OrderDetailPage({
               </>
             ) : (
               <>
-                <Button onClick={startEditing}>
-                  <Pencil size={15} />
-                  修改
-                </Button>
+                {String(master.status ?? "") === "已确认" ? (
+                  <Button disabled={reverting} onClick={() => void revertToDraft()}>
+                    <Undo2 size={15} />
+                    {reverting ? "退回中..." : "退回草稿"}
+                  </Button>
+                ) : (
+                  <Button onClick={startEditing}>
+                    <Pencil size={15} />
+                    修改
+                  </Button>
+                )}
                 <Button
                   disabled={String(master.status ?? "") === "已确认" || confirming}
                   tone="success"
