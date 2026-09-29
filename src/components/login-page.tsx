@@ -5,7 +5,8 @@ import { LockKeyhole, Mail, MessageCircle } from "lucide-react";
 import { Button, Input } from "./ui";
 
 export function LoginPage({ feishuEnabled = false }: { feishuEnabled?: boolean }) {
-  const [email, setEmail] = useState("admin@luzcorp.com");
+  // 不预填管理员账号：登录页对所有同事开放，预填 admin 既容易误导也不该暴露管理员账号。
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState(() => {
     if (typeof window === "undefined") return "";
