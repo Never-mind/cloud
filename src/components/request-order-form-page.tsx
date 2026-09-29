@@ -148,6 +148,8 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
         });
         setEditing(false);
         const existingDetails = ((data.details ?? []) as Row[]).map((item) => ({
+          // 必须带上本地主键，保存时才知道该更新哪一行（丢了就会重复建明细）。
+          id: item.id ? String(item.id) : undefined,
           deviceCode: String(item.deviceCode ?? ""),
           supplierId: String(item.supplierId ?? ""),
           undertakingUnitId: String(item.undertakingUnitId ?? ""),
@@ -233,6 +235,8 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
     });
 
     for (const item of requestItems) {
+      // 有主键就按主键探测：存在则更新，不存在才新建。
+      // 已存在明细的主键来自加载时保留的行 ID，不会再被位置编号顶替。
       const existingResponse = await fetch(`/api/entities/request-items/${encodeURIComponent(item.id)}`);
       await fetch(
         `/api/entities/request-items${existingResponse.ok ? `/${encodeURIComponent(item.id)}` : ""}`,
