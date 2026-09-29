@@ -40,6 +40,10 @@ export type EntityConfig = {
   showSequence?: boolean;
   /** 开启后列表支持勾选行并批量操作（目前仅月账单合同使用批量删除退回）。 */
   batchDelete?: boolean;
+  /** 批量操作按钮文案（默认「批量退回」）。 */
+  batchDeleteLabel?: string;
+  /** 批量操作确认文案，`{count}` 会替换成选中条数。 */
+  batchDeleteConfirm?: string;
   /**
    * 数据走专用接口、不支持通用实体接口。
    * 这类模块（如发票汇总、待生成预付款）在导航和权限矩阵里要有条目，但列表数据由专用
@@ -420,6 +424,10 @@ export const entityConfigs: EntityConfig[] = [
     navGroup: "客户需求",
     route: "/requests/items",
     description: "跨批次集中查看所有需求明细。",
+    // 批量删除需求明细：已生成采购订单/预付款的明细会被服务层拦下，不会误删。
+    batchDelete: true,
+    batchDeleteLabel: "批量删除",
+    batchDeleteConfirm: "确认删除选中的 {count} 条需求明细？\n已生成采购订单或预付款的明细会被跳过并给出原因。",
     filters: [
       { key: "keyword", label: "需求明细", placeholder: "请输入需求单号、设备编码或供应商" },
       { key: "requestType", label: "类型", type: "select", options: REQUEST_TYPE_OPTIONS },

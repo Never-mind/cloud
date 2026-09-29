@@ -69,6 +69,8 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
   const [details, setDetails] = useState<DetailDraft[]>([{ ...emptyDetail }]);
   // 加载时该需求单已有的明细主键：保存时用它对比出"被删掉的行"，删库里的对应明细。
   const [originalItemIds, setOriginalItemIds] = useState<string[]>([]);
+  // 批量删除选中的明细行（按当前行号记录；任何一次删行都会清空选择，避免行号错位）。
+  const [selectedDetailIndexes, setSelectedDetailIndexes] = useState<number[]>([]);
   const [instanceModels, setInstanceModels] = useState<Row[]>([]);
   const [suppliers, setSuppliers] = useState<Row[]>([]);
   const [undertakingUnits, setUndertakingUnits] = useState<Row[]>([]);
@@ -196,7 +198,25 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
     const label = detail.deviceCode ? `设备编码 ${detail.deviceCode}` : `第 ${index + 1} 行`;
     const confirmed = await confirmDialog(`确定删除${label}这条需求明细吗？保存后才会同步到库里。`);
     if (!confirmed) return;
+    setSelectedDetailIndexes([]);
     setDetails((current) => current.filter((_, detailIndex) => detailIndex !== index));
+  }
+
+  function toggleDetailSelection(index: number) {
+    setSelectedDetailIndexes((current) =>
+      current.includes(index) ? current.filter((item) => item !== index) : [...current, index],
+    );
+  }
+
+  async function removeSelectedDetails() {
+    if (!canEdit || !selectedDetailIndexes.length) return;
+    const selected = new Set(selectedDetailIndexes);
+    const confirmed = await confirmDialog(
+      `确认删除选中的 ${selected.size} 条需求明细吗？保存后才会同步到库里；已生成采购订单的明细会被拦下。`,
+    );
+    if (!confirmed) return;
+    setDetails((current) => current.filter((_, index) => !selected.has(index)));
+    setSelectedDetailIndexes([]);
   }
 
   async function importDetails(file: File) {
@@ -433,6 +453,12 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
       <Panel>
         <div className="flex items-center gap-2 border-b border-line-soft px-4 py-3">
           <div className="font-medium text-ink">需求明细</div>
+          {selectedDetailIndexes.length ? (
+            <Button disabled={!canEdit || saving} tone="danger" onClick={() => void removeSelectedDetails()}>
+              <Trash2 size={15} />
+              批量删除所选（{selectedDetailIndexes.length}）
+            </Button>
+          ) : null}
           <Button className="ml-auto" disabled={!canEdit} onClick={() => setDetails((current) => [...current, { ...emptyDetail }])}>
             <Plus size={15} />
             新增明细
@@ -461,6 +487,17 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
           <table className="min-w-[1220px] whitespace-nowrap border-collapse text-sm">
             <thead className="bg-canvas text-ink">
               <tr>
+                <th className="whitespace-nowrap table-select-cell border-b border-r border-line-soft py-3 text-center font-medium [&>input]:h-4 [&>input]:w-4 [&>input]:align-middle">
+                  <input
+                    aria-label="全选本页明细"
+                    checked={details.length > 0 && selectedDetailIndexes.length === details.length}
+                    disabled={!canEdit || !details.length}
+                    onChange={(event) =>
+                      setSelectedDetailIndexes(event.target.checked ? details.map((_, index) => index) : [])
+                    }
+                    type="checkbox"
+                  />
+                </th>
                 <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">设备编码</th>
                 <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">机型</th>
                 <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">英文名称</th>
@@ -476,6 +513,15 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
                 const model = getModel(detail.deviceCode);
                 return (
                   <tr key={index}>
+                    <td className="table-select-cell border-b border-r border-line-soft py-3 text-center [&>input]:h-4 [&>input]:w-4 [&>input]:align-middle">
+                      <input
+                        aria-label={`选择第 ${index + 1} 行明细`}
+                        checked={selectedDetailIndexes.includes(index)}
+                        disabled={!canEdit}
+                        onChange={() => toggleDetailSelection(index)}
+                        type="checkbox"
+                      />
+                    </td>
                     <td className="border-b border-r border-line-soft px-3 py-3">
                       <SearchSelect
                         className="min-w-[180px]"

@@ -715,7 +715,10 @@ export function EntityPage({
 
   async function runBatchDelete() {
     if (!selectedRowIds.length) return;
-    if (!await confirmDialog(`确认退回选中的 ${selectedRowIds.length} 条月账单合同？\n退回后对应的每月核销明细会同步删除，实例回到「待生成月账单」。`)) return;
+    const actionLabel = config.batchDeleteLabel ?? "批量退回";
+    const confirmMessage = (config.batchDeleteConfirm ?? "确认退回选中的 {count} 条月账单合同？\n退回后对应的每月核销明细会同步删除，实例回到「待生成月账单」。")
+      .replace("{count}", String(selectedRowIds.length));
+    if (!await confirmDialog(confirmMessage)) return;
     setBatchBusy(true);
     try {
       const response = await fetch(`/api/entities/${config.key}/batch`, {
@@ -724,19 +727,19 @@ export function EntityPage({
         body: JSON.stringify({ ids: selectedRowIds }),
       });
       const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.error ?? "批量退回失败");
+      if (!response.ok) throw new Error(data.error ?? `${actionLabel}失败`);
       const failed: Array<{ id: string; error: string }> = data.failed ?? [];
       setSelectedRowIds(failed.map((item) => item.id));
       if (failed.length) {
         notify(
-          `批量退回完成 ${data.succeeded?.length ?? 0} 条，失败 ${failed.length} 条：\n` +
+          `${actionLabel}完成 ${data.succeeded?.length ?? 0} 条，失败 ${failed.length} 条：\n` +
             failed.map((item) => `${item.id}：${item.error}`).join("\n"),
           "info",
         );
       }
       await loadRows();
     } catch (error) {
-      notify(error instanceof Error ? error.message : "批量退回失败", "info");
+      notify(error instanceof Error ? error.message : `${actionLabel}失败`, "info");
     } finally {
       setBatchBusy(false);
     }
@@ -925,7 +928,7 @@ export function EntityPage({
               <span className="text-sm text-primary">已选 {selectedRowIds.length} 条</span>
               <Button disabled={batchBusy} tone="danger" onClick={() => void runBatchDelete()}>
                 <Trash2 size={15} />
-                批量退回
+                {config.batchDeleteLabel ?? "批量退回"}
               </Button>
               <button className="text-sm text-ink-3 hover:text-ink" onClick={() => setSelectedRowIds([])} type="button">
                 清空选择
