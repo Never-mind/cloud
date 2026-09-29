@@ -28,7 +28,7 @@ type Expense = { id: string; type: string; description: string | null; amount: n
 type Sale = { id: string; description: string | null; amount: number; currency: string; priceType: string; taxRate: number; receivedRevenueTaxIncludedUsd: number; receivedRevenueUsd: number; invoiceNo: string | null; receivedAt: string | null; createdAt: string; updatedAt: string };
 type Attachment = { id: string; projectId: string; invoiceId: string | null; fileName: string; fileType: string | null; fileSize: number; description: string | null; uploadedByName: string | null; uploadedAt: string; createdAt: string; updatedAt: string };
 type Invoice = { id: string; type: string; accountPeriod: string | null; accountingDate: string | null; companyEntity: string | null; invoiceEntity: string | null; companyEntityId: string | null; invoiceEntityId: string | null; invoiceEntityType: "supplier" | "customer" | null; invoiceDate: string | null; invoiceNo: string | null; invoiceTotal: number; invoiceTaxExcludedTotal: number; taxRate: number; invoiceTaxAmount: number; currency: string; exchangeRate: number; usdAmount: number; receivableDate: string | null; actualReceiptDate: string | null; isPaid: boolean; isInvoiced: boolean; attachments?: Attachment[]; createdAt: string; updatedAt: string };
-type Project = { id: string; projectNo: string; quotationId: string; quotationNo: string; projectName: string | null; customerName: string | null; contractingUnitName: string | null; remark: string | null; exchangeRateUsd: number; exchangeRateMxn: number; quotedPurchaseCostUsd: number; purchasedCostUsd: number; quotedSalesRevenueUsd: number; receivedRevenueTaxIncludedUsd: number; receivedRevenueUsd: number; grossProfitUsd: number; status: string; createdByName: string | null; updatedByName: string | null; confirmedByName: string | null; createdAt: string; updatedAt: string; confirmedAt: string | null };
+type Project = { id: string; projectNo: string; quotationId: string; quotationNo: string; projectName: string | null; customerName: string | null; contractingUnitName: string | null; remark: string | null; exchangeRateUsd: number; exchangeRateMxn: number; quotedPurchaseCostUsd: number; purchasedCostUsd: number; quotedSalesRevenueUsd: number; receivedRevenueTaxIncludedUsd: number; receivedRevenueUsd: number; grossProfitUsd: number; status: string; createdByName: string | null; updatedByName: string | null; confirmedByName: string | null; createdAt: string; updatedAt: string; confirmedAt: string | null; procurementCompletedAt: string | null; acceptanceStartedAt: string | null; acceptanceCompletedAt: string | null; closedAt: string | null };
 type Detail = { project: Project; items: Item[]; unpurchasedItems: Item[]; purchasedItems: Item[]; expenses: Expense[]; sales: Sale[]; invoices: Invoice[]; attachments: Attachment[] };
 type TableRow = Record<string, unknown>;
 type Row = TableRow & { id?: string };
@@ -268,6 +268,7 @@ export function SettlementProjectDetailWorkspace() {
       {notice ? <div className="border border-success-border bg-success-soft px-3 py-2 text-sm text-success-strong">{notice}</div> : null}
       <Panel>
         <div className="border-b border-line-soft p-4"><h2 className="font-medium text-ink">项目结算主单</h2></div>
+        <SettlementStatusTimeline project={project} />
         <div className="grid gap-3 p-4 md:grid-cols-3 xl:grid-cols-6">{[["采购成本（未税 USD）", money(project.quotedPurchaseCostUsd)], ["已采购成本（未税 USD）", money(project.purchasedCostUsd)], ["销售收入（未税 USD）", money(project.quotedSalesRevenueUsd)], ["已销售收入（含税 USD）", money(project.receivedRevenueTaxIncludedUsd)], ["已销售收入（未税 USD）", money(project.receivedRevenueUsd)], ["项目毛利（未税 USD）", money(project.grossProfitUsd)]].map(([label, value]) => <div className="border border-line-soft bg-surface-2 p-3" key={label}><span className="block text-xs text-ink-3">{label}</span><strong className="mt-1 block text-base text-ink">{value}</strong></div>)}</div>
         <div className="grid gap-3 border-t border-line-soft p-4 text-sm md:grid-cols-3"><Info label="报价单号" value={project.quotationNo} link={() => openRoute(`/quotation/list?keyword=${encodeURIComponent(project.quotationNo)}`, "报价列表")} /><Info label="客户" value={project.customerName || "-"} /><Info label="承接单位" value={project.contractingUnitName || "-"} /><Info label="项目名称" value={project.projectName || "-"} /><Info label="备注" value={project.remark || "-"} /></div>
       </Panel>
@@ -513,6 +514,64 @@ function money(value: number) { return formatMoneyValue(value); }
 function dateInputValue(value: unknown) { return normalizeDateOnlyValue(value) || ""; }
 function formatFileSize(value: number) { const size = Number(value || 0); return size >= 1024 * 1024 ? `${money(size / 1024 / 1024)} MB` : size >= 1024 ? `${money(size / 1024)} KB` : `${Math.round(size)} B`; }
 function expenseLabel(value: string) { return ({ first_mile_freight: "头程运费", customs_fee: "清关费", labor_fee: "人力费", equipment_service_fee: "设备服务费", other: "其他" } as Record<string, string>)[value] || value; }
+/** 项目结算的五个状态节点，顺序与状态流转一致。 */
+const SETTLEMENT_TIMELINE_STEPS = [
+  { status: "purchasing", label: "采购中", field: "createdAt" },
+  { status: "procurement_completed", label: "采购完成", field: "procurementCompletedAt" },
+  { status: "accepting", label: "验收开始", field: "acceptanceStartedAt" },
+  { status: "acceptance_completed", label: "验收完成", field: "acceptanceCompletedAt" },
+  { status: "closed", label: "结算", field: "closedAt" },
+] as const;
+
+/**
+ * 项目结算状态时间节点。
+ *
+ * 只在详情页展示（列表页主表不放时间列）。时间全部取主单上已有的字段，
+ * 未到达或老数据缺失时显示「—」，不用其它时间推算，避免给出错误信息。
+ */
+function SettlementStatusTimeline({ project }: { project: Project }) {
+  const currentIndex = Math.max(0, SETTLEMENT_TIMELINE_STEPS.findIndex((step) => step.status === project.status));
+  return (
+    <div className="border-b border-line-soft px-4 py-4">
+      <div className="mb-4 flex flex-wrap items-baseline gap-2">
+        <strong className="text-[13px] font-medium text-ink">状态时间节点</strong>
+      </div>
+      <div className="flex items-start">
+        {SETTLEMENT_TIMELINE_STEPS.map((step, index) => {
+          const isDone = index < currentIndex;
+          const isCurrent = index === currentIndex;
+          return (
+            <div className="relative min-w-0 flex-1 px-1.5 text-center" key={step.status}>
+              {index < SETTLEMENT_TIMELINE_STEPS.length - 1 ? (
+                <span
+                  aria-hidden
+                  className={`absolute top-[10px] h-0.5 ${isDone ? "bg-success" : "bg-line-soft"}`}
+                  style={{ left: "calc(50% + 13px)", right: "calc(-50% + 13px)" }}
+                />
+              ) : null}
+              <span
+                className={`relative z-[1] mx-auto mb-2 flex h-[22px] w-[22px] items-center justify-center rounded-full border-2 text-xs leading-none ${
+                  isDone
+                    ? "border-success bg-success text-white"
+                    : isCurrent
+                      ? "border-primary bg-white text-primary shadow-[0_0_0_4px_rgba(24,144,255,0.14)]"
+                      : "border-line-soft bg-surface-2 text-ink-4"
+                }`}
+              >
+                {isDone ? "✓" : isCurrent ? <span className="h-2 w-2 rounded-full bg-primary" /> : "–"}
+              </span>
+              <div className={`truncate text-[13px] ${isDone || isCurrent ? "font-medium text-ink" : "text-ink-3"}`}>{step.label}</div>
+              <div className={`mt-0.5 text-xs tabular-nums ${isDone ? "text-ink-2" : isCurrent ? "text-primary" : "text-ink-4"}`}>
+                {project[step.field] || "—"}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function statusLabel(status: string) { return ({ purchasing: "采购中", procurement_completed: "采购完成", accepting: "验收中", acceptance_completed: "验收完成", closed: "已完结" } as Record<string, string>)[status] || status || "-"; }
 function statusClass(status: string) { return status === "closed" ? "bg-tag-green text-tag-green-fg" : status === "acceptance_completed" ? "bg-tag-sky text-tag-sky-fg" : status === "accepting" ? "bg-tag-indigo text-tag-indigo-fg" : status === "procurement_completed" ? "bg-tag-blue text-tag-blue-fg" : "bg-tag-amber text-tag-amber-fg"; }
 function SectionTitle({ title, action }: { title: string; action?: ReactNode }) { return <div className="flex items-center border-b border-line-soft p-4"><h2 className="font-medium text-ink">{title}</h2><div className="ml-auto">{action}</div></div>; }
