@@ -51,6 +51,38 @@ export async function deleteRequestOrder(requestNo: string) {
   return { ok: true };
 }
 
+/**
+ * 删除单条需求明细。
+ *
+ * 守卫：已经被采购订单明细引用的需求明细不允许删除 —— 单据已经进入采购流程，
+ * 直接删掉会让采购订单、物流、月账单挂到一条不存在的需求明细上，
+ * 需要改的话先把采购订单那一侧退回或删除。
+ */
+export async function deleteRequestItem(itemId: string) {
+  const id = String(itemId ?? "").trim();
+  if (!id) throw new Error("请指定要删除的需求明细");
+  const rows = await queryRows<IdRow & { requestNo?: string | null }>(
+    "SELECT id, requestNo FROM requestitems WHERE id = :id",
+    { id },
+  );
+  const item = rows[0];
+  if (!item) throw new Error("需求明细不存在或已被删除");
+
+  const [purchaseItemCount, prepaymentCount] = await Promise.all([
+    countRows("SELECT COUNT(*) AS count FROM purchaseorderitems WHERE requestItemId = :id", { id }),
+    countRows("SELECT COUNT(*) AS count FROM prepaymentcontractitems WHERE requestItemId = :id", { id }),
+  ]);
+  if (purchaseItemCount > 0) {
+    throw new Error(`明细 ${id} 已生成采购订单，不能直接删除；请先在采购订单里退回或删除对应明细`);
+  }
+  if (prepaymentCount > 0) {
+    throw new Error(`明细 ${id} 已生成预付款，不能删除`);
+  }
+
+  await execute("DELETE FROM requestitems WHERE id = :id", { id });
+  return { ok: true, requestNo: String(item.requestNo ?? "") };
+}
+
 export async function deleteRequestOrders(requestNos: string[]) {
   const normalizedRequestNos = [...new Set(requestNos.map((value) => String(value ?? "").trim()).filter(Boolean))];
   if (!normalizedRequestNos.length) throw new Error("请选择至少一条需求单");

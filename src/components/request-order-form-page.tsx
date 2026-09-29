@@ -2,7 +2,7 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { ArrowLeft, CheckCircle2, Download, Pencil, Plus, Save, Upload, X } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Download, Pencil, Plus, Save, Trash2, Upload, X } from "lucide-react";
 import { formatDateInputValue, formatDisplayValue } from "@/lib/display-format";
 import { formatNumericInputValue, parseNumericInputValue } from "@/lib/numeric-input";
 import { isConfirmedOrderStatus } from "@/lib/order-status";
@@ -15,7 +15,7 @@ import { getPartyReferenceLabel, resolvePartyReference } from "@/lib/party-refer
 import { AuditInfoBar, Button, Input, Panel, Select } from "./ui";
 import { SearchSelect } from "./search-select";
 import { NumberInput as NumberField } from "./number-input";
-import { notify } from "./app-dialog";
+import { confirmDialog, notify } from "./app-dialog";
 import { StickyTable } from "./sticky-table";
 
 type Row = Record<string, string | number | boolean | null>;
@@ -67,6 +67,8 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [master, setMaster] = useState<MasterDraft>(emptyMaster);
   const [details, setDetails] = useState<DetailDraft[]>([{ ...emptyDetail }]);
+  // 加载时该需求单已有的明细主键：保存时用它对比出"被删掉的行"，删库里的对应明细。
+  const [originalItemIds, setOriginalItemIds] = useState<string[]>([]);
   const [instanceModels, setInstanceModels] = useState<Row[]>([]);
   const [suppliers, setSuppliers] = useState<Row[]>([]);
   const [undertakingUnits, setUndertakingUnits] = useState<Row[]>([]);
@@ -158,6 +160,7 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
         }));
 
         setDetails(existingDetails.length ? existingDetails : [{ ...emptyDetail }]);
+        setOriginalItemIds(existingDetails.map((detail) => detail.id).filter((id): id is string => Boolean(id)));
       }
     });
   }, [requestNo]);
@@ -184,6 +187,16 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
 
   function getModel(deviceCode: string) {
     return instanceModels.find((model) => String(model.deviceCode) === deviceCode);
+  }
+
+  async function removeDetail(index: number) {
+    if (!canEdit) return;
+    const detail = details[index];
+    if (!detail) return;
+    const label = detail.deviceCode ? `设备编码 ${detail.deviceCode}` : `第 ${index + 1} 行`;
+    const confirmed = await confirmDialog(`确定删除${label}这条需求明细吗？保存后才会同步到库里。`);
+    if (!confirmed) return;
+    setDetails((current) => current.filter((_, detailIndex) => detailIndex !== index));
   }
 
   async function importDetails(file: File) {
@@ -247,6 +260,22 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
         },
       );
     }
+    return requestItems;
+  }
+
+  /**
+   * 删掉表单里已经移除、但库里还存在的明细。
+   * 后端会拦住"已生成采购订单"的明细并返回原因，这里原样抛给用户。
+   */
+  async function deleteRemovedRequestItems(keptIds: Set<string>) {
+    for (const id of originalItemIds) {
+      if (keptIds.has(id)) continue;
+      const response = await fetch(`/api/entities/request-items/${encodeURIComponent(id)}`, { method: "DELETE" });
+      if (response.ok) continue;
+      const data = await response.json().catch(() => ({}));
+      throw new Error(String(data.error ?? `删除需求明细 ${id} 失败`));
+    }
+    setOriginalItemIds((current) => current.filter((id) => keptIds.has(id)));
   }
 
   async function saveOrder(mode: SaveMode) {
@@ -269,7 +298,15 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
       return;
     }
 
-    await upsertRequestItems();
+    try {
+      const savedItems = await upsertRequestItems();
+      await deleteRemovedRequestItems(new Set(savedItems.map((item) => String(item.id))));
+    } catch (error) {
+      setSaving(false);
+      setConfirming(false);
+      notify(error instanceof Error ? error.message : "明细保存失败", "error");
+      return;
+    }
 
     if (mode === "confirm") {
       const response = await fetch("/api/procurement/from-request", {
@@ -431,6 +468,7 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
                 <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">承接单位</th>
                 <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">客户</th>
                 <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">节点数量</th>
+                <th className="whitespace-nowrap w-[72px] min-w-[72px] border-b border-line-soft px-3 py-3 text-left font-medium">操作</th>
               </tr>
             </thead>
             <tbody>
@@ -519,6 +557,18 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
                         value={detail.quantity}
                         onChange={(text) => updateDetail(index, { quantity: parseNumericInputValue(text) })}
                       />
+                    </td>
+                    <td className="border-b border-line-soft px-3 py-3">
+                      <button
+                        aria-label="删除该明细"
+                        className="inline-flex h-8 w-8 items-center justify-center rounded border border-transparent text-danger hover:border-danger-border-strong hover:bg-danger-soft disabled:cursor-not-allowed disabled:opacity-40"
+                        disabled={!canEdit}
+                        onClick={() => void removeDetail(index)}
+                        title="删除该明细"
+                        type="button"
+                      >
+                        <Trash2 size={15} />
+                      </button>
                     </td>
                   </tr>
                 );

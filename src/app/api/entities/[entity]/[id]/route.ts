@@ -4,7 +4,7 @@ import { deleteEntityRow, getEntityRow, updateEntityRow } from "@/lib/crud";
 import { execute, type Row } from "@/lib/db";
 import { getEntityConfig } from "@/lib/modules";
 import { recalculateQuotationSummary } from "@/lib/quotation-workflow";
-import { deletePurchaseOrder, deleteRequestOrder } from "@/lib/order-delete-service";
+import { deletePurchaseOrder, deleteRequestItem, deleteRequestOrder } from "@/lib/order-delete-service";
 import { deleteCustomerPoDraft, deleteQuotationDraft } from "@/lib/po-document-delete-service";
 import { deleteBillingStatementDraft } from "@/lib/billing-statement-service";
 import { deletePrepaymentDraft } from "@/lib/prepayment-service";
@@ -170,6 +170,12 @@ export async function DELETE(_request: NextRequest, context: { params: Promise<{
       await deleteRequestOrder(id);
       await logDelete();
       return NextResponse.json({ ok: true });
+    }
+    // 需求明细单独删除：已生成采购订单的明细会被服务层挡住。
+    if (entity === "request-items") {
+      const result = await deleteRequestItem(id);
+      await logDelete();
+      return NextResponse.json({ ok: true, requestNo: result.requestNo });
     }
     if (entity === "purchase-orders") {
       await deletePurchaseOrder(id);

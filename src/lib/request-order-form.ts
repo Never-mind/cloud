@@ -28,8 +28,10 @@ export function buildRequestItemRows({
 }) {
   const usedIds = new Set(details.map((detail) => detail.id).filter((id): id is string => Boolean(id)));
   // 新编号从现有最大序号往后排，避免和已有明细的编号撞车（撞了会把别人的行覆盖掉）。
+  // 只认本需求单的 RI-<需求单号>-<序号> 格式：历史数据里像 F-DOI-00107 这种旧编号不参与排号。
+  const sequencePattern = new RegExp(`^RI-${requestNo.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}-(\\d+)$`);
   let nextSequence = details.reduce((max, detail) => {
-    const matched = /-(\d+)$/.exec(detail.id ?? "");
+    const matched = sequencePattern.exec(detail.id ?? "");
     return matched ? Math.max(max, Number(matched[1])) : max;
   }, 0);
 
