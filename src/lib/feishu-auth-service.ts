@@ -10,7 +10,7 @@ import {
   feishuTenantKey,
   getFeishuCredentials,
 } from "./feishu-auth-config";
-import { getManagedPermissionDefinitions, MANAGED_ADMIN_ONLY_MODULE_KEYS } from "./user-service";
+import { getManagedPermissionDefinitions, MANAGED_ADMIN_ONLY_MODULE_KEYS, MANAGED_VIEW_ONLY_MODULE_KEYS } from "./user-service";
 
 /** 飞书授权回调带回的 state 有效期（毫秒）。 */
 const STATE_TTL_MS = 10 * 60 * 1000;
@@ -226,6 +226,8 @@ export async function resolveFeishuLoginUser(profile: FeishuProfile): Promise<Fe
  * 新员工的默认权限（仅自动建号时使用）。
  * 默认「full」：除账户管理、功能启用两个管理员模块外，其余模块的全部操作都开启；
  * 这两个管理员模块不写任何权限行，等管理员在用户管理里单独开放。
+ * 「消息通知」这类只读默认的模块（MANAGED_VIEW_ONLY_MODULE_KEYS）只给查看权限：
+ * 站内消息人人可看，配置规则留给管理员。
  */
 async function applyDefaultPermissionsForNewUser(userId: string) {
   const mode = feishuDefaultPermissionMode();
@@ -233,7 +235,7 @@ async function applyDefaultPermissionsForNewUser(userId: string) {
   const definitions = getManagedPermissionDefinitions();
   for (const definition of definitions) {
     if (MANAGED_ADMIN_ONLY_MODULE_KEYS.has(definition.moduleKey)) continue;
-    const full = mode === "full";
+    const full = mode === "full" && !MANAGED_VIEW_ONLY_MODULE_KEYS.has(definition.moduleKey);
     await executeRaw(
       `INSERT INTO merge_common_user_permissions
         (userId, moduleKey, canView, canCreate, canUpdate, canDelete, canExport, canImport, canConfirm, updatedByUserId)

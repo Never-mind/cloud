@@ -88,6 +88,21 @@ await createTableIfMissing(
 );
 
   console.log("消息通知表结构已就绪");
+
+  // 已有账号补齐「消息通知」的查看权限：通知默认对所有人开放，配置权留给管理员。
+  // 用 INSERT IGNORE，不会覆盖管理员已经做过的授权/收回决定。
+  const users = await queryRowsRaw<{ userId: string }>(
+    "SELECT userId FROM merge_common_users WHERE status = 'active'",
+  );
+  for (const user of users) {
+    await executeRaw(
+      `INSERT IGNORE INTO merge_common_user_permissions
+        (userId, moduleKey, canView, canCreate, canUpdate, canDelete, canExport, canImport, canConfirm, updatedByUserId)
+       VALUES (:userId, 'notification-rules', 1, 0, 0, 0, 0, 0, 0, NULL)`,
+      { userId: user.userId },
+    );
+  }
+  console.log(`已为 ${users.length} 个启用中的账号补齐「消息通知」查看权限（不覆盖已有授权）`);
 }
 
 main()

@@ -47,10 +47,19 @@ const permissionDefinitions = getPermissionDefinitions([
 ]);
 
 /**
- * 管理员专属模块：只读默认权限不应包含它们，否则新员工会多出两个点不开的目录。
+ * 管理员专属模块：默认不授任何权限，否则新员工会多出两个点不开的目录。
  * 与上面 getPermissionDefinitions 里传 adminOnly 的那两项保持一致。
  */
-export const MANAGED_ADMIN_ONLY_MODULE_KEYS = new Set(["system-users", "system-module-features", "notification-rules"]);
+export const MANAGED_ADMIN_ONLY_MODULE_KEYS = new Set(["system-users", "system-module-features"]);
+
+/**
+ * 默认只给"查看"的模块。
+ *
+ * 「消息通知」属于这一类：站内消息是给每个人看的，默认就该开放；
+ * 但配置规则（新增/修改/删除）会影响到别人，默认只留给管理员，
+ * 需要时由管理员在用户管理里单独放开。
+ */
+export const MANAGED_VIEW_ONLY_MODULE_KEYS = new Set(["notification-rules"]);
 
 /** 供飞书自动建号等场景复用同一份权限清单，避免两处定义漂移。 */
 export function getManagedPermissionDefinitions() {

@@ -58,6 +58,7 @@ export function NotificationSettingsPage() {
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [records, setRecords] = useState<Record_[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
+  const [canConfigure, setCanConfigure] = useState(false);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
@@ -77,6 +78,7 @@ export function NotificationSettingsPage() {
       if (!ruleResponse.ok) throw new Error(String(ruleData.error ?? "加载规则失败"));
       setRules((ruleData.rules ?? []) as Rule[]);
       setCandidates((ruleData.candidates ?? []) as Candidate[]);
+      setCanConfigure(Boolean(ruleData.canConfigure));
       const recordData = await recordResponse.json().catch(() => ({}));
       setRecords((recordData.records ?? []) as Record_[]);
       const messageData = await messageResponse.json().catch(() => ({}));
@@ -194,9 +196,9 @@ export function NotificationSettingsPage() {
           <p className="mt-1 text-sm text-ink-3">按业务状态与天数自动提醒（飞书 + 站内消息）。同一条规则对同一单据同一人只提醒一次。</p>
         </div>
         <div className="ml-auto flex flex-wrap gap-2">
-          <Button disabled={busy} onClick={() => void runScan(true)}><Play size={15} />试运行</Button>
-          <Button disabled={busy} onClick={() => void runScan(false)}><RefreshCw size={15} />立即检查并发送</Button>
-          <Button tone="primary" onClick={startCreate}><Plus size={15} />新建规则</Button>
+          {canConfigure ? <Button disabled={busy} onClick={() => void runScan(true)}><Play size={15} />试运行</Button> : null}
+          {canConfigure ? <Button disabled={busy} onClick={() => void runScan(false)}><RefreshCw size={15} />立即检查并发送</Button> : null}
+          {canConfigure ? <Button tone="primary" onClick={startCreate}><Plus size={15} />新建规则</Button> : null}
         </div>
       </div>
 
@@ -234,10 +236,12 @@ export function NotificationSettingsPage() {
                     <span className={rule.enabled ? "rounded bg-success-soft px-2 py-1 text-xs text-success-strong" : "rounded bg-canvas-deep px-2 py-1 text-xs text-ink-3"}>{rule.enabled ? "启用" : "停用"}</span>
                   </td>
                   <td className="whitespace-nowrap border-b border-line-soft px-3 py-3">
-                    <div className="flex gap-2">
-                      <Button onClick={() => startEdit(rule)}>编辑</Button>
-                      <Button tone="danger" onClick={() => void removeRule(rule)}><Trash2 size={14} />删除</Button>
-                    </div>
+                    {canConfigure ? (
+                      <div className="flex gap-2">
+                        <Button onClick={() => startEdit(rule)}>编辑</Button>
+                        <Button tone="danger" onClick={() => void removeRule(rule)}><Trash2 size={14} />删除</Button>
+                      </div>
+                    ) : <span className="text-xs text-ink-3">仅管理员可配置</span>}
                   </td>
                 </tr>
               ))}
