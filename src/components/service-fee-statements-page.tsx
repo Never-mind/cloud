@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { CheckCircle2, FileDown, FileText, Pencil, RefreshCw, Search, Trash2, Upload } from "lucide-react";
 import { fetchAllEntityRows } from "@/lib/client-entity-fetch";
 import { formatDisplayValue } from "@/lib/display-format";
@@ -16,6 +16,7 @@ import { NumberInput } from "./number-input";
 import { Modal } from "./modal";
 import { confirmDialog, notify } from "./app-dialog";
 import { TableStateContent } from "./table-state";
+import { useWorkspaceDataRefresh } from "@/lib/workspace-events";
 
 type Row = Record<string, string | number | boolean | null>;
 function partyOptionLabel(row: Row, codeKeys: string[], nameKeys: string[]) {
@@ -125,14 +126,21 @@ export function ServiceFeeStatementsPage() {
     }
   }
 
+  // 承接单位 / 客户的简称在别的标签页可能被改过，弹层下拉的选项要重新拉一次
+  const loadParties = useCallback(() => Promise.all([
+    fetchAllEntityRows<Row>("undertaking-units"),
+    fetchAllEntityRows<Row>("customers"),
+  ]).then(([unitRows, customerRows]) => {
+    setUndertakingUnits(unitRows);
+    setCustomers(customerRows);
+  }).catch(() => undefined), []);
+
   useEffect(() => {
     void loadData();
-    void Promise.all([fetchAllEntityRows<Row>("undertaking-units"), fetchAllEntityRows<Row>("customers")])
-      .then(([unitRows, customerRows]) => {
-        setUndertakingUnits(unitRows);
-        setCustomers(customerRows);
-      });
-  }, []);
+    void loadParties();
+  }, [loadParties]);
+
+  useWorkspaceDataRefresh(() => { void loadParties(); });
 
   useEffect(() => {
     if (!queryMountedRef.current) {

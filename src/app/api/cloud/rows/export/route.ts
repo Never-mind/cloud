@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import * as XLSX from "xlsx";
 import { queryRowsRaw } from "@/lib/db";
+import { resolveCloudRowsDisplayNames } from "@/lib/cloud-service";
 
 export async function GET(request: NextRequest) {
   const params = request.nextUrl.searchParams;
@@ -8,9 +9,19 @@ export async function GET(request: NextRequest) {
   const period = params.get("period")?.trim() ?? "";
   const conditions: string[] = [];
   const values: Record<string, unknown> = {};
-  if (keyword) { conditions.push("(customer LIKE :keyword OR account LIKE :keyword OR batchCode LIKE :keyword OR supplierName LIKE :keyword)"); values.keyword = `%${keyword}%`; }
   if (period) { conditions.push("period = :period"); values.period = period; }
-  const rows = await queryRowsRaw<Record<string, unknown>>(`SELECT * FROM merge_cloud_rows ${conditions.length ? `WHERE ${conditions.join(" AND ")}` : ""} ORDER BY period DESC, updatedAt DESC`, values);
+  /**
+   * 客户 / 供应商名称可能与列表口径不一致：列表是按账号映射 + 档案 ID 现算的，
+   * 表里存的只是当时的文本。这里走同一套解析，导出结果才与页面一致；
+   * 关键词也在解析后再匹配（否则按新简称搜不到旧文本）。
+   */
+  const resolvedRows = await resolveCloudRowsDisplayNames(
+    await queryRowsRaw<Record<string, unknown>>(`SELECT * FROM merge_cloud_rows ${conditions.length ? `WHERE ${conditions.join(" AND ")}` : ""} ORDER BY period DESC, updatedAt DESC`, values),
+  );
+  const rows = keyword
+    ? resolvedRows.filter((row) => ["customer", "account", "batchCode", "supplierName"]
+      .some((field) => String(row[field] ?? "").toLowerCase().includes(keyword.toLowerCase())))
+    : resolvedRows;
   const worksheet = XLSX.utils.json_to_sheet(rows.map((row) => ({
     "账期": row.period, "客户名称": row.customer, "华为ID": row.account, "华为对账人": row.cloudReconciler,
     "目录价（USD）": row.catalogAmount, "伙伴结算金额（USD）": row.partnerAmount, "代金券-客户（USD）": row.voucherCustomerAmount, "代金券-供应商（USD）": row.voucherSupplierAmount,

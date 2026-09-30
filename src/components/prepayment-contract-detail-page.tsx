@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ArrowLeft, CheckCircle2, Pencil, Plus, RotateCcw, Save, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useSearchParams } from "next/navigation";
@@ -14,6 +14,7 @@ import { NumberInput } from "./number-input";
 import { confirmDialog, notify } from "./app-dialog";
 import { EmptyState, LoadingBlock } from "./table-state";
 import { StickyTable } from "./sticky-table";
+import { useWorkspaceDataRefresh } from "@/lib/workspace-events";
 import { WorkspaceNavigationDialog } from "./workspace-navigation-dialog";
 
 type Contract = {
@@ -159,19 +160,21 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
     setEditing(false);
   }
 
-  useEffect(() => {
-    void Promise.all([
-      fetchAllEntityRows<Row>("suppliers"),
-      fetchAllEntityRows<Row>("undertaking-units"),
-      fetchAllEntityRows<Row>("customers"),
-      fetchAllEntityRows<Row>("countries"),
-    ]).then(([supplierRows, unitRows, customerRows, countryRows]) => {
-      setSuppliers(supplierRows);
-      setUndertakingUnits(unitRows);
-      setCustomers(customerRows);
-      setCountries(countryRows);
-    });
-  }, []);
+  // 供应商 / 承接单位 / 客户简称改过以后，明细里的下拉选项要重新拉取
+  const loadParties = useCallback(() => Promise.all([
+    fetchAllEntityRows<Row>("suppliers"),
+    fetchAllEntityRows<Row>("undertaking-units"),
+    fetchAllEntityRows<Row>("customers"),
+    fetchAllEntityRows<Row>("countries"),
+  ]).then(([supplierRows, unitRows, customerRows, countryRows]) => {
+    setSuppliers(supplierRows);
+    setUndertakingUnits(unitRows);
+    setCustomers(customerRows);
+    setCountries(countryRows);
+  }).catch(() => undefined), []);
+
+  useEffect(() => { void loadParties(); }, [loadParties]);
+  useWorkspaceDataRefresh(() => { void loadParties(); });
 
   useEffect(() => {
     void loadData();

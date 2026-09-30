@@ -1,6 +1,6 @@
 "use client";
 
-import { ChangeEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { ChangeEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, Check, Download, FilePlus2, FileUp, Paperclip, Pencil, Save, Trash2 } from "lucide-react";
 import { useParams } from "next/navigation";
 import { postWorkspaceMessage } from "@/lib/tab-workspace";
@@ -17,6 +17,7 @@ import { StickyTable } from "./sticky-table";
 import { TableColumnMenu, type TableFilterOption, type TableSortOrder } from "./table-column-menu";
 import { fetchAllEntityRows } from "@/lib/client-entity-fetch";
 import { normalizeDateOnlyValue } from "@/lib/date-only";
+import { useWorkspaceDataRefresh } from "@/lib/workspace-events";
 
 type Item = {
   id: string; productCode: string; productName: string; brand: string | null; plannedQty: number; purchaseQty: number;
@@ -152,7 +153,15 @@ export function SettlementProjectDetailWorkspace() {
     }
   }
 
-  useEffect(() => { void load(); void Promise.all([fetchAllEntityRows<Row>("suppliers"), fetchAllEntityRows<Row>("customers"), fetchAllEntityRows<Row>("undertaking-units")]).then(([suppliers, customers, undertakingUnits]) => setInvoicePartners({ suppliers, customers, undertakingUnits })).catch(() => undefined); }, [projectId]);
+  // 开票往来方（供应商 / 客户 / 承接单位）的简称可能在别的标签页被改过，选项要能重新拉取
+  const loadInvoicePartners = useCallback(() => Promise.all([
+    fetchAllEntityRows<Row>("suppliers"),
+    fetchAllEntityRows<Row>("customers"),
+    fetchAllEntityRows<Row>("undertaking-units"),
+  ]).then(([suppliers, customers, undertakingUnits]) => setInvoicePartners({ suppliers, customers, undertakingUnits })).catch(() => undefined), []);
+
+  useEffect(() => { void load(); void loadInvoicePartners(); }, [projectId, loadInvoicePartners]);
+  useWorkspaceDataRefresh(() => { void loadInvoicePartners(); });
 
   async function write(url: string, method: string, body?: unknown) {
     setBusy(true);

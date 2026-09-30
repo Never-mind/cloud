@@ -10,6 +10,7 @@ import type { EntityConfig, EntityField } from "@/lib/modules";
 import { Button, Input, Panel, Select, Textarea } from "./ui";
 import { SearchSelect } from "./search-select";
 import { confirmDialog } from "./app-dialog";
+import { broadcastMasterDataChanged } from "@/lib/workspace-events";
 
 type Row = Record<string, string | number | boolean | null>;
 
@@ -134,6 +135,8 @@ export function PartyArchiveDetailPage({ config, id, related }: { config: Entity
       setDraft(data);
       setEditing(false);
       setNotice(`${config.title}档案已保存`);
+      // 档案改名后其他标签页缓存的基础资料要跟着刷新（列表按 ID 已是最新，弹层下拉靠这条广播）
+      if (PARTY_KEYS.has(config.key)) broadcastMasterDataChanged(config.key);
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "基础信息保存失败");
     } finally {

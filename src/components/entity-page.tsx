@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Columns3, Eye, EyeOff, FileDown, FileSpreadsheet, Plus, RefreshCw, Search, Trash2, Upload } from "lucide-react";
 import { formatConfiguredDisplayValue, formatDateInputValue, formatDisplayValue } from "@/lib/display-format";
@@ -23,6 +23,7 @@ import { PaginationBar } from "./pagination-bar";
 import { StickyTable } from "./sticky-table";
 import { TableColumnMenu, type TableFilterOption, type TableSortOrder } from "./table-column-menu";
 import { useRequestGuard } from "@/lib/table-query-client";
+import { broadcastMasterDataChanged, useWorkspaceDataRefresh } from "@/lib/workspace-events";
 import type { MaterialSyncSummary } from "@/lib/material-sync-service";
 import { Button, Input, Panel, Select, Textarea } from "./ui";
 import { Modal } from "./modal";
@@ -292,26 +293,27 @@ export function EntityPage({
     void fetchAllEntityRows<Row>("instance-contracts").then(setInstanceContracts);
   }, [config.key]);
 
+  // 国家档案的默认承接单位 / 客户下拉：简称改过后要能被重新拉取
+  const loadCountryDefaultLookups = useCallback(() => Promise.all([
+    fetchAllEntityRows<Row>("undertaking-units"),
+    fetchAllEntityRows<Row>("customers"),
+  ]).then(([undertakingUnits, customers]) => {
+    setCountryDefaultLookups({ "undertaking-units": undertakingUnits, customers });
+  }).catch(() => {
+    setCountryDefaultLookups({ "undertaking-units": [], customers: [] });
+  }), []);
+
   useEffect(() => {
     if (config.key !== "countries") {
       setCountryDefaultLookups({ "undertaking-units": [], customers: [] });
       return;
     }
+    void loadCountryDefaultLookups();
+  }, [config.key, loadCountryDefaultLookups]);
 
-    let active = true;
-    void Promise.all([
-      fetchAllEntityRows<Row>("undertaking-units"),
-      fetchAllEntityRows<Row>("customers"),
-    ]).then(([undertakingUnits, customers]) => {
-      if (active) setCountryDefaultLookups({ "undertaking-units": undertakingUnits, customers });
-    }).catch(() => {
-      if (active) setCountryDefaultLookups({ "undertaking-units": [], customers: [] });
-    });
-
-    return () => {
-      active = false;
-    };
-  }, [config.key]);
+  useWorkspaceDataRefresh(() => {
+    if (config.key === "countries") void loadCountryDefaultLookups();
+  });
 
   useEffect(() => {
     if (config.key !== "customer-po-items" && config.key !== "quotation-items") {
@@ -565,6 +567,8 @@ export function EntityPage({
     setEditing(null);
     setBillingContractNo("");
     await loadRows();
+    // 供应商 / 承接单位 / 客户档案改名后，其他标签页缓存的档案列表要重新拉取
+    if (PARTY_ENTITY_KEYS.has(config.key)) broadcastMasterDataChanged(config.key);
     onSaved?.();
   }
 

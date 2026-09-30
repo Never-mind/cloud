@@ -25,6 +25,7 @@ import {
   X,
 } from "lucide-react";
 import { navGroups, type NavChildGroup } from "@/lib/modules";
+import { WORKSPACE_MASTER_DATA_CHANGED, WORKSPACE_TAB_ACTIVATED } from "@/lib/workspace-events";
 import {
   filterNavGroupsByModuleFeatures,
   getModuleFeatureKeyForRoute,
@@ -324,6 +325,17 @@ export function AppShell({
           .catch(() => undefined);
         return;
       }
+      /**
+       * 某个标签页改了客户 / 供应商 / 承接单位档案：转发给其他标签页，
+       * 让它们把内存里缓存的基础资料重新拉一遍（否则弹层下拉还是旧名称）。
+       */
+      if (message?.type === WORKSPACE_MASTER_DATA_CHANGED) {
+        document.querySelectorAll<HTMLIFrameElement>("iframe[data-workspace-tab-id]").forEach((frame) => {
+          if (!frame.contentWindow || frame.contentWindow === event.source) return;
+          frame.contentWindow.postMessage(event.data, window.location.origin);
+        });
+        return;
+      }
       if (!message?.route || !message.title) return;
       const frame = Array.from(document.querySelectorAll<HTMLIFrameElement>("iframe[data-workspace-tab-id]"))
         .find((candidate) => candidate.contentWindow === event.source);
@@ -357,6 +369,17 @@ export function AppShell({
     window.addEventListener("message", handleWorkspaceMessage);
     return () => window.removeEventListener("message", handleWorkspaceMessage);
   }, [ensureTabFrameRoute, isEmbedded]);
+
+  /**
+   * 标签页被切回前台时通知 iframe：常驻标签页不会重新挂载，
+   * 页面里缓存的基础资料（供应商 / 承接单位 / 客户）需要自己刷新一次。
+   */
+  useEffect(() => {
+    if (isEmbedded || !displayedTabId) return;
+    const frame = Array.from(document.querySelectorAll<HTMLIFrameElement>("iframe[data-workspace-tab-id]"))
+      .find((candidate) => candidate.dataset.workspaceTabId === displayedTabId);
+    frame?.contentWindow?.postMessage({ type: WORKSPACE_TAB_ACTIVATED }, window.location.origin);
+  }, [isEmbedded, displayedTabId, tabFrameVersions]);
 
   useEffect(() => {
     if (isEmbedded || workspace.activeRoute === "/") return;

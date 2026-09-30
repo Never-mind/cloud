@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowLeft, CheckCircle2, Download, Pencil, Plus, Save, Trash2, Upload, X } from "lucide-react";
 import { formatDateInputValue, formatDisplayValue } from "@/lib/display-format";
 import { formatNumericInputValue, parseNumericInputValue } from "@/lib/numeric-input";
@@ -17,6 +17,7 @@ import { SearchSelect } from "./search-select";
 import { NumberInput as NumberField } from "./number-input";
 import { confirmDialog, notify } from "./app-dialog";
 import { StickyTable } from "./sticky-table";
+import { useWorkspaceDataRefresh } from "@/lib/workspace-events";
 
 type Row = Record<string, string | number | boolean | null>;
 
@@ -90,25 +91,27 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
   const canEdit = !requestNo || editing;
   const canConfirm = !isConfirmedRequestStatus(master.status);
 
-  async function fetchEntity(entity: string) {
-    return fetchAllEntityRows<Row>(entity);
-  }
+  /**
+   * 供应商 / 承接单位 / 客户的选项只在页面首次加载时拉一次，
+   * 而标签页是常驻 iframe：档案在别的标签页改名后这里必须重新拉，
+   * 否则表单下拉与回显还是旧简称（列表本身按 ID 已是最新）。
+   */
+  const loadReferenceData = useCallback(() => Promise.all([
+    fetchAllEntityRows<Row>("instance-models"),
+    fetchAllEntityRows<Row>("suppliers"),
+    fetchAllEntityRows<Row>("undertaking-units"),
+    fetchAllEntityRows<Row>("customers"),
+    fetchAllEntityRows<Row>("countries"),
+  ]).then(([models, supplierRows, undertakingRows, customerRows, countryRows]) => {
+    setInstanceModels(models);
+    setSuppliers(supplierRows);
+    setUndertakingUnits(undertakingRows);
+    setCustomers(customerRows);
+    setCountries(countryRows);
+  }).catch(() => undefined), []);
 
-  useEffect(() => {
-    void Promise.all([
-      fetchEntity("instance-models"),
-      fetchEntity("suppliers"),
-      fetchEntity("undertaking-units"),
-      fetchEntity("customers"),
-      fetchEntity("countries"),
-    ]).then(([models, supplierRows, undertakingRows, customerRows, countryRows]) => {
-      setInstanceModels(models);
-        setSuppliers(supplierRows);
-        setUndertakingUnits(undertakingRows);
-        setCustomers(customerRows);
-        setCountries(countryRows);
-    });
-  }, []);
+  useEffect(() => { void loadReferenceData(); }, [loadReferenceData]);
+  useWorkspaceDataRefresh(() => { void loadReferenceData(); });
 
   useEffect(() => {
     setDetails((current) => {

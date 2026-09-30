@@ -9,7 +9,6 @@ import {
   resolveCloudImportField,
 } from "./cloud-import-headers";
 import { computeCloudSettlementGrossProfit } from "./cloud-gross-profit";
-import { customerDisplayName } from "./customer-display";
 import { formatDisplayValue } from "./display-format";
 import type { OperationActor } from "./operation-actor";
 import { appendTableInFilter, formatTableDateExpression, getTableSort, listSqlFilterOptions } from "./table-query";
@@ -84,16 +83,24 @@ const CLOUD_ROW_FILTER_EXPRESSIONS: Record<string, string> = {
   confirmedAt: formatTableDateExpression("confirmedAt"),
 };
 
+/**
+ * 服务映射里的供应商 / 承接单位 / 客户都只存了"当时"的名称文本，档案改名后不会跟着变。
+ * 列表与筛选统一按 ID 回查档案取当前值，只有档案被删除时才退回表里的旧文本。
+ */
 const CLOUD_MAPPING_FROM = `(SELECT m.*, GROUP_CONCAT(a.account ORDER BY a.account SEPARATOR ', ') AS accounts,
-  MAX(COALESCE(NULLIF(c.shortName, ''), NULLIF(c.nameCn, ''), NULLIF(c.name, ''), NULLIF(c.customerCode, ''), NULLIF(m.customerName, ''), NULLIF(m.customerId, ''))) AS customerDisplayName
+  MAX(COALESCE(NULLIF(c.shortName, ''), NULLIF(c.nameCn, ''), NULLIF(c.name, ''), NULLIF(c.customerCode, ''), NULLIF(m.customerName, ''), NULLIF(m.customerId, ''))) AS customerDisplayName,
+  MAX(COALESCE(NULLIF(su.shortName, ''), NULLIF(su.nameCn, ''), NULLIF(su.supplierCode, ''), NULLIF(m.supplierName, ''), NULLIF(m.supplierId, ''))) AS supplierDisplayName,
+  MAX(COALESCE(NULLIF(uu.shortName, ''), NULLIF(uu.entityName, ''), NULLIF(uu.name, ''), NULLIF(uu.undertakingUnitCode, ''), NULLIF(m.undertakingUnitName, ''), NULLIF(m.undertakingUnitId, ''))) AS undertakingUnitDisplayName
   FROM merge_cloud_mappings m
   LEFT JOIN merge_cloud_mapping_accounts a ON a.mappingId = m.id
   LEFT JOIN merge_common_customers c ON c.customerId = m.customerId OR c.customerCode = m.customerId
+  LEFT JOIN merge_common_suppliers su ON su.supplierId = m.supplierId OR su.supplierCode = m.supplierId
+  LEFT JOIN merge_common_undertaking_units uu ON uu.undertakingUnitId = m.undertakingUnitId OR uu.undertakingUnitCode = m.undertakingUnitId OR uu.entityCode = m.undertakingUnitId
   GROUP BY m.id) AS cloudMappingRows`;
 
 const CLOUD_MAPPING_FILTER_EXPRESSIONS: Record<string, string> = {
-  supplierName: "supplierName",
-  undertakingUnitName: "undertakingUnitName",
+  supplierName: "supplierDisplayName",
+  undertakingUnitName: "undertakingUnitDisplayName",
   customerName: "customerDisplayName",
   accounts: "accounts",
   reconciler: "reconciler",
@@ -476,6 +483,102 @@ function getCloudAccountMapping(mappings: Map<string, CloudAccountMapping>, acco
   return mappings.get(normalizeCloudAccount(account));
 }
 
+/**
+ * 三张往来方档案的"按 ID / 编码取当前名称"口径。
+ *
+ * 华为云各表（服务映射、对账行、供应商付款）都同时存了 ID 和名称文本，
+ * 名称文本只是保存当时的快照：档案改了简称以后，旧文本不会自己更新。
+ * 凡是要展示名称的地方都先按 ID 回查这里，查不到才退回旧文本。
+ */
+const CLOUD_PARTY_MASTERS = {
+  supplier: {
+    table: "merge_common_suppliers",
+    idColumn: "supplierId",
+    codeColumn: "supplierCode",
+    // 供应商档案没有 name 列，回退顺序是 简称 → 中文名 → 英文名 → 编码
+    nameSql: "COALESCE(NULLIF(shortName, ''), NULLIF(nameCn, ''), NULLIF(nameEn, ''), supplierCode)",
+  },
+  undertakingUnit: {
+    table: "merge_common_undertaking_units",
+    idColumn: "undertakingUnitId",
+    codeColumn: "undertakingUnitCode",
+    nameSql: "COALESCE(NULLIF(shortName, ''), NULLIF(entityName, ''), NULLIF(name, ''), NULLIF(nameCn, ''), undertakingUnitCode)",
+  },
+  customer: {
+    table: "merge_common_customers",
+    idColumn: "customerId",
+    codeColumn: "customerCode",
+    nameSql: "COALESCE(NULLIF(shortName, ''), NULLIF(nameCn, ''), NULLIF(name, ''), customerCode)",
+  },
+} as const;
+
+type CloudPartyKind = keyof typeof CLOUD_PARTY_MASTERS;
+
+async function findCloudPartyMaster(kind: CloudPartyKind, reference: unknown) {
+  const raw = text(reference);
+  if (!raw) return null;
+  const config = CLOUD_PARTY_MASTERS[kind];
+  const rows = await queryRowsRaw<Row>(
+    `SELECT ${config.idColumn} AS id, ${config.nameSql} AS name
+       FROM ${config.table}
+      WHERE ${config.idColumn} = :reference OR ${config.codeColumn} = :reference
+      LIMIT 1`,
+    { reference: raw },
+  );
+  const match = rows[0];
+  return match ? { id: text(match.id), name: text(match.name) } : null;
+}
+
+/**
+ * 把一批行里"按 ID 关联"的往来方名称统一刷成档案当前值。
+ *
+ * `pairs` 的每一项是 [名称字段, 关联 ID 字段, 档案类型]，
+ * 只有在 ID 能查到档案时才覆盖，避免把手工填的历史文本冲掉。
+ */
+async function resolveCloudPartyNames(rows: Row[], pairs: Array<[string, string, CloudPartyKind]>) {
+  if (!rows.length || !pairs.length) return rows;
+  const kinds = Array.from(new Set(pairs.map(([, , kind]) => kind)));
+  const masters = new Map<CloudPartyKind, Map<string, string>>();
+  await Promise.all(kinds.map(async (kind) => {
+    const config = CLOUD_PARTY_MASTERS[kind];
+    const references = new Set<string>();
+    for (const row of rows) {
+      for (const [, idField, pairKind] of pairs) {
+        if (pairKind !== kind) continue;
+        const value = text(row[idField]);
+        if (value) references.add(value);
+      }
+    }
+    if (!references.size) return;
+    const list = [...references];
+    const placeholders = list.map((_, index) => `:reference${index}`).join(", ");
+    const values = Object.fromEntries(list.map((value, index) => [`reference${index}`, value]));
+    const found = await queryRowsRaw<Row>(
+      `SELECT ${config.idColumn} AS id, ${config.codeColumn} AS code, ${config.nameSql} AS name
+         FROM ${config.table}
+        WHERE ${config.idColumn} IN (${placeholders}) OR ${config.codeColumn} IN (${placeholders})`,
+      values,
+    );
+    const lookup = new Map<string, string>();
+    for (const item of found) {
+      const name = text(item.name);
+      if (!name) continue;
+      lookup.set(text(item.id), name);
+      if (text(item.code)) lookup.set(text(item.code), name);
+    }
+    masters.set(kind, lookup);
+  }));
+  if (!masters.size) return rows;
+  return rows.map((row) => {
+    const next = { ...row };
+    for (const [nameField, idField, kind] of pairs) {
+      const resolved = masters.get(kind)?.get(text(row[idField]));
+      if (resolved) next[nameField] = resolved;
+    }
+    return next;
+  });
+}
+
 function applyCloudAccountMapping(row: Row, mapping: CloudAccountMapping | undefined) {
   if (!mapping) return row;
   return {
@@ -501,6 +604,24 @@ function applyCloudAccountMapping(row: Row, mapping: CloudAccountMapping | undef
 async function applyCloudAccountMappings(rows: Row[]) {
   const mappings = await findCloudAccountMappings(rows.map((row) => text(row.account)));
   return rows.map((row) => applyCloudAccountMapping(row, getCloudAccountMapping(mappings, row.account)));
+}
+
+/** 对账行里带 ID 的往来方字段 → 展示时按 ID 取档案当前名称。 */
+const CLOUD_ROW_PARTY_PAIRS: Array<[string, string, CloudPartyKind]> = [
+  ["customer", "customerId", "customer"],
+  ["supplierName", "supplierId", "supplier"],
+  ["collectionPayer", "collectionPayerCustomerId", "customer"],
+  ["collectionPayee", "collectionPayeeUndertakingUnitId", "undertakingUnit"],
+  ["invoicePayer", "invoicePayerCustomerId", "customer"],
+  ["invoicePayee", "invoicePayeeUndertakingUnitId", "undertakingUnit"],
+];
+
+/**
+ * 只读场景（列表 / 导出 / 详情）统一的展示口径：
+ * 先按账号套服务映射，再按 ID 把往来方名称刷成档案当前值。
+ */
+export async function resolveCloudRowsDisplayNames(rows: Row[]) {
+  return resolveCloudPartyNames(await applyCloudAccountMappings(rows), CLOUD_ROW_PARTY_PAIRS);
 }
 
 export async function listCloudRows(params: URLSearchParams) {
@@ -579,7 +700,7 @@ export async function listCloudRows(params: URLSearchParams) {
     String(left.currency).localeCompare(String(right.currency)),
   );
   return {
-    items: (await applyCloudAccountMappings(rows)).map(normalizeCloudDateFields),
+    items: (await resolveCloudRowsDisplayNames(rows)).map(normalizeCloudDateFields),
     total: Number(count[0]?.total ?? 0),
     page,
     pageSize,
@@ -801,7 +922,7 @@ export async function listCloudMappings(params: URLSearchParams) {
   const keyword = text(params.get("keyword"));
   const conditions: string[] = [];
   const values: Row = {};
-  if (keyword) { conditions.push("(supplierName LIKE :keyword OR undertakingUnitName LIKE :keyword OR customerDisplayName LIKE :keyword OR reconciler LIKE :keyword OR accounts LIKE :keyword)"); values.keyword = `%${keyword}%`; }
+  if (keyword) { conditions.push("(supplierDisplayName LIKE :keyword OR undertakingUnitDisplayName LIKE :keyword OR customerDisplayName LIKE :keyword OR reconciler LIKE :keyword OR accounts LIKE :keyword)"); values.keyword = `%${keyword}%`; }
   for (const [field, expression] of Object.entries(CLOUD_MAPPING_FILTER_EXPRESSIONS)) appendTableInFilter(conditions, values, expression, field, params, "mappingFilter");
   const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
   const requestedSort = getTableSort(params, CLOUD_MAPPING_FILTER_EXPRESSIONS);
@@ -809,8 +930,13 @@ export async function listCloudMappings(params: URLSearchParams) {
     queryRows<Row>(`SELECT COUNT(*) AS total FROM ${CLOUD_MAPPING_FROM} ${where}`, values),
     queryRows<Row>(`SELECT * FROM ${CLOUD_MAPPING_FROM} ${where} ${requestedSort || "ORDER BY updatedAt DESC"} LIMIT :limit OFFSET :offset`, { ...values, limit: pageSize, offset }),
   ]);
-  const rows = rawRows.map(({ customerDisplayName, ...row }) =>
-    normalizeCloudDateFields({ ...row, customerName: customerDisplayName ?? row.customerName }),
+  const rows = rawRows.map(({ customerDisplayName, supplierDisplayName, undertakingUnitDisplayName, ...row }) =>
+    normalizeCloudDateFields({
+      ...row,
+      customerName: customerDisplayName ?? row.customerName,
+      supplierName: supplierDisplayName ?? row.supplierName,
+      undertakingUnitName: undertakingUnitDisplayName ?? row.undertakingUnitName,
+    }),
   );
   return { items: rows, total: Number(count[0]?.total ?? 0), page, pageSize };
 }
@@ -821,20 +947,17 @@ async function listCloudMappingFilterOptions(params: URLSearchParams) {
 
 export async function saveCloudMapping(body: Row, id: string | null, actor: OperationActor | null) {
   const mappingId = id || randomUUID();
-  const customerReference = text(body.customerId);
-  const customer = customerReference
-    ? (await queryRows<Row>(
-      `SELECT customerId, customerCode, shortName, nameCn, name
-         FROM merge_common_customers
-        WHERE customerId = :customerReference OR customerCode = :customerReference
-        LIMIT 1`,
-      { customerReference },
-    ))[0]
-    : undefined;
+  // 名称一律按 ID 回查档案当前值，避免把档案改名前的旧文本又写回映射表。
+  const [customer, supplier, undertakingUnit] = await Promise.all([
+    findCloudPartyMaster("customer", body.customerId),
+    findCloudPartyMaster("supplier", body.supplierId),
+    findCloudPartyMaster("undertakingUnit", body.undertakingUnitId),
+  ]);
   const values = {
     id: mappingId,
-    supplierId: text(body.supplierId), supplierName: text(body.supplierName), undertakingUnitId: text(body.undertakingUnitId),
-    undertakingUnitName: text(body.undertakingUnitName), customerId: customer?.customerId ?? customerReference, customerName: customer ? customerDisplayName(customer, customerReference) : text(body.customerName),
+    supplierId: supplier?.id ?? text(body.supplierId), supplierName: supplier?.name ?? text(body.supplierName),
+    undertakingUnitId: undertakingUnit?.id ?? text(body.undertakingUnitId), undertakingUnitName: undertakingUnit?.name ?? text(body.undertakingUnitName),
+    customerId: customer?.id ?? text(body.customerId), customerName: customer?.name ?? text(body.customerName),
     reconciler: text(body.reconciler), calculationLogic: text(body.calculationLogic) || "catalog",
     customCalculationLogic: text(body.customCalculationLogic) || null, userDiscount: body.userDiscount ?? null, remark: text(body.remark) || null,
     createdByUserId: actor?.userId ?? null, createdByName: actor?.displayName ?? null,
@@ -874,6 +997,12 @@ export async function cloudMasterData(keyword = "") {
   return { suppliers, undertakingUnits, customers };
 }
 
+/** 供应商付款汇总行里带 ID 的往来方字段。 */
+const CLOUD_PAYMENT_PARTY_PAIRS: Array<[string, string, CloudPartyKind]> = [
+  ["supplierName", "supplierId", "supplier"],
+  ["payerUnitName", "payerUnitId", "undertakingUnit"],
+];
+
 export async function listCloudSupplierPayments(params: URLSearchParams) {
   if (params.get("field")) return listCloudSupplierPaymentFilterOptions(params);
   const { page, pageSize, offset } = pageParams(params);
@@ -892,7 +1021,7 @@ export async function listCloudSupplierPayments(params: URLSearchParams) {
   ]);
   const items = await Promise.all(rows.map(async (row) => {
     const children = await queryRowsRaw<Row>(
-      `SELECT r.id, ${CLOUD_PERIOD_SQL("r.period")} AS period, r.customer, r.account, 'USD' AS supplierPayableCurrency,
+      `SELECT r.id, ${CLOUD_PERIOD_SQL("r.period")} AS period, r.customer, r.customerId, r.account, 'USD' AS supplierPayableCurrency,
          COALESCE(r.supplierPayableNetAmount, r.supplierPayable, 0) AS supplierPayableNetAmount,
          COALESCE(r.supplierTaxRate, 0.16) AS supplierTaxRate,
          COALESCE(r.supplierTaxAmount, COALESCE(r.supplierPayableNetAmount, r.supplierPayable, 0) * COALESCE(r.supplierTaxRate, 0.16)) AS supplierTaxAmount,
@@ -906,7 +1035,9 @@ export async function listCloudSupplierPayments(params: URLSearchParams) {
        ORDER BY r.customer ASC, r.account ASC`,
       { detailPeriod: normalizeCloudPeriod(row.period), detailGroupKey: row.groupKey },
     );
-    return normalizeCloudDateFields({ ...row, children: children.map(normalizeCloudDateFields) });
+    const [resolved] = await resolveCloudPartyNames([row], CLOUD_PAYMENT_PARTY_PAIRS);
+    const resolvedChildren = await resolveCloudPartyNames(children, [["customer", "customerId", "customer"]]);
+    return normalizeCloudDateFields({ ...resolved, children: resolvedChildren.map(normalizeCloudDateFields) });
   }));
   return { items, total: Number(count[0]?.total ?? 0), page, pageSize };
 }
@@ -1074,7 +1205,10 @@ export async function getCloudSupplierPayerUnitDefault(): Promise<CloudSupplierP
   const latest = (await queryRowsRaw<Row>(
     "SELECT payerUnitId, payerUnitName FROM merge_cloud_supplier_payments WHERE payerUnitId IS NOT NULL AND payerUnitId <> '' ORDER BY updatedAt DESC LIMIT 1",
   ))[0];
-  return latest ? { id: text(latest.payerUnitId), name: text(latest.payerUnitName) } : null;
+  if (!latest) return null;
+  // 名称按 ID 取承接单位档案当前简称，档案改名后这里也要跟着变。
+  const unit = await findCloudPartyMaster("undertakingUnit", latest.payerUnitId);
+  return { id: text(latest.payerUnitId), name: unit?.name || text(latest.payerUnitName) };
 }
 
 /** 保存默认付款单位（承接单位），并立即把付款单位为空的付款记录补齐。 */

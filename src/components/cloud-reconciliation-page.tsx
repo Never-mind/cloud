@@ -1,8 +1,8 @@
 "use client";
 
-import { Fragment, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { Check, ChevronDown, ChevronRight, Cloud, Download, FileUp, Pencil, Plus, Search, Trash2, X } from "lucide-react";
-import { Button, Input, Panel, Select } from "./ui";
+import { Button, Input, Panel } from "./ui";
 import { EmptyState } from "./table-state";
 import { Modal } from "./modal";
 import { PaginationBar } from "./pagination-bar";
@@ -17,6 +17,7 @@ import { calculateCloudTaxGroup, CLOUD_TAX_GROUPS, type CloudTaxField, type Clou
 import { formatDisplayValue, formatMoneyValue } from "@/lib/display-format";
 import { DEFAULT_PAGE_SIZE } from "@/lib/pagination";
 import { fetchTableFilterOptions } from "@/lib/table-query-client";
+import { useWorkspaceDataRefresh } from "@/lib/workspace-events";
 
 type Tab = "reconciliation" | "mapping" | "collections" | "supplier-payments";
 type Row = Record<string, unknown> & { id?: string };
@@ -136,7 +137,22 @@ export function CloudReconciliationPage() {
   }
 
   useEffect(() => { void load(); }, [tab, page, pageSize, period, queries]);
-  useEffect(() => { void requestJson<typeof masters>("/api/cloud/master-data").then(setMasters).catch(() => undefined); }, []);
+
+  /**
+   * 基础资料（供应商 / 承接单位 / 客户）是弹层下拉的选项来源。
+   * 标签页是常驻 iframe，不会重新挂载，所以必须在"切回本标签页"或
+   * "别的标签页改了档案"时重新拉取，否则点开修改还是改名前的旧简称。
+   */
+  const loadMasters = useCallback(async () => {
+    try { setMasters(await requestJson<typeof masters>("/api/cloud/master-data")); } catch { /* 保留上一次的选项，避免下拉变空 */ }
+  }, []);
+  useEffect(() => { void loadMasters(); }, [loadMasters]);
+  useWorkspaceDataRefresh((message) => {
+    void loadMasters();
+    if (message.type === "cloud-power:master-data-changed") return;
+    // 切回标签页时顺带刷新列表，列表里按 ID 关联的名称也是最新的
+    void load();
+  });
 
   async function importWorkbook() {
     if (!importFile) return;
@@ -523,15 +539,15 @@ function PartnerSelect({ kind, label, idValue, nameValue, masters, onChange, req
   function handleSearch(keyword: string) {
     if (searchTimer.current) window.clearTimeout(searchTimer.current);
     const trimmed = keyword.trim();
-    if (!trimmed) {
-      setOptions(masters[kind]);
-      return;
-    }
+    /**
+     * 每次展开下拉都重新拉一次基础资料：标签页常驻时 `masters` 可能是改名前的旧数据，
+     * 直接复用会让"列表已显示新简称、弹层还显示旧简称"。拉取失败才退回内存里的列表。
+     */
     searchTimer.current = window.setTimeout(() => {
       void requestJson<MasterSet>(`/api/cloud/master-data?keyword=${encodeURIComponent(trimmed)}`)
         .then((data) => setOptions(data[kind]))
-        .catch(() => undefined);
-    }, 180);
+        .catch(() => { if (!trimmed) setOptions(masters[kind]); });
+    }, trimmed ? 180 : 0);
   }
 
   return (
@@ -574,6 +590,7 @@ function CloudAmountForm({ mode, value, masters, onChange, onCancel, onSave }: {
 }
 
 function MappingForm({ value, masters, onChange, onCancel, onSave }: { value: Row; masters: { suppliers: Master[]; undertakingUnits: Master[]; customers: Master[] }; onChange: (value: Row) => void; onCancel: () => void; onSave: () => void }) {
-  const field = (key: string, label: string, options?: Master[]) => <label className="space-y-1 text-sm text-ink-2"><span>{label}</span>{options ? <Select className="w-full" value={String(value[key] ?? "")} onChange={(event) => { const selected = options.find((item) => item.id === event.target.value); onChange({ ...value, [key]: event.target.value, [`${key.replace("Id", "Name")}`]: selected?.name ?? "" }); }}><option value="">请选择</option>{options.map((item) => <option key={item.id} value={item.id}>{item.code ? `${item.code} - ` : ""}{item.name}</option>)}</Select> : <Input className="w-full" value={String(value[key] ?? "")} onChange={(event) => onChange({ ...value, [key]: event.target.value })} />}</label>;
-  return <Modal footer={<><Button onClick={onCancel}>取消</Button><Button onClick={onSave} tone="primary">保存</Button></>} onClose={onCancel} title={value.id ? "修改服务映射" : "新增服务映射"} widthClass="max-w-2xl"><div className="grid gap-3 sm:grid-cols-2">{field("supplierId", "供应商", masters.suppliers)}{field("undertakingUnitId", "承接单位", masters.undertakingUnits)}{field("customerId", "客户", masters.customers)}{field("reconciler", "对账人")}{field("calculationLogic", "计算逻辑")}<label className="space-y-1 text-sm text-ink-2"><span>华为云账号（逗号分隔）</span><Input className="w-full" value={String(value.accounts ?? "")} onChange={(event) => onChange({ ...value, accounts: event.target.value })} /></label><label className="space-y-1 text-sm text-ink-2"><span>客户折扣</span><NumberInput className="w-full" value={value.userDiscount as string | number | null | undefined} onChange={(text) => onChange({ ...value, userDiscount: text })} /></label></div></Modal>;
+  const field = (key: string, label: string) => <label className="space-y-1 text-sm text-ink-2"><span>{label}</span><Input className="w-full" value={String(value[key] ?? "")} onChange={(event) => onChange({ ...value, [key]: event.target.value })} /></label>;
+  /** 供应商 / 承接单位 / 客户都改成统一的搜索选择：选项按 ID 取档案当前名称，改名后弹层回显也跟着变。 */
+  return <Modal footer={<><Button onClick={onCancel}>取消</Button><Button onClick={onSave} tone="primary">保存</Button></>} onClose={onCancel} title={value.id ? "修改服务映射" : "新增服务映射"} widthClass="max-w-2xl"><div className="grid gap-3 sm:grid-cols-2"><PartnerSelect kind="suppliers" label="供应商" idValue={value.supplierId} nameValue={value.supplierName} masters={masters} onChange={(selected) => onChange({ ...value, supplierId: selected.id, supplierName: selected.name })} /><PartnerSelect kind="undertakingUnits" label="承接单位" idValue={value.undertakingUnitId} nameValue={value.undertakingUnitName} masters={masters} onChange={(selected) => onChange({ ...value, undertakingUnitId: selected.id, undertakingUnitName: selected.name })} /><PartnerSelect kind="customers" label="客户" idValue={value.customerId} nameValue={value.customerName} masters={masters} onChange={(selected) => onChange({ ...value, customerId: selected.id, customerName: selected.name })} />{field("reconciler", "对账人")}{field("calculationLogic", "计算逻辑")}<label className="space-y-1 text-sm text-ink-2"><span>华为云账号（逗号分隔）</span><Input className="w-full" value={String(value.accounts ?? "")} onChange={(event) => onChange({ ...value, accounts: event.target.value })} /></label><label className="space-y-1 text-sm text-ink-2"><span>客户折扣</span><NumberInput className="w-full" value={value.userDiscount as string | number | null | undefined} onChange={(text) => onChange({ ...value, userDiscount: text })} /></label></div></Modal>;
 }
