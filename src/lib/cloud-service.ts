@@ -438,10 +438,14 @@ type CloudAccountMapping = {
   account: string;
   supplierId: string | null;
   supplierName: string;
+  /** 映射表里保存的（改名前的）名称文本，用于识别"行里存的就是这份快照"。 */
+  supplierNameRaw: string;
   undertakingUnitId: string | null;
   undertakingUnitName: string;
+  undertakingUnitNameRaw: string;
   customerId: string | null;
   customerName: string;
+  customerNameRaw: string;
   reconciler: string;
 };
 
@@ -456,10 +460,13 @@ async function findCloudAccountMappings(accounts: string[]) {
     `SELECT a.account, m.id AS mappingId,
        COALESCE(NULLIF(s.supplierId, ''), NULLIF(m.supplierId, '')) AS supplierId,
        COALESCE(NULLIF(s.shortName, ''), NULLIF(s.nameCn, ''), NULLIF(m.supplierName, ''), '未匹配供应商') AS supplierName,
+       COALESCE(NULLIF(s.shortName, ''), NULLIF(s.nameCn, ''), NULLIF(m.supplierName, ''), '') AS supplierNameRaw,
        COALESCE(NULLIF(u.undertakingUnitId, ''), NULLIF(m.undertakingUnitId, '')) AS undertakingUnitId,
        COALESCE(NULLIF(u.shortName, ''), NULLIF(u.entityName, ''), NULLIF(u.nameCn, ''), NULLIF(u.name, ''), NULLIF(m.undertakingUnitName, ''), '未匹配承接单位') AS undertakingUnitName,
+       COALESCE(NULLIF(m.undertakingUnitName, ''), '') AS undertakingUnitNameRaw,
        COALESCE(NULLIF(c.customerId, ''), NULLIF(m.customerId, '')) AS customerId,
        COALESCE(NULLIF(c.shortName, ''), NULLIF(c.nameCn, ''), NULLIF(c.name, ''), NULLIF(m.customerName, ''), '未匹配客户') AS customerName,
+       COALESCE(NULLIF(m.customerName, ''), '') AS customerNameRaw,
        m.reconciler
      FROM merge_cloud_mapping_accounts a
      INNER JOIN merge_cloud_mappings m ON m.id = a.mappingId
@@ -579,6 +586,18 @@ async function resolveCloudPartyNames(rows: Row[], pairs: Array<[string, string,
   });
 }
 
+/**
+ * 有些字段保存时就是"另一张表的当时名称"，之后档案改名不会回写，
+ * 这里只在"存的就是那份快照"时才用当前名称替换，避免冲掉手工/导入填的其它往来方。
+ */
+export function preferLivePartyName(stored: unknown, rawName: unknown, liveName: unknown) {
+  const current = text(stored);
+  const live = text(liveName);
+  if (!live) return stored;
+  if (!current) return live;
+  return current === text(rawName) ? live : stored;
+}
+
 function applyCloudAccountMapping(row: Row, mapping: CloudAccountMapping | undefined) {
   if (!mapping) return row;
   return {
@@ -592,12 +611,14 @@ function applyCloudAccountMapping(row: Row, mapping: CloudAccountMapping | undef
     cloudReconciler: mapping.reconciler || row.cloudReconciler || row.owner || null,
     supplierPayablePayer: mapping.undertakingUnitName,
     supplierPayablePayee: mapping.supplierName,
-    customerReceivablePayer: mapping.customerName,
-    customerReceivablePayee: mapping.undertakingUnitName,
-    collectionPayer: text(row.collectionPayer) || mapping.customerName,
-    collectionPayee: text(row.collectionPayee) || mapping.undertakingUnitName,
-    invoicePayer: text(row.invoicePayer) || mapping.customerName,
-    invoicePayee: text(row.invoicePayee) || mapping.undertakingUnitName,
+    // 客户应收 / 客户实收 / 客户开票的付款方默认就是"本行客户"，承接单位默认取服务映射；
+    // 只把等于映射表旧名称的文本换成当前名称，手工填的其它往来方保持原样。
+    customerReceivablePayer: preferLivePartyName(row.customerReceivablePayer, mapping.customerNameRaw, mapping.customerName),
+    customerReceivablePayee: preferLivePartyName(row.customerReceivablePayee, mapping.undertakingUnitNameRaw, mapping.undertakingUnitName),
+    collectionPayer: preferLivePartyName(row.collectionPayer, mapping.customerNameRaw, mapping.customerName),
+    collectionPayee: preferLivePartyName(row.collectionPayee, mapping.undertakingUnitNameRaw, mapping.undertakingUnitName),
+    invoicePayer: preferLivePartyName(row.invoicePayer, mapping.customerNameRaw, mapping.customerName),
+    invoicePayee: preferLivePartyName(row.invoicePayee, mapping.undertakingUnitNameRaw, mapping.undertakingUnitName),
   };
 }
 
@@ -606,7 +627,7 @@ async function applyCloudAccountMappings(rows: Row[]) {
   return rows.map((row) => applyCloudAccountMapping(row, getCloudAccountMapping(mappings, row.account)));
 }
 
-/** 对账行里带 ID 的往来方字段 → 展示时按 ID 取档案当前名称。 */
+/** 对账行里"自己有 ID"的往来方字段 → 展示时按该 ID 取档案当前名称。 */
 const CLOUD_ROW_PARTY_PAIRS: Array<[string, string, CloudPartyKind]> = [
   ["customer", "customerId", "customer"],
   ["supplierName", "supplierId", "supplier"],
@@ -617,11 +638,37 @@ const CLOUD_ROW_PARTY_PAIRS: Array<[string, string, CloudPartyKind]> = [
 ];
 
 /**
+ * 客户应收 / 客户实收 / 客户开票的「付款方」没有独立 ID 时，它保存的就是本行客户的当时名称，
+ * 所以这几列要跟着客户档案的当前简称走；有独立 ID 的（实收、开票）优先按自己的 ID 解析。
+ */
+const CLOUD_ROW_CUSTOMER_NAME_FIELDS = ["customerReceivablePayer", "collectionPayer", "invoicePayer"] as const;
+const CLOUD_ROW_CUSTOMER_ID_FIELDS: Record<string, string> = {
+  collectionPayer: "collectionPayerCustomerId",
+  invoicePayer: "invoicePayerCustomerId",
+};
+
+/**
  * 只读场景（列表 / 导出 / 详情）统一的展示口径：
  * 先按账号套服务映射，再按 ID 把往来方名称刷成档案当前值。
  */
 export async function resolveCloudRowsDisplayNames(rows: Row[]) {
-  return resolveCloudPartyNames(await applyCloudAccountMappings(rows), CLOUD_ROW_PARTY_PAIRS);
+  // 先记下"保存时的客户文本"：付款方字段是它的快照，用它判断这一格是不是只是旧客户名
+  const storedCustomers = rows.map((row) => text(row.customer));
+  const mapped = await applyCloudAccountMappings(rows);
+  const resolved = await resolveCloudPartyNames(mapped, CLOUD_ROW_PARTY_PAIRS);
+  return resolved.map((row, index) => {
+    const liveCustomer = text(row.customer);
+    if (!liveCustomer) return row;
+    const next = { ...row };
+    for (const field of CLOUD_ROW_CUSTOMER_NAME_FIELDS) {
+      const ownIdField = CLOUD_ROW_CUSTOMER_ID_FIELDS[field];
+      if (ownIdField && text(row[ownIdField])) continue;
+      const stored = text(row[field]);
+      // 只在"空着 / 就是本行客户的旧名称 / 已是当前名称"时改写，不动手工或导入填的其它往来方
+      if (!stored || stored === storedCustomers[index] || stored === liveCustomer) next[field] = liveCustomer;
+    }
+    return next;
+  });
 }
 
 export async function listCloudRows(params: URLSearchParams) {
