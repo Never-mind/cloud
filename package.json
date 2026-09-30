@@ -32,6 +32,8 @@
     "cleanup:operation-logs": "tsx scripts/cleanup-operation-logs.ts",
     "schema:notifications": "tsx scripts/migrate-notifications.ts",
     "schema:crm-invoices": "tsx scripts/migrate-crm-invoices.ts",
+    "schema:obs-storage": "tsx scripts/migrate-obs-storage.ts",
+    "storage:migrate-obs": "tsx scripts/migrate-files-to-obs.ts",
     "notify:run": "tsx scripts/run-notifications.ts",
     "sync:crm-invoices": "tsx scripts/sync-crm-invoices.ts",
     "sync:cloud-supplier-payments": "tsx scripts/sync-cloud-supplier-payments.ts",

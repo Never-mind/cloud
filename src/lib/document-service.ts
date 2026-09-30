@@ -184,21 +184,33 @@ export async function saveUploadedDocumentFile({
   const fileId = `FILE-${randomUUID()}`;
   const safeName = sanitizeDocumentFileName(originalName);
   const contentType = mimeType || "application/octet-stream";
-  const dataUrl = `data:${contentType};base64,${bytes.toString("base64")}`;
+  // 文档库文件同样外置到 OBS：Cloud/文档库/<文件夹路径>/
+  const { resolveDocumentContext, storeFile } = await import("./file-storage-service");
+  const stored = await storeFile({
+    context: await resolveDocumentContext(folderId),
+    attachmentId: fileId,
+    fileName: safeName,
+    fileType: contentType,
+    bytes,
+    isInvoice: /发票|invoice/i.test(safeName),
+  });
+  const dataUrl = stored.provider === "db" ? `data:${contentType};base64,${bytes.toString("base64")}` : null;
   await execute(
     `
       INSERT INTO merge_common_document_files
-        (fileId, folderId, fileName, fileType, fileSize, dataUrl, uploadedByUserId)
+        (fileId, folderId, fileName, fileType, fileSize, dataUrl, storageProvider, storageKey, uploadedByUserId)
       VALUES
-        (:fileId, :folderId, :fileName, :fileType, :fileSize, :dataUrl, :uploadedByUserId)
+        (:fileId, :folderId, :fileName, :fileType, :fileSize, :dataUrl, :storageProvider, :storageKey, :uploadedByUserId)
     `,
     {
       fileId,
       folderId,
-      fileName: safeName,
+      fileName: stored.fileName,
       fileType: contentType,
       fileSize: bytes.length,
       dataUrl,
+      storageProvider: stored.provider,
+      storageKey: stored.storageKey,
       uploadedByUserId: uploadedBy,
     },
   );
@@ -231,22 +243,27 @@ export async function renameDocumentFile(fileId: string, rawName: string) {
 }
 
 export async function deleteDocumentFile(fileId: string) {
-  const [file] = await queryRows<{ fileId: string }>("SELECT fileId FROM merge_common_document_files WHERE fileId = :fileId", { fileId });
+  const [file] = await queryRows<{ fileId: string; storageProvider: string | null; storageKey: string | null }>(
+    "SELECT fileId, storageProvider, storageKey FROM merge_common_document_files WHERE fileId = :fileId",
+    { fileId },
+  );
   if (!file) return;
+  const { deleteFileObject } = await import("./file-storage-service");
+  await deleteFileObject(file);
   await execute("DELETE FROM merge_common_document_files WHERE fileId = :fileId", { fileId });
 }
 
 export async function getDocumentFileForDownload(fileId: string) {
   const [storedFile] = await queryRows<StoredDocumentFile>(
-    "SELECT fileId, folderId, fileName, fileType, fileSize, dataUrl, uploadedByUserId, uploadedAt, updatedAt FROM merge_common_document_files WHERE fileId = :fileId",
+    "SELECT fileId, folderId, fileName, fileType, fileSize, dataUrl, storageProvider, storageKey, uploadedByUserId, uploadedAt, updatedAt FROM merge_common_document_files WHERE fileId = :fileId",
     { fileId },
   );
   const file = storedFile ? toDocumentFile(storedFile) : undefined;
   if (!file) throw new Error("文件不存在");
-  const match = String(storedFile?.dataUrl ?? "").match(/^data:[^;,]+;base64,([\s\S]*)$/);
-  if (!match) throw new Error("文件内容不存在");
-  const bytes = Buffer.from(match[1], "base64");
-  return { file, bytes };
+  const { readFile } = await import("./file-storage-service");
+  const stored = await readFile(storedFile as unknown as Record<string, unknown>);
+  if (!stored) throw new Error("文件内容不存在");
+  return { file, bytes: stored.bytes };
 }
 
 async function assertFolderExists(folderId: string) {

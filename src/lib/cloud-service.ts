@@ -1641,10 +1641,58 @@ export async function listCloudAttachments(ownerType: string, ownerId: string) {
 }
 
 export async function addCloudAttachment(ownerType: string, ownerId: string, file: { fileName: string; fileType: string; fileSize: number; dataUrl: string }, actor: OperationActor | null) {
+  return addCloudAttachmentRecord(ownerType, ownerId, file, actor);
+}
+
+/** 云附件入库（统一走这里，方便 OBS 与数据库两种存放方式并存）。 */
+async function addCloudAttachmentRecord(
+  ownerType: string,
+  ownerId: string,
+  file: { fileName: string; fileType: string; fileSize: number; dataUrl: string | null; storageProvider?: string; storageKey?: string | null },
+  actor: OperationActor | null,
+) {
   const id = randomUUID();
-  await executeRaw(`INSERT INTO merge_cloud_attachments (id,ownerType,ownerId,fileName,fileType,fileSize,dataUrl,uploadedByUserId,uploadedByName)
-    VALUES (:id,:ownerType,:ownerId,:fileName,:fileType,:fileSize,:dataUrl,:userId,:userName)`, { id, ownerType, ownerId, ...file, userId: actor?.userId ?? null, userName: actor?.displayName ?? null });
+  await executeRaw(`INSERT INTO merge_cloud_attachments (id,ownerType,ownerId,fileName,fileType,fileSize,dataUrl,storageProvider,storageKey,uploadedByUserId,uploadedByName)
+    VALUES (:id,:ownerType,:ownerId,:fileName,:fileType,:fileSize,:dataUrl,:storageProvider,:storageKey,:userId,:userName)`, {
+    id, ownerType, ownerId, ...file,
+    storageProvider: file.storageProvider ?? "db",
+    storageKey: file.storageKey ?? null,
+    userId: actor?.userId ?? null,
+    userName: actor?.displayName ?? null,
+  });
   return (await queryRowsRaw<Row>("SELECT id,ownerType,ownerId,fileName,fileType,fileSize,uploadedByName,uploadedAt FROM merge_cloud_attachments WHERE id = :id", { id }))[0] ?? null;
+}
+
+/** 云附件上传：先落 OBS（启用时），再写索引；OBS 不可用时回落到原来的 base64 入库。 */
+export async function storeCloudAttachment(
+  ownerType: string,
+  ownerId: string,
+  file: { fileName: string; fileType: string; bytes: Buffer },
+  actor: OperationActor | null,
+) {
+  const { resolveCloudAttachmentContext, storeFile } = await import("./file-storage-service");
+  const attachmentId = randomUUID();
+  const stored = await storeFile({
+    context: await resolveCloudAttachmentContext(ownerType, ownerId),
+    attachmentId,
+    fileName: file.fileName,
+    fileType: file.fileType,
+    bytes: file.bytes,
+    isInvoice: ["invoice", "crm_invoice", "supplier_payment"].includes(ownerType) || /发票|invoice/i.test(file.fileName),
+  });
+  return addCloudAttachmentRecord(
+    ownerType,
+    ownerId,
+    {
+      fileName: stored.fileName.slice(0, 255),
+      fileType: file.fileType,
+      fileSize: file.bytes.length,
+      dataUrl: stored.provider === "db" ? `data:${file.fileType};base64,${file.bytes.toString("base64")}` : null,
+      storageProvider: stored.provider,
+      storageKey: stored.storageKey,
+    },
+    actor,
+  );
 }
 
 export async function findCloudAttachment(id: string) {

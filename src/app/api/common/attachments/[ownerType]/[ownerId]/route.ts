@@ -4,6 +4,7 @@ import { getAuthenticatedUserEmail } from "@/lib/auth";
 import { queryRowsRaw, executeRaw } from "@/lib/db";
 import { getPermissionStateForEmail } from "@/lib/permission-service";
 import { hasPermission, type PermissionAction } from "@/lib/permission-definitions";
+import { resolveCommonAttachmentContext, storeFile } from "@/lib/file-storage-service";
 
 const OWNER_MODULES: Record<string, string> = {
   suppliers: "suppliers",
@@ -48,10 +49,19 @@ export async function POST(request: NextRequest, context: { params: Promise<{ ow
     const formData = await request.formData();
     const file = formData.get("file");
     if (!(file instanceof File)) return NextResponse.json({ error: "请选择附件" }, { status: 400 });
-    if (file.size > 10 * 1024 * 1024) return NextResponse.json({ error: "单个附件不能超过 10 MB" }, { status: 400 });
+    if (file.size > 200 * 1024 * 1024) return NextResponse.json({ error: "单个附件不能超过 200 MB" }, { status: 400 });
     const bytes = Buffer.from(await file.arrayBuffer());
     const attachmentId = randomUUID();
-    const dataUrl = `data:${file.type || "application/octet-stream"};base64,${bytes.toString("base64")}`;
+    // 文件先落 OBS（启用时）；没启用或上传失败就回落到原来的"存数据库"
+    const stored = await storeFile({
+      context: await resolveCommonAttachmentContext(ownerType, ownerId),
+      attachmentId,
+      fileName: file.name,
+      fileType: file.type || "application/octet-stream",
+      bytes,
+      isInvoice: /发票|invoice/i.test(file.name),
+    });
+    const dataUrl = stored.provider === "db" ? `data:${file.type || "application/octet-stream"};base64,${bytes.toString("base64")}` : null;
     const email = getAuthenticatedUserEmail(request);
     const optionalColumns = await queryRowsRaw<{ columnName: string }>(
       `SELECT COLUMN_NAME AS columnName
@@ -72,11 +82,16 @@ export async function POST(request: NextRequest, context: { params: Promise<{ ow
       attachmentId,
       ownerType,
       ownerId,
-      fileName: file.name.slice(0, 255),
+      fileName: stored.fileName.slice(0, 255),
       fileType: file.type || "application/octet-stream",
       fileSize: file.size,
       dataUrl,
     };
+    if (availableColumns.has("storageProvider")) {
+      insertFields.push("storageProvider", "storageKey");
+      insertParams.storageProvider = stored.provider;
+      insertParams.storageKey = stored.storageKey;
+    }
     if (availableColumns.has("uploadedByUserId")) {
       insertFields.push("uploadedByUserId");
       insertParams.uploadedByUserId = user?.userId ?? null;

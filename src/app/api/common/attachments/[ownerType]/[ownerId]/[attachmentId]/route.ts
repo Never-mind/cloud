@@ -3,6 +3,7 @@ import { getAuthenticatedUserEmail } from "@/lib/auth";
 import { executeRaw, queryRowsRaw } from "@/lib/db";
 import { getPermissionStateForEmail } from "@/lib/permission-service";
 import { hasPermission } from "@/lib/permission-definitions";
+import { deleteFileObject, readFile } from "@/lib/file-storage-service";
 
 const OWNER_MODULES: Record<string, string> = {
   suppliers: "suppliers",
@@ -20,8 +21,8 @@ async function getAccess(request: NextRequest, ownerType: string, action: "view"
 }
 
 async function findAttachment(ownerType: string, ownerId: string, attachmentId: string) {
-  return (await queryRowsRaw<{ attachmentId: string; fileName: string; fileType: string | null; dataUrl: string }>(
-    `SELECT attachmentId, fileName, fileType, dataUrl FROM merge_common_attachments
+  return (await queryRowsRaw<{ attachmentId: string; fileName: string; fileType: string | null; dataUrl: string; storageProvider: string | null; storageKey: string | null }>(
+    `SELECT attachmentId, fileName, fileType, dataUrl, storageProvider, storageKey FROM merge_common_attachments
      WHERE attachmentId = :attachmentId AND ownerType = :ownerType AND ownerId = :ownerId LIMIT 1`,
     { attachmentId, ownerType, ownerId },
   ))[0];
@@ -33,11 +34,12 @@ export async function GET(request: NextRequest, context: { params: Promise<{ own
     await getAccess(request, ownerType, "view");
     const attachment = await findAttachment(ownerType, ownerId, attachmentId);
     if (!attachment) return NextResponse.json({ error: "附件不存在" }, { status: 404 });
-    const match = attachment.dataUrl.match(/^data:([^;,]+)?;base64,([\s\S]*)$/);
-    const bytes = Buffer.from(match?.[2] ?? attachment.dataUrl, "base64");
-    return new NextResponse(bytes, {
+    // OBS 上的文件走服务端代理转发，数据库里的老文件照旧解 base64（双读）
+    const file = await readFile(attachment);
+    if (!file) return NextResponse.json({ error: "附件内容不存在" }, { status: 404 });
+    return new NextResponse(file.bytes, {
       headers: {
-        "Content-Type": match?.[1] ?? attachment.fileType ?? "application/octet-stream",
+        "Content-Type": file.contentType || attachment.fileType || "application/octet-stream",
         "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(attachment.fileName)}`,
       },
     });
@@ -51,6 +53,8 @@ export async function DELETE(request: NextRequest, context: { params: Promise<{ 
   try {
     const { ownerType, ownerId, attachmentId } = await context.params;
     await getAccess(request, ownerType, "delete");
+    const attachment = await findAttachment(ownerType, ownerId, attachmentId);
+    if (attachment) await deleteFileObject(attachment);
     await executeRaw(
       "DELETE FROM merge_common_attachments WHERE attachmentId = :attachmentId AND ownerType = :ownerType AND ownerId = :ownerId",
       { attachmentId, ownerType, ownerId },

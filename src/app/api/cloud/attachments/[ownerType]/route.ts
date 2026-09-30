@@ -1,16 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { deleteCloudAttachment, findCloudAttachment } from "@/lib/cloud-service";
 import { cloudAttachmentResponse } from "@/lib/cloud-attachment-response";
+import { deleteFileObject } from "@/lib/file-storage-service";
 
 export async function GET(_request: NextRequest, context: { params: Promise<{ ownerType: string }> }) {
   const { ownerType: id } = await context.params;
   const attachment = await findCloudAttachment(decodeURIComponent(id));
   if (!attachment) return NextResponse.json({ error: "附件不存在" }, { status: 404 });
-  return cloudAttachmentResponse(attachment);
+  return await cloudAttachmentResponse(attachment);
 }
 
 export async function DELETE(_request: NextRequest, context: { params: Promise<{ ownerType: string }> }) {
   const { ownerType: id } = await context.params;
+  const attachment = await findCloudAttachment(decodeURIComponent(id));
+  if (attachment) await deleteFileObject(attachment);
   await deleteCloudAttachment(decodeURIComponent(id));
   return NextResponse.json({ ok: true });
 }

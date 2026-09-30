@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { executeRaw, queryRowsRaw, type Row } from "./db";
-import { addCloudAttachment, findCloudAttachment } from "./cloud-service";
+import { addCloudAttachment, findCloudAttachment, storeCloudAttachment } from "./cloud-service";
 import {
   resolveCrmBusinessLineId,
   resolveCrmEndpoint,
@@ -619,12 +619,8 @@ async function downloadInvoiceAttachment(invoice: CrmInvoice, recordId: string, 
     if (!buffer.length) continue;
     const fileType = response.headers.get("content-type") || "application/pdf";
     const fileName = decodeURIComponent(url.split("/").pop() ?? "") || `${invoice.invoiceNo || invoice.id}.pdf`;
-    const attachment = await addCloudAttachment(
-      "crm_invoice",
-      recordId,
-      { fileName, fileType, fileSize: buffer.length, dataUrl: `data:${fileType};base64,${buffer.toString("base64")}` },
-      actor,
-    );
+    // 走统一上传：启用 OBS 就存对象存储，否则回落成数据库 base64
+    const attachment = await storeCloudAttachment("crm_invoice", recordId, { fileName, fileType, bytes: buffer }, actor);
     await executeRaw("UPDATE merge_cloud_crm_invoices SET attachmentId = :attachmentId WHERE id = :id", {
       attachmentId: text((attachment as Row | null)?.id),
       id: recordId,
@@ -1703,14 +1699,21 @@ async function ensureInvoiceAttachmentForRows(recordId: string, rowIds: string[]
       { rowId, fileName },
     ))[0];
     if (existing) continue;
+    /**
+     * 行上的这份是**引用**而不是再存一份内容：
+     * OBS 模式复用同一个对象键（省空间，删除时有引用保护），
+     * 数据库模式仍复制 base64（与老逻辑一致）。
+     */
     await executeRaw(
-      `INSERT INTO merge_cloud_attachments (id, ownerType, ownerId, fileName, fileType, fileSize, dataUrl, uploadedByUserId, uploadedByName)
-       VALUES (:id, 'invoice', :rowId, :fileName, :fileType, :fileSize, :dataUrl, :userId, 'CRM 同步')`,
+      `INSERT INTO merge_cloud_attachments (id, ownerType, ownerId, fileName, fileType, fileSize, dataUrl, storageProvider, storageKey, uploadedByUserId, uploadedByName)
+       VALUES (:id, 'invoice', :rowId, :fileName, :fileType, :fileSize, :dataUrl, :storageProvider, :storageKey, :userId, 'CRM 同步')`,
       {
         id: randomUUID(), rowId, fileName,
         fileType: text(source.fileType) || "application/pdf",
         fileSize: Number(source.fileSize ?? 0),
-        dataUrl: String(source.dataUrl ?? ""),
+        dataUrl: String(source.storageProvider ?? "db") === "obs" ? null : String(source.dataUrl ?? ""),
+        storageProvider: String(source.storageProvider ?? "db"),
+        storageKey: text(source.storageKey) || null,
         userId: actor?.userId ?? null,
       },
     );

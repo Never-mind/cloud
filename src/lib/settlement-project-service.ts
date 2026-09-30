@@ -943,16 +943,49 @@ export async function addSettlementAttachment(projectId: string, input: Record<s
     const invoice = (await queryRows("SELECT id FROM merge_po_settlement_invoices WHERE id=:invoiceId AND projectId=:projectId LIMIT 1", { invoiceId, projectId }))[0];
     if (!invoice) throw new Error("发票不存在");
   }
+  /**
+   * 集采附件：文件内容外置到 OBS（`Cloud/集采/<项目名-编号>/`），数据库只留索引；
+   * OBS 未启用时保持原来的 base64 入库方式。
+   */
+  const attachmentId = randomUUID();
+  const fileType = text(input.fileType) || "application/octet-stream";
+  const fileSize = Math.max(0, numeric(input.fileSize));
+  const { resolveSettlementContext, storeFile } = await import("./file-storage-service");
+  const match = dataUrl.match(/^data:([^;,]+)?;base64,([\s\S]*)$/);
+  const stored = await storeFile({
+    context: await resolveSettlementContext(projectId),
+    attachmentId,
+    fileName,
+    fileType,
+    bytes: match ? Buffer.from(match[2], "base64") : Buffer.from(dataUrl, "utf8"),
+    isInvoice: Boolean(invoiceId) || /发票|invoice/i.test(fileName),
+  });
   await execute(
-    `INSERT INTO merge_po_settlement_attachments (id,projectId,invoiceId,fileName,fileType,fileSize,dataUrl,description,uploadedByUserId,uploadedByName)
-     VALUES (:id,:projectId,:invoiceId,:fileName,:fileType,:fileSize,:dataUrl,:description,:userId,:userName)`,
-    { id: randomUUID(), projectId, invoiceId, fileName, fileType: text(input.fileType) || null, fileSize: Math.max(0, numeric(input.fileSize)), dataUrl, description: text(input.description) || null, userId: actor?.userId ?? null, userName: actor?.displayName ?? null },
+    `INSERT INTO merge_po_settlement_attachments (id,projectId,invoiceId,fileName,fileType,fileSize,dataUrl,storageProvider,storageKey,description,uploadedByUserId,uploadedByName)
+     VALUES (:id,:projectId,:invoiceId,:fileName,:fileType,:fileSize,:dataUrl,:storageProvider,:storageKey,:description,:userId,:userName)`,
+    {
+      id: attachmentId, projectId, invoiceId,
+      fileName: stored.fileName,
+      fileType,
+      fileSize,
+      dataUrl: stored.provider === "db" ? dataUrl : null,
+      storageProvider: stored.provider,
+      storageKey: stored.storageKey,
+      description: text(input.description) || null,
+      userId: actor?.userId ?? null,
+      userName: actor?.displayName ?? null,
+    },
   );
   return touchAndRecalculate(projectId, actor);
 }
 
 export async function deleteSettlementAttachment(projectId: string, attachmentId: string, actor: OperationActor | null) {
   const project = await getProject(projectId);
+  const rows = await queryRows<SettlementAttachment>("SELECT * FROM merge_po_settlement_attachments WHERE id=:id AND projectId=:projectId LIMIT 1", { id: attachmentId, projectId });
+  if (rows[0]) {
+    const { deleteFileObject } = await import("./file-storage-service");
+    await deleteFileObject(rows[0] as unknown as Record<string, unknown>);
+  }
   await execute("DELETE FROM merge_po_settlement_attachments WHERE id=:id AND projectId=:projectId", { id: attachmentId, projectId });
   return touchAndRecalculate(projectId, actor);
 }
