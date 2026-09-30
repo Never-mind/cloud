@@ -114,6 +114,32 @@ function withShipmentReceiptStatus(config: EntityConfig, body: Row) {
   return { ...body, isReceived: isShipmentDelivered(body.deliveredAt) };
 }
 
+/**
+ * 往来方名称列要"按 ID 回查档案当前名称"，前提是这张表真的有对应的 ID 列。
+ *
+ * 有些实体只有名称文本列（例如 purchaseorderplanitems），没有 supplierId；
+ * 不加判断就去关联档案会直接报 "Unknown column"。这里按表缓存一次列是否存在：
+ * 已预热时缺列就退回旧口径（按存的文本），未预热时保持老行为，避免影响其它调用方。
+ */
+const partyIdColumnCache = new Map<string, Set<string>>();
+const PARTY_ID_COLUMNS = ["supplierId", "undertakingUnitId", "customerId", "contractingUnitId"] as const;
+
+export async function ensurePartyIdColumns(config: EntityConfig) {
+  const cached = partyIdColumnCache.get(config.key);
+  if (cached) return cached;
+  const available = new Set<string>();
+  await Promise.all(PARTY_ID_COLUMNS.map(async (column) => {
+    if (await hasTableColumn(config.table, column)) available.add(column);
+  }));
+  partyIdColumnCache.set(config.key, available);
+  return available;
+}
+
+function partyIdColumnAvailable(config: EntityConfig, column: string) {
+  const available = partyIdColumnCache.get(config.key);
+  return available ? available.has(column) : true;
+}
+
 async function normalizeEntityBody(config: EntityConfig, body: Row) {
   const nextBody = normalizeInstanceModelBody(config, withQuotationPartyAliases(config, withShipmentReceiptStatus(config, body)));
   const normalizedPoBody = normalizeCustomerPoBody(config, nextBody);
@@ -283,6 +309,8 @@ function withPrimaryKey(config: EntityConfig, body: Row) {
 }
 
 export async function listEntityRows(config: EntityConfig, searchParams: URLSearchParams) {
+  // 预热"这张表有哪些往来方 ID 列"，供关键字搜索与筛选决定能否按 ID 回查档案
+  await ensurePartyIdColumns(config);
   const requestedPage = Math.max(1, Math.floor(Number(searchParams.get("page") ?? 1) || 1));
   const pageSize = normalizePageSize(Number(searchParams.get("pageSize") ?? DEFAULT_PAGE_SIZE));
   const keyword = searchParams.get("keyword")?.trim();
@@ -392,6 +420,18 @@ export async function listEntityRows(config: EntityConfig, searchParams: URLSear
         ? ["quotationNo", "projectName", "customerId", "contractingUnitId", "sourcePoNo", "remark"]
         : storageFields.slice(0, 5);
     const keywordExpressions = keywordFields.map((field) => `${fieldReference(field)} LIKE :keyword`);
+    /**
+     * 往来方名称列按 ID 回查档案当前名称后再匹配。
+     *
+     * 这些列在表里存的是"保存当时"的文本，档案改名后列表已经显示新简称，
+     * 但关键词搜索还按旧文本 → 搜新简称搜不出来（华为云台账之前就是这个毛病）。
+     * 这里把所有往来方名称列都补上按 ID 解析的口径，与列表/筛选保持一致。
+     */
+    for (const field of config.listFields) {
+      if (!partyDisplayFields.has(field.key) && field.key !== "contractingUnitName") continue;
+      const displayExpression = getEntityDisplayFieldExpression(config, field.key);
+      if (displayExpression) keywordExpressions.push(`${displayExpression} LIKE :keyword`);
+    }
     if (config.key === "quotations") {
       keywordExpressions.push(
         `${getEntityDisplayFieldExpression(config, "customerName")} LIKE :keyword`,
@@ -721,6 +761,7 @@ export async function listEntityFilterOptions(
   config: EntityConfig,
   searchParams: URLSearchParams,
 ) {
+  await ensurePartyIdColumns(config);
   const field = searchParams.get("field")?.trim() ?? "";
   const keyword = searchParams.get("keyword")?.trim() ?? "";
   const fieldConfig = config.listFields.find((item) => item.key === field);
@@ -925,6 +966,13 @@ function getEntityDisplayFieldExpression(config: EntityConfig, field: string, sh
       return `(SELECT COALESCE(NULLIF(customer.shortName, ''), NULLIF(customer.nameCn, ''), NULLIF(customer.name, ''), NULLIF(customer.customerCode, ''), ${source}customerId) FROM merge_common_customers customer WHERE customer.customerId = ${source}customerId OR customer.customerCode = ${source}customerId LIMIT 1)`;
     }
   }
+  /**
+   * 项目结算等实体也有"承接单位"列（字段名 contractingUnitName，关联 contractingUnitId），
+   * 同样按 ID 回查档案当前简称。
+   */
+  if (field === "contractingUnitName" && config.listFields.some((item) => item.key === "contractingUnitId")) {
+    return `(SELECT COALESCE(NULLIF(unit.shortName, ''), NULLIF(unit.entityName, ''), NULLIF(unit.name, ''), NULLIF(unit.undertakingUnitCode, ''), ${source}contractingUnitId) FROM merge_common_undertaking_units unit WHERE unit.undertakingUnitId = ${source}contractingUnitId OR unit.undertakingUnitCode = ${source}contractingUnitId OR unit.entityCode = ${source}contractingUnitId LIMIT 1)`;
+  }
   if (config.key === "history-quotations" && field === "customerId") {
     return `(SELECT COALESCE(NULLIF(customer.shortName, ''), NULLIF(customer.nameCn, ''), NULLIF(customer.name, ''), NULLIF(customer.customerCode, ''), ${source}customerId) FROM merge_common_customers customer WHERE customer.customerId = ${source}customerId OR customer.customerCode = ${source}customerId LIMIT 1)`;
   }
@@ -1011,6 +1059,8 @@ function getEntityDisplayFieldExpression(config: EntityConfig, field: string, sh
     const isSupplier = field === "supplierCode" || field === "supplierName";
     const isUndertakingUnit = field === "undertakingUnitCode" || field === "undertakingUnitName";
     const idField = isSupplier ? "supplierId" : isUndertakingUnit ? "undertakingUnitId" : "customerId";
+    // 表里没有对应 ID 列时不能按 ID 回查，退回原来的"按存的文本"口径
+    if (!partyIdColumnAvailable(config, idField)) return "";
     const tableName = isSupplier ? "merge_common_suppliers" : isUndertakingUnit ? "merge_common_undertaking_units" : "merge_common_customers";
     const nameExpression = isSupplier
       ? "COALESCE(NULLIF(party.shortName, ''), NULLIF(party.nameCn, ''), party.supplierCode)"
@@ -1083,6 +1133,24 @@ function filterableFieldReference(config: EntityConfig, field: string, shipmentA
 function getEntityFilterFieldExpression(config: EntityConfig, field: string, shipmentAlias = "") {
   const reference = filterableFieldReference(config, field, shipmentAlias);
   const fieldConfig = config.listFields.find((item) => item.key === field);
+  /**
+   * 往来方名称列的筛选（候选值与条件）统一按 ID 回查档案当前名称，
+   * 与列表展示口径一致；否则档案改名后按新简称筛不出来、候选值里还是旧名。
+   */
+  if (partyDisplayFields.has(field) || field === "contractingUnitName") {
+    const idField = field === "supplierName" || field === "supplierCode"
+      ? "supplierId"
+      : field === "undertakingUnitName" || field === "undertakingUnitCode" || field === "contractingUnitName"
+        ? "undertakingUnitId"
+        : "customerId";
+    // 只在这张表确实有对应 ID 列时才改成"按 ID 回查"，否则保持原来的文本列筛选
+    const hasIdColumn = field === "contractingUnitName"
+      ? partyIdColumnAvailable(config, "contractingUnitId")
+      : partyIdColumnAvailable(config, idField);
+    if (!hasIdColumn) return reference;
+    const displayExpression = getEntityDisplayFieldExpression(config, field, shipmentAlias);
+    if (displayExpression) return displayExpression;
+  }
   // 采购订单的国家来自来源需求单，取同一份派生表达式，保证筛选与列表口径一致。
   if (config.key === "purchase-orders" && field === "countryCode") {
     return getEntityDisplayFieldExpression(config, field, shipmentAlias);
