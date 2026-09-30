@@ -132,6 +132,7 @@ export function CloudCrmInvoicesPanel() {
         `${syncDryRun ? "预演完成（未写入）" : "同步完成"}：发票读取 ${result.invoiceFetched} 张（新增 ${result.invoiceCreated ?? 0}、更新 ${result.invoiceUpdated ?? 0}、作废 ${result.invoiceVoided}），`
         + `回款 ${result.receiptFetched} 条，回填 ${result.backfilled}，差异 ${result.mismatch}，未匹配 ${result.unmatched}`
         + (result.attachmentDownloaded ? `，附件 ${result.attachmentDownloaded} 个` : "")
+        + (result.attachmentLinked ? `，挂到对账明细 ${result.attachmentLinked} 个` : "")
         + (Number(result.attachmentFailed ?? 0) ? `，附件失败 ${result.attachmentFailed}` : "")
         + (Array.isArray((result as unknown as { errors?: unknown[] }).errors) && (result as unknown as { errors: unknown[] }).errors.length ? `；有 ${(result as unknown as { errors: unknown[] }).errors.length} 条错误` : ""),
       );
@@ -293,6 +294,9 @@ export function CloudCrmInvoicesPanel() {
                       {row.attachmentId
                         ? <a className="inline-flex items-center gap-1 text-primary hover:underline" href={`/api/cloud/attachments/crm_invoice/${encodeURIComponent(String(row.attachmentId))}`}><FileUp size={13} />PDF</a>
                         : row.attachmentUrl ? <span className="text-xs text-ink-3" title={String(row.attachmentUrl)}>未下载</span> : "-"}
+                      {row.rowAttachmentId
+                        ? <span className="ml-2 rounded bg-info-soft px-1.5 py-0.5 text-xs text-primary" title="已挂到对账行的「客户开票附件」，明细里可直接查看下载">已挂明细</span>
+                        : null}
                     </td>
                   </tr>
                 ))}
@@ -354,11 +358,11 @@ export function CloudCrmInvoicesPanel() {
               <Input className="w-full" placeholder="例如 2026-09,2026-08" value={syncMonth} onChange={(event) => setSyncMonth(event.target.value)} />
             </label>
             <label className="flex items-center gap-2 text-sm text-ink-2"><input checked={syncReceipts} onChange={(event) => setSyncReceipts(event.target.checked)} type="checkbox" />同时同步回款并回填本地「客户实收」</label>
-            <label className="flex items-center gap-2 text-sm text-ink-2"><input checked={syncAttachments} onChange={(event) => setSyncAttachments(event.target.checked)} type="checkbox" />下载发票 PDF 到本地附件（不依赖 OBS 链接有效期）</label>
+            <label className="flex items-center gap-2 text-sm text-ink-2"><input checked={syncAttachments} onChange={(event) => setSyncAttachments(event.target.checked)} type="checkbox" />下载发票 PDF 到本地附件，并把匹配上的发票挂到对应对账行的「客户开票附件」（明细里可直接查看/下载）</label>
             <label className="flex items-center gap-2 text-sm text-ink-2"><input checked={syncDryRun} onChange={(event) => setSyncDryRun(event.target.checked)} type="checkbox" />仅预演（只统计，不写库、不回填）</label>
             <p className="rounded border border-line-soft bg-canvas px-3 py-2 text-xs text-ink-3">
               回填规则：本地「客户开票 / 客户实收」为空才写入，已有值不一致只在列表里标「与本地不一致」并给出说明；CRM 状态为「已作废」的发票不参与回填。
-              CRM 未提供具体到账日，回款日期按到账月份首日预估。
+              CRM 未提供具体到账日，回款日期按到账月份首日预估。发票 PDF 只挂到"有匹配对账行"的发票上，已手工删掉的不会被反复塞回。
             </p>
           </div>
         </Modal>

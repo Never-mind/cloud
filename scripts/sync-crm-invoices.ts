@@ -22,7 +22,7 @@ async function main() {
     + `invoices=${summary.invoiceFetched}(+${summary.invoiceCreated}/~${summary.invoiceUpdated}/void ${summary.invoiceVoided}) `
     + `receipts=${summary.receiptFetched}(+${summary.receiptCreated}/~${summary.receiptUpdated}) `
     + `backfilled=${summary.backfilled} mismatch=${summary.mismatch} unmatched=${summary.unmatched} `
-    + `attachments=${summary.attachmentDownloaded}(failed ${summary.attachmentFailed})`,
+    + `attachments=${summary.attachmentDownloaded}(failed ${summary.attachmentFailed}) linkedToRows=${summary.attachmentLinked}`,
   );
   for (const error of summary.errors) console.error(`[${error.scope}] ${error.message}`);
   if (summary.status !== "success") process.exitCode = 1;

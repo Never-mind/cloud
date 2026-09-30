@@ -20,6 +20,21 @@ async function createTableIfMissing(tableName: string, ddl: string) {
   console.log(`已创建：${tableName}`);
 }
 
+/** 已建过表的库补字段用（老库升级时不会重复加）。 */
+async function addColumnIfMissing(tableName: string, columnName: string, ddl: string) {
+  const rows = await queryRowsRaw<{ count: number }>(
+    `SELECT COUNT(*) AS count FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :tableName AND COLUMN_NAME = :columnName`,
+    { tableName, columnName },
+  );
+  if (Number(rows[0]?.count ?? 0) > 0) {
+    console.log(`字段已存在，跳过：${tableName}.${columnName}`);
+    return;
+  }
+  await executeRaw(`ALTER TABLE \`${tableName}\` ADD COLUMN ${ddl}`);
+  console.log(`已补字段：${tableName}.${columnName}`);
+}
+
 async function main() {
   // CRM 发票本地副本：CRM 是唯一数据源，本地只做只读副本 + 回填状态记录。
   await createTableIfMissing(
@@ -46,6 +61,8 @@ async function main() {
         \`productServiceName\` VARCHAR(128) NULL COMMENT '产品服务名称',
         \`attachmentUrl\` VARCHAR(1000) NULL COMMENT 'CRM 附件地址（OBS 直链）',
         \`attachmentId\` CHAR(36) NULL COMMENT '已下载到本地附件表的附件ID',
+        \`rowAttachmentId\` CHAR(36) NULL COMMENT '同时挂到对账行「客户开票附件」下的附件ID',
+        \`rowAttachmentOwnerId\` VARCHAR(64) NULL COMMENT '这份行附件挂在哪个对账行上',
         \`customerId\` VARCHAR(64) NULL COMMENT '映射到的本地客户ID',
         \`customerName\` VARCHAR(255) NULL COMMENT '映射到的本地客户简称',
         \`targetRowId\` VARCHAR(64) NULL COMMENT '回填到的华为云对账行ID',
@@ -152,6 +169,7 @@ async function main() {
         \`unmatchedCount\` INT NOT NULL DEFAULT 0,
         \`attachmentDownloaded\` INT NOT NULL DEFAULT 0,
         \`attachmentFailed\` INT NOT NULL DEFAULT 0,
+        \`attachmentLinked\` INT NOT NULL DEFAULT 0,
         \`errorCount\` INT NOT NULL DEFAULT 0,
         \`errorJson\` TEXT NULL,
         \`message\` VARCHAR(500) NULL,
@@ -163,6 +181,11 @@ async function main() {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='CRM 发票回款同步运行台账'
     `,
   );
+
+  // 老库补字段：把发票附件同时挂到对账行后，需要记录挂载关系与统计。
+  await addColumnIfMissing("merge_cloud_crm_invoices", "rowAttachmentId", "`rowAttachmentId` CHAR(36) NULL COMMENT '同时挂到对账行「客户开票附件」下的附件ID'");
+  await addColumnIfMissing("merge_cloud_crm_invoices", "rowAttachmentOwnerId", "`rowAttachmentOwnerId` VARCHAR(64) NULL COMMENT '这份行附件挂在哪个对账行上'");
+  await addColumnIfMissing("merge_cloud_crm_sync_runs", "attachmentLinked", "`attachmentLinked` INT NOT NULL DEFAULT 0");
 
   console.log("CRM 发票 / 回款同步表结构已就绪");
 }

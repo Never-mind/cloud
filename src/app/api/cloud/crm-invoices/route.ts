@@ -6,6 +6,7 @@ import {
   listCrmCustomerIdentities,
   listCrmInvoices,
   listCrmReceipts,
+  searchCrmInvoicesForMatching,
 } from "@/lib/crm-invoice-sync-service";
 
 const RECEIPT_STATUS_LABELS: Record<string, string> = { "1": "未匹配", "2": "部分匹配", "3": "已匹配", "4": "无需处理" };
@@ -40,6 +41,8 @@ export async function GET(request: NextRequest) {
   try {
     if (params.get("view") === "mappings") return NextResponse.json({ items: await listCrmCustomerIdentities() });
     if (params.get("view") === "last-run") return NextResponse.json({ run: await latestCrmSyncRun() });
+    // 编辑客户开票时的发票搜索：按发票号 / 客户 / 主体模糊搜
+    if (params.get("view") === "search") return NextResponse.json({ items: (await searchCrmInvoicesForMatching(params)).map(decorateInvoice) });
     if (params.get("kind") === "receipts") {
       const result = await listCrmReceipts(params);
       return NextResponse.json({ ...result, items: result.items.map(decorateReceipt) });

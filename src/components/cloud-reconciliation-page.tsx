@@ -19,6 +19,7 @@ import { DEFAULT_PAGE_SIZE } from "@/lib/pagination";
 import { fetchTableFilterOptions } from "@/lib/table-query-client";
 import { useWorkspaceDataRefresh } from "@/lib/workspace-events";
 import { CloudCrmInvoicesPanel } from "./cloud-crm-invoices-panel";
+import { CrmInvoicePicker } from "./crm-invoice-picker";
 
 type Tab = "reconciliation" | "crm-invoices" | "mapping" | "collections" | "supplier-payments";
 type Row = Record<string, unknown> & { id?: string };
@@ -195,7 +196,26 @@ export function CloudReconciliationPage() {
     const patch = Object.fromEntries(Object.entries(invoiceForm).filter(([key]) => key.startsWith("invoice") || key === "collectionInvoice" || key === "receivableDate"));
     try {
       await requestJson(`/api/cloud/rows/${encodeURIComponent(String(invoiceForm.id))}`, { method: "PATCH", body: JSON.stringify(patch) });
-      setInvoiceForm(null); setNotice("客户开票信息已保存"); await load();
+      /**
+       * 弹层里选过 CRM 发票：发票号没被改动时建立匹配关系，
+       * 顺便把发票 PDF 挂到本行的「客户开票附件」下（远端已下载过就直接复用）。
+       */
+      const crmInvoiceId = String(invoiceForm.crmInvoiceId ?? "");
+      const crmInvoiceNo = String(invoiceForm.crmInvoiceNo ?? "");
+      let linked = false;
+      if (crmInvoiceId && crmInvoiceNo && crmInvoiceNo === String(invoiceForm.invoiceNo ?? "")) {
+        const result = await requestJson<{ attachmentLinked?: boolean }>("/api/cloud/crm-invoices/match", {
+          method: "POST",
+          body: JSON.stringify({ crmInvoiceId, rowId: invoiceForm.id, applyFields: false }),
+        });
+        linked = Boolean(result.attachmentLinked);
+      }
+      if (linked) setAttachmentVersion((current) => current + 1);
+      setInvoiceForm(null);
+      setNotice(crmInvoiceId && crmInvoiceNo
+        ? `客户开票信息已保存，并已匹配 CRM 发票 ${crmInvoiceNo}${linked ? "（发票 PDF 已挂到本行开票附件）" : ""}`
+        : "客户开票信息已保存");
+      await load();
     } catch (error) { setNotice(error instanceof Error ? error.message : "客户开票保存失败"); }
   }
 
@@ -591,7 +611,7 @@ function CloudAmountForm({ mode, value, masters, onChange, onCancel, onSave }: {
     }
     return { ...value, [key]: input };
   };
-  return <Modal description="付款单位从客户档案选择，收款单位从承接单位档案选择，支持按编码或简称搜索" footer={<><Button onClick={onCancel}>取消</Button><Button tone="primary" onClick={onSave}>保存</Button></>} onClose={onCancel} title={invoice ? "编辑客户开票" : "编辑客户实收"} widthClass="max-w-3xl"><div className="grid gap-3 border-b border-line-soft pb-4 sm:grid-cols-2">{partner("customers", "付款单位", `${prefix}PayerCustomerId`, `${prefix}PayerCustomerName`)}{partner("undertakingUnits", "收款单位", `${prefix}PayeeUndertakingUnitId`, `${prefix}PayeeUndertakingUnitName`)}</div><div className="mt-4 grid gap-3 sm:grid-cols-2">{fields.map(([key, label, type]) => <label className="space-y-1 text-sm text-ink-2" key={key}><span>{label}</span><Input className="w-full" type={type ?? "text"} value={type === "date" ? dateInputValue(value[key]) : String(value[key] ?? "")} onChange={(event) => onChange(changeField(key, type, event.target.value))} /></label>)}</div>{invoice ? <label className="mt-3 flex items-center gap-2 text-sm text-ink-2"><input checked={value.collectionInvoice === "issued"} type="checkbox" onChange={(event) => onChange({ ...value, collectionInvoice: event.target.checked ? "issued" : "not_issued" })} />已开票</label> : <label className="mt-3 flex items-center gap-2 text-sm text-ink-2"><input checked={Boolean(value.collected)} type="checkbox" onChange={(event) => onChange({ ...value, collected: event.target.checked ? 1 : 0 })} />已收款</label>}</Modal>;
+  return <Modal description="付款单位从客户档案选择，收款单位从承接单位档案选择，支持按编码或简称搜索" footer={<><Button onClick={onCancel}>取消</Button><Button tone="primary" onClick={onSave}>保存</Button></>} onClose={onCancel} title={invoice ? "编辑客户开票" : "编辑客户实收"} widthClass="max-w-3xl"><div className="grid gap-3 border-b border-line-soft pb-4 sm:grid-cols-2">{partner("customers", "付款单位", `${prefix}PayerCustomerId`, `${prefix}PayerCustomerName`)}{partner("undertakingUnits", "收款单位", `${prefix}PayeeUndertakingUnitId`, `${prefix}PayeeUndertakingUnitName`)}</div>{invoice ? <div className="mt-4 border-b border-line-soft pb-4"><div className="mb-1 flex flex-wrap items-center gap-2"><span className="text-sm text-ink-2">从 CRM 发票匹配</span><span className="text-xs text-ink-3">按发票号 / 客户 / 主体搜索；选中后自动带出开票信息，保存时把发票 PDF 挂到本行「客户开票附件」</span></div><CrmInvoicePicker customerId={String(value.customerId ?? "")} onPick={(picked) => onChange({ ...value, invoiceNo: String(picked.invoiceNo ?? ""), invoiceCurrency: String(picked.currency ?? ""), invoiceNetAmount: (picked.amountTaxExcluded ?? "") as string | number, invoiceTaxAmount: (picked.taxAmount ?? "") as string | number, invoiceTotalAmount: (picked.amountTaxIncluded ?? "") as string | number, invoiceDate: String(picked.invoiceDate ?? ""), collectionInvoice: "issued", crmInvoiceId: String(picked.crmInvoiceId), crmInvoiceNo: String(picked.invoiceNo ?? "") })} rowId={String(value.id ?? "")} value={String(value.crmInvoiceId ?? "")} /></div> : null}<div className="mt-4 grid gap-3 sm:grid-cols-2">{fields.map(([key, label, type]) => <label className="space-y-1 text-sm text-ink-2" key={key}><span>{label}</span><Input className="w-full" type={type ?? "text"} value={type === "date" ? dateInputValue(value[key]) : String(value[key] ?? "")} onChange={(event) => onChange(changeField(key, type, event.target.value))} /></label>)}</div>{invoice ? <label className="mt-3 flex items-center gap-2 text-sm text-ink-2"><input checked={value.collectionInvoice === "issued"} type="checkbox" onChange={(event) => onChange({ ...value, collectionInvoice: event.target.checked ? "issued" : "not_issued" })} />已开票</label> : <label className="mt-3 flex items-center gap-2 text-sm text-ink-2"><input checked={Boolean(value.collected)} type="checkbox" onChange={(event) => onChange({ ...value, collected: event.target.checked ? 1 : 0 })} />已收款</label>}</Modal>;
 }
 
 function MappingForm({ value, masters, onChange, onCancel, onSave }: { value: Row; masters: { suppliers: Master[]; undertakingUnits: Master[]; customers: Master[] }; onChange: (value: Row) => void; onCancel: () => void; onSave: () => void }) {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { crmValuesEqual, crmMonthToPeriod, normalizeCrmMonth, normalizeCrmPartyName, recentCrmMonths } from "./crm-invoice-sync-service";
+import { crmDateValue, crmValuesEqual, crmMonthToPeriod, normalizeCrmMonth, normalizeCrmPartyName, recentCrmMonths } from "./crm-invoice-sync-service";
 
 describe("normalizeCrmMonth / crmMonthToPeriod", () => {
   it("接受 YYYY-MM 与 YYYYMM", () => {
@@ -44,5 +44,15 @@ describe("crmValuesEqual", () => {
   it("币种等文本忽略大小写与空白", () => {
     expect(crmValuesEqual("invoiceCurrency", "USD", " usd ")).toBe(true);
     expect(crmValuesEqual("invoiceCurrency", "USD", "CNY")).toBe(false);
+  });
+});
+
+describe("crmDateValue", () => {
+  it("CRM 字符串与库里 DATE 取回的 Date 对象都能转成 YYYY-MM-DD", () => {
+    // 直接 String(Date) 会变成 "Thu Aug 06 2026 ..."，写库时会被存成 NULL
+    expect(crmDateValue(new Date(2026, 7, 6))).toBe("2026-08-06");
+    expect(crmDateValue("2026-08-06")).toBe("2026-08-06");
+    expect(crmDateValue("")).toBeNull();
+    expect(crmDateValue(null)).toBeNull();
   });
 });

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { executeRaw, queryRowsRaw, type Row } from "./db";
-import { addCloudAttachment } from "./cloud-service";
+import { addCloudAttachment, findCloudAttachment } from "./cloud-service";
 import {
   resolveCrmBusinessLineId,
   resolveCrmEndpoint,
@@ -56,6 +56,7 @@ export type CrmSyncSummary = {
   unmatched: number;
   attachmentDownloaded: number;
   attachmentFailed: number;
+  attachmentLinked: number;
   errors: Array<{ scope: string; message: string }>;
   startedAt: string;
   finishedAt: string;
@@ -170,6 +171,14 @@ function moneyEquals(left: unknown, right: unknown) {
 }
 
 const CRM_DATE_FIELDS = new Set(["invoiceDate", "dueDate", "collectionDate"]);
+
+/**
+ * 统一把 CRM 值转成 YYYY-MM-DD：CRM 接口给的是字符串，
+ * 而本地表里 DATE 取回来的已经是 Date 对象，直接写库会变成 NULL。
+ */
+export function crmDateValue(value: unknown) {
+  return normalizeDateOnlyValue(value) ?? null;
+}
 
 /**
  * 判断本地已有值与 CRM 值是否一致。
@@ -599,9 +608,58 @@ async function downloadInvoiceAttachment(invoice: CrmInvoice, recordId: string, 
       attachmentId: text((attachment as Row | null)?.id),
       id: recordId,
     });
-    return true;
+    return text((attachment as Row | null)?.id);
   }
   throw new Error("附件下载失败");
+}
+
+/**
+ * 把发票 PDF 同时挂到「匹配上的对账行 → 客户开票附件」下，
+ * 这样在明细里点附件按钮就能直接看到/下载这张发票。
+ *
+ * 幂等且尊重人工操作：对账行变了才把旧的摘掉重挂；
+ * 同一行已经挂过就跳过 —— 用户手工删掉后不会被同步反复塞回来。
+ */
+async function linkInvoiceAttachmentToRow(recordId: string, rowId: string, attachmentId: string, actor: OperationActor | null) {
+  const source = await findCloudAttachment(attachmentId);
+  if (!source) return null;
+  const fileName = text(source.fileName) || `${attachmentId}.pdf`;
+  const [current] = await queryRowsRaw<Row>(
+    "SELECT rowAttachmentId, rowAttachmentOwnerId FROM merge_cloud_crm_invoices WHERE id = :id",
+    { id: recordId },
+  );
+  const linkedId = text(current?.rowAttachmentId);
+  const linkedRowId = text(current?.rowAttachmentOwnerId);
+  if (linkedId && linkedRowId === rowId) return { attachmentId: linkedId, linked: false };
+  if (linkedId && linkedRowId && linkedRowId !== rowId) {
+    // 目标对账行变了（例如映射调整后重新同步）：把旧行上的那份摘掉
+    await executeRaw("DELETE FROM merge_cloud_attachments WHERE id = :id AND ownerType = 'invoice'", { id: linkedId });
+  }
+  const duplicate = (await queryRowsRaw<Row>(
+    "SELECT id FROM merge_cloud_attachments WHERE ownerType = 'invoice' AND ownerId = :rowId AND fileName = :fileName LIMIT 1",
+    { rowId, fileName },
+  ))[0];
+  let targetId = text(duplicate?.id);
+  if (!targetId) {
+    targetId = randomUUID();
+    await executeRaw(
+      `INSERT INTO merge_cloud_attachments (id, ownerType, ownerId, fileName, fileType, fileSize, dataUrl, uploadedByUserId, uploadedByName)
+       VALUES (:id, 'invoice', :rowId, :fileName, :fileType, :fileSize, :dataUrl, NULL, 'CRM 同步')`,
+      {
+        id: targetId,
+        rowId,
+        fileName,
+        fileType: text(source.fileType) || "application/pdf",
+        fileSize: Number(source.fileSize ?? 0),
+        dataUrl: String(source.dataUrl ?? ""),
+      },
+    );
+  }
+  await executeRaw(
+    "UPDATE merge_cloud_crm_invoices SET rowAttachmentId = :targetId, rowAttachmentOwnerId = :rowId WHERE id = :recordId",
+    { targetId, rowId, recordId },
+  );
+  return { attachmentId: targetId, linked: true };
 }
 
 export type CrmSyncOptions = {
@@ -640,6 +698,7 @@ export async function syncCrmInvoices(options: CrmSyncOptions = {}): Promise<Crm
     invoiceFetched: 0, invoiceCreated: 0, invoiceUpdated: 0, invoiceVoided: 0,
     receiptFetched: 0, receiptCreated: 0, receiptUpdated: 0,
     backfilled: 0, mismatch: 0, unmatched: 0, attachmentDownloaded: 0, attachmentFailed: 0,
+    attachmentLinked: 0,
     errors, startedAt: startedAt.toISOString(), finishedAt: "",
   };
 
@@ -716,11 +775,26 @@ export async function syncCrmInvoices(options: CrmSyncOptions = {}): Promise<Crm
         if (outcome.status === "backfilled") summary.backfilled += 1;
         else if (outcome.status === "mismatch") summary.mismatch += 1;
         else if (outcome.status === "unmatched") summary.unmatched += 1;
-        if (downloadAttachments && invoice.attachmentUrl && outcome.status !== "void") {
-          const record = (await queryRowsRaw<Row>("SELECT attachmentId FROM merge_cloud_crm_invoices WHERE id = :id", { id: recordId }))[0];
-          if (!text(record?.attachmentId)) {
-            try { await downloadInvoiceAttachment(invoice, recordId, actor); summary.attachmentDownloaded += 1; }
-            catch (error) { summary.attachmentFailed += 1; errors.push({ scope: `附件 ${invoice.invoiceNo || invoice.id}`, message: error instanceof Error ? error.message : String(error) }); }
+        // 附件：先把 PDF 落到本地，再把它挂到匹配上的对账行「客户开票附件」下
+        let attachmentId = text((await queryRowsRaw<Row>(
+          "SELECT attachmentId FROM merge_cloud_crm_invoices WHERE id = :id",
+          { id: recordId },
+        ))[0]?.attachmentId);
+        if (downloadAttachments && invoice.attachmentUrl && outcome.status !== "void" && !attachmentId) {
+          try {
+            attachmentId = await downloadInvoiceAttachment(invoice, recordId, actor);
+            summary.attachmentDownloaded += 1;
+          } catch (error) {
+            summary.attachmentFailed += 1;
+            errors.push({ scope: `附件 ${invoice.invoiceNo || invoice.id}`, message: error instanceof Error ? error.message : String(error) });
+          }
+        }
+        if (attachmentId && outcome.rowId) {
+          try {
+            const linked = await linkInvoiceAttachmentToRow(recordId, outcome.rowId, attachmentId, actor);
+            if (linked?.linked) summary.attachmentLinked += 1;
+          } catch (error) {
+            errors.push({ scope: `附件挂载 ${invoice.invoiceNo || invoice.id}`, message: error instanceof Error ? error.message : String(error) });
           }
         }
       } else {
@@ -765,7 +839,8 @@ export async function syncCrmInvoices(options: CrmSyncOptions = {}): Promise<Crm
       `UPDATE merge_cloud_crm_sync_runs SET status=:status, invoiceFetched=:invoiceFetched, invoiceChanged=:invoiceChanged,
          invoiceVoided=:invoiceVoided, receiptFetched=:receiptFetched, receiptChanged=:receiptChanged,
          backfilledCount=:backfilled, mismatchCount=:mismatch, unmatchedCount=:unmatched,
-         attachmentDownloaded=:attachmentDownloaded, attachmentFailed=:attachmentFailed,
+        attachmentDownloaded=:attachmentDownloaded, attachmentFailed=:attachmentFailed,
+         attachmentLinked=:attachmentLinked,
          errorCount=:errorCount, errorJson=:errorJson, message=:message, finishedAt=CURRENT_TIMESTAMP
        WHERE syncRunId=:runId`,
       {
@@ -781,6 +856,7 @@ export async function syncCrmInvoices(options: CrmSyncOptions = {}): Promise<Crm
         unmatched: summary.unmatched,
         attachmentDownloaded: summary.attachmentDownloaded,
         attachmentFailed: summary.attachmentFailed,
+        attachmentLinked: summary.attachmentLinked,
         errorCount: errors.length,
         errorJson: errors.length ? JSON.stringify(errors).slice(0, 20000) : null,
         message: errors.length ? errors[0].message.slice(0, 500) : "同步完成",
@@ -935,6 +1011,156 @@ export async function saveCrmCustomerMapping(body: Row, actor: OperationActor | 
 export async function deleteCrmCustomerMapping(id: string) {
   await executeRaw("DELETE FROM merge_cloud_crm_customer_mappings WHERE id = :id", { id });
   return { ok: true };
+}
+
+/**
+ * 「编辑客户开票」里的发票搜索：按发票号 / 客户简称 / 客户主体 / 本地客户名模糊搜，
+ * 结果把与本行客户相同的排前面，方便人工把发票挂到某条对账明细上。
+ */
+export async function searchCrmInvoicesForMatching(params: URLSearchParams) {
+  const keyword = text(params.get("keyword"));
+  const customerId = text(params.get("customerId"));
+  const limit = Math.min(Math.max(Math.floor(Number(params.get("limit") ?? 20) || 20), 1), 50);
+  const conditions: string[] = [];
+  const values: Row = { limit, preferredCustomerId: customerId };
+  if (keyword) {
+    conditions.push("(invoiceNo LIKE :keyword OR customerShortName LIKE :keyword OR customerSubjectName LIKE :keyword OR customerName LIKE :keyword OR productServiceName LIKE :keyword)");
+    values.keyword = `%${keyword}%`;
+  }
+  const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+  return queryRowsRaw<Row>(
+    `SELECT id, crmInvoiceId, invoiceNo, customerShortName, customerSubjectName, customerName,
+            customerId AS mappedCustomerId, belongMonth, currency, amountTaxExcluded, taxAmount, amountTaxIncluded,
+            invoiceDate, invoiceStatus, targetRowId, rowAttachmentId, attachmentId, backfillStatus
+       FROM merge_cloud_crm_invoices ${where}
+      ORDER BY (customerId = :preferredCustomerId) DESC, belongMonth DESC, invoiceDate DESC, crmInvoiceId DESC
+      LIMIT :limit`,
+    values,
+  );
+}
+
+/**
+ * 把一张 CRM 发票手工匹配到某条对账明细。
+ *
+ * - `applyFields=true`（默认）时用发票信息写对账行的客户开票字段；
+ *   调用方已经保存过表单时传 false，只建立匹配关系、不动数字。
+ * - 建立匹配后会补一条客户映射（仅在该 CRM 客户还没有映射时），让后续同步自动复用；
+ * - 发票 PDF 会挂到该对账行的「客户开票附件」下（未下载过则先下载）。
+ */
+export async function matchCrmInvoiceToRow(options: { crmInvoiceId: unknown; rowId: unknown; applyFields?: boolean; actor?: OperationActor | null }) {
+  const crmInvoiceId = Number(options.crmInvoiceId);
+  const rowId = text(options.rowId);
+  if (!Number.isFinite(crmInvoiceId) || crmInvoiceId <= 0) throw new Error("请选择要匹配的 CRM 发票");
+  if (!rowId) throw new Error("缺少对账明细ID");
+  const invoice = (await queryRowsRaw<Row>(
+    "SELECT * FROM merge_cloud_crm_invoices WHERE crmInvoiceId = :crmInvoiceId",
+    { crmInvoiceId },
+  ))[0];
+  if (!invoice) throw new Error("CRM 发票不存在，请先在「账期发票（CRM）」里同步一次");
+  if (Number(invoice.invoiceStatus) === INVOICE_STATUS_VOID) throw new Error("该发票在 CRM 里已作废，不能匹配");
+  const row = (await queryRowsRaw<Row>(
+    "SELECT id, customer, customerId FROM merge_cloud_rows WHERE id = :rowId",
+    { rowId },
+  ))[0];
+  if (!row) throw new Error("对账明细不存在或已被删除");
+
+  if (options.applyFields !== false) {
+    await executeRaw(
+      `UPDATE merge_cloud_rows SET invoiceNo = :invoiceNo, invoiceCurrency = :invoiceCurrency,
+         invoiceNetAmount = :invoiceNetAmount, invoiceTaxAmount = :invoiceTaxAmount, invoiceTotalAmount = :invoiceTotalAmount,
+         invoiceDate = :invoiceDate, collectionInvoice = 'issued'
+       WHERE id = :rowId`,
+      {
+        invoiceNo: text(invoice.invoiceNo),
+        invoiceCurrency: text(invoice.currency) || null,
+        invoiceNetAmount: numberOrNull(invoice.amountTaxExcluded),
+        invoiceTaxAmount: numberOrNull(invoice.taxAmount),
+        invoiceTotalAmount: numberOrNull(invoice.amountTaxIncluded),
+        invoiceDate: crmDateValue(invoice.invoiceDate),
+        rowId,
+      },
+    );
+  }
+
+  // 对账行的客户名称按档案当前值取，避免把旧简称写进 CRM 副本
+  const rowCustomerReference = text(row.customerId) || text(row.customer);
+  const rowCustomer = rowCustomerReference
+    ? (await queryRowsRaw<Row>(
+      `SELECT customerId, COALESCE(NULLIF(shortName, ''), NULLIF(nameCn, ''), NULLIF(name, ''), customerCode) AS name
+         FROM merge_common_customers WHERE customerId = :reference OR customerCode = :reference LIMIT 1`,
+      { reference: rowCustomerReference },
+    ))[0]
+    : undefined;
+  const customerId = text(rowCustomer?.customerId) || text(row.customerId);
+  const customerName = text(rowCustomer?.name) || text(row.customerName) || text(row.customer);
+  const recordId = text(invoice.id);
+  await executeRaw(
+    `UPDATE merge_cloud_crm_invoices
+        SET targetRowId = :rowId, customerId = :customerId, customerName = :customerName,
+            backfillStatus = 'backfilled', backfillNote = '手工匹配到对账明细'
+      WHERE crmInvoiceId = :crmInvoiceId`,
+    { rowId, customerId: customerId || null, customerName: customerName || null, crmInvoiceId },
+  );
+
+  // 该 CRM 客户还没做过映射时顺手补一条，后续同步就能自动回填
+  const identity = identityOf({ customerSubjectName: text(invoice.customerSubjectName), customerShortName: text(invoice.customerShortName) });
+  if (customerId) {
+    const mappingValue = identity.subjectName || identity.shortName;
+    const mappingKey = identity.subjectKey || identity.shortKey;
+    if (mappingKey) {
+      const existing = (await queryRowsRaw<Row>(
+        "SELECT id FROM merge_cloud_crm_customer_mappings WHERE crmValueNormalized = :key LIMIT 1",
+        { key: mappingKey },
+      ))[0];
+      if (!existing) {
+        await executeRaw(
+          `INSERT INTO merge_cloud_crm_customer_mappings
+             (id, crmValue, crmValueNormalized, matchField, customerId, customerName, source, remark, createdByName, updatedByName)
+           VALUES (:id, :crmValue, :key, :matchField, :customerId, :customerName, 'manual', '手工匹配发票时自动补建',
+             :userName, :userName)`,
+          {
+            id: randomUUID(), crmValue: mappingValue, key: mappingKey,
+            matchField: identity.subjectName ? "customerSubjectName" : "customerShortName",
+            customerId, customerName: customerName || null,
+            userName: options.actor?.displayName ?? null,
+          },
+        );
+      }
+    }
+  }
+
+  // 发票 PDF 落到该对账行的开票附件下（未下载过就现在下载）
+  let attachmentId = text(invoice.attachmentId);
+  if (!attachmentId && text(invoice.attachmentUrl)) {
+    await downloadInvoiceAttachment({
+      id: crmInvoiceId,
+      customerShortName: text(invoice.customerShortName),
+      customerSubjectName: text(invoice.customerSubjectName),
+      belongMonth: text(invoice.belongMonth),
+      currency: text(invoice.currency),
+      amountTaxExcluded: numberOrNull(invoice.amountTaxExcluded),
+      taxAmount: numberOrNull(invoice.taxAmount),
+      amountTaxIncluded: numberOrNull(invoice.amountTaxIncluded),
+      invoiceNo: text(invoice.invoiceNo),
+      invoiceDate: crmDateValue(invoice.invoiceDate) ?? "",
+      paymentTermDays: numberOrNull(invoice.paymentTermDays),
+      dueDate: crmDateValue(invoice.dueDate),
+      invoiceType: numberOrNull(invoice.invoiceType),
+      invoiceStatus: numberOrNull(invoice.invoiceStatus),
+      productServiceName: text(invoice.productServiceName),
+      attachmentUrl: text(invoice.attachmentUrl),
+    }, recordId, options.actor ?? null);
+    attachmentId = text((await queryRowsRaw<Row>(
+      "SELECT attachmentId FROM merge_cloud_crm_invoices WHERE id = :id",
+      { id: recordId },
+    ))[0]?.attachmentId);
+  }
+  let attachmentLinked = false;
+  if (attachmentId) {
+    const linked = await linkInvoiceAttachmentToRow(recordId, rowId, attachmentId, options.actor ?? null);
+    attachmentLinked = Boolean(linked?.linked);
+  }
+  return { ok: true, rowId, crmInvoiceId, invoiceNo: text(invoice.invoiceNo), attachmentLinked, attachmentId };
 }
 
 export async function latestCrmSyncRun() {
