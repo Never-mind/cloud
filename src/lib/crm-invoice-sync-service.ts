@@ -468,10 +468,20 @@ async function findCloudRowCandidates(period: string, customerId: string, custom
   );
 }
 
-/** 多行时按金额就近匹配：优先还没有发票号的行，其次金额最接近的行。 */
-function pickTargetRow(rows: Row[], amount: number | null) {
+/**
+ * 多行时挑一行回填。顺序：
+ * 1. 已经写过**这张发票**的行 —— 重复同步必须落回同一行，
+ *    否则第二次同步会因为"优先还没发票号的行"换一行写，同一张发票的金额散到多行（重复计）。
+ * 2. 还没有发票号的行
+ * 3. 应收金额最接近发票金额的行
+ */
+function pickTargetRow(rows: Row[], amount: number | null, invoiceNo = "") {
   if (!rows.length) return null;
   if (rows.length === 1) return rows[0];
+  if (invoiceNo) {
+    const alreadyFilled = rows.filter((row) => text(row.invoiceNo) === invoiceNo);
+    if (alreadyFilled.length === 1) return alreadyFilled[0];
+  }
   const ranked = [...rows].sort((left, right) => {
     const leftEmpty = isBlank(left.invoiceNo) ? 0 : 1;
     const rightEmpty = isBlank(right.invoiceNo) ? 0 : 1;
@@ -498,7 +508,7 @@ async function backfillInvoice(
   const period = crmMonthToPeriod(invoice.belongMonth);
   const rows = await findCloudRowCandidates(period, customerId, customerName);
   if (!rows.length) return { status: "unmatched", note: `本地 ${period} 账期没有该客户的对账行`, rowId: null };
-  const target = pickTargetRow(rows, invoice.amountTaxIncluded);
+  const target = pickTargetRow(rows, invoice.amountTaxIncluded, invoice.invoiceNo);
   if (!target) return { status: "unmatched", note: `本地 ${period} 账期没有该客户的对账行`, rowId: null };
 
   const assignments: string[] = [];
