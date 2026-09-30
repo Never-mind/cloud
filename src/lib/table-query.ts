@@ -116,10 +116,16 @@ export async function listSqlFilterOptions({
   // in the current column are intentionally excluded so they can be changed.
   appendTableFilterOptionConditions(where, optionParams, expressions, searchParams, field, "tableOptionFilter", queryPrefix);
 
+  /**
+   * 这里按 SELECT 别名（value）分组，而不是把表达式再写一遍：
+   * 表达式可能是"按 ID 回查档案当前名称"的标量子查询（华为云客户/供应商列），
+   * 在 `only_full_group_by` 下重复写子查询会被判成"SELECT 列不在 GROUP BY 里"而报错，
+   * 用别名分组等价且能通过校验。
+   */
   const rows = await queryRows<{ value: string; count: number }>(
     `SELECT ${expression} AS value, COUNT(*) AS count FROM ${from}
      WHERE ${where.join(" AND ")}
-     GROUP BY ${expression}
+     GROUP BY value
      ORDER BY ${getTableFilterOptionsOrderBy(field, expression)}
      LIMIT 500`,
     optionParams,

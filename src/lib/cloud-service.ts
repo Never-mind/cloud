@@ -26,15 +26,55 @@ const CLOUD_ROW_COLUMNS = [
   "invoiceNetAmount", "invoiceTaxRate", "invoiceTaxAmount", "invoiceTotalAmount", "invoiceExchangeRate", "invoiceDate", "receivableDate",
 ] as const;
 
+/**
+ * 对账行表（查询里不加别名）按账号找服务映射的表达式。
+ *
+ * `CLOUD_ACCOUNT_MAPPING_ID_SQL` 是别名 `r` 的版本，只能在给行表起别名 `r` 的查询里用；
+ * 筛选/搜索场景下 FROM 直接是 `merge_cloud_rows`，需要这一份。
+ */
+const CLOUD_ROW_ACCOUNT_MAPPING_ID_SQL = `(SELECT a.mappingId FROM merge_cloud_mapping_accounts a
+  WHERE FIND_IN_SET(
+    LOWER(REPLACE(REPLACE(TRIM(COALESCE(merge_cloud_rows.account, '')), ' ', ''), '\\t', '')),
+    LOWER(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(TRIM(COALESCE(a.account, '')), ' ', ''), '\\t', ''), '，', ','), ';', ','), '；', ','), '\\r', ','), '\\n', ','))
+  ) > 0
+  ORDER BY a.updatedAt DESC LIMIT 1)`;
+
+/**
+ * 对账行"客户名称 / 供应商名称"的展示口径（按 ID / 服务映射回查档案当前名称）。
+ *
+ * 列表展示用的是这套口径，但关键词搜索与三横杠筛选原来直接比 `customer`、`supplierName`
+ * 这些**保存当时的文本**：客户档案改名后，列表显示新简称、搜索却只能搜到旧简称
+ * （例如改成 Hengshan 之后搜 Hengshan 出不来、搜 OTOMORIA 才出来）。这里统一成同一口径。
+ */
+const CLOUD_ROW_CUSTOMER_NAME_SQL = `COALESCE(
+  (SELECT COALESCE(NULLIF(c.shortName, ''), NULLIF(c.nameCn, ''), NULLIF(c.name, ''), NULLIF(c.customerCode, ''))
+     FROM merge_common_customers c
+    WHERE c.customerId = merge_cloud_rows.customerId OR c.customerCode = merge_cloud_rows.customerId
+    LIMIT 1),
+  NULLIF(merge_cloud_rows.customer, ''),
+  NULLIF(merge_cloud_rows.customerId, ''))`;
+
+const CLOUD_ROW_SUPPLIER_NAME_SQL = `COALESCE(
+  (SELECT COALESCE(NULLIF(s.shortName, ''), NULLIF(s.nameCn, ''), NULLIF(s.nameEn, ''), NULLIF(s.supplierCode, ''))
+     FROM merge_common_suppliers s
+    WHERE s.supplierId = merge_cloud_rows.supplierId OR s.supplierCode = merge_cloud_rows.supplierId
+    LIMIT 1),
+  (SELECT COALESCE(NULLIF(ms.shortName, ''), NULLIF(ms.nameCn, ''), NULLIF(ms.nameEn, ''), NULLIF(ms.supplierCode, ''))
+     FROM merge_cloud_mappings m
+     JOIN merge_common_suppliers ms ON ms.supplierId = m.supplierId OR ms.supplierCode = m.supplierId
+    WHERE m.id = COALESCE(NULLIF(merge_cloud_rows.mappingId, ''), ${CLOUD_ROW_ACCOUNT_MAPPING_ID_SQL})
+    LIMIT 1),
+  NULLIF(merge_cloud_rows.supplierName, ''))`;
+
 const CLOUD_ROW_FILTER_EXPRESSIONS: Record<string, string> = {
   period: "period",
   batchCode: "batchCode",
-  customer: "customer",
+  customer: CLOUD_ROW_CUSTOMER_NAME_SQL,
   account: "account",
   owner: "owner",
   cloudReconciler: "cloudReconciler",
   collectionEntity: "collectionEntity",
-  supplierName: "supplierName",
+  supplierName: CLOUD_ROW_SUPPLIER_NAME_SQL,
   catalogAmount: "catalogAmount",
   partnerAmount: "partnerAmount",
   voucherCustomerAmount: "voucherCustomerAmount",
@@ -226,11 +266,12 @@ const CLOUD_SUPPLIER_PAYMENT_GROUPS = `(SELECT
     COALESCE(SUM(COALESCE(r.supplierPayableTotalAmount, COALESCE(r.supplierPayableNetAmount, r.supplierPayable, 0) + COALESCE(r.supplierTaxAmount, COALESCE(r.supplierPayableNetAmount, r.supplierPayable, 0) * COALESCE(r.supplierTaxRate, 0.16)))), 0) AS supplierPayableTotalAmount,
     MIN(r.createdAt) AS createdAt,
     MAX(r.updatedAt) AS updatedAt,
-    GROUP_CONCAT(DISTINCT CONCAT(COALESCE(r.customer, ''), ' ', COALESCE(r.account, '')) SEPARATOR ' ') AS searchText
+    GROUP_CONCAT(DISTINCT CONCAT(COALESCE(NULLIF(c.shortName, ''), NULLIF(c.nameCn, ''), NULLIF(c.name, ''), r.customer, ''), ' ', COALESCE(r.account, '')) SEPARATOR ' ') AS searchText
   FROM merge_cloud_rows r
   LEFT JOIN merge_cloud_mappings m ON m.id = COALESCE(${CLOUD_ACCOUNT_MAPPING_ID_SQL}, NULLIF(r.mappingId, ''))
   LEFT JOIN merge_common_suppliers s ON s.supplierId = COALESCE(NULLIF(m.supplierId, ''), NULLIF(r.supplierId, ''))
     OR s.supplierCode = COALESCE(NULLIF(m.supplierId, ''), NULLIF(r.supplierId, ''))
+  LEFT JOIN merge_common_customers c ON c.customerId = r.customerId OR c.customerCode = r.customerId
   GROUP BY ${CLOUD_PERIOD_SQL("r.period")}, ${CLOUD_SUPPLIER_KEY_SQL}, ${CLOUD_SUPPLIER_NAME_SQL})`;
 const CLOUD_SUPPLIER_PAYMENT_FROM_V2 = `(SELECT
     CONCAT(g.period, '::', g.groupKey) AS id,
@@ -418,7 +459,22 @@ function cloudBaseWhere(params: URLSearchParams) {
   const values: Record<string, unknown> = {};
   const keyword = text(params.get("keyword"));
   if (keyword) {
-    conditions.push("(customer LIKE :keyword OR account LIKE :keyword OR batchCode LIKE :keyword OR supplierName LIKE :keyword)");
+    /**
+     * 关键词除了匹配本行存的文本，还要按 ID / 服务映射匹配往来方档案的**当前名称**，
+     * 否则档案改名后搜新简称搜不到（列表已经显示新简称）。
+     */
+    conditions.push(`(customer LIKE :keyword OR account LIKE :keyword OR batchCode LIKE :keyword OR supplierName LIKE :keyword
+      OR EXISTS (SELECT 1 FROM merge_common_customers c
+        WHERE (c.customerId = merge_cloud_rows.customerId OR c.customerCode = merge_cloud_rows.customerId)
+          AND (c.shortName LIKE :keyword OR c.nameCn LIKE :keyword OR c.name LIKE :keyword OR c.customerCode LIKE :keyword))
+      OR EXISTS (SELECT 1 FROM merge_cloud_mappings m
+        JOIN merge_common_suppliers s ON s.supplierId = m.supplierId OR s.supplierCode = m.supplierId
+        WHERE m.id = COALESCE(NULLIF(merge_cloud_rows.mappingId, ''), ${CLOUD_ROW_ACCOUNT_MAPPING_ID_SQL})
+          AND (s.shortName LIKE :keyword OR s.nameCn LIKE :keyword OR s.nameEn LIKE :keyword OR s.supplierCode LIKE :keyword))
+      OR EXISTS (SELECT 1 FROM merge_cloud_mappings m
+        JOIN merge_common_undertaking_units u ON u.undertakingUnitId = m.undertakingUnitId OR u.undertakingUnitCode = m.undertakingUnitId OR u.entityCode = m.undertakingUnitId
+        WHERE m.id = COALESCE(NULLIF(merge_cloud_rows.mappingId, ''), ${CLOUD_ROW_ACCOUNT_MAPPING_ID_SQL})
+          AND (u.shortName LIKE :keyword OR u.entityName LIKE :keyword OR u.name LIKE :keyword OR u.nameCn LIKE :keyword OR u.undertakingUnitCode LIKE :keyword)))`);
     values.keyword = `%${keyword}%`;
   }
   for (const key of ["period", "confirmed", "collected", "collectionInvoice"] as const) {
