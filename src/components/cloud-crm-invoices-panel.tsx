@@ -292,10 +292,10 @@ export function CloudCrmInvoicesPanel() {
                     </td>
                     <td className="whitespace-nowrap border-b border-line-soft px-3 py-2">
                       {row.attachmentId
-                        ? <a className="inline-flex items-center gap-1 text-primary hover:underline" href={`/api/cloud/attachments/crm_invoice/${encodeURIComponent(String(row.attachmentId))}`}><FileUp size={13} />PDF</a>
+                        ? <a className="inline-flex items-center gap-1 text-primary hover:underline" href={`/api/cloud/attachments/${encodeURIComponent(String(row.attachmentId))}`} title="下载发票 PDF"><FileUp size={13} />PDF</a>
                         : row.attachmentUrl ? <span className="text-xs text-ink-3" title={String(row.attachmentUrl)}>未下载</span> : "-"}
                       {row.rowAttachmentId
-                        ? <span className="ml-2 rounded bg-info-soft px-1.5 py-0.5 text-xs text-primary" title="已挂到对账行的「客户开票附件」，明细里可直接查看下载">已挂明细</span>
+                        ? <a className="ml-2 inline-flex items-center rounded bg-info-soft px-1.5 py-0.5 text-xs text-primary hover:underline" href={`/api/cloud/attachments/${encodeURIComponent(String(row.rowAttachmentId))}`} title="已挂到对账行的「客户开票附件」，点这里下载这份明细附件">已挂明细</a>
                         : null}
                     </td>
                   </tr>
