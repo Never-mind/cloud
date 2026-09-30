@@ -35,10 +35,15 @@ function decorateInvoice(row: Record<string, unknown>) {
 }
 
 function decorateReceipt(row: Record<string, unknown>) {
+  const allocationCount = Number(row.allocationCount ?? 0);
+  const suggestionCount = String(row.suggestionRowIds ?? "").split(",").filter(Boolean).length;
   return {
     ...row,
     receiptStatusLabel: RECEIPT_STATUS_LABELS[String(row.receiptStatus ?? "")] ?? "-",
     backfillStatusLabel: BACKFILL_LABELS[String(row.backfillStatus ?? "")] ?? "-",
+    allocationCount,
+    suggestionCount,
+    allocationLabel: allocationCount ? `已拆 ${allocationCount} 行` : suggestionCount ? `建议拆 ${suggestionCount} 行` : "",
   };
 }
 

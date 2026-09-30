@@ -11,6 +11,7 @@ import { confirmDialog, notify } from "./app-dialog";
 import { formatDisplayValue, formatMoneyValue } from "@/lib/display-format";
 import { DEFAULT_PAGE_SIZE } from "@/lib/pagination";
 import { CrmInvoiceAllocationModal } from "./crm-invoice-allocation-modal";
+import { CrmReceiptAllocationModal } from "./crm-receipt-allocation-modal";
 
 type Row = Record<string, unknown>;
 type Kind = "invoices" | "receipts";
@@ -85,6 +86,7 @@ export function CloudCrmInvoicesPanel() {
   const [mappingOpen, setMappingOpen] = useState(false);
   const [mappingDraft, setMappingDraft] = useState<Record<string, string>>({});
   const [allocationTarget, setAllocationTarget] = useState<{ crmInvoiceId: number | string } | null>(null);
+  const [receiptAllocationTarget, setReceiptAllocationTarget] = useState<number | string | null>(null);
 
   const load = useCallback(async (targetPage = page, targetSize = pageSize) => {
     setLoading(true);
@@ -336,7 +338,7 @@ export function CloudCrmInvoicesPanel() {
             <table className="w-full min-w-[1400px] border-collapse text-sm">
               <thead className="bg-canvas">
                 <tr>
-                  {["到账月份", "CRM 客户", "本地客户", "付款方", "币种", "回款金额", "匹配状态", "关联发票号", "收款银行", "银行流水号", "回填", "说明"].map((label) => (
+                  {["到账月份", "CRM 客户", "本地客户", "付款方", "币种", "回款金额", "匹配状态", "关联发票号", "收款银行", "银行流水号", "分摊", "回填", "说明", "操作"].map((label) => (
                     <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium" key={label}>{label}</th>
                   ))}
                 </tr>
@@ -354,11 +356,37 @@ export function CloudCrmInvoicesPanel() {
                     <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-2">{String(row.invoiceNos ?? "-")}</td>
                     <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-2">{String(row.receivingBank ?? "-")}</td>
                     <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-2">{String(row.bankSerialNo ?? "-")}</td>
+                    <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-2">
+                      {row.allocationLabel
+                        ? (
+                          <button
+                            className={`rounded px-1.5 py-0.5 text-xs ${Number(row.allocationCount ?? 0) ? "bg-success-soft text-success" : "bg-info-soft text-primary"} hover:underline`}
+                            onClick={() => setReceiptAllocationTarget(row.crmReceiptId as number)}
+                            title={Array.isArray(row.allocations) && row.allocations.length
+                              ? (row.allocations as Row[]).map((item) => `${item.period} ${item.account} ${formatMoneyValue(item.amount)}`).join("\n")
+                              : "点击把这笔回款按账期拆分"}
+                            type="button"
+                          >
+                            {String(row.allocationLabel)}
+                          </button>
+                        )
+                        : <span className="text-xs text-ink-4">整笔</span>}
+                    </td>
                     <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-2">{tag(String(row.backfillStatusLabel ?? "-"), BACKFILL_TONES[String(row.backfillStatus ?? "")] ?? "bg-canvas text-ink-3")}</td>
                     <td className="border-b border-line-soft px-3 py-2 text-xs text-ink-3" title={String(row.backfillNote ?? "")}>{String(row.backfillNote ?? "")}</td>
+                    <td className="whitespace-nowrap border-b border-line-soft px-3 py-2">
+                      <button
+                        className="rounded border border-line bg-white px-2 py-0.5 text-xs text-ink-2 hover:border-primary hover:text-primary"
+                        onClick={() => setReceiptAllocationTarget(row.crmReceiptId as number)}
+                        title="把这笔回款分摊到多个账期/明细行"
+                        type="button"
+                      >
+                        分摊
+                      </button>
+                    </td>
                   </tr>
                 ))}
-                {!items.length ? <tr><td className="py-12 text-center text-ink-3" colSpan={12}>{loading ? <LoadingBlock /> : <EmptyState title="暂无 CRM 回款，先点右上角「从 CRM 同步」" />}</td></tr> : null}
+                {!items.length ? <tr><td className="py-12 text-center text-ink-3" colSpan={14}>{loading ? <LoadingBlock /> : <EmptyState title="暂无 CRM 回款，先点右上角「从 CRM 同步」" />}</td></tr> : null}
               </tbody>
             </table>
           )}
@@ -457,6 +485,14 @@ export function CloudCrmInvoicesPanel() {
         <CrmInvoiceAllocationModal
           crmInvoiceId={allocationTarget.crmInvoiceId}
           onClose={() => setAllocationTarget(null)}
+          onSaved={() => { void load(); void loadMeta(); }}
+        />
+      ) : null}
+
+      {receiptAllocationTarget ? (
+        <CrmReceiptAllocationModal
+          crmReceiptId={receiptAllocationTarget}
+          onClose={() => setReceiptAllocationTarget(null)}
           onSaved={() => { void load(); void loadMeta(); }}
         />
       ) : null}

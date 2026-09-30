@@ -59,6 +59,8 @@ export type CrmSyncSummary = {
   attachmentLinked: number;
   /** 本次同步给出"建议分摊"的发票数（一张发票覆盖多个月/多行）。 */
   allocationSuggested: number;
+  /** 本次同步给出"建议分摊"的回款数（一笔到账结多个月/多张票）。 */
+  receiptSuggested: number;
   errors: Array<{ scope: string; message: string }>;
   startedAt: string;
   finishedAt: string;
@@ -570,7 +572,14 @@ async function backfillReceipt(
   const rows = await findCloudRowCandidates(period, customerId, customerName);
   if (!rows.length) return { status: "unmatched", note: `本地 ${period} 账期没有该客户的对账行`, rowId: null };
   const pending = rows.filter((row) => !Number(row.collected));
-  const target = pickTargetRow(pending.length ? pending : rows, receipt.receiptAmount);
+  /**
+   * 重复同步必须落回同一行：优先挑"本行实收金额已经等于这笔回款"的行，
+   * 否则第二次同步会换一行写，同一笔回款的金额散到多行（实收合计翻倍）。
+   */
+  const alreadyFilled = rows.filter((row) => Number(row.collected) === 1 && moneyEquals(row.collectionTotalAmount, receipt.receiptAmount));
+  const target = alreadyFilled.length === 1
+    ? alreadyFilled[0]
+    : pickTargetRow(pending.length ? pending : rows, receipt.receiptAmount);
   if (!target) return { status: "unmatched", note: `本地 ${period} 账期没有该客户的对账行`, rowId: null };
 
   const assignments: string[] = [];
@@ -710,7 +719,7 @@ export async function syncCrmInvoices(options: CrmSyncOptions = {}): Promise<Crm
     invoiceFetched: 0, invoiceCreated: 0, invoiceUpdated: 0, invoiceVoided: 0,
     receiptFetched: 0, receiptCreated: 0, receiptUpdated: 0,
     backfilled: 0, mismatch: 0, unmatched: 0, attachmentDownloaded: 0, attachmentFailed: 0,
-    attachmentLinked: 0, allocationSuggested: 0,
+    attachmentLinked: 0, allocationSuggested: 0, receiptSuggested: 0,
     errors, startedAt: startedAt.toISOString(), finishedAt: "",
   };
 
@@ -861,15 +870,44 @@ export async function syncCrmInvoices(options: CrmSyncOptions = {}): Promise<Crm
       }
       const { recordId, created } = await upsertCrmReceipt(receipt, month, businessLineId);
       if (created) summary.receiptCreated += 1; else summary.receiptUpdated += 1;
-      const outcome = await backfillReceipt(receipt, month, customerId, customerName, dryRun);
-      await executeRaw(
-        `UPDATE merge_cloud_crm_receipts SET customerId=:customerId, customerName=:customerName, targetRowId=:targetRowId,
-           backfillStatus=:status, backfillNote=:note WHERE id=:id`,
-        { customerId: customerId || null, customerName: customerName || null, targetRowId: outcome.rowId, status: outcome.status, note: outcome.note, id: recordId },
+      // 已经做过"按账期/发票分摊"的回款：不再走整笔写一行的回填
+      const receiptRecords = await queryRowsRaw<Row>(
+        "SELECT allocationCount FROM merge_cloud_crm_receipts WHERE id = :id",
+        { id: recordId },
       );
-      if (outcome.status === "backfilled") summary.backfilled += 1;
-      else if (outcome.status === "mismatch") summary.mismatch += 1;
-      else if (outcome.status === "unmatched") summary.unmatched += 1;
+      if (Number(receiptRecords[0]?.allocationCount ?? 0) > 0) {
+        await executeRaw(
+          "UPDATE merge_cloud_crm_receipts SET customerId=:customerId, customerName=:customerName WHERE id=:id",
+          { customerId: customerId || null, customerName: customerName || null, id: recordId },
+        );
+        continue;
+      }
+      /**
+       * 回款**不再自动整笔回填**：CRM 的"到账月份"与账期并不是一回事
+       * （一笔到账常常结的是更早几个月的账），整笔写进到账月那一行会让实收合计错掉。
+       * 这里只算建议（优先按关联发票覆盖的行，其次按"应收合计≈回款金额"），由人工确认后分摊。
+       */
+      try {
+        const record = (await queryRowsRaw<Row>("SELECT * FROM merge_cloud_crm_receipts WHERE id = :id", { id: recordId }))[0];
+        const suggestion = record ? await refreshReceiptAllocationSuggestion(record) : [];
+        await executeRaw(
+          `UPDATE merge_cloud_crm_receipts SET customerId=:customerId, customerName=:customerName,
+             targetRowId=NULL, backfillStatus=:status, backfillNote=:note WHERE id=:id`,
+          {
+            customerId: customerId || null,
+            customerName: customerName || null,
+            status: suggestion.length ? "pending" : (customerId ? "unmatched" : "unmatched"),
+            note: suggestion.length
+              ? `建议分摊到 ${suggestion.length} 行，待确认`
+              : customerId ? "未找到可分摊的账期行（可手工选择）" : "未配置 CRM 客户映射",
+            id: recordId,
+          },
+        );
+        if (suggestion.length) summary.receiptSuggested += 1;
+        else summary.unmatched += 1;
+      } catch (error) {
+        errors.push({ scope: `回款分摊建议 ${receipt.id}`, message: error instanceof Error ? error.message : String(error) });
+      }
     }
   } catch (error) {
     summary.status = "failed";
@@ -1049,7 +1087,26 @@ export async function listCrmReceipts(params: URLSearchParams) {
        FROM merge_cloud_crm_receipts WHERE ${where}`,
     values,
   );
-  return { items: await resolveCrmCustomerNames(rows), total: Number(count[0]?.total ?? 0), page, pageSize, currencyTotals: totals, summary: summary ?? {} };
+  const items = await resolveCrmCustomerNames(rows);
+  const receiptIds = items.map((row) => Number(row.crmReceiptId)).filter((value) => Number.isFinite(value) && value > 0);
+  const allocationsByReceipt = new Map<number, Row[]>();
+  if (receiptIds.length) {
+    const placeholders = receiptIds.map((_, index) => `:receipt${index}`).join(", ");
+    const allocationValues = Object.fromEntries(receiptIds.map((value, index) => [`receipt${index}`, value]));
+    const allocations = await queryRowsRaw<Row>(
+      `SELECT crmReceiptId, period, account, ratio, amount FROM merge_cloud_crm_receipt_allocations
+        WHERE crmReceiptId IN (${placeholders}) ORDER BY period, account`,
+      allocationValues,
+    );
+    for (const allocation of allocations) {
+      const key = Number(allocation.crmReceiptId);
+      allocationsByReceipt.set(key, [...(allocationsByReceipt.get(key) ?? []), allocation]);
+    }
+  }
+  return {
+    items: items.map<Row>((row) => ({ ...row, allocations: allocationsByReceipt.get(Number(row.crmReceiptId)) ?? [] })),
+    total: Number(count[0]?.total ?? 0), page, pageSize, currencyTotals: totals, summary: summary ?? {},
+  };
 }
 
 /** CRM 客户清单（按已同步发票去重），带映射状态，供「客户映射维护」使用。 */
@@ -1280,7 +1337,8 @@ export async function latestCrmSyncRun() {
  * ------------------------------------------------------------------------ */
 
 const ALLOCATION_TOLERANCE = 0.5;
-const ALLOCATION_MAX_CANDIDATES = 8;
+/** 组合搜索的候选行上限：一个客户最多 8 个账期 × 多个账号，取 16 行避免把更早的账期截掉。 */
+const ALLOCATION_MAX_CANDIDATES = 16;
 const ALLOCATION_MAX_DEPTH = 6;
 
 function round2(value: number) {
@@ -1676,4 +1734,353 @@ async function ensureInvoiceAttachmentForRows(recordId: string, rowIds: string[]
     { attachmentId: text(primaryAttachment?.id) || attachmentId, rowId: primaryRowId, id: recordId },
   );
   return { attachmentId, attachmentLinked: linked };
+}
+
+/* --------------------------------------------------------------------------
+ * 回款分摊：一笔回款覆盖多张发票/多个账期时，按各行开票金额（拿不到就用客户应收）
+ * 把实收金额拆到对应账期月 —— 与发票分摊同一套口径。
+ * ------------------------------------------------------------------------ */
+
+type ReceiptCandidate = AllocationCandidate & { collected: number; collectionCurrency: string; collectionTotalAmount: unknown; invoiceTotalAmountValue: number | null };
+
+/** 回款候选行：该客户的对账行；已被别的回款收过款的行不参与（我们自己写过的那笔除外）。 */
+async function loadReceiptCandidates(customerId: string, currency: string, receiptAmount: number | null) {
+  const rows = await queryRowsRaw<Row>(
+    `SELECT id, period, account, customer, customerId, invoiceNo, invoiceTotalAmount, collected,
+            collectionCurrency, collectionTotalAmount,
+            ${CLOUD_ROW_RECEIVABLE_SQL} AS receivableAmount
+       FROM merge_cloud_rows
+      WHERE customerId = :customerId
+      ORDER BY period DESC, account`,
+    { customerId },
+  );
+  const currencyLabel = text(currency).toUpperCase();
+  return rows
+    .map<ReceiptCandidate>((row) => ({
+      ...row,
+      rowId: text(row.id),
+      period: text(row.period),
+      account: text(row.account),
+      receivableAmount: Number(row.receivableAmount ?? 0),
+      collected: Number(row.collected ?? 0),
+      collectionCurrency: text(row.collectionCurrency),
+      collectionTotalAmount: row.collectionTotalAmount,
+      invoiceTotalAmountValue: numberOrNull(row.invoiceTotalAmount),
+    }))
+    .filter((row) => {
+      const ownReceipt = row.collected === 1 && receiptAmount !== null && moneyEquals(row.collectionTotalAmount, receiptAmount);
+      if (row.collected === 1 && !ownReceipt) return false;
+      if (!currencyLabel || !row.collectionCurrency) return true;
+      return row.collectionCurrency.toUpperCase() === currencyLabel;
+    });
+}
+
+/** 回款关联发票 → 这些发票覆盖的对账行（已分摊用分摊表，未分摊用发票回填到的那一行）。 */
+async function loadReceiptInvoiceRows(receipt: Row) {
+  const numbers = text(receipt.invoiceNos).split(/[,，\s]+/).map((value) => value.trim()).filter(Boolean);
+  const customerId = text(receipt.customerId);
+  if (!numbers.length || !customerId) return [] as Array<{ invoiceNo: string; amount: number; rows: Row[] }>;
+  const placeholders = numbers.map((_, index) => `:no${index}`).join(", ");
+  const values = Object.fromEntries(numbers.map((value, index) => [`no${index}`, value]));
+  const invoices = await queryRowsRaw<Row>(
+    `SELECT crmInvoiceId, invoiceNo, amountTaxIncluded, currency FROM merge_cloud_crm_invoices
+      WHERE invoiceNo IN (${placeholders}) AND customerId = :customerId`,
+    { ...values, customerId },
+  );
+  const result: Array<{ invoiceNo: string; amount: number; rows: Row[] }> = [];
+  for (const invoice of invoices) {
+    const allocated = await queryRowsRaw<Row>(
+      `SELECT a.rowId, a.period, a.account, a.amountTaxIncluded, r.customerId FROM merge_cloud_crm_invoice_allocations a
+         LEFT JOIN merge_cloud_rows r ON r.id = a.rowId
+        WHERE a.crmInvoiceId = :id`,
+      { id: invoice.crmInvoiceId },
+    );
+    const rows = allocated.length
+      ? allocated
+      : await queryRowsRaw<Row>(
+        `SELECT id AS rowId, period, account, invoiceTotalAmount AS amountTaxIncluded, customerId
+           FROM merge_cloud_rows WHERE customerId = :customerId AND invoiceNo = :invoiceNo`,
+        { customerId, invoiceNo: text(invoice.invoiceNo) },
+      );
+    if (rows.length) result.push({ invoiceNo: text(invoice.invoiceNo), amount: numberOrNull(invoice.amountTaxIncluded) ?? 0, rows });
+  }
+  return result;
+}
+
+/** 同步时给未分摊的回款算建议：优先按关联发票覆盖的行，其次按"应收合计≈回款金额"。 */
+async function refreshReceiptAllocationSuggestion(receipt: Row) {
+  const recordId = text(receipt.id);
+  if (!recordId || Number(receipt.allocationCount ?? 0) > 0) return [] as string[];
+  const amount = numberOrNull(receipt.receiptAmount) ?? 0;
+  const customerId = text(receipt.customerId);
+  if (!customerId) {
+    await executeRaw("UPDATE merge_cloud_crm_receipts SET suggestionRowIds = NULL, suggestionAmount = NULL WHERE id = :id", { id: recordId });
+    return [] as string[];
+  }
+  const linked = await loadReceiptInvoiceRows(receipt);
+  const linkedRows = linked.flatMap((item) => item.rows);
+  const linkedTotal = linkedRows.reduce((sum, row) => sum + (numberOrNull(row.amountTaxIncluded) ?? 0), 0);
+  let suggested: string[] = [];
+  let suggestedAmount = 0;
+  if (linkedRows.length && Math.abs(linkedTotal - amount) <= Math.max(ALLOCATION_TOLERANCE, amount * 0.001)) {
+    suggested = linkedRows.map((row) => text(row.rowId));
+    suggestedAmount = linkedTotal;
+  } else {
+    const candidates = await loadReceiptCandidates(customerId, text(receipt.currency), amount);
+    const combination = suggestAllocationCombination(candidates, amount);
+    suggested = combination.map((row) => row.rowId);
+    suggestedAmount = combination.reduce((sum, row) => sum + row.receivableAmount, 0);
+  }
+  await executeRaw(
+    "UPDATE merge_cloud_crm_receipts SET suggestionRowIds = :ids, suggestionAmount = :amount WHERE id = :id",
+    {
+      ids: suggested.length ? suggested.join(",").slice(0, 500) : null,
+      amount: suggested.length ? round2(suggestedAmount) : null,
+      id: recordId,
+    },
+  );
+  return suggested;
+}
+
+/** 回款分摊弹层数据：回款信息、候选行、当前分摊、关联发票覆盖的行、系统建议。 */
+export async function getReceiptAllocationPlan(crmReceiptId: unknown) {
+  const id = Number(crmReceiptId);
+  if (!Number.isFinite(id) || id <= 0) throw new Error("缺少回款ID");
+  const receipt = (await queryRowsRaw<Row>("SELECT * FROM merge_cloud_crm_receipts WHERE crmReceiptId = :id", { id }))[0];
+  if (!receipt) throw new Error("CRM 回款不存在，请先同步");
+  const allocations = await queryRowsRaw<Row>(
+    "SELECT * FROM merge_cloud_crm_receipt_allocations WHERE crmReceiptId = :id ORDER BY period, account",
+    { id },
+  );
+  const customerId = text(receipt.customerId);
+  const candidates = customerId
+    ? await loadReceiptCandidates(customerId, text(receipt.currency), numberOrNull(receipt.receiptAmount))
+    : [];
+  const linkedInvoices = customerId ? await loadReceiptInvoiceRows(receipt) : [];
+  const suggested = text(receipt.suggestionRowIds) ? text(receipt.suggestionRowIds).split(",").filter(Boolean) : [];
+  /**
+   * 「已被其它回款收过款」的行默认不进候选，但系统建议 / 本笔已分摊到的行必须显示出来，
+   * 否则界面会看不到这几行、也没法重新分摊。这里把缺的行补回候选并标记。
+   */
+  const knownIds = new Set(candidates.map((row) => row.rowId));
+  const extraIds = [...new Set([...suggested, ...allocations.map((row) => text(row.rowId))])].filter((rowId) => rowId && !knownIds.has(rowId));
+  if (extraIds.length) {
+    const placeholders = extraIds.map((_, index) => `:extra${index}`).join(", ");
+    const values = Object.fromEntries(extraIds.map((rowId, index) => [`extra${index}`, rowId]));
+    const extraRows = await queryRowsRaw<Row>(
+      `SELECT id, period, account, customer, invoiceNo, invoiceTotalAmount, collected, collectionCurrency, collectionTotalAmount,
+              ${CLOUD_ROW_RECEIVABLE_SQL} AS receivableAmount
+         FROM merge_cloud_rows WHERE id IN (${placeholders})`,
+      values,
+    );
+    for (const row of extraRows) {
+      candidates.push({
+        ...row,
+        rowId: text(row.id),
+        period: text(row.period),
+        account: text(row.account),
+        receivableAmount: Number(row.receivableAmount ?? 0),
+        collected: Number(row.collected ?? 0),
+        collectionCurrency: text(row.collectionCurrency),
+        collectionTotalAmount: row.collectionTotalAmount,
+        invoiceTotalAmountValue: numberOrNull(row.invoiceTotalAmount),
+      });
+    }
+  }
+  return {
+    receipt,
+    allocations,
+    candidates: candidates.map((row) => ({
+      rowId: row.rowId,
+      period: row.period,
+      account: row.account,
+      customer: text(row.customer),
+      receivableAmount: round2(row.receivableAmount),
+      invoiceNo: text(row.invoiceNo),
+      invoiceTotalAmount: row.invoiceTotalAmount,
+      collected: row.collected,
+      collectionTotalAmount: row.collectionTotalAmount,
+      suggested: suggested.includes(row.rowId),
+    })),
+    linkedInvoices: linkedInvoices.map((item) => ({
+      invoiceNo: item.invoiceNo,
+      amount: item.amount,
+      rows: item.rows.map((row) => ({ rowId: text(row.rowId), period: text(row.period), account: text(row.account), amount: numberOrNull(row.amountTaxIncluded) ?? 0 })),
+    })),
+    suggestionRowIds: suggested,
+  };
+}
+
+export type ReceiptAllocationInput = { rowId: string; amount: number };
+
+/**
+ * 保存回款分摊：默认按"关联发票覆盖行的开票金额"比例拆，拿不到就按客户应收比例拆；
+ * 也可以传人工调整后的金额（合计必须等于回款金额）。
+ */
+export async function allocateReceiptToRows(options: {
+  crmReceiptId: unknown;
+  allocations?: ReceiptAllocationInput[];
+  actor?: OperationActor | null;
+}) {
+  const crmReceiptId = Number(options.crmReceiptId);
+  if (!Number.isFinite(crmReceiptId) || crmReceiptId <= 0) throw new Error("缺少回款ID");
+  const receipt = (await queryRowsRaw<Row>("SELECT * FROM merge_cloud_crm_receipts WHERE crmReceiptId = :id", { id: crmReceiptId }))[0];
+  if (!receipt) throw new Error("CRM 回款不存在，请先同步");
+  const customerId = text(receipt.customerId);
+  if (!customerId) throw new Error("该回款还没匹配本地客户，请先在「客户映射」里配置");
+  const recordId = text(receipt.id);
+  const amount = numberOrNull(receipt.receiptAmount) ?? 0;
+  const arrivalMonth = normalizeCrmMonth(receipt.arrivalMonth);
+  const currency = text(receipt.currency);
+
+  const candidates = await loadReceiptCandidates(customerId, currency, amount);
+  const candidateMap = new Map(candidates.map((row) => [row.rowId, row]));
+  const requested = options.allocations?.length ? options.allocations : null;
+
+  const skipped: Array<{ rowId: string; period: string; account: string; reason: string }> = [];
+  const targets: ReceiptCandidate[] = [];
+  if (requested) {
+    /**
+     * 人工分摊时按传入的行号直接取行：候选列表会过滤掉"已被其它回款收过款"的行，
+     * 但用户在这张回款里明确勾选的行必须能写（例如先把错的实收清掉再重新拆）。
+     */
+    const ids = [...new Set(requested.map((item) => text(item.rowId)).filter(Boolean))];
+    const placeholders = ids.map((_, index) => `:row${index}`).join(", ");
+    const values = Object.fromEntries(ids.map((value, index) => [`row${index}`, value]));
+    const requestedRows = ids.length
+      ? await queryRowsRaw<Row>(
+        `SELECT id, period, account, customer, customerId, invoiceNo, invoiceTotalAmount, collected, collectionCurrency, collectionTotalAmount,
+                ${CLOUD_ROW_RECEIVABLE_SQL} AS receivableAmount
+           FROM merge_cloud_rows WHERE id IN (${placeholders})`,
+        values,
+      )
+      : [];
+    const requestedMap = new Map(requestedRows.map((row) => [text(row.id), row]));
+    for (const id of ids) {
+      const row = requestedMap.get(id);
+      if (!row) { skipped.push({ rowId: id, period: "", account: "", reason: "对账行不存在或已被删除" }); continue; }
+      const rowCustomerId = text(row.customerId);
+      if (rowCustomerId && rowCustomerId !== customerId) {
+        skipped.push({ rowId: id, period: text(row.period), account: text(row.account), reason: "该行不属于这笔回款的客户" });
+        continue;
+      }
+      targets.push({
+        ...row,
+        rowId: id,
+        period: text(row.period),
+        account: text(row.account),
+        receivableAmount: Number(row.receivableAmount ?? 0),
+        collected: Number(row.collected ?? 0),
+        collectionCurrency: text(row.collectionCurrency),
+        collectionTotalAmount: row.collectionTotalAmount,
+        invoiceTotalAmountValue: numberOrNull(row.invoiceTotalAmount),
+      });
+    }
+  } else {
+    // 自动模式：优先用关联发票覆盖的行，其次用客户全部候选行
+    const linked = await loadReceiptInvoiceRows(receipt);
+    const linkedRowIds = linked.flatMap((item) => item.rows.map((row) => text(row.rowId)));
+    for (const rowId of linkedRowIds) {
+      const row = candidateMap.get(rowId);
+      if (row) targets.push(row);
+    }
+    if (!targets.length) for (const row of candidates) targets.push(row);
+  }
+  if (!targets.length) throw new Error("没有可分摊的对账行：这些行可能已经被别的回款收过款");
+
+  // 权重：人工指定按给定金额；自动按"该行开票金额"，没有开票金额时退回客户应收
+  const weights = requested
+    ? targets.map((row) => Math.max(0, Number(requested.find((item) => text(item.rowId) === row.rowId)?.amount ?? 0)))
+    : targets.map((row) => (row.invoiceTotalAmountValue && row.invoiceTotalAmountValue > 0 ? row.invoiceTotalAmountValue : row.receivableAmount));
+  const shares = splitInvoiceAmount(amount, weights);
+  if (Math.abs(shares.reduce((sum, value) => sum + value, 0) - amount) >= 0.01) {
+    throw new Error("分摊合计与回款金额不一致，请调整分摊金额");
+  }
+  const totalShare = shares.reduce((sum, value) => sum + value, 0);
+
+  const applied: Row[] = [];
+  for (const [index, row] of targets.entries()) {
+    const ratio = totalShare > 0 ? shares[index] / totalShare : 1 / targets.length;
+    await executeRaw(
+      `INSERT INTO merge_cloud_crm_receipt_allocations
+         (id, crmReceiptId, receiptRecordId, rowId, period, account, customerId, customerName, currency,
+          rowReceivableAmount, rowInvoiceAmount, ratio, amount, invoiceNos, source,
+          createdByUserId, createdByName, updatedByUserId, updatedByName)
+       VALUES (:id, :crmReceiptId, :recordId, :rowId, :period, :account, :customerId, :customerName, :currency,
+          :rowReceivableAmount, :rowInvoiceAmount, :ratio, :amount, :invoiceNos, :source,
+          :userId, :userName, :userId, :userName)
+       ON DUPLICATE KEY UPDATE period = VALUES(period), account = VALUES(account), rowReceivableAmount = VALUES(rowReceivableAmount),
+         rowInvoiceAmount = VALUES(rowInvoiceAmount), ratio = VALUES(ratio), amount = VALUES(amount),
+         invoiceNos = VALUES(invoiceNos), source = VALUES(source),
+         updatedByUserId = VALUES(updatedByUserId), updatedByName = VALUES(updatedByName)`,
+      {
+        id: randomUUID(), crmReceiptId, recordId, rowId: row.rowId, period: row.period, account: row.account,
+        customerId, customerName: text(receipt.customerName) || null, currency: currency || null,
+        rowReceivableAmount: round2(row.receivableAmount), rowInvoiceAmount: row.invoiceTotalAmountValue,
+        ratio: Number(ratio.toFixed(6)), amount: shares[index], invoiceNos: text(row.invoiceNo) || null,
+        source: requested ? "manual" : "auto",
+        userId: options.actor?.userId ?? null, userName: options.actor?.displayName ?? null,
+      },
+    );
+    const assignments = [
+      "collectionCurrency = :currency",
+      "collectionTotalAmount = :amount",
+      "collected = 1",
+      "collectionPayer = :customerName",
+    ];
+    const values: Row = { currency: currency || null, amount: shares[index], customerName: text(receipt.customerName) || null, rowId: row.rowId };
+    if (arrivalMonth) {
+      // CRM 只给到账月份：本地为空时按当月首日预估，已有日期不覆盖
+      assignments.push("collectionDate = COALESCE(collectionDate, :collectionDate)");
+      values.collectionDate = `${arrivalMonth}-01`;
+    }
+    await executeRaw(`UPDATE merge_cloud_rows SET ${assignments.join(", ")} WHERE id = :rowId`, values);
+    applied.push({ rowId: row.rowId, period: row.period, account: row.account, ratio: Number(ratio.toFixed(6)), amount: shares[index] });
+  }
+
+  const primary = [...applied].sort((left, right) => Number(right.amount) - Number(left.amount))[0];
+  await executeRaw(
+    `UPDATE merge_cloud_crm_receipts SET targetRowId = :targetRowId, allocationCount = :count, allocationSource = :source,
+       backfillStatus = 'backfilled', backfillNote = :note, suggestionRowIds = NULL, suggestionAmount = NULL
+     WHERE crmReceiptId = :crmReceiptId`,
+    {
+      targetRowId: text(primary?.rowId) || null,
+      count: applied.length,
+      source: requested ? "manual" : "auto",
+      note: `已按账期/发票拆分为 ${applied.length} 行`,
+      crmReceiptId,
+    },
+  );
+  return { ok: true, crmReceiptId, allocations: applied, skipped };
+}
+
+/** 取消回款分摊：只清"金额与分摊记录一致"的行，人工改过的不动。 */
+export async function clearReceiptAllocation(options: { crmReceiptId: unknown }) {
+  const crmReceiptId = Number(options.crmReceiptId);
+  if (!Number.isFinite(crmReceiptId) || crmReceiptId <= 0) throw new Error("缺少回款ID");
+  const allocations = await queryRowsRaw<Row>(
+    "SELECT rowId, amount FROM merge_cloud_crm_receipt_allocations WHERE crmReceiptId = :id",
+    { id: crmReceiptId },
+  );
+  let cleared = 0;
+  for (const allocation of allocations) {
+    const result = await executeRaw(
+      `UPDATE merge_cloud_rows SET collectionCurrency = NULL, collectionTotalAmount = NULL, collectionDate = NULL, collected = 0
+        WHERE id = :rowId AND ABS(COALESCE(collectionTotalAmount, 0) - :amount) < 0.01`,
+      { rowId: text(allocation.rowId), amount: Number(allocation.amount ?? 0) },
+    ) as { affectedRows?: number };
+    if (Number(result?.affectedRows ?? 0) > 0) cleared += 1;
+  }
+  await executeRaw("DELETE FROM merge_cloud_crm_receipt_allocations WHERE crmReceiptId = :id", { id: crmReceiptId });
+  await executeRaw(
+    `UPDATE merge_cloud_crm_receipts SET targetRowId = NULL, allocationCount = 0, allocationSource = NULL,
+       backfillStatus = 'pending', backfillNote = '已取消分摊' WHERE crmReceiptId = :id`,
+    { id: crmReceiptId },
+  );
+  const record = (await queryRowsRaw<Row>(
+    "SELECT * FROM merge_cloud_crm_receipts WHERE crmReceiptId = :id",
+    { id: crmReceiptId },
+  ))[0];
+  if (record) await refreshReceiptAllocationSuggestion(record);
+  return { ok: true, clearedRows: cleared };
 }
