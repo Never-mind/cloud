@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   crmInvoiceStatusLabel,
   crmInvoiceTypeLabel,
+  getInvoiceAllocationPlan,
   latestCrmSyncRun,
   listCrmCustomerIdentities,
   listCrmInvoices,
@@ -20,11 +21,16 @@ const BACKFILL_LABELS: Record<string, string> = {
 };
 
 function decorateInvoice(row: Record<string, unknown>) {
+  const allocationCount = Number(row.allocationCount ?? 0);
+  const suggestionCount = String(row.suggestionRowIds ?? "").split(",").filter(Boolean).length;
   return {
     ...row,
     invoiceStatusLabel: crmInvoiceStatusLabel(row.invoiceStatus),
     invoiceTypeLabel: crmInvoiceTypeLabel(row.invoiceType),
     backfillStatusLabel: BACKFILL_LABELS[String(row.backfillStatus ?? "")] ?? "-",
+    allocationCount,
+    suggestionCount,
+    allocationLabel: allocationCount ? `已拆 ${allocationCount} 行` : suggestionCount ? `建议拆 ${suggestionCount} 行` : "",
   };
 }
 
@@ -41,6 +47,8 @@ export async function GET(request: NextRequest) {
   try {
     if (params.get("view") === "mappings") return NextResponse.json({ items: await listCrmCustomerIdentities() });
     if (params.get("view") === "last-run") return NextResponse.json({ run: await latestCrmSyncRun() });
+    // 匹配/分摊弹层：候选对账行、当前分摊、系统建议
+    if (params.get("view") === "allocation-plan") return NextResponse.json(await getInvoiceAllocationPlan(params.get("crmInvoiceId")));
     // 编辑客户开票时的发票搜索：按发票号 / 客户 / 主体模糊搜
     if (params.get("view") === "search") return NextResponse.json({ items: (await searchCrmInvoicesForMatching(params)).map(decorateInvoice) });
     if (params.get("kind") === "receipts") {

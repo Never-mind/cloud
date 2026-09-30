@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { crmDateValue, crmValuesEqual, crmMonthToPeriod, normalizeCrmMonth, normalizeCrmPartyName, recentCrmMonths } from "./crm-invoice-sync-service";
+import { crmDateValue, crmValuesEqual, crmMonthToPeriod, normalizeCrmMonth, normalizeCrmPartyName, recentCrmMonths, splitInvoiceAmount } from "./crm-invoice-sync-service";
 
 describe("normalizeCrmMonth / crmMonthToPeriod", () => {
   it("接受 YYYY-MM 与 YYYYMM", () => {
@@ -54,5 +54,25 @@ describe("crmDateValue", () => {
     expect(crmDateValue("2026-08-06")).toBe("2026-08-06");
     expect(crmDateValue("")).toBeNull();
     expect(crmDateValue(null)).toBeNull();
+  });
+});
+
+describe("splitInvoiceAmount", () => {
+  it("按权重拆分，合计永远等于总金额（尾差落到最大的一份）", () => {
+    // 真实例子：一张 11,712.22 的发票拆到两个华为账号（应收 2,710.72 / 9,001.51）
+    const shares = splitInvoiceAmount(11712.22, [2710.72, 9001.51]);
+    expect(shares).toEqual([2710.72, 9001.5]);
+    expect(shares.reduce((sum, value) => sum + value, 0)).toBeCloseTo(11712.22, 2);
+  });
+
+  it("除不尽时也能对平（如 3 等分 100）", () => {
+    const shares = splitInvoiceAmount(100, [1, 1, 1]);
+    expect(shares.reduce((sum, value) => sum + value, 0)).toBeCloseTo(100, 2);
+    expect(Math.max(...shares) - Math.min(...shares)).toBeLessThanOrEqual(0.02);
+  });
+
+  it("权重全为 0 时平均分，只有一行时拿全额", () => {
+    expect(splitInvoiceAmount(30, [0, 0]).reduce((sum, value) => sum + value, 0)).toBeCloseTo(30, 2);
+    expect(splitInvoiceAmount(99.99, [0])).toEqual([99.99]);
   });
 });

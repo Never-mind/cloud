@@ -20,6 +20,7 @@ import { fetchTableFilterOptions } from "@/lib/table-query-client";
 import { useWorkspaceDataRefresh } from "@/lib/workspace-events";
 import { CloudCrmInvoicesPanel } from "./cloud-crm-invoices-panel";
 import { CrmInvoicePicker } from "./crm-invoice-picker";
+import { CrmInvoiceAllocationModal } from "./crm-invoice-allocation-modal";
 
 type Tab = "reconciliation" | "crm-invoices" | "mapping" | "collections" | "supplier-payments";
 type Row = Record<string, unknown> & { id?: string };
@@ -106,6 +107,7 @@ export function CloudReconciliationPage() {
   const [collectionForm, setCollectionForm] = useState<Row | null>(null);
   const [invoiceForm, setInvoiceForm] = useState<Row | null>(null);
   const [supplierPaymentForm, setSupplierPaymentForm] = useState<Row | null>(null);
+  const [allocationTarget, setAllocationTarget] = useState<{ crmInvoiceId: number | string; rowId?: string } | null>(null);
   const [queries, setQueries] = useState<Record<Tab, QueryState>>({
     reconciliation: emptyQuery(), "crm-invoices": emptyQuery(), mapping: emptyQuery(), collections: emptyQuery(), "supplier-payments": emptyQuery(),
   });
@@ -323,8 +325,16 @@ export function CloudReconciliationPage() {
     {mappingForm ? <MappingForm value={mappingForm} masters={masters} onChange={setMappingForm} onCancel={() => setMappingForm(null)} onSave={() => void saveMapping()} /> : null}
     {rowForm ? <CloudRowForm value={rowForm} masters={masters} onChange={setRowForm} onCancel={() => setRowForm(null)} onSave={() => void saveRow()} /> : null}
     {collectionForm ? <CloudAmountForm mode="collection" value={collectionForm} masters={masters} onChange={setCollectionForm} onCancel={() => setCollectionForm(null)} onSave={() => void saveCollection()} /> : null}
-    {invoiceForm ? <CloudAmountForm mode="invoice" value={invoiceForm} masters={masters} onChange={setInvoiceForm} onCancel={() => setInvoiceForm(null)} onSave={() => void saveInvoice()} /> : null}
+    {invoiceForm ? <CloudAmountForm mode="invoice" value={invoiceForm} masters={masters} onChange={setInvoiceForm} onCancel={() => setInvoiceForm(null)} onRequestAllocation={(crmInvoiceId) => setAllocationTarget({ crmInvoiceId, rowId: String(invoiceForm.id ?? "") })} onSave={() => void saveInvoice()} /> : null}
     {supplierPaymentForm ? <SupplierPaymentForm value={supplierPaymentForm} masters={masters} onChange={setSupplierPaymentForm} onCancel={() => setSupplierPaymentForm(null)} onSave={() => void saveSupplierPayment()} /> : null}
+    {allocationTarget ? (
+      <CrmInvoiceAllocationModal
+        crmInvoiceId={allocationTarget.crmInvoiceId}
+        focusRowId={allocationTarget.rowId}
+        onClose={() => setAllocationTarget(null)}
+        onSaved={() => { void load(); }}
+      />
+    ) : null}
   </div>;
 }
 
@@ -598,7 +608,7 @@ function PartnerSelect({ kind, label, idValue, nameValue, masters, onChange, req
   );
 }
 
-function CloudAmountForm({ mode, value, masters, onChange, onCancel, onSave }: { mode: "collection" | "invoice"; value: Row; masters: MasterSet; onChange: (value: Row) => void; onCancel: () => void; onSave: () => void }) {
+function CloudAmountForm({ mode, value, masters, onChange, onCancel, onSave, onRequestAllocation }: { mode: "collection" | "invoice"; value: Row; masters: MasterSet; onChange: (value: Row) => void; onCancel: () => void; onSave: () => void; onRequestAllocation?: (crmInvoiceId: string) => void }) {
   const invoice = mode === "invoice";
   const prefix = invoice ? "invoice" : "collection";
   const fields: Array<[string, string, string?]> = invoice
@@ -611,7 +621,7 @@ function CloudAmountForm({ mode, value, masters, onChange, onCancel, onSave }: {
     }
     return { ...value, [key]: input };
   };
-  return <Modal description="付款单位从客户档案选择，收款单位从承接单位档案选择，支持按编码或简称搜索" footer={<><Button onClick={onCancel}>取消</Button><Button tone="primary" onClick={onSave}>保存</Button></>} onClose={onCancel} title={invoice ? "编辑客户开票" : "编辑客户实收"} widthClass="max-w-3xl"><div className="grid gap-3 border-b border-line-soft pb-4 sm:grid-cols-2">{partner("customers", "付款单位", `${prefix}PayerCustomerId`, `${prefix}PayerCustomerName`)}{partner("undertakingUnits", "收款单位", `${prefix}PayeeUndertakingUnitId`, `${prefix}PayeeUndertakingUnitName`)}</div>{invoice ? <div className="mt-4 border-b border-line-soft pb-4"><div className="mb-1 flex flex-wrap items-center gap-2"><span className="text-sm text-ink-2">从 CRM 发票匹配</span><span className="text-xs text-ink-3">按发票号 / 客户 / 主体搜索；选中后自动带出开票信息，保存时把发票 PDF 挂到本行「客户开票附件」</span></div><CrmInvoicePicker customerId={String(value.customerId ?? "")} onPick={(picked) => onChange({ ...value, invoiceNo: String(picked.invoiceNo ?? ""), invoiceCurrency: String(picked.currency ?? ""), invoiceNetAmount: (picked.amountTaxExcluded ?? "") as string | number, invoiceTaxAmount: (picked.taxAmount ?? "") as string | number, invoiceTotalAmount: (picked.amountTaxIncluded ?? "") as string | number, invoiceDate: String(picked.invoiceDate ?? ""), collectionInvoice: "issued", crmInvoiceId: String(picked.crmInvoiceId), crmInvoiceNo: String(picked.invoiceNo ?? "") })} rowId={String(value.id ?? "")} value={String(value.crmInvoiceId ?? "")} /></div> : null}<div className="mt-4 grid gap-3 sm:grid-cols-2">{fields.map(([key, label, type]) => <label className="space-y-1 text-sm text-ink-2" key={key}><span>{label}</span><Input className="w-full" type={type ?? "text"} value={type === "date" ? dateInputValue(value[key]) : String(value[key] ?? "")} onChange={(event) => onChange(changeField(key, type, event.target.value))} /></label>)}</div>{invoice ? <label className="mt-3 flex items-center gap-2 text-sm text-ink-2"><input checked={value.collectionInvoice === "issued"} type="checkbox" onChange={(event) => onChange({ ...value, collectionInvoice: event.target.checked ? "issued" : "not_issued" })} />已开票</label> : <label className="mt-3 flex items-center gap-2 text-sm text-ink-2"><input checked={Boolean(value.collected)} type="checkbox" onChange={(event) => onChange({ ...value, collected: event.target.checked ? 1 : 0 })} />已收款</label>}</Modal>;
+  return <Modal description="付款单位从客户档案选择，收款单位从承接单位档案选择，支持按编码或简称搜索" footer={<><Button onClick={onCancel}>取消</Button><Button tone="primary" onClick={onSave}>保存</Button></>} onClose={onCancel} title={invoice ? "编辑客户开票" : "编辑客户实收"} widthClass="max-w-3xl"><div className="grid gap-3 border-b border-line-soft pb-4 sm:grid-cols-2">{partner("customers", "付款单位", `${prefix}PayerCustomerId`, `${prefix}PayerCustomerName`)}{partner("undertakingUnits", "收款单位", `${prefix}PayeeUndertakingUnitId`, `${prefix}PayeeUndertakingUnitName`)}</div>{invoice ? <div className="mt-4 border-b border-line-soft pb-4"><div className="mb-1 flex flex-wrap items-center gap-2"><span className="text-sm text-ink-2">从 CRM 发票匹配</span><span className="text-xs text-ink-3">按发票号 / 客户 / 主体搜索；选中后自动带出开票信息，保存时把发票 PDF 挂到本行「客户开票附件」</span></div><CrmInvoicePicker customerId={String(value.customerId ?? "")} onPick={(picked) => onChange({ ...value, invoiceNo: String(picked.invoiceNo ?? ""), invoiceCurrency: String(picked.currency ?? ""), invoiceNetAmount: (picked.amountTaxExcluded ?? "") as string | number, invoiceTaxAmount: (picked.taxAmount ?? "") as string | number, invoiceTotalAmount: (picked.amountTaxIncluded ?? "") as string | number, invoiceDate: String(picked.invoiceDate ?? ""), collectionInvoice: "issued", crmInvoiceId: String(picked.crmInvoiceId), crmInvoiceNo: String(picked.invoiceNo ?? "") })} rowId={String(value.id ?? "")} value={String(value.crmInvoiceId ?? "")} />{value.crmInvoiceId && onRequestAllocation ? <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-ink-3"><span>这张发票如果覆盖多个月或多个华为账号，可以按账期拆分：</span><Button onClick={() => onRequestAllocation(String(value.crmInvoiceId))} type="button">拆分到多账期</Button></div> : null}</div> : null}<div className="mt-4 grid gap-3 sm:grid-cols-2">{fields.map(([key, label, type]) => <label className="space-y-1 text-sm text-ink-2" key={key}><span>{label}</span><Input className="w-full" type={type ?? "text"} value={type === "date" ? dateInputValue(value[key]) : String(value[key] ?? "")} onChange={(event) => onChange(changeField(key, type, event.target.value))} /></label>)}</div>{invoice ? <label className="mt-3 flex items-center gap-2 text-sm text-ink-2"><input checked={value.collectionInvoice === "issued"} type="checkbox" onChange={(event) => onChange({ ...value, collectionInvoice: event.target.checked ? "issued" : "not_issued" })} />已开票</label> : <label className="mt-3 flex items-center gap-2 text-sm text-ink-2"><input checked={Boolean(value.collected)} type="checkbox" onChange={(event) => onChange({ ...value, collected: event.target.checked ? 1 : 0 })} />已收款</label>}</Modal>;
 }
 
 function MappingForm({ value, masters, onChange, onCancel, onSave }: { value: Row; masters: { suppliers: Master[]; undertakingUnits: Master[]; customers: Master[] }; onChange: (value: Row) => void; onCancel: () => void; onSave: () => void }) {

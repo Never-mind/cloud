@@ -182,10 +182,53 @@ async function main() {
     `,
   );
 
+  /**
+   * 发票分摊明细：一张发票可以覆盖多个月（或同一账期多个华为账号）的账单，
+   * 每行记录这张发票分摊到某条对账行的金额，台账各行的「客户开票」就取这里的数。
+   */
+  await createTableIfMissing(
+    "merge_cloud_crm_invoice_allocations",
+    `
+      CREATE TABLE \`merge_cloud_crm_invoice_allocations\` (
+        \`id\` CHAR(36) NOT NULL COMMENT '分摊ID',
+        \`crmInvoiceId\` BIGINT NOT NULL COMMENT 'CRM 发票ID',
+        \`invoiceRecordId\` CHAR(36) NULL COMMENT '本地发票记录ID',
+        \`rowId\` VARCHAR(64) NOT NULL COMMENT '分摊到的对账行ID',
+        \`period\` VARCHAR(7) NOT NULL COMMENT '该行账期 YYYYMM',
+        \`account\` VARCHAR(64) NULL COMMENT '该行华为账号',
+        \`customerId\` VARCHAR(64) NULL COMMENT '客户ID',
+        \`customerName\` VARCHAR(255) NULL COMMENT '客户简称',
+        \`currency\` VARCHAR(16) NULL COMMENT '币种',
+        \`rowReceivableAmount\` DECIMAL(18,4) NULL COMMENT '该行客户应收（含税），计算比例用',
+        \`ratio\` DECIMAL(9,6) NULL COMMENT '分摊比例',
+        \`amountTaxExcluded\` DECIMAL(18,4) NULL COMMENT '分摊未税金额',
+        \`taxAmount\` DECIMAL(18,4) NULL COMMENT '分摊税金',
+        \`amountTaxIncluded\` DECIMAL(18,4) NULL COMMENT '分摊含税金额',
+        \`source\` VARCHAR(16) NOT NULL DEFAULT 'auto' COMMENT 'auto 自动分摊 / manual 人工调整',
+        \`remark\` VARCHAR(255) NULL,
+        \`createdByUserId\` VARCHAR(64) NULL,
+        \`createdByName\` VARCHAR(128) NULL,
+        \`updatedByUserId\` VARCHAR(64) NULL,
+        \`updatedByName\` VARCHAR(128) NULL,
+        \`createdAt\` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        \`updatedAt\` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (\`id\`),
+        UNIQUE KEY \`uk_crm_allocation_invoice_row\` (\`crmInvoiceId\`, \`rowId\`),
+        KEY \`idx_crm_allocation_row\` (\`rowId\`),
+        KEY \`idx_crm_allocation_period\` (\`period\`)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='CRM 发票按账期/明细分摊明细'
+    `,
+  );
+
   // 老库补字段：把发票附件同时挂到对账行后，需要记录挂载关系与统计。
   await addColumnIfMissing("merge_cloud_crm_invoices", "rowAttachmentId", "`rowAttachmentId` CHAR(36) NULL COMMENT '同时挂到对账行「客户开票附件」下的附件ID'");
   await addColumnIfMissing("merge_cloud_crm_invoices", "rowAttachmentOwnerId", "`rowAttachmentOwnerId` VARCHAR(64) NULL COMMENT '这份行附件挂在哪个对账行上'");
   await addColumnIfMissing("merge_cloud_crm_sync_runs", "attachmentLinked", "`attachmentLinked` INT NOT NULL DEFAULT 0");
+  await addColumnIfMissing("merge_cloud_crm_invoices", "allocationCount", "`allocationCount` INT NOT NULL DEFAULT 0 COMMENT '已分摊到几个对账行'");
+  await addColumnIfMissing("merge_cloud_crm_invoices", "allocationSource", "`allocationSource` VARCHAR(16) NULL COMMENT 'auto 自动分摊 / manual 人工调整'");
+  await addColumnIfMissing("merge_cloud_crm_invoices", "suggestionRowIds", "`suggestionRowIds` VARCHAR(500) NULL COMMENT '同步时给出的建议分摊行ID，逗号分隔'");
+  await addColumnIfMissing("merge_cloud_crm_invoices", "suggestionAmount", "`suggestionAmount` DECIMAL(18,4) NULL COMMENT '建议组合的应收合计'");
+  await addColumnIfMissing("merge_cloud_crm_sync_runs", "allocatedCount", "`allocatedCount` INT NOT NULL DEFAULT 0 COMMENT '本次同步给出建议或完成分摊的发票数'");
 
   console.log("CRM 发票 / 回款同步表结构已就绪");
 }

@@ -10,6 +10,7 @@ import { EmptyState, LoadingBlock } from "./table-state";
 import { confirmDialog, notify } from "./app-dialog";
 import { formatDisplayValue, formatMoneyValue } from "@/lib/display-format";
 import { DEFAULT_PAGE_SIZE } from "@/lib/pagination";
+import { CrmInvoiceAllocationModal } from "./crm-invoice-allocation-modal";
 
 type Row = Record<string, unknown>;
 type Kind = "invoices" | "receipts";
@@ -83,6 +84,7 @@ export function CloudCrmInvoicesPanel() {
   const [syncDryRun, setSyncDryRun] = useState(false);
   const [mappingOpen, setMappingOpen] = useState(false);
   const [mappingDraft, setMappingDraft] = useState<Record<string, string>>({});
+  const [allocationTarget, setAllocationTarget] = useState<{ crmInvoiceId: number | string } | null>(null);
 
   const load = useCallback(async (targetPage = page, targetSize = pageSize) => {
     setLoading(true);
@@ -259,7 +261,7 @@ export function CloudCrmInvoicesPanel() {
             <table className="w-full min-w-[1500px] border-collapse text-sm">
               <thead className="bg-canvas">
                 <tr>
-                  {["归属月份", "发票号", "CRM 客户", "本地客户", "产品服务", "币种", "不含税", "税额", "含税", "开票日期", "到期日", "类型", "状态", "回填", "附件"].map((label) => (
+                  {["归属月份", "发票号", "CRM 客户", "本地客户", "产品服务", "币种", "不含税", "税额", "含税", "开票日期", "到期日", "类型", "状态", "分摊", "回填", "附件", "操作"].map((label) => (
                     <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium" key={label}>{label}</th>
                   ))}
                 </tr>
@@ -287,6 +289,22 @@ export function CloudCrmInvoicesPanel() {
                     <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-2">
                       {String(row.invoiceStatus) === "2" ? tag("已作废", "bg-canvas text-ink-3") : tag(String(row.invoiceStatusLabel ?? "-"), "bg-success-soft text-success")}
                     </td>
+                    <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-2">
+                      {row.allocationLabel
+                        ? (
+                          <button
+                            className={`rounded px-1.5 py-0.5 text-xs ${Number(row.allocationCount ?? 0) ? "bg-success-soft text-success" : "bg-info-soft text-primary"} hover:underline`}
+                            onClick={() => setAllocationTarget({ crmInvoiceId: row.crmInvoiceId as number })}
+                            title={Array.isArray(row.allocations) && row.allocations.length
+                              ? (row.allocations as Row[]).map((item) => `${item.period} ${item.account} ${formatMoneyValue(item.amountTaxIncluded)}`).join("\n")
+                              : "点击按账期拆分这张发票"}
+                            type="button"
+                          >
+                            {String(row.allocationLabel)}
+                          </button>
+                        )
+                        : <span className="text-xs text-ink-4">单行匹配</span>}
+                    </td>
                     <td className="border-b border-r border-line-soft px-3 py-2" title={String(row.backfillNote ?? "")}>
                       {tag(String(row.backfillStatusLabel ?? "-"), BACKFILL_TONES[String(row.backfillStatus ?? "")] ?? "bg-canvas text-ink-3")}
                     </td>
@@ -298,9 +316,20 @@ export function CloudCrmInvoicesPanel() {
                         ? <a className="ml-2 inline-flex items-center rounded bg-info-soft px-1.5 py-0.5 text-xs text-primary hover:underline" href={`/api/cloud/attachments/${encodeURIComponent(String(row.rowAttachmentId))}`} title="已挂到对账行的「客户开票附件」，点这里下载这份明细附件">已挂明细</a>
                         : null}
                     </td>
+                    <td className="whitespace-nowrap border-b border-line-soft px-3 py-2">
+                      <button
+                        className="rounded border border-line bg-white px-2 py-0.5 text-xs text-ink-2 hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
+                        disabled={String(row.invoiceStatus) === "2"}
+                        onClick={() => setAllocationTarget({ crmInvoiceId: row.crmInvoiceId as number })}
+                        title="匹配到对账明细（支持跨账期拆分）"
+                        type="button"
+                      >
+                        匹配
+                      </button>
+                    </td>
                   </tr>
                 ))}
-                {!items.length ? <tr><td className="py-12 text-center text-ink-3" colSpan={15}>{loading ? <LoadingBlock /> : <EmptyState title="暂无 CRM 发票，先点右上角「从 CRM 同步」" />}</td></tr> : null}
+                {!items.length ? <tr><td className="py-12 text-center text-ink-3" colSpan={17}>{loading ? <LoadingBlock /> : <EmptyState title="暂无 CRM 发票，先点右上角「从 CRM 同步」" />}</td></tr> : null}
               </tbody>
             </table>
           ) : (
@@ -422,6 +451,14 @@ export function CloudCrmInvoicesPanel() {
           </div>
           <p className="mt-3 text-xs text-ink-3"><Link2 className="mr-1 inline" size={13} />映射保存后只在下次同步生效；已回填的数据不会因为改映射而回滚，需要重刷时把本地发票字段清空再同步。</p>
         </Modal>
+      ) : null}
+
+      {allocationTarget ? (
+        <CrmInvoiceAllocationModal
+          crmInvoiceId={allocationTarget.crmInvoiceId}
+          onClose={() => setAllocationTarget(null)}
+          onSaved={() => { void load(); void loadMeta(); }}
+        />
       ) : null}
     </Panel>
   );
