@@ -266,7 +266,10 @@ const CLOUD_SUPPLIER_PAYMENT_GROUPS = `(SELECT
     COALESCE(SUM(COALESCE(r.supplierPayableTotalAmount, COALESCE(r.supplierPayableNetAmount, r.supplierPayable, 0) + COALESCE(r.supplierTaxAmount, COALESCE(r.supplierPayableNetAmount, r.supplierPayable, 0) * COALESCE(r.supplierTaxRate, 0.16)))), 0) AS supplierPayableTotalAmount,
     MIN(r.createdAt) AS createdAt,
     MAX(r.updatedAt) AS updatedAt,
-    GROUP_CONCAT(DISTINCT CONCAT(COALESCE(NULLIF(c.shortName, ''), NULLIF(c.nameCn, ''), NULLIF(c.name, ''), r.customer, ''), ' ', COALESCE(r.account, '')) SEPARATOR ' ') AS searchText
+    GROUP_CONCAT(DISTINCT CONCAT(
+      COALESCE(NULLIF(c.shortName, ''), NULLIF(c.nameCn, ''), NULLIF(c.name, ''), r.customer, ''), ' ',
+      COALESCE(NULLIF(c.name, ''), NULLIF(c.nameCn, ''), ''), ' ',
+      COALESCE(r.account, '')) SEPARATOR ' ') AS searchText
   FROM merge_cloud_rows r
   LEFT JOIN merge_cloud_mappings m ON m.id = COALESCE(${CLOUD_ACCOUNT_MAPPING_ID_SQL}, NULLIF(r.mappingId, ''))
   LEFT JOIN merge_common_suppliers s ON s.supplierId = COALESCE(NULLIF(m.supplierId, ''), NULLIF(r.supplierId, ''))

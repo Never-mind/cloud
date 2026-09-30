@@ -877,6 +877,40 @@ export function crmInvoiceTypeLabel(value: unknown) {
   return CRM_INVOICE_TYPE_LABELS[text(value)] ?? "-";
 }
 
+/**
+ * CRM 副本里存的 `customerName` 是"映射那一刻"的本地客户简称，档案改名后不会回写。
+ * 列表/搜索统一按 customerId 回查档案当前简称，口径与其它模块一致。
+ */
+async function resolveCrmCustomerNames<T extends Row>(rows: T[], idField = "customerId"): Promise<T[]> {
+  const references = [...new Set(rows.map((row) => text(row[idField])).filter(Boolean))];
+  if (!references.length) return rows;
+  const placeholders = references.map((_, index) => `:reference${index}`).join(", ");
+  const values = Object.fromEntries(references.map((value, index) => [`reference${index}`, value]));
+  const customers = await queryRowsRaw<Row>(
+    `SELECT customerId, customerCode, COALESCE(NULLIF(shortName, ''), NULLIF(nameCn, ''), NULLIF(name, ''), customerCode) AS name
+       FROM merge_common_customers
+      WHERE customerId IN (${placeholders}) OR customerCode IN (${placeholders})`,
+    values,
+  );
+  const lookup = new Map<string, string>();
+  for (const customer of customers) {
+    const name = text(customer.name);
+    if (!name) continue;
+    lookup.set(text(customer.customerId), name);
+    if (text(customer.customerCode)) lookup.set(text(customer.customerCode), name);
+  }
+  return rows.map((row) => {
+    const live = lookup.get(text(row[idField]));
+    return live ? { ...row, customerName: live } : row;
+  });
+}
+
+/** 关键词还要能按本地客户档案的当前名称匹配（发票号 / CRM 客户名之外）。 */
+const CRM_LOCAL_CUSTOMER_KEYWORD_SQL = `EXISTS (
+  SELECT 1 FROM merge_common_customers c
+   WHERE (c.customerId = merge_cloud_crm_invoices.customerId OR c.customerCode = merge_cloud_crm_invoices.customerId)
+     AND (c.shortName LIKE :keyword OR c.nameCn LIKE :keyword OR c.name LIKE :keyword OR c.customerCode LIKE :keyword))`;
+
 export async function listCrmInvoices(params: URLSearchParams) {
   const { page, pageSize, offset } = pageParams(params);
   const conditions = ["1=1"];
@@ -887,7 +921,7 @@ export async function listCrmInvoices(params: URLSearchParams) {
   const customerId = text(params.get("customerId"));
   const matchStatus = text(params.get("matchStatus"));
   if (keyword) {
-    conditions.push("(invoiceNo LIKE :keyword OR customerShortName LIKE :keyword OR customerSubjectName LIKE :keyword OR customerName LIKE :keyword)");
+    conditions.push(`(invoiceNo LIKE :keyword OR customerShortName LIKE :keyword OR customerSubjectName LIKE :keyword OR customerName LIKE :keyword OR ${CRM_LOCAL_CUSTOMER_KEYWORD_SQL})`);
     values.keyword = `%${keyword}%`;
   }
   if (month) { conditions.push("belongMonth = :month"); values.month = month; }
@@ -915,7 +949,7 @@ export async function listCrmInvoices(params: URLSearchParams) {
        FROM merge_cloud_crm_invoices WHERE ${where}`,
     values,
   );
-  return { items: rows, total: Number(count[0]?.total ?? 0), page, pageSize, currencyTotals: totals, summary: summary ?? {} };
+  return { items: await resolveCrmCustomerNames(rows), total: Number(count[0]?.total ?? 0), page, pageSize, currencyTotals: totals, summary: summary ?? {} };
 }
 
 export async function listCrmReceipts(params: URLSearchParams) {
@@ -926,7 +960,10 @@ export async function listCrmReceipts(params: URLSearchParams) {
   const month = normalizeCrmMonth(params.get("month"));
   const customerId = text(params.get("customerId"));
   if (keyword) {
-    conditions.push("(invoiceNos LIKE :keyword OR customerShortName LIKE :keyword OR customerName LIKE :keyword OR payerName LIKE :keyword OR bankSerialNo LIKE :keyword)");
+    conditions.push(`(invoiceNos LIKE :keyword OR customerShortName LIKE :keyword OR customerName LIKE :keyword OR payerName LIKE :keyword OR bankSerialNo LIKE :keyword
+      OR EXISTS (SELECT 1 FROM merge_common_customers c
+        WHERE (c.customerId = merge_cloud_crm_receipts.customerId OR c.customerCode = merge_cloud_crm_receipts.customerId)
+          AND (c.shortName LIKE :keyword OR c.nameCn LIKE :keyword OR c.name LIKE :keyword OR c.customerCode LIKE :keyword)))`);
     values.keyword = `%${keyword}%`;
   }
   if (month) { conditions.push("arrivalMonth = :month"); values.month = month; }
@@ -947,7 +984,7 @@ export async function listCrmReceipts(params: URLSearchParams) {
        FROM merge_cloud_crm_receipts WHERE ${where}`,
     values,
   );
-  return { items: rows, total: Number(count[0]?.total ?? 0), page, pageSize, currencyTotals: totals, summary: summary ?? {} };
+  return { items: await resolveCrmCustomerNames(rows), total: Number(count[0]?.total ?? 0), page, pageSize, currencyTotals: totals, summary: summary ?? {} };
 }
 
 /** CRM 客户清单（按已同步发票去重），带映射状态，供「客户映射维护」使用。 */
@@ -959,7 +996,7 @@ export async function listCrmCustomerIdentities() {
       ORDER BY invoiceCount DESC, customerSubjectName`,
   );
   const mappings = await loadCrmMappings();
-  return rows.map((row) => {
+  const identities = rows.map((row) => {
     const identity = identityOf({ customerSubjectName: text(row.customerSubjectName), customerShortName: text(row.customerShortName) });
     const mapped = mappings.get(identity.subjectKey) ?? mappings.get(identity.shortKey);
     return {
@@ -975,6 +1012,8 @@ export async function listCrmCustomerIdentities() {
       mappingId: text(mapped?.id),
     };
   });
+  // 映射表里存的客户简称也是当时的快照，这里按客户 ID 取档案当前简称
+  return resolveCrmCustomerNames(identities);
 }
 
 /** 保存/更新 CRM 客户映射（人工维护优先，自动匹配可被覆盖）。 */
@@ -1024,11 +1063,11 @@ export async function searchCrmInvoicesForMatching(params: URLSearchParams) {
   const conditions: string[] = [];
   const values: Row = { limit, preferredCustomerId: customerId };
   if (keyword) {
-    conditions.push("(invoiceNo LIKE :keyword OR customerShortName LIKE :keyword OR customerSubjectName LIKE :keyword OR customerName LIKE :keyword OR productServiceName LIKE :keyword)");
+    conditions.push(`(invoiceNo LIKE :keyword OR customerShortName LIKE :keyword OR customerSubjectName LIKE :keyword OR customerName LIKE :keyword OR productServiceName LIKE :keyword OR ${CRM_LOCAL_CUSTOMER_KEYWORD_SQL})`);
     values.keyword = `%${keyword}%`;
   }
   const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
-  return queryRowsRaw<Row>(
+  const rows = await queryRowsRaw<Row>(
     `SELECT id, crmInvoiceId, invoiceNo, customerShortName, customerSubjectName, customerName,
             customerId AS mappedCustomerId, belongMonth, currency, amountTaxExcluded, taxAmount, amountTaxIncluded,
             invoiceDate, invoiceStatus, targetRowId, rowAttachmentId, attachmentId, backfillStatus
@@ -1037,6 +1076,7 @@ export async function searchCrmInvoicesForMatching(params: URLSearchParams) {
       LIMIT :limit`,
     values,
   );
+  return resolveCrmCustomerNames(rows, "mappedCustomerId");
 }
 
 /**
