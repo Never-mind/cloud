@@ -11,10 +11,11 @@ import { queryRowsRaw, type Row } from "./db";
  *   Cloud/华为云/<客户简称>/<YYYYMM>/
  *   Cloud/公共/<档案类型>/<档案简称>/
  *   Cloud/文档库/<文件夹路径>/
+ *   Cloud/发票/<YYYYMM>/
  * 发票类文件统一加 `Inv_` 前缀；同名文件末尾追附件 ID 避免互相覆盖。
  */
 
-export type StorageSystem = "power" | "po" | "cloud" | "common" | "docs";
+export type StorageSystem = "power" | "po" | "cloud" | "common" | "docs" | "invoice";
 
 export type StorageContext = {
   system: StorageSystem;
@@ -32,6 +33,8 @@ export type StorageContext = {
   partyLabel?: string;
   /** 文档库：文件夹路径 */
   folderPath?: string;
+  /** 发票：票号（单号只用于命名，目录按年月归档） */
+  invoiceNo?: string;
 };
 
 const SYSTEM_FOLDERS: Record<StorageSystem, string> = {
@@ -40,6 +43,7 @@ const SYSTEM_FOLDERS: Record<StorageSystem, string> = {
   cloud: "华为云",
   common: "公共",
   docs: "文档库",
+  invoice: "发票",
 };
 
 const UNSORTED = "未分类";
@@ -84,6 +88,9 @@ export function buildStoragePrefix(context: StorageContext, prefix = resolveObsC
       break;
     case "docs":
       if (context.folderPath) segments.push(...context.folderPath.split("/").filter(Boolean).map((part) => sanitizeStorageSegment(part)));
+      break;
+    case "invoice":
+      segments.push(sanitizeStorageSegment(context.period, "未分账期"));
       break;
   }
   return `${segments.join("/")}/`;

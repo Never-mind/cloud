@@ -33,6 +33,7 @@
     "cleanup:import-jobs": "tsx scripts/cleanup-import-jobs.ts",
     "schema:notifications": "tsx scripts/migrate-notifications.ts",
     "schema:crm-invoices": "tsx scripts/migrate-crm-invoices.ts",
+    "schema:invoices": "tsx scripts/migrate-invoices.ts",
     "schema:obs-storage": "tsx scripts/migrate-obs-storage.ts",
     "storage:migrate-obs": "tsx scripts/migrate-files-to-obs.ts",
     "obs:check": "tsx scripts/check-obs.ts",

@@ -2310,6 +2310,19 @@ const documentManagementItems: EntityConfig[] = [{
   formFields: [],
 }];
 
+const invoiceManagementItems: EntityConfig[] = [{
+  key: "invoices",
+  title: "发票管理",
+  table: "merge_common_invoices",
+  primaryKey: "id",
+  navGroup: "发票管理",
+  route: "/invoices",
+  description: "系统内开票（生成票面）与外部发票登记统一台账，按客户/账期/来源查询。",
+  filters: [],
+  listFields: [],
+  formFields: [],
+}];
+
 const powerChildren: NonNullable<NavGroup["children"]> = [
   { title: "客户需求", items: getEntitiesByKeys(["requests", "request-items", "demand-sync-mappings"]) },
   { title: "采购管理", items: getEntitiesByKeys(["purchase-orders", "purchase-order-items"]) },
@@ -2354,6 +2367,7 @@ export const navGroups: NavGroup[] = [
   },
   { title: "业务伙伴", items: getEntitiesByKeys(["suppliers", "customers", "undertaking-units"]) },
   { title: "用户管理", items: [], children: userManagementChildren },
+  { title: "发票管理", items: invoiceManagementItems },
   { title: "文档管理", items: documentManagementItems },
 ];
 

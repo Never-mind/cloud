@@ -60,6 +60,7 @@ const MODULE_DOMAIN: Record<string, PermissionDefinition["domainKey"]> = {
   "supplier-bank-accounts": "common",
   "undertaking-unit-contacts": "common",
   "undertaking-unit-bank-accounts": "common",
+  invoices: "common",
   "huawei-cloud": "cloud",
   "huawei-cloud-mappings": "cloud",
   "huawei-cloud-supplier-payments": "cloud",
@@ -67,6 +68,7 @@ const MODULE_DOMAIN: Record<string, PermissionDefinition["domainKey"]> = {
 };
 
 const MODULE_GROUP: Record<string, string> = {
+  invoices: "发票管理",
   countries: "基础信息",
   "delivery-locations": "基础信息",
   "delivery-contacts": "基础信息",
@@ -273,7 +275,7 @@ const PERMISSION_GROUP_ORDER: Record<string, string[]> = {
   "domain:cloud": ["华为云对账", "隐藏"],
   "domain:business-partners": ["供应商管理", "客户管理", "承接单位", "隐藏"],
   "domain:user-management": ["消息通知", "功能启用", "账户管理", "隐藏"],
-  "domain:public": ["文档管理", "数据工具", "隐藏"],
+  "domain:public": ["发票管理", "文档管理", "数据工具", "隐藏"],
 };
 
 const PERMISSION_MODULE_ORDER: Record<string, string[]> = {
@@ -302,6 +304,7 @@ const PERMISSION_MODULE_ORDER: Record<string, string[]> = {
   "domain:user-management:功能启用": ["system-module-features"],
   "domain:user-management:账户管理": ["system-users"],
   "domain:user-management:消息通知": ["notification-rules"],
+  "domain:public:发票管理": ["invoices"],
   "domain:public:文档管理": ["documents"],
   "domain:public:数据工具": ["data-imports"],
 };
@@ -319,6 +322,7 @@ const API_ROUTE_RULES: RoutePermissionRule[] = [
   { prefix: "/api/system/module-features", moduleKey: "system-module-features" },
   { prefix: "/api/notifications", moduleKey: "notification-rules" },
   { prefix: "/api/documents", moduleKey: "documents" },
+  { prefix: "/api/invoices", moduleKey: "invoices" },
   { prefix: "/api/import-center", moduleKey: "data-imports" },
   { prefix: "/api/cloud/mappings", moduleKey: "huawei-cloud-mappings" },
   { prefix: "/api/cloud/supplier-payments", moduleKey: "huawei-cloud-supplier-payments" },

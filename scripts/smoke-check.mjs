@@ -60,6 +60,8 @@ const LIST_TARGETS = [
   ["文档库目录", "/api/documents/tree"],
   ["文档库列表", "/api/documents/items?folderId=ROOT"],
   ["云盘目录", "/api/documents/cloud-drive"],
+  ["发票台账", "/api/invoices?page=1&pageSize=5"],
+  ["发票开票预填", "/api/invoices/prefill?sourceType=manual"],
 ];
 
 const FILTER_FIELDS = ["customerName", "supplierName", "undertakingUnitName", "contractingUnitName", "status"];
