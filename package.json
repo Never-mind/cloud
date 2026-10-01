@@ -37,6 +37,7 @@
     "storage:migrate-obs": "tsx scripts/migrate-files-to-obs.ts",
     "obs:check": "tsx scripts/check-obs.ts",
     "audit:data": "node scripts/audit-data-quality.mjs",
+    "smoke:check": "node scripts/smoke-check.mjs",
     "notify:run": "tsx scripts/run-notifications.ts",
     "sync:crm-invoices": "tsx scripts/sync-crm-invoices.ts",
     "sync:cloud-supplier-payments": "tsx scripts/sync-cloud-supplier-payments.ts",

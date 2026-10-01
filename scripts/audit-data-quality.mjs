@@ -74,4 +74,32 @@ const crm = await q(`SELECT 'invoice' AS kind, COUNT(*) AS total,
   UNION ALL SELECT 'receipt', COUNT(*), SUM(backfillStatus = 'backfilled'), SUM(backfillStatus = 'unmatched'), SUM(backfillStatus = 'mismatch') FROM merge_cloud_crm_receipts`);
 console.table(crm);
 
+console.log("== 项目结算：状态与时间字段是否自洽（验收完成/已完结 应有对应时间）");
+const settlementStates = await q(`
+  SELECT status, COUNT(*) AS total,
+         SUM(acceptanceCompletedAt IS NULL) AS missingAcceptanceCompletedAt,
+         SUM(closedAt IS NULL) AS missingClosedAt
+    FROM merge_po_settlement_projects GROUP BY status ORDER BY total DESC`);
+console.table(settlementStates);
+
+console.log("== 月账单对账单：明细完整性（对账单明细按 snapshotNo 关联）");
+const billingCoverage = await q(`
+  SELECT COUNT(*) AS confirmedStatements,
+         SUM(itemCount = 0) AS withoutItems,
+         SUM(itemAmount = 0) AS zeroAmount
+    FROM (
+      SELECT s.snapshotNo, COUNT(i.id) AS itemCount, COALESCE(SUM(i.amount), 0) AS itemAmount
+        FROM merge_power_billingstatementsnapshots s
+        LEFT JOIN merge_power_billingstatementsnapshotitems i ON i.snapshotNo = s.snapshotNo
+       WHERE s.status = '已确认'
+       GROUP BY s.snapshotNo
+    ) t`);
+console.table(billingCoverage);
+
+console.log("== 月账单核销明细来源分布");
+const writeOffSources = await q(`
+  SELECT COALESCE(NULLIF(sourceType, ''), '(空)') AS sourceType, COUNT(*) AS rowsCount
+    FROM merge_power_monthlybillingwriteoffs GROUP BY sourceType ORDER BY rowsCount DESC`);
+console.table(writeOffSources);
+
 await conn.end();
