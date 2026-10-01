@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { RefreshCw, Save, UserPlus } from "lucide-react";
+import { Link2, RefreshCw, Save, Send, UserPlus } from "lucide-react";
 import { Button, Input, Panel, Select } from "./ui";
+import { Modal } from "./modal";
 
 type Permission = {
   moduleKey: string;
@@ -62,6 +63,13 @@ export function UsersPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [bindOpenId, setBindOpenId] = useState("");
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkText, setBulkText] = useState("");
+  const [bulkMoveExisting, setBulkMoveExisting] = useState(false);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkResult, setBulkResult] = useState<{ total: number; succeeded: number; failed: number; results: Array<{ line: string; email: string; ok: boolean; message: string }> } | null>(null);
+  const [testingUserId, setTestingUserId] = useState("");
+  const unboundCount = users.filter((user) => !user.feishuBound).length;
 
   async function load() {
     setLoading(true);
@@ -171,6 +179,44 @@ export function UsersPage() {
     }
   }
 
+  /** 批量绑定：管理员一次粘贴多行「邮箱=open_id」。 */
+  async function bulkBindFeishu() {
+    if (!bulkText.trim()) return;
+    setBulkBusy(true);
+    setBulkResult(null);
+    try {
+      const response = await fetch("/api/system/users/feishu-binding/bulk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: bulkText, moveExisting: bulkMoveExisting }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error ?? "批量绑定失败");
+      setBulkResult(data);
+      await load();
+    } catch (bulkError) {
+      setError(bulkError instanceof Error ? bulkError.message : "批量绑定失败");
+    } finally {
+      setBulkBusy(false);
+    }
+  }
+
+  /** 给已绑定飞书的账号发一条测试消息，验证通知链路是否真的通。 */
+  async function sendTestMessage(user: ManagedUser) {
+    setTestingUserId(user.userId);
+    try {
+      const response = await fetch(`/api/system/users/${encodeURIComponent(user.userId)}/feishu-binding/test`, { method: "POST" });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error ?? "发送失败");
+      setError("");
+      alert(`已给 ${user.displayName || user.email} 发送飞书测试消息，请到飞书确认是否收到。`);
+    } catch (sendError) {
+      setError(sendError instanceof Error ? sendError.message : "发送失败");
+    } finally {
+      setTestingUserId("");
+    }
+  }
+
   function togglePermission(moduleKey: string, key: keyof Omit<Permission, "moduleKey">) {
     if (!selected) return;
     const targetKeys = new Set([moduleKey]);
@@ -194,7 +240,11 @@ export function UsersPage() {
     <Panel>
       <div className="flex items-center justify-between border-b border-line-soft p-4">
         <div><h1 className="font-medium text-ink">用户与权限</h1><p className="mt-1 text-sm text-ink-3">管理员可以管理账号状态、密码和系统权限。</p></div>
-        <Button onClick={() => void load()}><RefreshCw size={15} />刷新</Button>
+        <div className="flex flex-wrap items-center gap-2">
+          {unboundCount ? <span className="rounded bg-warning-soft px-2 py-1 text-xs text-warning">{unboundCount} 个账号未绑飞书，收不到飞书通知</span> : null}
+          <Button onClick={() => { setBulkOpen(true); setBulkResult(null); }}><Link2 size={15} />批量绑定飞书</Button>
+          <Button onClick={() => void load()}><RefreshCw size={15} />刷新</Button>
+        </div>
       </div>
       {error ? <div className="border-b border-danger-border bg-danger-soft px-4 py-3 text-sm text-danger">{error}</div> : null}
       <div className="grid min-w-0 gap-5 p-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
@@ -208,9 +258,52 @@ export function UsersPage() {
           </div>
         </div>
         <div className="min-w-0 border border-line-soft p-4">
-          {selected ? <><div className="mb-3 flex items-center justify-between"><div className="font-medium">编辑用户</div><div className="flex items-center gap-2">{selected.feishuBound ? <Button disabled={saving} onClick={() => void unbindFeishu(selected)} tone="warning">解绑飞书</Button> : null}<Button disabled={saving} onClick={() => void saveUser()} tone="primary"><Save size={15} />保存</Button></div></div><div className="grid gap-3 sm:grid-cols-2"><Input value={form.displayName} onChange={(event) => setForm({ ...form, displayName: event.target.value })} placeholder="用户名称" /><Input value={form.email} disabled placeholder="账号" /><Input value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} placeholder="留空表示不修改密码" type="password" /><Select aria-label="用户角色" value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value as ManagedUser["role"] })}><option value="user">普通用户</option><option value="admin">管理员</option></Select><Select aria-label="用户登录方式" value={form.loginType} onChange={(event) => setForm({ ...form, loginType: event.target.value as ManagedUser["loginType"] })}><option value="feishu">仅飞书</option><option value="both">飞书 + 密码</option><option value="local">仅邮箱密码</option></Select><Select aria-label="用户状态" value={selected.status} onChange={(event) => setSelected({ ...selected, status: event.target.value as ManagedUser["status"] })}><option value="active">启用</option><option value="disabled">停用</option></Select></div>{!selected.feishuBound ? <div className="mt-3 flex flex-wrap items-end gap-2 rounded border border-line-soft bg-surface-2 p-3"><label className="min-w-0 flex-1"><span className="mb-1 block text-xs text-ink-3">飞书 open_id（成员登录报错里会显示，或从飞书管理后台复制；没有企业邮箱的成员用这里手工绑定）</span><Input className="w-full" placeholder="ou_xxxxxxxxxxxxxxxx" value={bindOpenId} onChange={(event) => setBindOpenId(event.target.value)} /></label><Button disabled={saving || !bindOpenId.trim()} onClick={() => void bindFeishu(selected)} tone="primary">绑定飞书</Button></div> : null}<div className="mt-5 overflow-auto"><table className="min-w-[760px] w-full text-sm"><thead className="bg-canvas"><tr><th className="whitespace-nowrap px-3 py-3 text-left font-medium">目录/功能</th>{permissionKeys.map(([, label]) => <th className="whitespace-nowrap px-2 py-3 text-center font-medium" key={label}>{label}</th>)}</tr></thead><tbody>{selected.permissions.map((permission) => <tr key={permission.moduleKey}><td className="border-b border-line-soft px-3 py-2" style={{ paddingLeft: `${12 + Math.max(0, (permission.level ?? 3) - 1) * 20}px` }}><span className={permission.kind !== "module" ? "font-medium" : ""}>{permission.title ?? permission.moduleKey}</span></td>{permissionKeys.map(([key, label]) => <td className="border-b border-line-soft px-2 py-2 text-center" key={label}><input aria-label={`${permission.moduleKey}-${label}`} checked={permission[key]} onChange={() => togglePermission(permission.moduleKey, key)} type="checkbox" /></td>)}</tr>)}</tbody></table></div></> : <div className="py-12 text-center text-sm text-ink-3">请选择用户</div>}
+          {selected ? <><div className="mb-3 flex items-center justify-between"><div className="font-medium">编辑用户</div><div className="flex items-center gap-2">{selected.feishuBound ? <Button disabled={saving || testingUserId === selected.userId} onClick={() => void sendTestMessage(selected)}><Send size={15} />{testingUserId === selected.userId ? "发送中…" : "发测试消息"}</Button> : null}{selected.feishuBound ? <Button disabled={saving} onClick={() => void unbindFeishu(selected)} tone="warning">解绑飞书</Button> : null}<Button disabled={saving} onClick={() => void saveUser()} tone="primary"><Save size={15} />保存</Button></div></div><div className="grid gap-3 sm:grid-cols-2"><Input value={form.displayName} onChange={(event) => setForm({ ...form, displayName: event.target.value })} placeholder="用户名称" /><Input value={form.email} disabled placeholder="账号" /><Input value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} placeholder="留空表示不修改密码" type="password" /><Select aria-label="用户角色" value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value as ManagedUser["role"] })}><option value="user">普通用户</option><option value="admin">管理员</option></Select><Select aria-label="用户登录方式" value={form.loginType} onChange={(event) => setForm({ ...form, loginType: event.target.value as ManagedUser["loginType"] })}><option value="feishu">仅飞书</option><option value="both">飞书 + 密码</option><option value="local">仅邮箱密码</option></Select><Select aria-label="用户状态" value={selected.status} onChange={(event) => setSelected({ ...selected, status: event.target.value as ManagedUser["status"] })}><option value="active">启用</option><option value="disabled">停用</option></Select></div>{!selected.feishuBound ? <div className="mt-3 flex flex-wrap items-end gap-2 rounded border border-line-soft bg-surface-2 p-3"><label className="min-w-0 flex-1"><span className="mb-1 block text-xs text-ink-3">飞书 open_id（成员登录报错里会显示，或从飞书管理后台复制；没有企业邮箱的成员用这里手工绑定）</span><Input className="w-full" placeholder="ou_xxxxxxxxxxxxxxxx" value={bindOpenId} onChange={(event) => setBindOpenId(event.target.value)} /></label><Button disabled={saving || !bindOpenId.trim()} onClick={() => void bindFeishu(selected)} tone="primary">绑定飞书</Button></div> : null}<div className="mt-5 overflow-auto"><table className="min-w-[760px] w-full text-sm"><thead className="bg-canvas"><tr><th className="whitespace-nowrap px-3 py-3 text-left font-medium">目录/功能</th>{permissionKeys.map(([, label]) => <th className="whitespace-nowrap px-2 py-3 text-center font-medium" key={label}>{label}</th>)}</tr></thead><tbody>{selected.permissions.map((permission) => <tr key={permission.moduleKey}><td className="border-b border-line-soft px-3 py-2" style={{ paddingLeft: `${12 + Math.max(0, (permission.level ?? 3) - 1) * 20}px` }}><span className={permission.kind !== "module" ? "font-medium" : ""}>{permission.title ?? permission.moduleKey}</span></td>{permissionKeys.map(([key, label]) => <td className="border-b border-line-soft px-2 py-2 text-center" key={label}><input aria-label={`${permission.moduleKey}-${label}`} checked={permission[key]} onChange={() => togglePermission(permission.moduleKey, key)} type="checkbox" /></td>)}</tr>)}</tbody></table></div></> : <div className="py-12 text-center text-sm text-ink-3">请选择用户</div>}
         </div>
       </div>
+      {bulkOpen ? (
+        <Modal
+          description="每行一条，格式：邮箱=飞书open_id（空格或逗号分隔也可以，末尾可再跟一个姓名）。成员登录报错里会显示自己的 open_id，也可以从飞书管理后台复制。"
+          footer={<><Button onClick={() => setBulkOpen(false)}>关闭</Button><Button disabled={bulkBusy || !bulkText.trim()} onClick={() => void bulkBindFeishu()} tone="primary">开始绑定</Button></>}
+          onClose={() => setBulkOpen(false)}
+          title="批量绑定飞书账号"
+          widthClass="max-w-2xl"
+        >
+          <textarea
+            className="min-h-[160px] w-full rounded border border-line px-3 py-2 font-mono text-xs outline-none focus:border-primary"
+            onChange={(event) => setBulkText(event.target.value)}
+            placeholder={"neo@luzcorp.com=ou_d8c39dd595e9e3e424382432dc41432b 翁耿旭Neo\nlisi@luzcorp.com, ou_abcdef1234567890 李四"}
+            value={bulkText}
+          />
+          <label className="mt-2 flex items-center gap-2 text-xs text-ink-2">
+            <input checked={bulkMoveExisting} onChange={(event) => setBulkMoveExisting(event.target.checked)} type="checkbox" />
+            如果该飞书账号已绑在别的账号上（例如首次飞书登录自动建的 <span className="font-mono">ou_xxx@feishu.local</span>），改为「迁移绑定」到这里的邮箱账号
+          </label>
+          {bulkResult ? (
+            <div className="mt-3 max-h-[40vh] overflow-auto rounded border border-line-soft">
+              <table className="w-full border-collapse text-xs">
+                <thead className="bg-canvas">
+                  <tr>
+                    <th className="border-b border-r border-line-soft px-3 py-2 text-left font-medium">输入</th>
+                    <th className="border-b border-r border-line-soft px-3 py-2 text-left font-medium">结果</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {bulkResult.results.map((item, index) => (
+                    <tr key={`${item.line}-${index}`}>
+                      <td className="border-b border-r border-line-soft px-3 py-2 font-mono">{item.line}</td>
+                      <td className={`border-b border-line-soft px-3 py-2 ${item.ok ? "text-success" : "text-danger"}`}>{item.ok ? "✔ " : "✘ "}{item.message}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <div className="border-t border-line-soft bg-surface-2 px-3 py-2 text-xs text-ink-2">
+                共 {bulkResult.total} 条：成功 {bulkResult.succeeded}、失败 {bulkResult.failed}
+              </div>
+            </div>
+          ) : null}
+        </Modal>
+      ) : null}
     </Panel>
   );
 }
