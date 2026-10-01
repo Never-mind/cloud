@@ -96,9 +96,80 @@ export function physicalTableName(tableName: string) {
 }
 
 export function rewriteSqlTables(sql: string) {
-  return sql
+  let output = "";
+  let cursor = 0;
+  let index = 0;
+  while (index < sql.length) {
+    const stop = quotedOrCommentEnd(sql, index);
+    if (stop === -1) {
+      index += 1;
+      continue;
+    }
+    // 只有"代码区"才做表名改写；引号内是数据（例如 ownerType = 'customers'），
+    // 注释与命名占位符（:ownerId）同样不能碰，否则会被误改成物理表名。
+    output += rewriteCodeSegment(sql.slice(cursor, index)) + sql.slice(index, stop);
+    cursor = stop;
+    index = stop;
+  }
+  return output + rewriteCodeSegment(sql.slice(cursor));
+}
+
+function rewriteCodeSegment(segment: string) {
+  return segment
     .replace(LEGACY_TABLE_PATTERN, (tableName) => physicalTableName(tableName))
     .replace(tablePattern, (tableName) => physicalTableName(tableName));
+}
+
+/**
+ * 返回不参与表名改写的片段结束位置；当前字符不是这类片段时返回 -1。
+ * 覆盖：单/双引号字符串、`--` 与 `#` 行注释、`/* *\/` 块注释、`:name` 命名占位符。
+ * 反引号是标识符引用，仍按代码处理，这样 `` `customers` `` 能正常改写成物理表名。
+ */
+function quotedOrCommentEnd(sql: string, index: number) {
+  const char = sql[index];
+  if (char === "'" || char === '"') {
+    return quotedLiteralEnd(sql, index);
+  }
+  if (char === ":" && /[A-Za-z_]/.test(sql[index + 1] ?? "")) {
+    let end = index + 1;
+    while (end < sql.length && /[A-Za-z0-9_]/.test(sql[end])) end += 1;
+    return end;
+  }
+  if (char === "#") {
+    const newline = sql.indexOf("\n", index);
+    return newline === -1 ? sql.length : newline;
+  }
+  if (char === "-" && sql[index + 1] === "-" && /\s/.test(sql[index + 2] ?? " ")) {
+    const newline = sql.indexOf("\n", index);
+    return newline === -1 ? sql.length : newline;
+  }
+  if (char === "/" && sql[index + 1] === "*") {
+    const close = sql.indexOf("*/", index + 2);
+    return close === -1 ? sql.length : close + 2;
+  }
+  return -1;
+}
+
+function quotedLiteralEnd(sql: string, start: number) {
+  const quote = sql[start];
+  let index = start + 1;
+  while (index < sql.length) {
+    const char = sql[index];
+    // MySQL 里 \' 与 '' 都表示字面量里的引号本身，两种都要跳过。
+    if (char === "\\") {
+      index += 2;
+      continue;
+    }
+    if (char === quote) {
+      if (sql[index + 1] === quote) {
+        index += 2;
+        continue;
+      }
+      return index + 1;
+    }
+    index += 1;
+  }
+  return sql.length;
 }
 
 export function buildDbConfig(env: Partial<NodeJS.ProcessEnv>) {

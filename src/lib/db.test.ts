@@ -50,4 +50,26 @@ describe("database pool configuration", () => {
       "SELECT * FROM merge_po_product_masters p JOIN merge_common_customers c ON c.customerId = p.id",
     );
   });
+
+  it("keeps string literals that happen to equal logical table names untouched", () => {
+    // 回归：ownerType 的取值恰好叫 customers/suppliers，早先会被误改写成物理表名，
+    // 于是业务伙伴附件在云盘目录里静默消失（查询恒为空）。
+    const sql = "SELECT * FROM merge_common_attachments WHERE ownerType IN ('customers','suppliers','undertaking-units')";
+    expect(rewriteSqlTables(sql)).toBe(sql);
+    expect(rewriteSqlTables("SELECT * FROM customers WHERE ownerType = 'requests'")).toBe(
+      "SELECT * FROM merge_power_customers WHERE ownerType = 'requests'",
+    );
+  });
+
+  it("keeps named placeholders, comments, and escaped quotes untouched", () => {
+    expect(rewriteSqlTables("SELECT status FROM requests WHERE requestNo = :requestNo LIMIT 1")).toBe(
+      "SELECT status FROM merge_power_requests WHERE requestNo = :requestNo LIMIT 1",
+    );
+    expect(rewriteSqlTables("SELECT * FROM suppliers -- suppliers is a literal here\nWHERE note = 'it''s customers'")).toBe(
+      "SELECT * FROM merge_power_suppliers -- suppliers is a literal here\nWHERE note = 'it''s customers'",
+    );
+    expect(rewriteSqlTables("SELECT * FROM requests /* shipments */ WHERE note = 'requests'")).toBe(
+      "SELECT * FROM merge_power_requests /* shipments */ WHERE note = 'requests'",
+    );
+  });
 });

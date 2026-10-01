@@ -23,6 +23,7 @@ import { confirmDialog, notify } from "./app-dialog";
 import { formatDisplayValue } from "@/lib/display-format";
 import { LoadingBlock } from "./table-state";
 import { PaginationBar } from "./pagination-bar";
+import { CloudDrivePanel } from "./cloud-drive-panel";
 
 type DocumentFolder = {
   folderId: string;
@@ -46,6 +47,7 @@ type ContextTarget = { type: "folder"; item: DocumentFolder } | { type: "file"; 
 const ROOT_ID = "ROOT";
 
 export function DocumentManagerPage() {
+  const [view, setView] = useState<"library" | "drive">("library");
   const [folderId, setFolderId] = useState(ROOT_ID);
   const [folders, setFolders] = useState<DocumentFolder[]>([]);
   const [files, setFiles] = useState<DocumentFile[]>([]);
@@ -220,6 +222,24 @@ export function DocumentManagerPage() {
 
   return (
     <div className="space-y-4">
+      <div className="flex items-center gap-1 rounded border border-line-soft bg-white p-1">
+        <button
+          className={`h-8 rounded px-3 text-sm ${view === "library" ? "bg-primary text-white" : "text-ink-2 hover:bg-canvas"}`}
+          onClick={() => setView("library")}
+          type="button"
+        >
+          文档库
+        </button>
+        <button
+          className={`h-8 rounded px-3 text-sm ${view === "drive" ? "bg-primary text-white" : "text-ink-2 hover:bg-canvas"}`}
+          onClick={() => setView("drive")}
+          type="button"
+        >
+          云盘目录
+        </button>
+        <span className="ml-2 text-xs text-ink-3">云盘目录按统一规则汇总算力、集采、华为云与文档库的附件（含还在数据库里的）</span>
+      </div>
+      {view === "drive" ? <CloudDrivePanel /> : (
       <Panel>
         <div className="flex flex-wrap items-center gap-2 border-b border-line-soft px-4 py-3">
           <Button disabled={historyIndex <= 0} onClick={goBack} title="后退" type="button">
@@ -330,6 +350,7 @@ export function DocumentManagerPage() {
           </section>
         </div>
       </Panel>
+      )}
       {contextMenu ? (
         <ContextMenu
           onCreateFolder={() => contextMenu.target.type === "folder" && createFolder(contextMenu.target.item.folderId)}
