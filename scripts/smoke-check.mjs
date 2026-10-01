@@ -59,6 +59,7 @@ const LIST_TARGETS = [
   ["物料同步状态", "/api/integrations/material-sync"],
   ["文档库目录", "/api/documents/tree"],
   ["文档库列表", "/api/documents/items?folderId=ROOT"],
+  ["云盘目录", "/api/documents/cloud-drive"],
 ];
 
 const FILTER_FIELDS = ["customerName", "supplierName", "undertakingUnitName", "contractingUnitName", "status"];
@@ -90,6 +91,26 @@ for (const entity of FILTER_ENTITIES) {
   for (const field of FILTER_FIELDS) { checked += 1; await check(`${entity}.${field} 筛选`, `/api/entities/${entity}/filter-options?field=${field}`); }
 }
 for (const [label, path] of EXPORT_TARGETS) { checked += 1; await check(label, path); }
+
+// 云盘目录的下载链接按来源各验一条：历史上出现过拼错主键、地址少一段导致 404 的问题，
+// 这类错误不会让接口报错，只会让用户点下载时失败，所以单独做一条常驻回归。
+try {
+  const drive = await (await fetch(`${base}/api/documents/cloud-drive`, { headers })).json();
+  const bySource = new Map();
+  for (const file of drive.files ?? []) if (!bySource.has(file.source)) bySource.set(file.source, file);
+  for (const [source, file] of bySource) {
+    checked += 1;
+    if (/undefined|null/.test(String(file.downloadHref))) {
+      failures.push(`✘ 云盘下载链接(${source}) 含无效 ID ${file.downloadHref}`);
+      continue;
+    }
+    const response = await fetch(`${base}${file.downloadHref}`, { headers });
+    if (!response.ok) failures.push(`✘ 云盘下载(${source}) ${response.status} ${file.downloadHref}`);
+  }
+  if (!bySource.size) console.log("提示：云盘目录当前没有文件，下载链接校验已跳过。");
+} catch (error) {
+  failures.push(`✘ 云盘目录校验失败 ${error instanceof Error ? error.message : error}`);
+}
 
 console.log(failures.length ? failures.join("\n") : "✔ 全部通过");
 console.log(`\n共检查 ${checked} 个入口，异常 ${failures.length} 个（${base}）`);

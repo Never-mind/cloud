@@ -98,10 +98,12 @@ export async function listCloudDrive(options: { keyword?: string; prefix?: strin
     const moduleKey = COMMON_OWNER_MODULE[ownerType];
     if (!moduleKey || !canView(moduleKey)) continue;
     const ownerId = String(row.ownerId ?? "");
+    // 这张表的主键列名是 attachmentId（不是 id），早期版本用 row.id 会拼出缺一段的下载地址。
+    const attachmentId = String(row.attachmentId ?? row.id ?? "");
     const context = await resolveCommonAttachmentContext(ownerType, ownerId);
     const prefix = buildStoragePrefix(context);
     push({
-      key: `common:${row.id}`,
+      key: `common:${attachmentId}`,
       fileName: String(row.fileName ?? ""),
       fileSize: Number(row.fileSize ?? 0),
       uploadedByName: String(row.uploadedByName ?? row.uploadedByUserId ?? "-"),
@@ -115,7 +117,7 @@ export async function listCloudDrive(options: { keyword?: string; prefix?: strin
       // 关联单据列显示具体档案名（如 客户/滴滴），比只写"客户档案"更有信息量。
       ownerLabel: String(context.partyLabel ?? "") || COMMON_OWNER_LABEL[ownerType] || "",
       jumpHref: `/${ownerType}/${encodeURIComponent(ownerId)}`,
-      downloadHref: `/api/common/attachments/${encodeURIComponent(ownerType)}/${encodeURIComponent(ownerId)}/${encodeURIComponent(String(row.id))}`,
+      downloadHref: `/api/common/attachments/${encodeURIComponent(ownerType)}/${encodeURIComponent(ownerId)}/${encodeURIComponent(attachmentId)}`,
     });
   }
 
