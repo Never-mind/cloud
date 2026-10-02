@@ -259,6 +259,14 @@ export function renderInvoice(input: InvoiceRenderInput, options: { template?: I
   const sgd = template === "sgd";
   let tplHtml = loadInvoiceTemplate(template);
 
+  /**
+   * 没有签章图时，模板里的 `<img src='${auth_img}'>` 会渲染成"破图"占位（浏览器显示破图图标），
+   * 所以这里把整个 img 标签摘掉，票面留空即可。
+   */
+  if (!String(input.authImg ?? "").trim()) {
+    tplHtml = tplHtml.replace(/<img[^>]*src='\$\{auth_img\}'[^>]*>/i, "");
+  }
+
   // 与 BI 一致：先算出所有派生字段，再一次性替换占位符。
   const infodata: Record<string, unknown> = {
     num: input.invoiceNo,

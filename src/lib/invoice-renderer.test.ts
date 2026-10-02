@@ -20,7 +20,10 @@ const BASELINE_DIR = join(process.cwd(), "src", "lib", "invoice-templates");
 function biBaseline(file: string) {
   return readFileSync(join(BASELINE_DIR, file), "utf8")
     .split("INV No.CI-WZ_DEMO-202609-0001")
-    .join("INV No.DEMO-202609-0001");
+    .join("INV No.DEMO-202609-0001")
+    // 第二处有意差异：BI 在没签章图时会输出 `src=''` 的破图占位，我们整段去掉，
+    // 所以比对前也从基线里摘掉这一段。
+    .replace(/<img[^>]*src=''[^>]*>/i, "");
 }
 
 /** BI 示例入参 → 我们的渲染入参（字段一一对应，不改变语义）。 */
@@ -72,6 +75,15 @@ function demoInput(kind: "normal" | "sgd"): InvoiceRenderInput {
 describe("invoice renderer", () => {
   it("普通模板的渲染结果与 BI 原始输出一致（仅票号前缀按我们的规则）", () => {
     expect(renderInvoice(demoInput("normal"))).toBe(biBaseline("bi-baseline.html"));
+  });
+
+  it("没有签章图时不输出 img 标签（避免票面上出现破图占位）", () => {
+    const withoutSeal = renderInvoice(demoInput("normal"));
+    expect(withoutSeal).not.toContain("${auth_img}");
+    expect(withoutSeal).not.toMatch(/<img[^>]*src=''/);
+    expect(withoutSeal).not.toContain("<img");
+    const withSeal = renderInvoice({ ...demoInput("normal"), authImg: "data:image/png;base64,iVBORw0KGgo=" });
+    expect(withSeal).toContain("data:image/png;base64,iVBORw0KGgo=");
   });
 
   it("双币模板的渲染结果与 BI 原始输出一致", () => {
