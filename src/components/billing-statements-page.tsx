@@ -12,6 +12,7 @@ import { StickyTable } from "./sticky-table";
 import { TableColumnMenu, type TableFilterOption, type TableSortOrder } from "./table-column-menu";
 import { WorkspaceNavigationDialog } from "./workspace-navigation-dialog";
 import { EmptyState, TableStateContent } from "./table-state";
+import { InvoiceDraftModal, type InvoiceDraftMode } from "./invoice-draft-modal";
 
 type Row = Record<string, string | number | boolean | null>;
 type SnapshotListResponse = { rows: Row[]; total: number; page: number; pageSize: number; totalPages: number };
@@ -26,6 +27,10 @@ const snapshotColumns: Array<{ key: string; label: string; type?: string }> = [
   { key: "totalQuantity", label: "总数量", type: "number" },
   { key: "totalAmount", label: "总金额", type: "number" },
   { key: "itemCount", label: "明细数量", type: "number" },
+  { key: "invoiceNo", label: "发票号" },
+  { key: "invoiceTotalAmount", label: "开票含税金额", type: "number" },
+  { key: "invoiceDate", label: "开票日期", type: "date" },
+  { key: "invoiceStatus", label: "开票状态" },
   { key: "createdAt", label: "创建时间", type: "datetime" },
   { key: "updatedAt", label: "更新时间", type: "datetime" },
   { key: "confirmedAt", label: "确认时间", type: "datetime" },
@@ -59,6 +64,8 @@ export function BillingStatementsPage() {
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [total, setTotal] = useState(0);
   const [navigationPrompt, setNavigationPrompt] = useState<{ route: string; detail: string } | null>(null);
+  /** 开票弹层：sourceId 是对账单号（月账单对账单没有行 ID）。 */
+  const [invoiceModal, setInvoiceModal] = useState<{ mode: InvoiceDraftMode; sourceId: string } | null>(null);
   const [sortField, setSortField] = useState("");
   const [sortOrder, setSortOrder] = useState<TableSortOrder>("");
   const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({});
@@ -322,11 +329,36 @@ export function BillingStatementsPage() {
                           >
                             {snapshot}
                           </button>
+                        ) : column.key === "invoiceStatus" ? (
+                          <span className={`rounded px-1.5 py-0.5 text-xs ${row.invoiceStatus === "issued" ? "bg-success-soft text-success" : "bg-canvas text-ink-3"}`}>
+                            {row.invoiceStatus === "issued" ? "已开票" : row.invoiceStatus === "not_issued" ? "未开票" : "-"}
+                          </span>
                         ) : formatValue(row[column.key], column.type)}
                       </td>
                     ))}
                     <td className="sticky right-0 whitespace-nowrap border-b border-line-soft bg-white px-3 py-3">
                       <div className="flex items-center gap-2">
+                        <button
+                          className="inline-flex h-8 items-center rounded border border-warning-deep bg-white px-2.5 text-xs text-warning-ink hover:bg-warning-soft"
+                          onClick={() => setInvoiceModal({ mode: "generated", sourceId: snapshot })}
+                          title="按本对账单生成票面并标记已开票"
+                          type="button"
+                        >
+                          开票
+                        </button>
+                        <button
+                          className="inline-flex h-8 items-center rounded border border-line bg-white px-2.5 text-xs text-ink-2 hover:border-primary hover:text-primary"
+                          onClick={() => setInvoiceModal({ mode: "external", sourceId: snapshot })}
+                          title="外部已开好票：上传文件并登记"
+                          type="button"
+                        >
+                          上传发票
+                        </button>
+                        {row.invoiceId ? (
+                          <a className="inline-flex h-8 items-center rounded border border-line bg-white px-2.5 text-xs text-primary hover:border-primary" href={`/api/invoices/${encodeURIComponent(String(row.invoiceId))}/file`}>
+                            查看票面
+                          </a>
+                        ) : null}
                         {!confirmed ? <Button tone="success" onClick={() => void changeSnapshot(snapshot, "confirm")}><CheckCircle2 size={15} />确认</Button> : null}
                         {!confirmed ? <Button tone="danger" onClick={() => void changeSnapshot(snapshot, "delete")}><Trash2 size={15} />删除</Button> : null}
                         <a href={`/api/billing-statements/${encodeURIComponent(snapshot)}/export`}>
@@ -381,6 +413,14 @@ export function BillingStatementsPage() {
           }}
         />
       ) : null}
+      <InvoiceDraftModal
+        mode={invoiceModal?.mode ?? "generated"}
+        onClose={() => setInvoiceModal(null)}
+        onSaved={() => { void loadSnapshots(page, pageSizeRef.current); }}
+        open={Boolean(invoiceModal)}
+        sourceId={invoiceModal?.sourceId ?? ""}
+        sourceType="billing_statement"
+      />
     </div>
   );
 }

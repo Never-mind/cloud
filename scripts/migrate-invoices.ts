@@ -157,6 +157,10 @@ async function main() {
   await addColumnIfMissing("merge_power_billingstatementsnapshots", "invoiceDate", "`invoiceDate` DATE NULL COMMENT '开票日期'");
   await addColumnIfMissing("merge_power_billingstatementsnapshots", "invoiceStatus", "`invoiceStatus` VARCHAR(16) NULL COMMENT '开票状态：issued / not_issued'");
 
+  // 开票时会把票面同时挂到来源单据的开票附件位（华为云对账行的「客户开票附件」），
+  // 这里记录挂上去的那条附件 ID，作废时据此摘掉，避免残留一张作废票的附件。
+  await addColumnIfMissing("merge_common_invoices", "sourceAttachmentId", "`sourceAttachmentId` VARCHAR(64) NULL COMMENT '挂到来源单据开票附件位上的附件ID'");
+
   await grantInvoicePermissionToExistingUsers();
 
   console.log("开票表结构已就绪");

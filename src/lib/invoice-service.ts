@@ -374,7 +374,7 @@ export async function buildInvoicePrefill(params: { sourceType: InvoiceSourceTyp
     const row = rows[0];
     if (row) {
       const country = await queryRowsRaw<Row>(
-        `SELECT undertakingUnitId FROM merge_power_countries WHERE code = :code LIMIT 1`,
+        `SELECT defaultUndertakingUnitId, defaultCustomerId FROM merge_power_countries WHERE code = :code LIMIT 1`,
         { code: text(row.countryCode) },
       ).catch(() => [] as Row[]);
       const currency = text(row.invoiceCurrency) || (text(row.currencySummary).split(":")[0] || "USD");
@@ -383,7 +383,9 @@ export async function buildInvoicePrefill(params: { sourceType: InvoiceSourceTyp
         sourceId,
         sourceNo: text(row.snapshotNo),
         period: periodOf(isoDate(row.endDate)) || periodOf(isoDate(row.startDate)),
-        undertakingUnitId: text(country[0]?.undertakingUnitId),
+        // 对账单是按国家出的（可能覆盖多个客户），所以默认取国家的默认承接单位/客户，客户仍可在弹层里改
+        undertakingUnitId: text(country[0]?.defaultUndertakingUnitId),
+        customerId: text(country[0]?.defaultCustomerId),
         currency,
         amountExcludingTax: decimalString(row.invoiceNetAmount),
         taxRate: text(row.invoiceTaxRate),
@@ -693,7 +695,76 @@ export async function saveInvoice(input: InvoiceDraftInput, actor: InvoiceActor 
   }
 
   await backfillSource({ id, sourceType: text(input.sourceType), sourceId: text(input.sourceId), resolved, source });
+  await attachInvoiceFileToSource({
+    invoiceId: id,
+    sourceType: text(input.sourceType),
+    sourceId: text(input.sourceId),
+    actor,
+    fileName: stored.fileName,
+    fileType,
+    fileSize: bytes.length,
+    provider: stored.provider,
+    storageKey: stored.storageKey,
+    dataUrl: stored.provider === "db" ? toDataUrl(fileType, bytes) : null,
+  });
   return getInvoice(id);
+}
+
+/**
+ * 把票面挂到来源单据的开票附件位。
+ *
+ * 目前只有华为云对账行有「客户开票附件」这个位置（`merge_cloud_attachments`，ownerType='invoice'）；
+ * 月账单对账单等没有附件表，前端用开票记录里的文件直接查看。
+ * OBS 上的文件按**引用**挂（复制 storageKey），不重复上传字节；数据库回落时复制 data URL。
+ */
+async function attachInvoiceFileToSource(params: {
+  invoiceId: string;
+  sourceType: string;
+  sourceId: string;
+  actor: InvoiceActor;
+  fileName: string;
+  fileType: string;
+  fileSize: number;
+  provider: string;
+  storageKey: string | null;
+  dataUrl: string | null;
+}) {
+  const { invoiceId, sourceType, sourceId } = params;
+  if (!sourceId || sourceType !== "cloud_row") return "";
+  const existing = await queryRowsRaw<Row>(
+    `SELECT id FROM merge_cloud_attachments
+      WHERE ownerType = 'invoice' AND ownerId = :ownerId AND fileName = :fileName LIMIT 1`,
+    { ownerId: sourceId, fileName: params.fileName },
+  );
+  const attachmentId = text(existing[0]?.id) || randomUUID();
+  const common = {
+    id: attachmentId,
+    ownerId: sourceId,
+    fileName: params.fileName,
+    fileType: params.fileType,
+    fileSize: params.fileSize,
+    dataUrl: params.dataUrl,
+    storageProvider: params.provider,
+    storageKey: params.storageKey,
+  };
+  if (existing.length) {
+    await executeRaw(
+      `UPDATE merge_cloud_attachments
+          SET fileType = :fileType, fileSize = :fileSize, dataUrl = :dataUrl,
+              storageProvider = :storageProvider, storageKey = :storageKey, updatedAt = NOW()
+        WHERE id = :id`,
+      common,
+    );
+  } else {
+    await executeRaw(
+      `INSERT INTO merge_cloud_attachments
+         (id, ownerType, ownerId, fileName, fileType, fileSize, dataUrl, storageProvider, storageKey, uploadedByUserId, uploadedByName)
+       VALUES (:id, 'invoice', :ownerId, :fileName, :fileType, :fileSize, :dataUrl, :storageProvider, :storageKey, :actorId, :actorName)`,
+      { ...common, actorId: text(params.actor.userId) || null, actorName: text(params.actor.name) || "开票功能" },
+    );
+  }
+  await executeRaw(`UPDATE ${INVOICE_TABLE} SET sourceAttachmentId = :attachmentId WHERE id = :invoiceId`, { attachmentId, invoiceId });
+  return attachmentId;
 }
 
 /** 回填来源账单：票号/币种/金额/开票日期 + 状态置已开票。 */
@@ -759,6 +830,18 @@ export async function voidInvoice(id: string, reason: string, actor: InvoiceActo
   );
   const sourceType = text(row.sourceType);
   const sourceId = text(row.sourceId);
+  // 摘掉挂在来源单据开票附件位上的那张票面（票面本身仍在开票记录里，作废后仍可下载审计）
+  const attachmentId = text((await queryRowsRaw<Row>(
+    `SELECT sourceAttachmentId FROM ${INVOICE_TABLE} WHERE id = :id`,
+    { id },
+  ))[0]?.sourceAttachmentId);
+  if (attachmentId) {
+    await executeRaw(
+      `DELETE FROM merge_cloud_attachments WHERE id = :attachmentId AND ownerType = 'invoice'`,
+      { attachmentId },
+    );
+    await executeRaw(`UPDATE ${INVOICE_TABLE} SET sourceAttachmentId = NULL WHERE id = :id`, { id });
+  }
   if (sourceType === "cloud_row" && sourceId) {
     await executeRaw(
       `UPDATE merge_cloud_rows SET invoiceNo = NULL, collectionInvoice = 'not_issued', updatedAt = NOW() WHERE id = :sourceId`,
