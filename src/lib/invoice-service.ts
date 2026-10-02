@@ -119,6 +119,27 @@ function periodOf(dateString: string) {
   return /^\d{4}-\d{2}/.test(dateString) ? dateString.slice(0, 7).replace("-", "") : "";
 }
 
+/**
+ * 各来源表的税率口径不统一：华为云对账行、服务费对账单存的是小数（0.08），
+ * 集采结算发票存的是百分数（16）。开票界面统一按**百分数**展示与录入，
+ * 写回来源表时再按各自口径换算（见 backfillSource）。
+ */
+function percentFromStoredRate(value: unknown) {
+  const raw = text(value);
+  if (!raw) return "";
+  const numeric = Number(raw);
+  if (!Number.isFinite(numeric)) return raw;
+  return String(Number((numeric * 100).toFixed(4)));
+}
+
+/** 百分数 → 小数（0.08），用于写回按小数存税率的表。 */
+function rateToFraction(value: unknown) {
+  const raw = text(value);
+  if (!raw) return "";
+  const numeric = Number(raw);
+  return Number.isFinite(numeric) ? String(Number((numeric / 100).toFixed(6))) : raw;
+}
+
 export function periodLabel(value: unknown) {
   const raw = text(value);
   return /^\d{6}$/.test(raw) ? `${raw.slice(0, 4)}-${raw.slice(4, 6)}` : raw;
@@ -359,7 +380,8 @@ export async function buildInvoicePrefill(params: { sourceType: InvoiceSourceTyp
         currency: text(row.invoiceCurrency) || text(row.collectionCurrency) || "USD",
         // 金额统一给到 2 位小数，避免弹层里出现 6864.5772 这种 4 位小数的库值
         amountExcludingTax: decimalString(net),
-        taxRate: text(row.invoiceTaxRate) || text(row.customerTaxRate),
+        // 对账行存的是小数税率（0.08），界面统一显示百分数（8）
+        taxRate: percentFromStoredRate(text(row.invoiceTaxRate) || text(row.customerTaxRate)),
         taxAmount: decimalString(tax),
         amountIncludingTax: decimalString(total || net),
         invoiceDate: isoDate(row.invoiceDate),
@@ -394,7 +416,7 @@ export async function buildInvoicePrefill(params: { sourceType: InvoiceSourceTyp
         customerId: text(country[0]?.defaultCustomerId),
         currency,
         amountExcludingTax: decimalString(row.invoiceNetAmount),
-        taxRate: text(row.invoiceTaxRate),
+        taxRate: percentFromStoredRate(text(row.invoiceTaxRate)),
         taxAmount: decimalString(row.invoiceTaxAmount),
         amountIncludingTax: decimalString(text(row.invoiceTotalAmount) || text(row.totalAmount)),
         invoiceDate: isoDate(row.invoiceDate),
@@ -431,7 +453,7 @@ export async function buildInvoicePrefill(params: { sourceType: InvoiceSourceTyp
         customerId: text(row.invoicePayerCustomerId) || text(country[0]?.defaultCustomerId),
         currency: text(row.invoiceCurrency) || text(row.serviceFeeCurrency) || "USD",
         amountExcludingTax: decimalString(net),
-        taxRate: decimalString(text(row.invoiceVatRate) || text(row.vatRate)),
+        taxRate: percentFromStoredRate(text(row.invoiceVatRate) || text(row.vatRate)),
         taxAmount: decimalString(Number(total) - Number(net) || 0),
         amountIncludingTax: decimalString(total || net),
         invoiceDate: isoDate(row.receivableDate),
@@ -465,6 +487,7 @@ export async function buildInvoicePrefill(params: { sourceType: InvoiceSourceTyp
         customerId: text(row.customerId),
         currency: text(row.currency) || "USD",
         amountExcludingTax: decimalString(row.invoiceTaxExcludedTotal),
+        // 集采结算发票本身就是百分数（16 = 16%），直接用
         taxRate: decimalString(row.taxRate),
         taxAmount: decimalString(row.invoiceTaxAmount),
         amountIncludingTax: decimalString(total),
@@ -879,7 +902,8 @@ async function backfillSource(params: {
         WHERE id = :sourceId`,
       {
         invoiceNo: resolved.invoiceNo, currency: resolved.currency,
-        net: resolved.amountExcludingTax || null, taxRate: resolved.taxRate || null,
+        // 对账行存小数税率，开票界面是百分数，写回时换算
+        net: resolved.amountExcludingTax || null, taxRate: rateToFraction(resolved.taxRate) || null,
         taxAmount: resolved.taxAmount || null, total: resolved.amountIncludingTax || null,
         invoiceDate: resolved.invoiceDate, sourceId,
       },
@@ -895,7 +919,7 @@ async function backfillSource(params: {
         WHERE snapshotNo = :sourceId`,
       {
         id, invoiceNo: resolved.invoiceNo, currency: resolved.currency,
-        net: resolved.amountExcludingTax || null, taxRate: resolved.taxRate || null,
+        net: resolved.amountExcludingTax || null, taxRate: rateToFraction(resolved.taxRate) || null,
         taxAmount: resolved.taxAmount || null, total: resolved.amountIncludingTax || null,
         invoiceDate: resolved.invoiceDate, sourceId,
       },
@@ -912,7 +936,7 @@ async function backfillSource(params: {
       {
         invoiceNo: resolved.invoiceNo, currency: resolved.currency,
         unitId: resolved.bank.undertakingUnitId || null, customerId: resolved.customer.customerId || null,
-        net: resolved.amountExcludingTax || null, taxRate: resolved.taxRate || null,
+        net: resolved.amountExcludingTax || null, taxRate: rateToFraction(resolved.taxRate) || null,
         total: resolved.amountIncludingTax || null, invoiceDate: resolved.invoiceDate || null, sourceId,
       },
     );

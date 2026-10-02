@@ -356,7 +356,8 @@ function DraftFormFields({
           </label>
           <label className={labelClass}>
             <span className="text-ink-2">税率（%）</span>
-            <Input className="w-full" onChange={(event) => patch({ taxRate: event.target.value })} value={draft.taxRate} />
+            <Input className="w-full" onChange={(event) => patch({ taxRate: event.target.value })} placeholder="例如 8 表示 8%" value={draft.taxRate} />
+            <span className={hintClass}>填百分数：8% 就填 8（不要填 0.08）</span>
           </label>
           <label className={labelClass}>
             <span className="text-ink-2">税金</span>
