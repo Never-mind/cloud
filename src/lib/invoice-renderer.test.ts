@@ -90,6 +90,22 @@ describe("invoice renderer", () => {
     expect(renderInvoice(demoInput("sgd"), { template: "sgd" })).toBe(biBaseline("bi-baseline-sgd.html"));
   });
 
+  it("过长的单位名称与地址会按格子宽度折行，避免顶出边框", () => {
+    const html = renderInvoice({
+      ...demoInput("normal"),
+      sellerName: "LUZ NEWMEDIA, S.A. DE C.V. AND SUBSIDIARIES HOLDING LIMITED",
+      customerName: "ATENTO MEXICO HOLDCO SOCIEDAD ANONIMA DE CAPITAL VARIABLE",
+      customerAddress: "AV. MONTERREY 100 Colonia ROMA, Alcaldia CUAUHTEMOC Ciudad de Mexico, C.P. 06700",
+      bankAccountName: "LUZ NEWMEDIA, S.A. DE C.V. AND SUBSIDIARIES HOLDING LIMITED",
+    });
+    // 超过上限的长串必须被 <br> 拆开（不校验具体断点，只保证"断开且留了换行"）
+    expect(html).not.toContain("LUZ NEWMEDIA, S.A. DE C.V. AND SUBSIDIARIES HOLDING LIMITED");
+    expect(html).not.toContain("ATENTO MEXICO HOLDCO SOCIEDAD ANONIMA");
+    expect(html).toContain("<br>SUBSIDIARIES HOLDING LIMITED");
+    expect(html).toContain("<br>CAPITAL VARIABLE");
+    expect(html).toContain("<br>");
+  });
+
   it("模板已经参数化：票号前缀与 BI 电话不再写死在模板里", () => {
     const normal = readFileSync(join(BASELINE_DIR, "invoice_tpl.xlsx"), "utf8");
     const sgd = readFileSync(join(BASELINE_DIR, "invoice_tpl_sgd.xlsx"), "utf8");

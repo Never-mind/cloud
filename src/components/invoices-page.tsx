@@ -195,7 +195,22 @@ export function InvoicesPage() {
                     <td className="whitespace-nowrap border-b border-line-soft px-3 py-2">
                       <div className="flex items-center gap-1">
                         <button className="rounded px-1.5 py-0.5 text-xs text-primary hover:bg-canvas" onClick={() => void openDetail(text(row.id))} type="button">查看</button>
-                        <a className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-primary hover:bg-canvas" href={`/api/invoices/${encodeURIComponent(text(row.id))}/file`}>
+                        <a
+                          className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-primary hover:bg-canvas"
+                          href={`/api/invoices/${encodeURIComponent(text(row.id))}/file?inline=1`}
+                          rel="noreferrer"
+                          target="_blank"
+                          title="在新标签直接打开票面（浏览器里可直接另存为 PDF）"
+                        >
+                          打开
+                        </a>
+                        <a
+                          className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-primary hover:bg-canvas"
+                          download={text(row.fileName) || undefined}
+                          href={`/api/invoices/${encodeURIComponent(text(row.id))}/file`}
+                          onClick={() => notify(`正在下载 ${text(row.fileName) || "票面"}…`, "info")}
+                          title="下载票面文件（HTML，可用浏览器打开或打印成 PDF）"
+                        >
                           <Download size={12} />下载
                         </a>
                         {text(row.source) === "generated" && text(row.status) !== "void" ? (
@@ -234,7 +249,15 @@ export function InvoicesPage() {
         <Modal
           description={`${SOURCE_LABELS[text(detail.source)] ?? ""} · ${STATUS_LABELS[text(detail.status)] ?? ""}`}
           footer={<><Button onClick={() => setDetail(null)}>关闭</Button>
-            <a className="inline-flex h-9 items-center rounded border border-line px-3 text-sm text-ink-2 hover:border-primary hover:text-primary" href={`/api/invoices/${encodeURIComponent(text(detail.id))}/file`}>下载文件</a></>}
+            <a className="inline-flex h-9 items-center rounded border border-line px-3 text-sm text-ink-2 hover:border-primary hover:text-primary" href={`/api/invoices/${encodeURIComponent(text(detail.id))}/file?inline=1`} rel="noreferrer" target="_blank">打开</a>
+            <a
+              className="inline-flex h-9 items-center rounded border border-line px-3 text-sm text-ink-2 hover:border-primary hover:text-primary"
+              download={text(detail.fileName) || undefined}
+              href={`/api/invoices/${encodeURIComponent(text(detail.id))}/file`}
+              onClick={() => notify(`正在下载 ${text(detail.fileName) || "票面"}…`, "info")}
+            >
+              下载文件
+            </a></>}
           onClose={() => setDetail(null)}
           title={`发票 ${text(detail.invoiceNo)}`}
           widthClass="max-w-4xl"

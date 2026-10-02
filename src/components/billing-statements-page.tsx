@@ -358,7 +358,13 @@ export function BillingStatementsPage() {
                           上传发票
                         </button>
                         {row.invoiceId ? (
-                          <a className="inline-flex h-8 items-center rounded border border-line bg-white px-2.5 text-xs text-primary hover:border-primary" href={`/api/invoices/${encodeURIComponent(String(row.invoiceId))}/file`}>
+                          <a
+                            className="inline-flex h-8 items-center rounded border border-line bg-white px-2.5 text-xs text-primary hover:border-primary"
+                            href={`/api/invoices/${encodeURIComponent(String(row.invoiceId))}/file?inline=1`}
+                            rel="noreferrer"
+                            target="_blank"
+                            title="在新标签打开票面"
+                          >
                             查看票面
                           </a>
                         ) : null}

@@ -12,11 +12,14 @@ import { notify } from "./app-dialog";
  */
 export function SignatureField({
   defaultValue = "",
+  disabled = false,
   name,
   onChange,
   value: controlledValue,
 }: {
   defaultValue?: string;
+  /** 档案页非编辑态时禁用：以前这里可点但页面没有保存按钮，选了图也不会保存。 */
+  disabled?: boolean;
   /** 受控用法（详情页草稿）：传了 onChange 就用 value/onChange，不再自己维护状态 */
   name?: string;
   onChange?: (value: string) => void;
@@ -54,10 +57,12 @@ export function SignatureField({
           ref={inputRef}
           type="file"
         />
-        <Button onClick={() => inputRef.current?.click()} size="sm" type="button">选择图片</Button>
-        {value ? <Button onClick={() => setValue("")} size="sm" tone="danger" type="button">清除</Button> : null}
+        <Button disabled={disabled} onClick={() => inputRef.current?.click()} size="sm" type="button">选择图片</Button>
+        {value && !disabled ? <Button onClick={() => setValue("")} size="sm" tone="danger" type="button">清除</Button> : null}
       </div>
-      <p className="text-xs text-ink-3">建议 PNG 透明底；单个文件 ≤1 MB，图片以 base64 内联进票面，不依赖外部链接。</p>
+      <p className="text-xs text-ink-3">
+        {disabled ? "先点页面右上角的「修改」，再上传/更换签章，改完记得点「保存」。" : "建议 PNG 透明底；单个文件 ≤1 MB，图片以 base64 内联进票面，不依赖外部链接。"}
+      </p>
     </div>
   );
 }

@@ -156,6 +156,47 @@ function formatInvoiceComment(comment: unknown, maxLength: number) {
   return { html: grouped.map(escapeInvoiceHtml).join("<br>"), lineCount: Math.max(1, grouped.length) };
 }
 
+/**
+ * 票面单元格很窄（模板是 Excel 版式，格子宽度固定），长名称/地址会顶出边框。
+ * 这里按字数在空格处折行——模板单元格本身就用 `<br>` 换行，效果与 BI 手工回车一致。
+ * 各字段的字数上限见 CELL_WRAP_LIMITS，取值偏保守：宁可早换行，也不要压框线。
+ */
+const CELL_WRAP_LIMITS: Record<string, number> = {
+  // 票面是 Excel 版式、格子宽度固定：下面这些值是按各格宽估算的保守上限，
+  // 宁可早换一行，也不要让文字压到框线上。
+  company_body: 34,
+  invoice_name: 26,
+  address: 34,
+  company_body_address_01: 30,
+  company_body_address_02: 30,
+  company_body_address_03: 30,
+  bank_name: 26,
+  finance_name: 24,
+  bank_address: 28,
+  account_number: 22,
+  swift_code: 22,
+  bank_number: 16,
+  linkman: 22,
+};
+
+function wrapCellText(value: unknown, maxChars: number) {
+  const source = String(value ?? "").trim();
+  if (!source) return "";
+  const lines: string[] = [];
+  for (const rawLine of source.split(/\r\n|\r|\n/)) {
+    let rest = rawLine;
+    while (mbLength(rest) > maxChars) {
+      const chunk = mbSubstr(rest, 0, maxChars);
+      const at = mbStrRpos(chunk, " ");
+      const position = at === -1 ? maxChars : at;
+      lines.push(mbSubstr(rest, 0, position).replace(/\s+$/, ""));
+      rest = mbSubstr(rest, position).replace(/^\s+/, "");
+    }
+    lines.push(rest);
+  }
+  return lines.map(escapeInvoiceHtml).join("<br>");
+}
+
 /** 备注折行后按行数算合并单元格高度（WPS 不会自动扩高，必须给值）。 */
 function prepareInvoiceComment(info: Record<string, unknown>, sgd: boolean) {
   const maxLength = sgd ? 22 : 30;
@@ -306,7 +347,12 @@ export function renderInvoice(input: InvoiceRenderInput, options: { template?: I
   prepareInvoiceComment(infodata, sgd);
 
   for (const [key, value] of Object.entries(infodata)) {
-    const replacement = key === "comment" ? String(value ?? "") : escapeInvoiceHtml(value);
+    const limit = CELL_WRAP_LIMITS[key];
+    const replacement = key === "comment"
+      ? String(value ?? "")
+      : limit
+        ? wrapCellText(value, limit)
+        : escapeInvoiceHtml(value);
     tplHtml = tplHtml.split("${" + key + "}").join(replacement);
   }
 

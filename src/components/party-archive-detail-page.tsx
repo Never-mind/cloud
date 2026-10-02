@@ -274,6 +274,7 @@ function FieldEditor({ field, value, editing, onChange }: { field: EntityField; 
       <span className="mb-1 block text-xs text-ink-2">{field.label}{field.required ? <b className="text-danger"> *</b> : null}</span>
       {field.type === "signature" ? (
         <SignatureField
+          disabled={!editing}
           onChange={(next) => onChange(next)}
           value={String(value ?? "")}
         />
