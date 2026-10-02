@@ -405,6 +405,77 @@ export async function buildInvoicePrefill(params: { sourceType: InvoiceSourceTyp
         cost: decimalString(text(row.invoiceTotalAmount) || text(row.totalAmount)),
       }];
     }
+  } else if (sourceType === "service_fee" && sourceId) {
+    // 服务费对账单：账期取核销月份，客户/承接单位优先用对账单上已选的那两个，其次取国家默认
+    const rows = await queryRowsRaw<Row>(
+      `SELECT snapshotNo, writeOffMonth, countryCode, serviceFeeCurrency, serviceFeeTotal, serviceFeeTotalExcludingTax, vatRate,
+              invoiceCurrency, invoiceReceivingUnitId, invoicePayerCustomerId,
+              invoiceAmountExcludingTax, invoiceVatRate, invoiceAmountIncludingTax, receivableDate
+         FROM merge_power_servicefeesnapshots WHERE snapshotNo = :id LIMIT 1`,
+      { id: sourceId },
+    );
+    const row = rows[0];
+    if (row) {
+      const country = await queryRowsRaw<Row>(
+        `SELECT defaultUndertakingUnitId, defaultCustomerId FROM merge_power_countries WHERE code = :code LIMIT 1`,
+        { code: text(row.countryCode) },
+      ).catch(() => [] as Row[]);
+      const net = text(row.invoiceAmountExcludingTax) || text(row.serviceFeeTotalExcludingTax) || text(row.serviceFeeTotal);
+      const total = text(row.invoiceAmountIncludingTax) || text(row.serviceFeeTotal);
+      Object.assign(prefill, {
+        sourceType,
+        sourceId,
+        sourceNo: text(row.snapshotNo),
+        period: periodOf(isoDate(row.writeOffMonth)),
+        undertakingUnitId: text(row.invoiceReceivingUnitId) || text(country[0]?.defaultUndertakingUnitId),
+        customerId: text(row.invoicePayerCustomerId) || text(country[0]?.defaultCustomerId),
+        currency: text(row.invoiceCurrency) || text(row.serviceFeeCurrency) || "USD",
+        amountExcludingTax: decimalString(net),
+        taxRate: decimalString(text(row.invoiceVatRate) || text(row.vatRate)),
+        taxAmount: decimalString(Number(total) - Number(net) || 0),
+        amountIncludingTax: decimalString(total || net),
+        invoiceDate: isoDate(row.receivableDate),
+      } satisfies Partial<InvoicePrefill>);
+      lines = [{
+        date: periodLabel(prefill.period),
+        desc: `Suanli service fee ${periodLabel(prefill.period)}`.trim(),
+        cost: decimalString(total || net),
+      }];
+    }
+  } else if (sourceType === "settlement_invoice" && sourceId) {
+    // 集采项目结算发票：客户/承接单位取项目上的，金额取发票本身
+    const rows = await queryRowsRaw<Row>(
+      `SELECT i.id, i.type, i.accountPeriod, i.invoiceDate, i.receivableDate, i.invoiceNo, i.currency, i.taxRate,
+              i.invoiceTotal, i.invoiceTaxExcludedTotal, i.invoiceTaxAmount,
+              p.projectNo, p.projectName, p.customerId, p.contractingUnitId
+         FROM merge_po_settlement_invoices i
+         LEFT JOIN merge_po_settlement_projects p ON p.id = i.projectId
+        WHERE i.id = :id LIMIT 1`,
+      { id: sourceId },
+    );
+    const row = rows[0];
+    if (row) {
+      const total = text(row.invoiceTotal);
+      Object.assign(prefill, {
+        sourceType,
+        sourceId,
+        sourceNo: `${text(row.projectNo)} · ${text(row.invoiceNo) || "未填发票号"}`,
+        period: periodOf(isoDate(row.accountPeriod)) || periodOf(isoDate(row.invoiceDate)),
+        undertakingUnitId: text(row.contractingUnitId),
+        customerId: text(row.customerId),
+        currency: text(row.currency) || "USD",
+        amountExcludingTax: decimalString(row.invoiceTaxExcludedTotal),
+        taxRate: decimalString(row.taxRate),
+        taxAmount: decimalString(row.invoiceTaxAmount),
+        amountIncludingTax: decimalString(total),
+        invoiceDate: isoDate(row.invoiceDate) || isoDate(row.receivableDate),
+      } satisfies Partial<InvoicePrefill>);
+      lines = [{
+        date: periodLabel(prefill.period),
+        desc: `${text(row.projectName) || text(row.projectNo)} ${periodLabel(prefill.period)}`.trim(),
+        cost: decimalString(total),
+      }];
+    }
   }
 
   const parties = await resolveInvoiceParties({
@@ -815,6 +886,31 @@ async function backfillSource(params: {
     );
     return;
   }
+  if (sourceType === "service_fee") {
+    await executeRaw(
+      `UPDATE merge_power_servicefeesnapshots
+          SET invoiceNo = :invoiceNo, invoiceCurrency = :currency, invoiceReceivingUnitId = :unitId,
+              invoicePayerCustomerId = :customerId, invoiceAmountExcludingTax = :net, invoiceVatRate = :taxRate,
+              invoiceAmountIncludingTax = :total, receivableDate = :invoiceDate, invoiceStatus = '已开票', updatedAt = NOW()
+        WHERE snapshotNo = :sourceId`,
+      {
+        invoiceNo: resolved.invoiceNo, currency: resolved.currency,
+        unitId: resolved.bank.undertakingUnitId || null, customerId: resolved.customer.customerId || null,
+        net: resolved.amountExcludingTax || null, taxRate: resolved.taxRate || null,
+        total: resolved.amountIncludingTax || null, invoiceDate: resolved.invoiceDate || null, sourceId,
+      },
+    );
+    return;
+  }
+  if (sourceType === "settlement_invoice") {
+    await executeRaw(
+      `UPDATE merge_po_settlement_invoices
+          SET invoiceNo = :invoiceNo, invoiceDate = :invoiceDate, isInvoiced = 1, updatedAt = NOW()
+        WHERE id = :sourceId`,
+      { invoiceNo: resolved.invoiceNo, invoiceDate: resolved.invoiceDate || null, sourceId },
+    );
+    return;
+  }
   // 外部发票允许先存着待关联，暂不回填。
   if (source === "external") return;
 }
@@ -850,14 +946,32 @@ export async function voidInvoice(id: string, reason: string, actor: InvoiceActo
   }
   if (sourceType === "cloud_row" && sourceId) {
     await executeRaw(
-      `UPDATE merge_cloud_rows SET invoiceNo = NULL, collectionInvoice = 'not_issued', updatedAt = NOW() WHERE id = :sourceId`,
-      { sourceId },
+      // 只在票号确实是这张作废票时清空，避免把人工填的其它票号擦掉
+      `UPDATE merge_cloud_rows
+          SET invoiceNo = IF(invoiceNo = :invoiceNo, NULL, invoiceNo), collectionInvoice = 'not_issued', updatedAt = NOW()
+        WHERE id = :sourceId`,
+      { sourceId, invoiceNo: text(row.invoiceNo) },
     );
   } else if (sourceType === "billing_statement" && sourceId) {
     await executeRaw(
-      `UPDATE merge_power_billingstatementsnapshots SET invoiceId = NULL, invoiceNo = NULL, invoiceStatus = 'not_issued', updatedAt = NOW()
+      `UPDATE merge_power_billingstatementsnapshots
+          SET invoiceId = NULL, invoiceNo = IF(invoiceNo = :invoiceNo, NULL, invoiceNo), invoiceStatus = 'not_issued', updatedAt = NOW()
         WHERE snapshotNo = :sourceId`,
-      { sourceId },
+      { sourceId, invoiceNo: text(row.invoiceNo) },
+    );
+  } else if (sourceType === "service_fee" && sourceId) {
+    await executeRaw(
+      `UPDATE merge_power_servicefeesnapshots
+          SET invoiceStatus = '未开票', invoiceNo = IF(invoiceNo = :invoiceNo, NULL, invoiceNo), updatedAt = NOW()
+        WHERE snapshotNo = :sourceId`,
+      { sourceId, invoiceNo: text(row.invoiceNo) },
+    );
+  } else if (sourceType === "settlement_invoice" && sourceId) {
+    await executeRaw(
+      `UPDATE merge_po_settlement_invoices
+          SET isInvoiced = 0, invoiceNo = IF(invoiceNo = :invoiceNo, NULL, invoiceNo), updatedAt = NOW()
+        WHERE id = :sourceId`,
+      { sourceId, invoiceNo: text(row.invoiceNo) },
     );
   }
   return getInvoice(id);

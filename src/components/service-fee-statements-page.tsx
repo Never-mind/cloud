@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { InvoiceDraftModal, type InvoiceDraftMode } from "./invoice-draft-modal";
 import { CheckCircle2, FileDown, FileText, Pencil, RefreshCw, Search, Trash2, Upload } from "lucide-react";
 import { fetchAllEntityRows } from "@/lib/client-entity-fetch";
 import { formatDisplayValue } from "@/lib/display-format";
@@ -81,6 +82,8 @@ export function ServiceFeeStatementsPage() {
   const [customers, setCustomers] = useState<Row[]>([]);
   const [repaymentDraft, setRepaymentDraft] = useState<RepaymentDraft | null>(null);
   const [invoiceDraft, setInvoiceDraft] = useState<InvoiceDraft | null>(null);
+  /** 开票弹层：sourceId 是对账单号（服务费对账单以 snapshotNo 为主键）。 */
+  const [invoiceModal, setInvoiceModal] = useState<{ mode: InvoiceDraftMode; sourceId: string } | null>(null);
   const [loading, setLoading] = useState(false);
   const [busyNo, setBusyNo] = useState("");
   const [page, setPage] = useState(1);
@@ -600,6 +603,26 @@ export function ServiceFeeStatementsPage() {
                                   <FileText size={13} />
                                 </button>
                                 <button
+                                  aria-label="开票（按本对账单生成票面）"
+                                  className="inline-flex h-6 items-center rounded px-1.5 text-xs text-primary hover:bg-canvas disabled:cursor-not-allowed disabled:opacity-50"
+                                  disabled={busyNo === snapshotNo}
+                                  title="按本对账单生成票面并标记已开票"
+                                  type="button"
+                                  onClick={() => setInvoiceModal({ mode: "generated", sourceId: snapshotNo })}
+                                >
+                                  开票
+                                </button>
+                                <button
+                                  aria-label="上传外部发票"
+                                  className="inline-flex h-6 items-center rounded px-1.5 text-xs text-ink-2 hover:bg-canvas disabled:cursor-not-allowed disabled:opacity-50"
+                                  disabled={busyNo === snapshotNo}
+                                  title="外部已开好票：上传文件并登记"
+                                  type="button"
+                                  onClick={() => setInvoiceModal({ mode: "external", sourceId: snapshotNo })}
+                                >
+                                  上传发票
+                                </button>
+                                <button
                                   aria-label={hasInvoice ? "替换发票附件" : "上传发票附件"}
                                   className="inline-flex h-6 w-6 items-center justify-center rounded text-ink-3 hover:bg-canvas hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
                                   disabled={busyNo === snapshotNo}
@@ -796,6 +819,14 @@ export function ServiceFeeStatementsPage() {
           </div>
         </Modal>
       ) : null}
+      <InvoiceDraftModal
+        mode={invoiceModal?.mode ?? "generated"}
+        onClose={() => setInvoiceModal(null)}
+        onSaved={() => { void loadData(page, pageSizeRef.current); }}
+        open={Boolean(invoiceModal)}
+        sourceId={invoiceModal?.sourceId ?? ""}
+        sourceType="service_fee"
+      />
     </div>
   );
 }

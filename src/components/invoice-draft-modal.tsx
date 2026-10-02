@@ -16,7 +16,7 @@ import { SearchSelect, type SearchSelectOption } from "./search-select";
  */
 
 export type InvoiceDraftMode = "generated" | "external";
-export type InvoiceDraftSourceType = "manual" | "cloud_row" | "billing_statement";
+export type InvoiceDraftSourceType = "manual" | "cloud_row" | "billing_statement" | "service_fee" | "settlement_invoice";
 
 type DraftLine = { periodLabel: string; description: string; amount: string };
 

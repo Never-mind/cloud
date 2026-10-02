@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { InvoiceDraftModal, type InvoiceDraftMode } from "./invoice-draft-modal";
 import { Download, RefreshCw, Search } from "lucide-react";
 import { postWorkspaceMessage } from "@/lib/tab-workspace";
 import { formatDisplayValue, formatMoneyValue } from "@/lib/display-format";
@@ -66,6 +67,8 @@ export function PoInvoiceSummaryPage() {
   const [result, setResult] = useState<PoInvoiceSummaryResult>(initialResult);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  /** 开票弹层：只对收入发票开放（成本发票是供应商开给我们的，不走我们的票面）。 */
+  const [invoiceModal, setInvoiceModal] = useState<{ mode: InvoiceDraftMode; sourceId: string } | null>(null);
 
   function buildParams(includePaging = true) {
     const params = new URLSearchParams({ keyword: appliedKeyword });
@@ -172,13 +175,21 @@ export function PoInvoiceSummaryPage() {
             <thead className="bg-canvas text-ink"><tr>{columns.map((column) => <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium" key={column.key}><TableColumnMenu column={{ ...column, sortable: true, filterable: true }} filterValues={columnFilters[column.key] ?? []} loadOptions={(optionKeyword) => loadOptions(column.key, optionKeyword)} onFilter={(values) => { setPage(1); setColumnFilters((current) => ({ ...current, [column.key]: values })); }} onSort={(order) => { setPage(1); setSortField(column.key); setSortOrder(order); }} sortOrder={sortField === column.key ? sortOrder : ""} /></th>)}<th className="whitespace-nowrap sticky right-0 border-b border-line-soft bg-canvas px-3 py-3 text-left font-medium">操作</th></tr></thead>
             <tbody>
               {loading ? <tr><td className="px-4 py-12 text-center text-ink-3" colSpan={columns.length + 1}><TableSkeleton /></td></tr> : null}
-              {!loading && result.items.map((row) => <tr className="hover:bg-surface-2" key={row.id}>{columns.map((column, index) => <td className="max-w-[260px] truncate whitespace-nowrap border-b border-r border-line-soft px-3 py-3" key={column.key}>{index === 0 ? <button className="text-primary hover:underline" type="button" onClick={() => openProject(row)}>{row.projectNo || "-"}</button> : column.key === "projectStatus" ? <StatusTag status={row.projectStatus} label={statusLabel(row.projectStatus)} /> : formatValue(row[column.key as keyof PoInvoiceSummaryRow], column.type)}</td>)}<td className="sticky right-0 whitespace-nowrap border-b border-line-soft bg-white px-3 py-3"><button className="text-primary hover:underline" type="button" onClick={() => openProject(row)}>查看项目</button></td></tr>)}
+              {!loading && result.items.map((row) => <tr className="hover:bg-surface-2" key={row.id}>{columns.map((column, index) => <td className="max-w-[260px] truncate whitespace-nowrap border-b border-r border-line-soft px-3 py-3" key={column.key}>{index === 0 ? <button className="text-primary hover:underline" type="button" onClick={() => openProject(row)}>{row.projectNo || "-"}</button> : column.key === "projectStatus" ? <StatusTag status={row.projectStatus} label={statusLabel(row.projectStatus)} /> : formatValue(row[column.key as keyof PoInvoiceSummaryRow], column.type)}</td>)}<td className="sticky right-0 whitespace-nowrap border-b border-line-soft bg-white px-3 py-3"><button className="text-primary hover:underline" type="button" onClick={() => openProject(row)}>查看项目</button>{row.type === "income" ? <><button aria-label="开票（按本项目发票生成票面）" className="ml-2 text-warning-ink hover:underline" title="按本条收入发票生成票面并标记已开票" type="button" onClick={() => setInvoiceModal({ mode: "generated", sourceId: String(row.id) })}>开票</button><button aria-label="上传外部发票" className="ml-2 text-ink-2 hover:underline" title="外部已开好票：上传文件并登记" type="button" onClick={() => setInvoiceModal({ mode: "external", sourceId: String(row.id) })}>上传发票</button></> : null}</td></tr>)}
               {!loading && !result.items.length ? <tr><td className="px-4 py-12 text-center text-ink-3" colSpan={columns.length + 1}>暂无发票明细</td></tr> : null}
             </tbody>
           </table>
         </StickyTable>
         <PaginationBar page={result.page} pageSize={result.pageSize} total={result.total} onPageChange={setPage} onPageSizeChange={(value) => { setPage(1); setPageSize(value); }} />
       </Panel>
+      <InvoiceDraftModal
+        mode={invoiceModal?.mode ?? "generated"}
+        onClose={() => setInvoiceModal(null)}
+        onSaved={() => { void load(); }}
+        open={Boolean(invoiceModal)}
+        sourceId={invoiceModal?.sourceId ?? ""}
+        sourceType="settlement_invoice"
+      />
     </div>
   );
 }
