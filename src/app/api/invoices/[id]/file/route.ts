@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedUserEmail } from "@/lib/auth";
-import { readInvoiceFile } from "@/lib/invoice-service";
+import { readInvoiceFile, renderInvoiceHtmlById } from "@/lib/invoice-service";
 import { hasPermission } from "@/lib/permission-definitions";
 import { getPermissionStateForEmail } from "@/lib/permission-service";
 
@@ -14,9 +14,21 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
       return NextResponse.json({ error: "没有查看权限" }, { status: 403 });
     }
     const { id } = await context.params;
-    const file = await readInvoiceFile(decodeURIComponent(id));
-    if (!file) return NextResponse.json({ error: "发票文件不存在" }, { status: 404 });
+    const invoiceId = decodeURIComponent(id);
     const inline = request.nextUrl.searchParams.get("inline") === "1";
+    // format=html：按需渲染票面 HTML（默认给的是 PDF）
+    if (request.nextUrl.searchParams.get("format") === "html") {
+      const html = await renderInvoiceHtmlById(invoiceId);
+      if (!html) return NextResponse.json({ error: "票面不存在" }, { status: 404 });
+      return new NextResponse(html, {
+        headers: {
+          "content-type": "text/html; charset=utf-8",
+          "content-disposition": `${inline ? "inline" : "attachment"}; filename="invoice.html"`,
+        },
+      });
+    }
+    const file = await readInvoiceFile(invoiceId);
+    if (!file) return NextResponse.json({ error: "发票文件不存在" }, { status: 404 });
     return new NextResponse(new Uint8Array(file.bytes), {
       headers: {
         "content-type": file.contentType || "application/octet-stream",

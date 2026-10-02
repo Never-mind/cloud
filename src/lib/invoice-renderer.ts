@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { trimTrailingEmptyColumns } from "./invoice-html-trim";
 
 /**
  * 商业 Invoice 渲染器。
@@ -376,5 +377,6 @@ export function renderInvoice(input: InvoiceRenderInput, options: { template?: I
 
   const unresolved = /\$\{([^}]+)\}/.exec(tplHtml);
   if (unresolved) throw new Error(`票面模板缺少字段：${unresolved[1]}`);
-  return tplHtml;
+  // 模板每行末尾都有一串只为对齐的空单元格，会把票面撑得很宽（打印/PDF 右侧一大片空白）
+  return trimTrailingEmptyColumns(tplHtml);
 }

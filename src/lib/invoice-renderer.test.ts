@@ -9,6 +9,7 @@ import {
   renderInvoice,
   type InvoiceRenderInput,
 } from "./invoice-renderer";
+import { trimTrailingEmptyColumns } from "./invoice-html-trim";
 
 /**
  * 金标准：BI 的两份样例输出（output/invoice.html、output/invoice-sgd.html）原样存成基线。
@@ -23,7 +24,9 @@ function biBaseline(file: string) {
     .join("INV No.DEMO-202609-0001")
     // 第二处有意差异：BI 在没签章图时会输出 `src=''` 的破图占位，我们整段去掉，
     // 所以比对前也从基线里摘掉这一段。
-    .replace(/<img[^>]*src=''[^>]*>/i, "");
+    .replace(/<img[^>]*src=''[^>]*>/i, "")
+    // 第三处有意差异：裁掉右侧全空列（BI 原版会把票面撑到 1069.5pt，右边一片空白）
+    .replace(/<html[\s\S]*$/i, (matched) => trimTrailingEmptyColumns(matched));
 }
 
 /** BI 示例入参 → 我们的渲染入参（字段一一对应，不改变语义）。 */

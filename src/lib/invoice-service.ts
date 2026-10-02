@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { executeRaw, queryRowsRaw, type Row } from "./db";
 import { deleteFileObject, readFile, storeFile } from "./file-storage-service";
+import { renderInvoicePdf } from "./invoice-pdf";
 import {
   collectMissingInvoiceFields,
   renderInvoice,
@@ -853,10 +854,18 @@ export async function saveInvoice(input: InvoiceDraftInput, actor: InvoiceActor 
     const missing = collectMissingInvoiceFields(renderInput, resolved.template);
     if (missing.length) throw new Error(`开票资料不完整：${missing.join("、")}`);
     const html = renderInvoice(renderInput, { template: resolved.template });
-    bytes = Buffer.from(html, "utf8");
-    fileName = `${resolved.invoiceNo}.html`;
-    // 用不带参数的 MIME：readFile 解析 data URL 时只认 `type;base64,`，写成 "text/html; charset=utf-8" 会解析失败
-    fileType = "text/html";
+    // 有浏览器就用无头 Chrome 转成 PDF（业务要的是 PDF）；转不了就回落 HTML，功能不中断
+    const pdf = await renderInvoicePdf(html);
+    if (pdf) {
+      bytes = pdf;
+      fileName = `${resolved.invoiceNo}.pdf`;
+      fileType = "application/pdf";
+    } else {
+      bytes = Buffer.from(html, "utf8");
+      fileName = `${resolved.invoiceNo}.html`;
+      // 用不带参数的 MIME：readFile 解析 data URL 时只认 `type;base64,`
+      fileType = "text/html";
+    }
   } else {
     if (!input.file?.bytes?.length) throw new Error("请先上传外部发票文件");
     bytes = input.file.bytes;
@@ -1315,6 +1324,18 @@ async function backfillRevert(sourceType: string, sourceId: string, invoiceNo: s
   }
 }
 
+/** 按需渲染票面 HTML（调试、或业务要 Excel 版打印时用；不写库）。 */
+export async function renderInvoiceHtmlById(id: string) {
+  const invoice = await getInvoice(id);
+  if (!invoice) return null;
+  if (text(invoice.source) === "external") return null;
+  const resolved = await resolveSnapshotInvoice(invoice);
+  const renderInput = toRenderInput(resolved);
+  const missing = collectMissingInvoiceFields(renderInput, resolved.template);
+  if (missing.length) throw new Error(`开票资料不完整：${missing.join("、")}`);
+  return renderInvoice(renderInput, { template: resolved.template });
+}
+
 export async function readInvoiceFile(id: string) {
   const rows = await queryRowsRaw<Row>(
     `SELECT fileName, fileType, fileProvider, storageKey, fileContent FROM ${INVOICE_TABLE} WHERE id = :id LIMIT 1`,
@@ -1336,12 +1357,10 @@ export async function readInvoiceFile(id: string) {
 }
 
 /** 重新生成票面（票号不变，用于补签章或改数据后重出）。 */
-export async function regenerateInvoiceFile(id: string, actor: InvoiceActor = {}) {
-  const invoice = await getInvoice(id);
-  if (!invoice) throw new Error("开票记录不存在");
-  if (text(invoice.source) === "external") throw new Error("外部上传的发票没有票面可重新生成");
+/** 用开票记录里的**快照**构造渲染入参：已开出的票面不能随档案改名而变。 */
+async function resolveSnapshotInvoice(invoice: Row & { items?: Row[] }) {
   const items = (invoice.items ?? []) as Row[];
-  const resolved = await resolveInvoice({
+  return resolveInvoice({
     template: text(invoice.template) === "sgd" ? "sgd" : "normal",
     invoiceNo: text(invoice.invoiceNo),
     customerId: text(invoice.customerId),
@@ -1374,16 +1393,26 @@ export async function regenerateInvoiceFile(id: string, actor: InvoiceActor = {}
     sellerTelephone: text(invoice.sellerTelephone),
     sellerFinanceEmail: text(invoice.sellerFinanceEmail),
   }, false);
+}
+
+export async function regenerateInvoiceFile(id: string, actor: InvoiceActor = {}) {
+  const invoice = await getInvoice(id);
+  if (!invoice) throw new Error("开票记录不存在");
+  if (text(invoice.source) === "external") throw new Error("外部上传的发票没有票面可重新生成");
+  const resolved = await resolveSnapshotInvoice(invoice);
   const renderInput = toRenderInput(resolved);
   const missing = collectMissingInvoiceFields(renderInput, resolved.template);
   if (missing.length) throw new Error(`开票资料不完整：${missing.join("、")}`);
   const html = renderInvoice(renderInput, { template: resolved.template });
-  const bytes = Buffer.from(html, "utf8");
+  // 和开票一致：优先存 PDF，转不了再落 HTML
+  const pdf = await renderInvoicePdf(html);
+  const bytes = pdf ?? Buffer.from(html, "utf8");
+  const fileType = pdf ? "application/pdf" : "text/html";
   const stored = await storeFile({
     context: { system: "invoice", period: text(invoice.period), invoiceNo: text(invoice.invoiceNo) },
     attachmentId: id,
-    fileName: `${text(invoice.invoiceNo)}.html`,
-    fileType: "text/html",
+    fileName: `${text(invoice.invoiceNo)}${pdf ? ".pdf" : ".html"}`,
+    fileType,
     bytes,
     isInvoice: true,
   });
@@ -1393,10 +1422,9 @@ export async function regenerateInvoiceFile(id: string, actor: InvoiceActor = {}
        fileProvider = :fileProvider, storageKey = :storageKey, fileContent = :fileContent,
        updatedByUserId = :actorId, updatedByName = :actorName WHERE id = :id`,
     {
-      id, fileName: stored.fileName, fileType: "text/html", fileSize: bytes.length,
+      id, fileName: stored.fileName, fileType, fileSize: bytes.length,
       fileProvider: stored.provider, storageKey: stored.storageKey,
-      // 用不带参数的 MIME：readFile() 解析 data URL 时只认 `type;base64,`
-      fileContent: stored.provider === "db" ? toDataUrl("text/html", bytes) : null,
+      fileContent: stored.provider === "db" ? toDataUrl(fileType, bytes) : null,
       actorId: text(actor.userId) || null, actorName: text(actor.name) || null,
     },
   );
@@ -1419,7 +1447,7 @@ export async function regenerateInvoiceFile(id: string, actor: InvoiceActor = {}
       sourceId: targetId,
       actor,
       fileName: stored.fileName,
-      fileType: "text/html",
+      fileType,
       fileSize: bytes.length,
       provider: stored.provider,
       storageKey: stored.storageKey,

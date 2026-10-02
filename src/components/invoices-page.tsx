@@ -200,16 +200,24 @@ export function InvoicesPage() {
                           href={`/api/invoices/${encodeURIComponent(text(row.id))}/file?inline=1`}
                           rel="noreferrer"
                           target="_blank"
-                          title="在新标签直接打开票面（浏览器里可直接另存为 PDF）"
+                          title="在新标签直接打开票面 PDF"
                         >
                           打开
+                        </a>
+                        <a
+                          className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-ink-3 hover:bg-canvas"
+                          href={`/api/invoices/${encodeURIComponent(text(row.id))}/file?format=html`}
+                          rel="noreferrer"
+                          title="下载 HTML 版票面（需要按 Excel 版式打印时用）"
+                        >
+                          HTML
                         </a>
                         <a
                           className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-primary hover:bg-canvas"
                           download={text(row.fileName) || undefined}
                           href={`/api/invoices/${encodeURIComponent(text(row.id))}/file`}
                           onClick={() => notify(`正在下载 ${text(row.fileName) || "票面"}…`, "info")}
-                          title="下载票面文件（HTML，可用浏览器打开或打印成 PDF）"
+                          title="下载票面 PDF"
                         >
                           <Download size={12} />下载
                         </a>
