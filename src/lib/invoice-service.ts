@@ -297,8 +297,14 @@ export async function resolveInvoiceParties(input: { customerId?: string | null;
       snapshot.sellerName = text(row.nameEn) || text(row.nameCn) || text(row.name);
       snapshot.sellerCountry = text(row.country);
       snapshot.sellerAddress = text(row.registeredAddress) || text(row.address);
-      snapshot.sellerTelephone = text(row.contactPhone);
-      snapshot.sellerFinanceEmail = text(row.financeEmail) || text(row.contactEmail);
+      // 票面 CONTACT 区的电话/邮箱优先取「联系人」里设为主联系人那条，没维护再回落到档案字段
+      const contacts = await queryRowsRaw<Row>(
+        `SELECT name, phone, email FROM merge_common_undertaking_unit_contacts
+          WHERE undertakingUnitId = :id ORDER BY isPrimary DESC, createdAt LIMIT 1`,
+        { id: snapshot.undertakingUnitId },
+      );
+      snapshot.sellerTelephone = text(contacts[0]?.phone) || text(row.contactPhone);
+      snapshot.sellerFinanceEmail = text(row.financeEmail) || text(contacts[0]?.email) || text(row.contactEmail);
       snapshot.paymentTermDays = text(row.paymentTermDays);
       snapshot.signatureImage = text(row.signatureImage);
     }

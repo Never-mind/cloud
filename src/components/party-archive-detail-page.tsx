@@ -9,6 +9,7 @@ import { formatDateInputValue, formatDisplayValue } from "@/lib/display-format";
 import type { EntityConfig, EntityField } from "@/lib/modules";
 import { Button, Input, Panel, Select, Textarea } from "./ui";
 import { SearchSelect } from "./search-select";
+import { SignatureField } from "./signature-field";
 import { confirmDialog } from "./app-dialog";
 import { broadcastMasterDataChanged } from "@/lib/workspace-events";
 
@@ -266,12 +267,17 @@ function FieldEditor({ field, value, editing, onChange }: { field: EntityField; 
     : field.type === "percentage" && value !== null && value !== undefined && value !== ""
       ? String(Number(value) * 100)
       : String(value ?? "");
-  const wide = field.type === "textarea";
+  const wide = field.type === "textarea" || field.type === "signature";
 
   return (
     <label className={wide ? "block md:col-span-2 lg:col-span-4" : "block"}>
       <span className="mb-1 block text-xs text-ink-2">{field.label}{field.required ? <b className="text-danger"> *</b> : null}</span>
-      {wide ? (
+      {field.type === "signature" ? (
+        <SignatureField
+          onChange={(next) => onChange(next)}
+          value={String(value ?? "")}
+        />
+      ) : wide ? (
         <Textarea className="min-h-20 w-full disabled:bg-canvas disabled:text-ink-2" disabled={!editing} required={field.required} value={inputValue} onChange={(event) => onChange(event.target.value)} />
       ) : field.type === "boolean" ? (
         <span className="flex h-9 items-center gap-2 text-sm text-ink-2"><input checked={Boolean(value)} disabled={!editing} type="checkbox" onChange={(event) => onChange(event.target.checked)} />{Boolean(value) ? "是" : "否"}</span>

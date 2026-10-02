@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { SignatureField } from "./signature-field";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Columns3, Eye, EyeOff, FileDown, FileSpreadsheet, Plus, RefreshCw, Search, Trash2, Upload } from "lucide-react";
@@ -1146,12 +1147,14 @@ export function EntityPage({
         >
             <div className="grid grid-cols-2 gap-x-8 gap-y-4">
               {config.formFields.filter((field) => !field.hidden).map((field) => (
-                <label className={field.type === "textarea" ? "col-span-2" : ""} key={field.key}>
+                <label className={field.type === "textarea" || field.type === "signature" ? "col-span-2" : ""} key={field.key}>
                   <span className="mb-1 block text-sm font-medium text-ink-2">
                     {field.required ? <span className="text-danger">*</span> : null}
                     {field.label}
                   </span>
-                  {field.type === "textarea" ? (
+                  {field.type === "signature" ? (
+                    <SignatureField defaultValue={String(editing?.[field.key] ?? fixedValues[field.key] ?? "")} name={field.key} />
+                  ) : field.type === "textarea" ? (
                     <Textarea
                       className="w-full"
                       name={field.key}

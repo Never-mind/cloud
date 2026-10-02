@@ -5,7 +5,7 @@ import { INSTANCE_MODEL_TYPE_OPTIONS } from "./instance-model-type";
 import { REQUEST_REMOTE_STATUS_OPTIONS } from "./request-remote-status";
 import { purchaseOrderPlanFieldSpecs, purchaseOrderSnFieldSpecs } from "./purchase-order-demand-plan-fields";
 
-export type FieldType = "text" | "number" | "money" | "percentage" | "date" | "datetime" | "boolean" | "switch" | "textarea" | "select" | "lineType";
+export type FieldType = "text" | "number" | "money" | "percentage" | "date" | "datetime" | "boolean" | "switch" | "textarea" | "select" | "lineType" | "signature";
 
 export type EntityField = TableColumn & {
   type?: FieldType;
@@ -283,6 +283,13 @@ export const entityConfigs: EntityConfig[] = [
       { key: "city", label: "城市" },
       { key: "registeredAddress", label: "注册地址", type: "textarea" },
       { key: "taxNumber", label: "税号" },
+      // 以下字段开票票面要用：CONTACT 区的联系人/电话/财务邮箱、Payment Terms 的账期天数、签章图
+      { key: "contactName", label: "联系人" },
+      { key: "contactPhone", label: "联系电话（票面 TELEPHONE）" },
+      { key: "contactEmail", label: "联系邮箱" },
+      { key: "financeEmail", label: "票面财务邮箱" },
+      { key: "paymentTermDays", label: "默认账期天数", type: "number", placeholder: "留空按 30 天" },
+      { key: "signatureImage", label: "票面签章图", type: "signature" },
       { key: "cooperationStatus", label: "合作状态", type: "select", options: [{ label: "正常合作", value: "normal" }, { label: "暂停合作", value: "suspended" }, { label: "终止合作", value: "terminated" }, { label: "未合作过", value: "not_cooperated" }] },
       { key: "status", label: "档案状态", type: "select", required: true, options: [{ label: "启用", value: "active" }, { label: "停用", value: "disabled" }] },
       { key: "website", label: "官网" },
