@@ -157,7 +157,31 @@ async function main() {
   await addColumnIfMissing("merge_power_billingstatementsnapshots", "invoiceDate", "`invoiceDate` DATE NULL COMMENT '开票日期'");
   await addColumnIfMissing("merge_power_billingstatementsnapshots", "invoiceStatus", "`invoiceStatus` VARCHAR(16) NULL COMMENT '开票状态：issued / not_issued'");
 
+  await grantInvoicePermissionToExistingUsers();
+
   console.log("开票表结构已就绪");
+}
+
+/**
+ * 开票默认对所有账号开放。
+ *
+ * 与自动建号的默认口径保持一致（除「账户管理」「功能启用」两个管理员模块外，其余模块默认全开），
+ * 新账号在建号时按同一份权限定义自动带上；这里只给**已有账号**补一行，
+ * 用 INSERT IGNORE 保证管理员手工收回过的权限不会被脚本重新打开。
+ */
+async function grantInvoicePermissionToExistingUsers() {
+  const users = await queryRowsRaw<{ userId: string }>(
+    "SELECT userId FROM merge_common_users WHERE role <> 'admin' AND status = 'active'",
+  );
+  for (const user of users) {
+    await executeRaw(
+      `INSERT IGNORE INTO merge_common_user_permissions
+         (userId, moduleKey, canView, canCreate, canUpdate, canDelete, canExport, canImport, canConfirm, updatedByUserId)
+       VALUES (:userId, 'invoices', 1, 1, 1, 1, 1, 1, 1, NULL)`,
+      { userId: user.userId },
+    );
+  }
+  console.log(`发票管理已对 ${users.length} 个普通账号开放（已有手工设置的不覆盖）`);
 }
 
 main()

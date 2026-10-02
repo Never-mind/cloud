@@ -59,8 +59,16 @@ describe("module configuration", () => {
       "华为云业务",
       "业务伙伴",
       "用户管理",
+      "发票管理",
       "文档管理",
     ]);
+  });
+
+  it("exposes the invoice ledger under its own top-level menu", () => {
+    const invoiceGroup = navGroups.find((group) => group.title === "发票管理");
+
+    expect(invoiceGroup?.items.map((item) => item.title)).toEqual(["发票管理"]);
+    expect(invoiceGroup?.items.map((item) => item.route)).toEqual(["/invoices"]);
   });
 
   it("exposes the document library under its own top-level menu", () => {

@@ -294,6 +294,14 @@ export function InvoicesPage() {
           <Button onClick={() => void load()}><Search size={15} />查询</Button>
           <Button onClick={() => { setKeyword(""); setPeriod(""); setSource(""); setStatus(""); setPage(1); }}><RefreshCw size={15} />重置</Button>
           <div className="ml-auto flex items-center gap-2">
+            <Button onClick={() => {
+              const params = new URLSearchParams();
+              if (keyword.trim()) params.set("keyword", keyword.trim());
+              if (period.trim()) params.set("period", period.trim());
+              if (source) params.set("source", source);
+              if (status) params.set("status", status);
+              window.location.href = `/api/invoices/export?${params.toString()}`;
+            }}>导出</Button>
             <Button onClick={() => void openDraft("manual")} tone="primary"><Plus size={15} />开票</Button>
             <Button onClick={() => { const form = emptyDraft(); form.sourceType = "manual"; setUpload(form); setUploadFile(null); }}>
               <FileUp size={15} />上传外部发票
