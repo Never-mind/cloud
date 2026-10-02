@@ -2310,7 +2310,7 @@ const documentManagementItems: EntityConfig[] = [{
   formFields: [],
 }];
 
-const invoiceManagementItems: EntityConfig[] = [{
+export const invoiceManagementItems: EntityConfig[] = [{
   key: "invoices",
   title: "发票管理",
   table: "merge_common_invoices",

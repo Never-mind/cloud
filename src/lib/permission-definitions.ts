@@ -374,6 +374,7 @@ const PAGE_ROUTE_RULES: RoutePermissionRule[] = [
   { prefix: "/system/notifications", moduleKey: "notification-rules" },
   { prefix: "/system/module-features", moduleKey: "system-module-features" },
   { prefix: "/documents", moduleKey: "documents" },
+  { prefix: "/invoices", moduleKey: "invoices" },
   { prefix: "/data-imports", moduleKey: "data-imports" },
   { prefix: "/customer-pos/items", moduleKey: "customer-po-items" },
   { prefix: "/customer-pos", moduleKey: "customer-pos" },

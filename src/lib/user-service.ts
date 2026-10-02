@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { executeRaw, queryRowsRaw } from "./db";
 import { createPasswordSalt, hashPassword, type AuthUser } from "./auth";
-import { entityConfigs } from "./modules";
+import { entityConfigs, invoiceManagementItems } from "./modules";
 import { getPermissionDefinitions, type PermissionDefinition } from "./permission-definitions";
 
 type UserPermission = {
@@ -40,6 +40,9 @@ type UserRow = ManagedUser & {
 
 const permissionDefinitions = getPermissionDefinitions([
   ...entityConfigs,
+  // 发票管理走自定义页面，不在 entityConfigs 里，必须显式登记，否则用户管理里授不了这个权限、
+  // 普通员工侧边栏也就永远看不到（管理员能看是因为 hasPermission 对 admin 直接放行）。
+  ...invoiceManagementItems,
   { key: "documents", title: "文档库", navGroup: "文档管理" },
   { key: "data-imports", title: "数据导入中心", navGroup: "数据工具" },
   { key: "system-users", title: "账户管理", navGroup: "用户管理", adminOnly: true },
