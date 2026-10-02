@@ -44,7 +44,8 @@ export function SignatureField({
             const file = event.target.files?.[0];
             event.target.value = "";
             if (!file) return;
-            if (file.size > 300 * 1024) { notify("签章图请控制在 300 KB 以内，否则票面文件会很大", "error"); return; }
+            // 票面里是 base64 内联，1MB 的章 ≈ 1.4MB 的票面文件，够用又不至于把票面撑爆
+            if (file.size > 1024 * 1024) { notify("签章图请控制在 1 MB 以内，否则票面文件会很大", "error"); return; }
             const reader = new FileReader();
             reader.onload = () => setValue(String(reader.result ?? ""));
             reader.onerror = () => notify("图片读取失败", "error");
@@ -56,7 +57,7 @@ export function SignatureField({
         <Button onClick={() => inputRef.current?.click()} size="sm" type="button">选择图片</Button>
         {value ? <Button onClick={() => setValue("")} size="sm" tone="danger" type="button">清除</Button> : null}
       </div>
-      <p className="text-xs text-ink-3">建议 PNG 透明底、宽度 300px 以内；图片以 base64 内联进票面，不依赖外部链接。</p>
+      <p className="text-xs text-ink-3">建议 PNG 透明底；单个文件 ≤1 MB，图片以 base64 内联进票面，不依赖外部链接。</p>
     </div>
   );
 }

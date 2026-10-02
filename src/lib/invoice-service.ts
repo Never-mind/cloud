@@ -1395,12 +1395,36 @@ export async function regenerateInvoiceFile(id: string, actor: InvoiceActor = {}
     {
       id, fileName: stored.fileName, fileType: "text/html", fileSize: bytes.length,
       fileProvider: stored.provider, storageKey: stored.storageKey,
-      fileContent: stored.provider === "db" ? toDataUrl("text/html; charset=utf-8", bytes) : null,
+      // 用不带参数的 MIME：readFile() 解析 data URL 时只认 `type;base64,`
+      fileContent: stored.provider === "db" ? toDataUrl("text/html", bytes) : null,
       actorId: text(actor.userId) || null, actorName: text(actor.name) || null,
     },
   );
   if (previousKey && previousKey !== stored.storageKey) {
     await deleteFileObject({ storageProvider: invoice.fileProvider, storageKey: previousKey }).catch(() => undefined);
+  }
+  /**
+   * 把新票面同步到来源单据的附件位（对账行 / 月账单对账单）。
+   * 补了签章或改了档案资料后重出票面时，如果不同步这一步，单据上挂的还是旧文件。
+   */
+  const linkTargets = new Set<string>();
+  if (text(invoice.sourceId)) linkTargets.add(text(invoice.sourceId));
+  for (const allocation of ((invoice.allocations ?? []) as Row[])) {
+    if (text(allocation.sourceId)) linkTargets.add(text(allocation.sourceId));
+  }
+  for (const targetId of linkTargets) {
+    await attachInvoiceFileToSource({
+      invoiceId: id,
+      sourceType: text(invoice.sourceType) || "cloud_row",
+      sourceId: targetId,
+      actor,
+      fileName: stored.fileName,
+      fileType: "text/html",
+      fileSize: bytes.length,
+      provider: stored.provider,
+      storageKey: stored.storageKey,
+      dataUrl: stored.provider === "db" ? toDataUrl("text/html", bytes) : null,
+    });
   }
   return getInvoice(id);
 }
