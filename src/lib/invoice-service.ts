@@ -351,10 +351,11 @@ export async function buildInvoicePrefill(params: { sourceType: InvoiceSourceTyp
         customerId: text(row.invoicePayerCustomerId) || text(row.customerId),
         undertakingUnitId: text(row.invoicePayeeUndertakingUnitId) || text(row.undertakingUnitId),
         currency: text(row.invoiceCurrency) || text(row.collectionCurrency) || "USD",
-        amountExcludingTax: net,
+        // 金额统一给到 2 位小数，避免弹层里出现 6864.5772 这种 4 位小数的库值
+        amountExcludingTax: decimalString(net),
         taxRate: text(row.invoiceTaxRate) || text(row.customerTaxRate),
-        taxAmount: tax,
-        amountIncludingTax: total || net,
+        taxAmount: decimalString(tax),
+        amountIncludingTax: decimalString(total || net),
         invoiceDate: isoDate(row.invoiceDate),
       } satisfies Partial<InvoicePrefill>);
       lines = [{
@@ -384,10 +385,10 @@ export async function buildInvoicePrefill(params: { sourceType: InvoiceSourceTyp
         period: periodOf(isoDate(row.endDate)) || periodOf(isoDate(row.startDate)),
         undertakingUnitId: text(country[0]?.undertakingUnitId),
         currency,
-        amountExcludingTax: text(row.invoiceNetAmount),
+        amountExcludingTax: decimalString(row.invoiceNetAmount),
         taxRate: text(row.invoiceTaxRate),
-        taxAmount: text(row.invoiceTaxAmount),
-        amountIncludingTax: text(row.invoiceTotalAmount) || text(row.totalAmount),
+        taxAmount: decimalString(row.invoiceTaxAmount),
+        amountIncludingTax: decimalString(text(row.invoiceTotalAmount) || text(row.totalAmount)),
         invoiceDate: isoDate(row.invoiceDate),
       } satisfies Partial<InvoicePrefill>);
       lines = [{
