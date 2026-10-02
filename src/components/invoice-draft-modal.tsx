@@ -175,13 +175,13 @@ export function InvoiceDraftModal({
       if (mode === "external") {
         const form = new FormData();
         form.set("file", file as File);
-        form.set("payload", JSON.stringify(draft));
+        form.set("payload", JSON.stringify({ ...draft, source: "external" }));
         response = await fetch("/api/invoices", { method: "POST", body: form });
       } else {
         response = await fetch("/api/invoices", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify(draft),
+          body: JSON.stringify({ ...draft, source: "generated" }),
         });
       }
       const data = await response.json();

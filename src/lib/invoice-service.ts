@@ -29,6 +29,8 @@ export type InvoiceLinePayload = {
 };
 
 export type InvoiceDraftInput = {
+  /** 系统生成票面（generated）还是外部已开票（external）；不传时按有没有上传文件推断。 */
+  source?: InvoiceSource | null;
   template?: InvoiceTemplateKind | null;
   sourceType?: InvoiceSourceType | null;
   sourceId?: string | null;
@@ -672,7 +674,16 @@ function toRenderInput(resolved: ResolvedInvoice) {
 
 /** 生成/保存开票记录。source=generated 时渲染票面文件；external 时用传入的附件。 */
 export async function saveInvoice(input: InvoiceDraftInput, actor: InvoiceActor = {}) {
-  const source: InvoiceSource = input.sourceType === "manual" || input.file ? "external" : "generated";
+  /**
+   * 来源判定：以弹层明确传来的 source 为准，其次按有没有上传文件判断。
+   * 注意**不能**用 sourceType === \"manual\" 来判断——手工开票（无来源单据）同样要生成票面，
+   * 早先这样写会把手工开票误判成外部上传，报“请先上传外部发票文件”。
+   */
+  const source: InvoiceSource = input.source === "external"
+    ? "external"
+    : input.source === "generated"
+      ? "generated"
+      : input.file ? "external" : "generated";
   const resolved = await resolveInvoice(input, true);
   const id = randomUUID();
 
