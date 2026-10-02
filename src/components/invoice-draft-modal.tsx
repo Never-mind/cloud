@@ -6,6 +6,7 @@ import { Button, Input, Select, Textarea } from "./ui";
 import { Modal } from "./modal";
 import { notify } from "./app-dialog";
 import { SearchSelect, type SearchSelectOption } from "./search-select";
+import { InvoiceMergePicker } from "./invoice-merge-picker";
 
 /**
  * 开票弹层（两种模式共用）：
@@ -98,6 +99,7 @@ function usePartnerOptions(entity: string) {
 }
 
 export function InvoiceDraftModal({
+  autoOpenMergePicker = false,
   mode,
   onClose,
   onSaved,
@@ -105,6 +107,8 @@ export function InvoiceDraftModal({
   sourceId = "",
   sourceType = "manual",
 }: {
+  /** 从账单行的「合并多账期」入口进来时，直接打开账单行选择弹层。 */
+  autoOpenMergePicker?: boolean;
   mode: InvoiceDraftMode;
   onClose: () => void;
   onSaved?: (invoice: Record<string, unknown>) => void;
@@ -116,6 +120,8 @@ export function InvoiceDraftModal({
   const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
   const [prefilling, setPrefilling] = useState(false);
+  const [mergeOpen, setMergeOpen] = useState(false);
+  const [allocationIds, setAllocationIds] = useState<string[]>([]);
   const customerOptions = usePartnerOptions("customers");
   const unitOptions = usePartnerOptions("undertaking-units");
 
@@ -163,8 +169,44 @@ export function InvoiceDraftModal({
       }
     })();
     setFile(null);
+    setAllocationIds([]);
+    setMergeOpen(autoOpenMergePicker && sourceType !== "manual");
     return () => { cancelled = true; };
-  }, [open, sourceId, sourceType]);
+  }, [autoOpenMergePicker, open, sourceId, sourceType]);
+
+  /** 合并多账期：拿到勾选的行后重新按这些行预填（明细/金额都由服务端算）。 */
+  const applyMergeRows = useCallback(async (ids: string[]) => {
+    setMergeOpen(false);
+    if (!ids.length) return;
+    try {
+      const response = await fetch(`/api/invoices/prefill?sourceType=cloud_row&sourceIds=${encodeURIComponent(ids.join(","))}`, { cache: "no-store" });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error ?? "按账单行预填失败");
+      setDraft((current) => current ? {
+        ...current,
+        sourceType: "cloud_row",
+        sourceId: text(data.sourceId),
+        sourceNo: text(data.sourceNo),
+        period: text(data.period) || current.period,
+        invoiceNo: text(data.suggestedInvoiceNo) || current.invoiceNo,
+        customerId: text(data.customerId) || current.customerId,
+        undertakingUnitId: text(data.undertakingUnitId) || current.undertakingUnitId,
+        currency: text(data.currency) || current.currency,
+        amountExcludingTax: text(data.amountExcludingTax),
+        taxRate: text(data.taxRate),
+        taxAmount: text(data.taxAmount),
+        amountIncludingTax: text(data.amountIncludingTax),
+        lines: ((data.lines ?? []) as Record<string, unknown>[]).map((line) => ({
+          periodLabel: text(line.date), description: text(line.desc), amount: text(line.cost),
+        })),
+      } : current);
+      setAllocationIds(ids);
+      const warnings = (data.warnings ?? []) as string[];
+      notify(`已合并 ${ids.length} 个账期，保存后这些行都会标记已开票${warnings.length ? `；${warnings.join("；")}` : ""}`, "info");
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "按账单行预填失败", "error");
+    }
+  }, []);
 
   const submit = useCallback(async () => {
     if (!draft) return;
@@ -181,7 +223,7 @@ export function InvoiceDraftModal({
         response = await fetch("/api/invoices", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ ...draft, source: "generated" }),
+          body: JSON.stringify({ ...draft, source: "generated", allocationSourceIds: allocationIds }),
         });
       }
       const data = await response.json();
@@ -194,7 +236,7 @@ export function InvoiceDraftModal({
     } finally {
       setBusy(false);
     }
-  }, [draft, file, mode, onClose, onSaved]);
+  }, [allocationIds, draft, file, mode, onClose, onSaved]);
 
   if (!open) return null;
 
@@ -231,12 +273,22 @@ export function InvoiceDraftModal({
           <DraftFormFields
             customerOptions={customerOptions}
             draft={draft}
+            mergedCount={allocationIds.length}
+            onOpenMergePicker={sourceType === "cloud_row" ? () => setMergeOpen(true) : undefined}
             onChange={setDraft}
             simple={mode === "external"}
             unitOptions={unitOptions}
           />
         </div>
       )}
+      {mergeOpen && draft ? (
+        <InvoiceMergePicker
+          currency={draft.currency}
+          customerId={draft.customerId}
+          onApply={(ids) => void applyMergeRows(ids)}
+          onClose={() => setMergeOpen(false)}
+        />
+      ) : null}
     </Modal>
   );
 }
@@ -245,13 +297,19 @@ function DraftFormFields({
   draft,
   customerOptions,
   unitOptions,
+  mergedCount = 0,
   onChange,
+  onOpenMergePicker,
   simple = false,
 }: {
   draft: DraftForm;
   customerOptions: SearchSelectOption[];
   unitOptions: SearchSelectOption[];
+  /** 已合并的账期数量（>0 时提示保存后这些行都会标记已开票）。 */
+  mergedCount?: number;
   onChange: (next: DraftForm) => void;
+  /** 传了才显示「合并多账期」按钮（目前只有华为云对账行支持）。 */
+  onOpenMergePicker?: () => void;
   simple?: boolean;
 }) {
   const patch = (values: Partial<DraftForm>) => onChange({ ...draft, ...values });
@@ -408,10 +466,18 @@ function DraftFormFields({
           <section className={sectionClass}>
             <div className="flex items-center justify-between">
               <h3 className={headingClass}>明细行</h3>
-              <Button onClick={() => patch({ lines: [...draft.lines, { periodLabel: "", description: "", amount: "" }] })} size="sm" type="button">
-                添加行
-              </Button>
+              <div className="flex items-center gap-2">
+                {onOpenMergePicker ? (
+                  <Button onClick={onOpenMergePicker} size="sm" tone="secondary" type="button">合并多账期</Button>
+                ) : null}
+                <Button onClick={() => patch({ lines: [...draft.lines, { periodLabel: "", description: "", amount: "" }] })} size="sm" type="button">
+                  添加行
+                </Button>
+              </div>
             </div>
+            {mergedCount ? (
+              <p className="text-xs text-primary">已合并 {mergedCount} 个账期：保存后这些账单行都会标记已开票，票面会挂到每一行的开票附件下。</p>
+            ) : null}
             <div className="overflow-hidden rounded border border-line-soft">
               <table className="w-full border-collapse text-sm">
                 <thead className="bg-canvas">

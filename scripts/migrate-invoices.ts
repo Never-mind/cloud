@@ -121,6 +121,35 @@ async function main() {
     `,
   );
 
+  /**
+   * 开票分摊明细：一张票覆盖多个账期（多个月账单行）时，记录每个来源单据分摊到的金额。
+   * 台账据此回填每一行、把票面挂到每一行，并在作废时一次性回退这些行。
+   * 与 CRM 发票的按账期分摊（merge_cloud_crm_invoice_allocations）是同一个思路。
+   */
+  await createTableIfMissing(
+    "merge_common_invoice_allocations",
+    `
+      CREATE TABLE \`merge_common_invoice_allocations\` (
+        \`id\` CHAR(36) NOT NULL COMMENT '分摊ID',
+        \`invoiceId\` CHAR(36) NOT NULL COMMENT '开票记录ID',
+        \`sourceType\` VARCHAR(32) NOT NULL COMMENT '来源单据类型：cloud_row / billing_statement / service_fee / settlement_invoice',
+        \`sourceId\` VARCHAR(64) NOT NULL COMMENT '来源单据ID（对账行ID / 对账单号）',
+        \`sourceNo\` VARCHAR(128) NULL COMMENT '来源单据编号，展示用（账期 · 账号）',
+        \`period\` VARCHAR(16) NULL COMMENT '该行账期 YYYYMM',
+        \`currency\` VARCHAR(16) NULL,
+        \`amountExcludingTax\` DECIMAL(18,4) NULL COMMENT '分摊未税金额',
+        \`taxRate\` DECIMAL(9,4) NULL COMMENT '该行税率（百分数）',
+        \`taxAmount\` DECIMAL(18,4) NULL,
+        \`amountIncludingTax\` DECIMAL(18,4) NULL COMMENT '分摊含税金额（明细行金额）',
+        \`createdAt\` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        \`updatedAt\` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (\`id\`),
+        UNIQUE KEY \`uk_invoice_allocation\` (\`invoiceId\`, \`sourceType\`, \`sourceId\`),
+        KEY \`idx_invoice_allocation_source\` (\`sourceType\`, \`sourceId\`)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='开票分摊明细（一张票覆盖多个账期）'
+    `,
+  );
+
   /** 票面明细行：一张票可以拆多行（多账期、多账号），行金额合计应等于含税总额。 */
   await createTableIfMissing(
     "merge_common_invoice_items",

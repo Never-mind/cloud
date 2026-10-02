@@ -15,7 +15,9 @@ export async function GET(request: NextRequest) {
     }
     const params = request.nextUrl.searchParams;
     const sourceType = (params.get("sourceType") ?? "manual") as InvoiceSourceType;
-    const prefill = await buildInvoicePrefill({ sourceType, sourceId: params.get("sourceId") });
+    // 合并多账期时前端传 sourceIds=a,b,c（逗号分隔）
+    const sourceIds = (params.get("sourceIds") ?? "").split(",").map((value) => value.trim()).filter(Boolean);
+    const prefill = await buildInvoicePrefill({ sourceType, sourceId: params.get("sourceId"), sourceIds });
     return NextResponse.json(prefill);
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "预填失败" }, { status: 400 });

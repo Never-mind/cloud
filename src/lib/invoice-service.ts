@@ -31,6 +31,8 @@ export type InvoiceLinePayload = {
 export type InvoiceDraftInput = {
   /** 系统生成票面（generated）还是外部已开票（external）；不传时按有没有上传文件推断。 */
   source?: InvoiceSource | null;
+  /** 合并开票时勾选的账单行 ID（目前支持华为云对账行）；传了就以服务端的行数据为准生成明细与金额。 */
+  allocationSourceIds?: string[] | null;
   template?: InvoiceTemplateKind | null;
   sourceType?: InvoiceSourceType | null;
   sourceId?: string | null;
@@ -215,7 +217,12 @@ export async function getInvoice(id: string) {
     `SELECT id, lineNo, periodLabel, description, amount, sgdRate FROM ${INVOICE_ITEM_TABLE} WHERE invoiceId = :id ORDER BY lineNo`,
     { id },
   );
-  return { ...rows[0], items } as Row & { items: Row[] };
+  const allocations = await queryRowsRaw<Row>(
+    `SELECT id, sourceType, sourceId, sourceNo, period, currency, amountIncludingTax
+       FROM merge_common_invoice_allocations WHERE invoiceId = :id ORDER BY period`,
+    { id },
+  );
+  return { ...rows[0], items, allocations } as Row & { items: Row[]; allocations: Row[] };
 }
 
 /** 票号分配：INV-<账期>-<4位流水>，同账期内递增；并发下靠唯一键兜底重试。 */
@@ -274,6 +281,78 @@ function emptyPrefill(sourceType: InvoiceSourceType, sourceId: string): InvoiceP
   return {
     sourceType, sourceId, sourceNo: "", period: "", customerId: "", undertakingUnitId: "",
     currency: "USD", amountExcludingTax: "", taxRate: "", taxAmount: "", amountIncludingTax: "", invoiceDate: "",
+  };
+}
+
+/** 合并开票用：按 ID 逐条取对账行（勾选行数很少，逐条查比拼 IN 更省心）。 */
+async function loadMergeRows(ids: string[]) {
+  const rows: Row[] = [];
+  for (const id of ids) {
+    const row = (await queryRowsRaw<Row>(
+      `SELECT id, period, account, customer, customerId, undertakingUnitId, invoicePayeeUndertakingUnitId, invoicePayerCustomerId,
+              invoiceCurrency, collectionCurrency, customerReceivable, customerReceivableNetAmount, customerReceivableTaxAmount,
+              customerReceivableTotalAmount, customerTaxRate, invoiceNetAmount, invoiceTaxAmount, invoiceTotalAmount, invoiceTaxRate
+         FROM merge_cloud_rows WHERE id = :id LIMIT 1`,
+      { id },
+    ))[0];
+    if (row) rows.push(row);
+  }
+  // 保持账期顺序，票面明细看起来才自然
+  return rows.sort((left, right) => text(left.period).localeCompare(text(right.period)));
+}
+
+/**
+ * 取一条对账行的未税 / 含税金额。
+ *
+ * 合并开票用的是**客户应收**口径（这是账单本身的金额）；已开票金额只在没有应收时兜底，
+ * 因为一张作废过的票可能在工作行上留下过金额，直接用会把上次的总额带进来。
+ */
+function rowAmount(row: Row, kind: "net" | "total") {
+  if (kind === "net") {
+    return Number(text(row.customerReceivableNetAmount) || text(row.customerReceivable) || text(row.invoiceNetAmount) || 0);
+  }
+  return Number(text(row.customerReceivableTotalAmount) || text(row.customerReceivable) || text(row.invoiceTotalAmount) || 0);
+}
+
+/** 可合并开票的账单行（当前支持华为云对账行）：只列未开票、同客户、同币种、有应收金额的行。 */
+export async function listMergeCandidates(params: { customerId?: string; currency?: string; from?: string; to?: string }) {
+  const conditions = ["r.customerReceivableTotalAmount > 0", "(r.invoiceNo IS NULL OR r.invoiceNo = '')"];
+  const values: Record<string, unknown> = {};
+  if (text(params.customerId)) { conditions.push("r.customerId = :customerId"); values.customerId = text(params.customerId); }
+  if (text(params.from)) { conditions.push("r.period >= :from"); values.from = text(params.from); }
+  if (text(params.to)) { conditions.push("r.period <= :to"); values.to = text(params.to); }
+  if (text(params.currency)) {
+    // 很多对账行的币种字段是空的（默认 USD），空值也要当作可选，否则一个候选都出不来
+    conditions.push(
+      "(COALESCE(NULLIF(r.invoiceCurrency,''), NULLIF(r.collectionCurrency,'')) = :currency" +
+      " OR COALESCE(NULLIF(r.invoiceCurrency,''), NULLIF(r.collectionCurrency,'')) IS NULL)",
+    );
+    values.currency = text(params.currency);
+  }
+  const rows = await queryRowsRaw<Row>(
+    `SELECT r.id, r.period, r.customer, r.account, r.customerId, r.invoicePayeeUndertakingUnitId, r.undertakingUnitId,
+            COALESCE(NULLIF(r.invoiceCurrency, ''), NULLIF(r.collectionCurrency, '')) AS currency,
+            r.customerReceivableNetAmount, r.customerReceivable, r.customerTaxRate, r.customerReceivableTaxAmount,
+            r.customerReceivableTotalAmount, r.invoiceNetAmount, r.invoiceTaxAmount, r.invoiceTotalAmount,
+            c.nameEn AS customerNameEn, c.shortName AS customerShortName
+       FROM merge_cloud_rows r
+       LEFT JOIN merge_common_customers c ON c.customerId = r.customerId
+      WHERE ${conditions.join(" AND ")}
+      ORDER BY r.period, r.account`,
+    values,
+  );
+  return {
+    rows: rows.map((row) => ({
+      id: text(row.id),
+      period: text(row.period),
+      account: text(row.account),
+      customer: text(row.customerShortName) || text(row.customer),
+      customerNameEn: text(row.customerNameEn),
+      currency: text(row.currency) || "USD",
+      amountExcludingTax: rowAmount(row, "net"),
+      taxRate: Number(percentFromStoredRate(text(row.invoiceTaxRate) || text(row.customerTaxRate)) || 0),
+      amountIncludingTax: rowAmount(row, "total"),
+    })),
   };
 }
 
@@ -353,11 +432,43 @@ export async function resolveInvoiceParties(input: { customerId?: string | null;
 }
 
 /** 弹层预填：按来源单据把金额、客户、承接单位、银行都取好，并列出缺哪些档案资料。 */
-export async function buildInvoicePrefill(params: { sourceType: InvoiceSourceType; sourceId?: string | null }) {
+export async function buildInvoicePrefill(params: { sourceType: InvoiceSourceType; sourceId?: string | null; sourceIds?: string[] | null }) {
   const sourceType = params.sourceType;
   const sourceId = text(params.sourceId);
   const prefill = emptyPrefill(sourceType, sourceId);
   let lines: InvoiceLineInput[] = [];
+  const mergeIds = (params.sourceIds ?? []).map(text).filter(Boolean);
+
+  // 合并开票：勾选多条账单行时，明细与金额都按这些行现算（服务端为准）
+  if (sourceType === "cloud_row" && mergeIds.length > 0) {
+    const rows = await loadMergeRows(mergeIds);
+    if (!rows.length) throw new Error("选中的账单行已不存在，请重新选择");
+    const periods = rows.map((row) => text(row.period)).filter(Boolean).sort();
+    const net = rows.reduce((sum, row) => sum + rowAmount(row, "net"), 0);
+    const total = rows.reduce((sum, row) => sum + rowAmount(row, "total"), 0);
+    const units = new Set(rows.map((row) => text(row.invoicePayeeUndertakingUnitId) || text(row.undertakingUnitId)).filter(Boolean));
+    Object.assign(prefill, {
+      sourceType,
+      sourceId: text(rows[0].id),
+      sourceNo: periods.length > 1 ? `${periods.length} 个账期：${periods[0]}–${periods[periods.length - 1]}` : `${periods[0] ?? ""} · ${text(rows[0].account)}`,
+      period: periods[0] ?? "",
+      undertakingUnitId: text(rows[0].invoicePayeeUndertakingUnitId) || text(rows[0].undertakingUnitId),
+      customerId: text(rows[0].invoicePayerCustomerId) || text(rows[0].customerId),
+      currency: text(rows[0].invoiceCurrency) || text(rows[0].collectionCurrency) || "USD",
+      amountExcludingTax: net.toFixed(2),
+      taxRate: percentFromStoredRate(text(rows[0].invoiceTaxRate) || text(rows[0].customerTaxRate)),
+      taxAmount: (total - net).toFixed(2),
+      amountIncludingTax: total.toFixed(2),
+      invoiceDate: "",
+    } satisfies Partial<InvoicePrefill>);
+    lines = rows.map((row) => ({
+      date: periodLabel(row.period),
+      desc: `Huawei Cloud service fee ${periodLabel(row.period)}`.trim(),
+      cost: rowAmount(row, "total").toFixed(2),
+    }));
+    const result = await finishPrefill(prefill, lines, units.size > 1 ? ["勾选的账单行收款单位不一致，票面只会印弹层里选定的那一个"] : []);
+    return result;
+  }
 
   if (sourceType === "cloud_row" && sourceId) {
     const rows = await queryRowsRaw<Row>(
@@ -503,11 +614,19 @@ export async function buildInvoicePrefill(params: { sourceType: InvoiceSourceTyp
     }
   }
 
+  return finishPrefill(prefill, lines);
+}
+
+/**
+ * 预填收尾：解析双方档案资料、算到期日、分配建议票号，并列出还缺哪些档案信息。
+ * 单账期与合并多账期共用，保证两条路径的取值口径一致。
+ */
+async function finishPrefill(prefill: InvoicePrefill, lines: InvoiceLineInput[], extraWarnings: string[] = []) {
   const parties = await resolveInvoiceParties({
     customerId: text(prefill.customerId),
     undertakingUnitId: text(prefill.undertakingUnitId),
   });
-  const period = text(prefill.period) || periodOf(isoDate(prefill.invoiceDate)) ;
+  const period = text(prefill.period) || periodOf(isoDate(prefill.invoiceDate));
   const invoiceDate = text(prefill.invoiceDate) || isoDate(new Date());
   const paymentTermDays = Number(parties.paymentTermDays) > 0 ? Number(parties.paymentTermDays) : 30;
   const merged = {
@@ -535,7 +654,7 @@ export async function buildInvoicePrefill(params: { sourceType: InvoiceSourceTyp
     customerAddress: parties.customerAddress,
     lines: merged.lines,
   });
-  return { ...merged, missing };
+  return { ...merged, missing, warnings: extraWarnings };
 }
 
 type ResolvedInvoice = {
@@ -684,8 +803,47 @@ export async function saveInvoice(input: InvoiceDraftInput, actor: InvoiceActor 
     : input.source === "generated"
       ? "generated"
       : input.file ? "external" : "generated";
-  const resolved = await resolveInvoice(input, true);
+
+  /**
+   * 合并开票：勾选多条对账行时，明细/金额一律以**服务端读到的行数据**为准，
+   * 避免前端传错金额；主行取账期最早那条，其余行保存后一起回填并挂票面。
+   */
+  const allocationIds = (input.allocationSourceIds ?? []).map(text).filter(Boolean);
+  let mergeRows: Row[] = [];
+  let effectiveInput = input;
+  if (allocationIds.length && (text(input.sourceType) || "cloud_row") === "cloud_row") {
+    mergeRows = await loadMergeRows(allocationIds);
+    if (mergeRows.length !== allocationIds.length) throw new Error("选中的账单行已不存在，请重新选择");
+    const net = mergeRows.reduce((sum, row) => sum + rowAmount(row, "net"), 0);
+    const total = mergeRows.reduce((sum, row) => sum + rowAmount(row, "total"), 0);
+    const periods = mergeRows.map((row) => text(row.period)).filter(Boolean).sort();
+    effectiveInput = {
+      ...input,
+      sourceType: "cloud_row",
+      sourceId: text(mergeRows[0].id),
+      sourceNo: periods.length > 1
+        ? `${periods.length} 个账期：${periods[0]}–${periods[periods.length - 1]}`
+        : `${periods[0] ?? ""} · ${text(mergeRows[0].account)}`,
+      period: periods[0] ?? text(input.period),
+      customerId: text(input.customerId) || text(mergeRows[0].invoicePayerCustomerId) || text(mergeRows[0].customerId),
+      undertakingUnitId: text(input.undertakingUnitId) || text(mergeRows[0].invoicePayeeUndertakingUnitId) || text(mergeRows[0].undertakingUnitId),
+      currency: text(input.currency) || text(mergeRows[0].invoiceCurrency) || text(mergeRows[0].collectionCurrency) || "USD",
+      amountExcludingTax: net.toFixed(2),
+      taxRate: percentFromStoredRate(text(mergeRows[0].invoiceTaxRate) || text(mergeRows[0].customerTaxRate)),
+      taxAmount: (total - net).toFixed(2),
+      amountIncludingTax: total.toFixed(2),
+      lines: mergeRows.map((row) => ({
+        periodLabel: periodLabel(row.period),
+        description: `Huawei Cloud service fee ${periodLabel(row.period)}`.trim(),
+        amount: rowAmount(row, "total").toFixed(2),
+      })),
+    };
+  }
+
+  const resolved = await resolveInvoice(effectiveInput, true);
   const id = randomUUID();
+  const sourceTypeValue = text(effectiveInput.sourceType) || "manual";
+  const sourceIdValue = text(effectiveInput.sourceId);
 
   let bytes: Buffer | null = null;
   let fileName = "";
@@ -706,7 +864,7 @@ export async function saveInvoice(input: InvoiceDraftInput, actor: InvoiceActor 
     fileType = input.file.fileType || "application/octet-stream";
   }
 
-  const period = text(input.period) || periodOf(resolved.invoiceDate);
+  const period = text(effectiveInput.period) || periodOf(resolved.invoiceDate);
   const stored = await storeFile({
     context: { system: "invoice", period, invoiceNo: resolved.invoiceNo },
     attachmentId: id,
@@ -740,9 +898,9 @@ export async function saveInvoice(input: InvoiceDraftInput, actor: InvoiceActor 
       invoiceNo: resolved.invoiceNo,
       source,
       template: resolved.template,
-      sourceType: text(input.sourceType) || "manual",
-      sourceId: text(input.sourceId) || null,
-      sourceNo: text(input.sourceNo) || null,
+      sourceType: sourceTypeValue,
+      sourceId: sourceIdValue || null,
+      sourceNo: text(effectiveInput.sourceNo) || null,
       period: period || null,
       customerId: resolved.customer.customerId || null,
       customerName: resolved.customer.customerName,
@@ -805,11 +963,11 @@ export async function saveInvoice(input: InvoiceDraftInput, actor: InvoiceActor 
     );
   }
 
-  await backfillSource({ id, sourceType: text(input.sourceType), sourceId: text(input.sourceId), resolved, source });
+  await backfillSource({ id, sourceType: sourceTypeValue, sourceId: sourceIdValue, resolved, source });
   await attachInvoiceFileToSource({
     invoiceId: id,
-    sourceType: text(input.sourceType),
-    sourceId: text(input.sourceId),
+    sourceType: sourceTypeValue,
+    sourceId: sourceIdValue,
     actor,
     fileName: stored.fileName,
     fileType,
@@ -818,6 +976,66 @@ export async function saveInvoice(input: InvoiceDraftInput, actor: InvoiceActor 
     storageKey: stored.storageKey,
     dataUrl: stored.provider === "db" ? toDataUrl(fileType, bytes) : null,
   });
+
+  /**
+   * 合并开票：写分摊记录，并把票面/回填逐行落到其余账单行上（主行上面已经处理过）。
+   * 作废时按这些分摊记录一次性回退。
+   */
+  if (mergeRows.length) {
+    for (const [index, row] of mergeRows.entries()) {
+      const rowId = text(row.id);
+      const line = resolved.lines[index];
+      const rowNet = rowAmount(row, "net");
+      const rowTotal = Number(line?.amount ?? rowAmount(row, "total"));
+      await executeRaw(
+        `INSERT INTO merge_common_invoice_allocations
+           (id, invoiceId, sourceType, sourceId, sourceNo, period, currency, amountExcludingTax, taxRate, taxAmount, amountIncludingTax)
+         VALUES (:id, :invoiceId, 'cloud_row', :sourceId, :sourceNo, :period, :currency, :net, :taxRate, :taxAmount, :total)
+         ON DUPLICATE KEY UPDATE amountIncludingTax = VALUES(amountIncludingTax), updatedAt = NOW()`,
+        {
+          id: randomUUID(),
+          invoiceId: id,
+          sourceId: rowId,
+          sourceNo: `${text(row.period)} · ${text(row.account)}`,
+          period: text(row.period) || null,
+          currency: resolved.currency,
+          net: rowNet.toFixed(2),
+          taxRate: resolved.taxRate || null,
+          taxAmount: (rowTotal - rowNet).toFixed(2),
+          total: rowTotal.toFixed(2),
+        },
+      );
+      /**
+       * 每一行只回填**它自己分摊到的金额**，而不是整张票的总额——
+       * 否则三行会全部显示 823.03，台账和后续对账就都错了。
+       */
+      await backfillSource({
+        id,
+        sourceType: "cloud_row",
+        sourceId: rowId,
+        resolved: {
+          ...resolved,
+          amountExcludingTax: rowNet.toFixed(2),
+          taxAmount: (rowTotal - rowNet).toFixed(2),
+          amountIncludingTax: rowTotal.toFixed(2),
+        },
+        source,
+      });
+      if (rowId === sourceIdValue) continue; // 主行的票面附件上面已经挂过
+      await attachInvoiceFileToSource({
+        invoiceId: id,
+        sourceType: "cloud_row",
+        sourceId: rowId,
+        actor,
+        fileName: stored.fileName,
+        fileType,
+        fileSize: bytes.length,
+        provider: stored.provider,
+        storageKey: stored.storageKey,
+        dataUrl: stored.provider === "db" ? toDataUrl(fileType, bytes) : null,
+      });
+    }
+  }
   return getInvoice(id);
 }
 
@@ -983,6 +1201,24 @@ export async function voidInvoice(id: string, reason: string, actor: InvoiceActo
   );
   const sourceType = text(row.sourceType);
   const sourceId = text(row.sourceId);
+  const allocations = await queryRowsRaw<Row>(
+    `SELECT sourceType, sourceId FROM merge_common_invoice_allocations WHERE invoiceId = :id`,
+    { id },
+  );
+  const invoiceFileName = text((await queryRowsRaw<Row>(
+    `SELECT fileName FROM ${INVOICE_TABLE} WHERE id = :id`,
+    { id },
+  ))[0]?.fileName);
+  // 合并开票：先按分摊记录把每一行的票面附件摘掉（主行下面还会再走一次，删不到就忽略）
+  if (allocations.length > 1 && invoiceFileName) {
+    for (const allocation of allocations) {
+      await executeRaw(
+        `DELETE FROM merge_cloud_attachments
+          WHERE ownerType = 'invoice' AND ownerId = :ownerId AND fileName = :fileName`,
+        { ownerId: text(allocation.sourceId), fileName: invoiceFileName },
+      );
+    }
+  }
   // 摘掉挂在来源单据开票附件位上的那张票面（票面本身仍在开票记录里，作废后仍可下载审计）
   const attachmentId = text((await queryRowsRaw<Row>(
     `SELECT sourceAttachmentId FROM ${INVOICE_TABLE} WHERE id = :id`,
@@ -1001,13 +1237,8 @@ export async function voidInvoice(id: string, reason: string, actor: InvoiceActo
     await executeRaw(`UPDATE ${INVOICE_TABLE} SET sourceAttachmentId = NULL WHERE id = :id`, { id });
   }
   if (sourceType === "cloud_row" && sourceId) {
-    await executeRaw(
-      // 只在票号确实是这张作废票时清空，避免把人工填的其它票号擦掉
-      `UPDATE merge_cloud_rows
-          SET invoiceNo = IF(invoiceNo = :invoiceNo, NULL, invoiceNo), collectionInvoice = 'not_issued', updatedAt = NOW()
-        WHERE id = :sourceId`,
-      { sourceId, invoiceNo: text(row.invoiceNo) },
-    );
+    // 走统一的回退逻辑：台账行连金额一起清（只在票号确实是这张作废票时清，避免擦掉人工填的其它票号）
+    await backfillRevert("cloud_row", sourceId, text(row.invoiceNo));
   } else if (sourceType === "billing_statement" && sourceId) {
     await executeRaw(
       `UPDATE merge_power_billingstatementsnapshots
@@ -1030,7 +1261,58 @@ export async function voidInvoice(id: string, reason: string, actor: InvoiceActo
       { sourceId, invoiceNo: text(row.invoiceNo) },
     );
   }
+  // 合并开票：分摊到其余账期的行也一起退回未开票
+  for (const allocation of allocations) {
+    const allocationSourceId = text(allocation.sourceId);
+    if (!allocationSourceId || allocationSourceId === sourceId) continue;
+    await backfillRevert(text(allocation.sourceType) || "cloud_row", allocationSourceId, text(row.invoiceNo));
+  }
   return getInvoice(id);
+}
+
+/** 作废时把某一条来源账单行退回未开票（只在票号一致时清空票号）。 */
+async function backfillRevert(sourceType: string, sourceId: string, invoiceNo: string) {
+  if (sourceType === "cloud_row") {
+    // 先按"票号是否还是这张票"清金额，再清票号：MySQL 的 SET 是从左到右用新值，
+    // 合成一条 SQL 的话后面几个 CASE 会读到已经被置空的 invoiceNo，金额就清不掉了。
+    await executeRaw(
+      `UPDATE merge_cloud_rows
+          SET invoiceNetAmount = CASE WHEN invoiceNo = :invoiceNo THEN NULL ELSE invoiceNetAmount END,
+              invoiceTaxRate = CASE WHEN invoiceNo = :invoiceNo THEN NULL ELSE invoiceTaxRate END,
+              invoiceTaxAmount = CASE WHEN invoiceNo = :invoiceNo THEN NULL ELSE invoiceTaxAmount END,
+              invoiceTotalAmount = CASE WHEN invoiceNo = :invoiceNo THEN NULL ELSE invoiceTotalAmount END,
+              invoiceDate = CASE WHEN invoiceNo = :invoiceNo THEN NULL ELSE invoiceDate END
+        WHERE id = :sourceId`,
+      { sourceId, invoiceNo },
+    );
+    await executeRaw(
+      `UPDATE merge_cloud_rows
+          SET invoiceNo = IF(invoiceNo = :invoiceNo, NULL, invoiceNo), collectionInvoice = 'not_issued', updatedAt = NOW()
+        WHERE id = :sourceId`,
+      { sourceId, invoiceNo },
+    );
+  } else if (sourceType === "billing_statement") {
+    await executeRaw(
+      `UPDATE merge_power_billingstatementsnapshots
+          SET invoiceId = NULL, invoiceNo = IF(invoiceNo = :invoiceNo, NULL, invoiceNo), invoiceStatus = 'not_issued', updatedAt = NOW()
+        WHERE snapshotNo = :sourceId`,
+      { sourceId, invoiceNo },
+    );
+  } else if (sourceType === "service_fee") {
+    await executeRaw(
+      `UPDATE merge_power_servicefeesnapshots
+          SET invoiceStatus = '未开票', invoiceNo = IF(invoiceNo = :invoiceNo, NULL, invoiceNo), updatedAt = NOW()
+        WHERE snapshotNo = :sourceId`,
+      { sourceId, invoiceNo },
+    );
+  } else if (sourceType === "settlement_invoice") {
+    await executeRaw(
+      `UPDATE merge_po_settlement_invoices
+          SET isInvoiced = 0, invoiceNo = IF(invoiceNo = :invoiceNo, NULL, invoiceNo), updatedAt = NOW()
+        WHERE id = :sourceId`,
+      { sourceId, invoiceNo },
+    );
+  }
 }
 
 export async function readInvoiceFile(id: string) {
@@ -1128,6 +1410,7 @@ export async function deleteInvoice(id: string) {
   if (!invoice) throw new Error("开票记录不存在");
   if (text(invoice.status) === "issued") throw new Error("已开票的记录请先作废再删除");
   await executeRaw(`DELETE FROM ${INVOICE_ITEM_TABLE} WHERE invoiceId = :id`, { id });
+  await executeRaw(`DELETE FROM merge_common_invoice_allocations WHERE invoiceId = :id`, { id });
   await executeRaw(`DELETE FROM ${INVOICE_TABLE} WHERE id = :id`, { id });
   const key = text(invoice.storageKey);
   if (key) await deleteFileObject({ storageProvider: invoice.fileProvider, storageKey: key }).catch(() => undefined);
