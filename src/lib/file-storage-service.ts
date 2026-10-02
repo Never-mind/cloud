@@ -154,7 +154,13 @@ export async function readFile(record: StoredFileRecord) {
   };
 }
 
-const ATTACHMENT_TABLES = ["merge_cloud_attachments", "merge_common_attachments", "merge_po_settlement_attachments", "merge_common_document_files"];
+const ATTACHMENT_TABLES = [
+  "merge_cloud_attachments",
+  "merge_common_attachments",
+  "merge_po_settlement_attachments",
+  "merge_common_document_files",
+  "merge_power_billingstatement_attachments",
+];
 
 /**
  * 删文件：OBS 对象删失败只记日志（避免因为远端问题删不掉索引）。

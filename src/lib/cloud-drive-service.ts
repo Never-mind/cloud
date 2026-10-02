@@ -25,7 +25,7 @@ export type CloudDriveFile = {
   directory: string;
   provider: "obs" | "db";
   storageKey: string | null;
-  source: "common" | "cloud" | "settlement" | "documents";
+  source: "common" | "cloud" | "settlement" | "documents" | "billing-statement";
   sourceLabel: string;
   ownerLabel: string;
   jumpHref: string;
@@ -67,7 +67,7 @@ export async function listCloudDrive(options: { keyword?: string; prefix?: strin
   const files: CloudDriveFile[] = [];
   const canView = (moduleKey: string) => hasPermission(options.viewer, moduleKey, "view");
 
-  const [commonRows, cloudRows, settlementRows, documentRows] = await Promise.all([
+  const [commonRows, cloudRows, settlementRows, documentRows, statementRows] = await Promise.all([
     queryRowsRaw<Row>(
       // 这张表的 uploadedByName / uploadedByUserId 是历史可选列，用 SELECT * 读，
       // 否则列不存在时整条查询会报错、被上层吞掉，附件就静默消失了。
@@ -84,6 +84,12 @@ export async function listCloudDrive(options: { keyword?: string; prefix?: strin
     queryRowsRaw<Row>(
       `SELECT fileId AS id, folderId, fileName, fileSize, uploadedByUserId, uploadedAt, storageProvider, storageKey
          FROM merge_common_document_files`,
+    ).catch(() => [] as Row[]),
+    queryRowsRaw<Row>(
+      `SELECT a.id, a.snapshotNo, a.fileName, a.fileSize, a.fileType, a.uploadedByName, a.uploadedAt,
+              a.storageProvider, a.storageKey, s.countryCode
+         FROM merge_power_billingstatement_attachments a
+         LEFT JOIN merge_power_billingstatementsnapshots s ON s.snapshotNo = a.snapshotNo`,
     ).catch(() => [] as Row[]),
   ]);
 
@@ -189,6 +195,30 @@ export async function listCloudDrive(options: { keyword?: string; prefix?: strin
         ownerLabel: String(context.folderPath ?? ""),
         jumpHref: "/documents",
         downloadHref: `/api/documents/files/${encodeURIComponent(String(row.id))}/download`,
+      });
+    }
+  }
+
+  // 月账单对账单附件（票面 / 外部发票）：复用算力域目录规则 Cloud/算力/<国家码>/<对账单号>/
+  if (canView("billing-statements")) {
+    for (const row of statementRows) {
+      const snapshotNo = String(row.snapshotNo ?? "");
+      const prefix = buildStoragePrefix({ system: "power", country: String(row.countryCode ?? ""), requestNo: snapshotNo });
+      push({
+        key: `billing-statement:${row.id}`,
+        fileName: String(row.fileName ?? ""),
+        fileSize: Number(row.fileSize ?? 0),
+        uploadedByName: String(row.uploadedByName ?? "-"),
+        uploadedAt: String(row.uploadedAt ?? ""),
+        prefix,
+        directory: directoryOf(prefix, String(row.fileName ?? "")),
+        provider: String(row.storageProvider ?? "db") === "obs" ? "obs" : "db",
+        storageKey: String(row.storageKey ?? "") || null,
+        source: "billing-statement",
+        sourceLabel: "月账单对账单附件",
+        ownerLabel: snapshotNo,
+        jumpHref: "/finance/billing-statements",
+        downloadHref: `/api/billing-statements/${encodeURIComponent(snapshotNo)}/attachments/${encodeURIComponent(String(row.id))}/download`,
       });
     }
   }

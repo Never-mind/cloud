@@ -161,6 +161,36 @@ async function main() {
   // 这里记录挂上去的那条附件 ID，作废时据此摘掉，避免残留一张作废票的附件。
   await addColumnIfMissing("merge_common_invoices", "sourceAttachmentId", "`sourceAttachmentId` VARCHAR(64) NULL COMMENT '挂到来源单据开票附件位上的附件ID'");
 
+  /**
+   * 月账单对账单附件表。
+   *
+   * 算力域原本没有通用附件表（服务费对账单是把单个发票文件写在对账单行上的），
+   * 月账单对账单要能挂票面、也能上传外部文件，所以单独建一张多附件表。
+   */
+  await createTableIfMissing(
+    "merge_power_billingstatement_attachments",
+    `
+      CREATE TABLE \`merge_power_billingstatement_attachments\` (
+        \`id\` CHAR(36) NOT NULL COMMENT '附件ID',
+        \`snapshotNo\` VARCHAR(128) NOT NULL COMMENT '所属月账单对账单号',
+        \`fileName\` VARCHAR(255) NOT NULL,
+        \`fileType\` VARCHAR(128) NULL,
+        \`fileSize\` INT NOT NULL DEFAULT 0,
+        \`dataUrl\` LONGTEXT NULL COMMENT 'OBS 未启用时存 base64 内容',
+        \`storageProvider\` VARCHAR(16) NULL COMMENT 'obs / db',
+        \`storageKey\` VARCHAR(500) NULL,
+        \`description\` VARCHAR(255) NULL COMMENT '说明（票面 / 外部发票 / 其它）',
+        \`uploadedByUserId\` VARCHAR(64) NULL,
+        \`uploadedByName\` VARCHAR(128) NULL,
+        \`uploadedAt\` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        \`createdAt\` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        \`updatedAt\` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (\`id\`),
+        KEY \`idx_billing_statement_attachment\` (\`snapshotNo\`, \`uploadedAt\`)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='月账单对账单附件（票面与外部发票）'
+    `,
+  );
+
   await grantInvoicePermissionToExistingUsers();
 
   console.log("开票表结构已就绪");

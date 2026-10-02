@@ -13,6 +13,7 @@ import { TableColumnMenu, type TableFilterOption, type TableSortOrder } from "./
 import { WorkspaceNavigationDialog } from "./workspace-navigation-dialog";
 import { EmptyState, TableStateContent } from "./table-state";
 import { InvoiceDraftModal, type InvoiceDraftMode } from "./invoice-draft-modal";
+import { BillingStatementAttachments } from "./billing-statement-attachments";
 
 type Row = Record<string, string | number | boolean | null>;
 type SnapshotListResponse = { rows: Row[]; total: number; page: number; pageSize: number; totalPages: number };
@@ -66,6 +67,8 @@ export function BillingStatementsPage() {
   const [navigationPrompt, setNavigationPrompt] = useState<{ route: string; detail: string } | null>(null);
   /** 开票弹层：sourceId 是对账单号（月账单对账单没有行 ID）。 */
   const [invoiceModal, setInvoiceModal] = useState<{ mode: InvoiceDraftMode; sourceId: string } | null>(null);
+  /** 附件弹层：月账单对账单自己挂附件（票面 + 外部发票）。 */
+  const [attachmentTarget, setAttachmentTarget] = useState<string | null>(null);
   const [sortField, setSortField] = useState("");
   const [sortOrder, setSortOrder] = useState<TableSortOrder>("");
   const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({});
@@ -359,6 +362,14 @@ export function BillingStatementsPage() {
                             查看票面
                           </a>
                         ) : null}
+                        <button
+                          className="inline-flex h-8 items-center rounded border border-line bg-white px-2.5 text-xs text-ink-2 hover:border-primary hover:text-primary"
+                          onClick={() => setAttachmentTarget(snapshot)}
+                          title="查看/上传本对账单附件（票面会自动挂进来）"
+                          type="button"
+                        >
+                          附件
+                        </button>
                         {!confirmed ? <Button tone="success" onClick={() => void changeSnapshot(snapshot, "confirm")}><CheckCircle2 size={15} />确认</Button> : null}
                         {!confirmed ? <Button tone="danger" onClick={() => void changeSnapshot(snapshot, "delete")}><Trash2 size={15} />删除</Button> : null}
                         <a href={`/api/billing-statements/${encodeURIComponent(snapshot)}/export`}>
@@ -421,6 +432,9 @@ export function BillingStatementsPage() {
         sourceId={invoiceModal?.sourceId ?? ""}
         sourceType="billing_statement"
       />
+      {attachmentTarget ? (
+        <BillingStatementAttachments onClose={() => setAttachmentTarget(null)} snapshotNo={attachmentTarget} />
+      ) : null}
     </div>
   );
 }

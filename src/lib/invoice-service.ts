@@ -807,7 +807,23 @@ async function attachInvoiceFileToSource(params: {
   dataUrl: string | null;
 }) {
   const { invoiceId, sourceType, sourceId } = params;
-  if (!sourceId || sourceType !== "cloud_row") return "";
+  if (!sourceId) return "";
+  if (sourceType === "billing_statement") {
+    const { attachInvoiceFileToStatement } = await import("./billing-statement-attachment-service");
+    const attachmentId = await attachInvoiceFileToStatement({
+      snapshotNo: sourceId,
+      fileName: params.fileName,
+      fileType: params.fileType,
+      fileSize: params.fileSize,
+      provider: params.provider,
+      storageKey: params.storageKey,
+      dataUrl: params.dataUrl,
+      actor: params.actor,
+    });
+    await executeRaw(`UPDATE ${INVOICE_TABLE} SET sourceAttachmentId = :attachmentId WHERE id = :invoiceId`, { attachmentId, invoiceId });
+    return attachmentId;
+  }
+  if (sourceType !== "cloud_row") return "";
   const existing = await queryRowsRaw<Row>(
     `SELECT id FROM merge_cloud_attachments
       WHERE ownerType = 'invoice' AND ownerId = :ownerId AND fileName = :fileName LIMIT 1`,
@@ -938,10 +954,15 @@ export async function voidInvoice(id: string, reason: string, actor: InvoiceActo
     { id },
   ))[0]?.sourceAttachmentId);
   if (attachmentId) {
-    await executeRaw(
-      `DELETE FROM merge_cloud_attachments WHERE id = :attachmentId AND ownerType = 'invoice'`,
-      { attachmentId },
-    );
+    if (sourceType === "billing_statement" && sourceId) {
+      const { deleteStatementAttachment } = await import("./billing-statement-attachment-service");
+      await deleteStatementAttachment(sourceId, attachmentId).catch(() => undefined);
+    } else {
+      await executeRaw(
+        `DELETE FROM merge_cloud_attachments WHERE id = :attachmentId AND ownerType = 'invoice'`,
+        { attachmentId },
+      );
+    }
     await executeRaw(`UPDATE ${INVOICE_TABLE} SET sourceAttachmentId = NULL WHERE id = :id`, { id });
   }
   if (sourceType === "cloud_row" && sourceId) {
