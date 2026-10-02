@@ -145,7 +145,9 @@ export function CloudAttachments({
                     </span>
                     <a
                       className="inline-flex h-6 items-center gap-1 rounded border border-line bg-white px-1.5 text-ink-2 hover:border-primary hover:text-primary"
+                      download={item.fileName || undefined}
                       href={`/api/cloud/attachments/${encodeURIComponent(item.id)}`}
+                      onClick={() => notify(`正在下载 ${item.fileName}…`, "info")}
                       title="下载"
                     >
                       <FileDown size={12} />

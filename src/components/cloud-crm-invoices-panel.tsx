@@ -312,10 +312,10 @@ export function CloudCrmInvoicesPanel() {
                     </td>
                     <td className="whitespace-nowrap border-b border-line-soft px-3 py-2">
                       {row.attachmentId
-                        ? <a className="inline-flex items-center gap-1 text-primary hover:underline" href={`/api/cloud/attachments/${encodeURIComponent(String(row.attachmentId))}`} title="下载发票 PDF"><FileUp size={13} />PDF</a>
+                        ? <a className="inline-flex items-center gap-1 text-primary hover:underline" download={String(row.fileName ?? "") || undefined} href={`/api/cloud/attachments/${encodeURIComponent(String(row.attachmentId))}`} onClick={() => notify(`正在下载 ${String(row.fileName ?? "发票 PDF")}…`, "info")} title="下载发票 PDF"><FileUp size={13} />PDF</a>
                         : row.attachmentUrl ? <span className="text-xs text-ink-3" title={String(row.attachmentUrl)}>未下载</span> : "-"}
                       {row.rowAttachmentId
-                        ? <a className="ml-2 inline-flex items-center rounded bg-info-soft px-1.5 py-0.5 text-xs text-primary hover:underline" href={`/api/cloud/attachments/${encodeURIComponent(String(row.rowAttachmentId))}`} title="已挂到对账行的「客户开票附件」，点这里下载这份明细附件">已挂明细</a>
+                        ? <a className="ml-2 inline-flex items-center rounded bg-info-soft px-1.5 py-0.5 text-xs text-primary hover:underline" download={String(row.fileName ?? "") || undefined} href={`/api/cloud/attachments/${encodeURIComponent(String(row.rowAttachmentId))}`} onClick={() => notify("正在下载明细附件…", "info")} title="已挂到对账行的「客户开票附件」，点这里下载这份明细附件">已挂明细</a>
                         : null}
                     </td>
                     <td className="whitespace-nowrap border-b border-line-soft px-3 py-2">
