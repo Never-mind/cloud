@@ -17,9 +17,9 @@ type Row = Record<string, string | number | boolean | null>;
 
 const columns = [
   ["countryCode", "国家"],
-  ["undertakingUnitCode", "承接单位"],
-  ["supplierCode", "供应商"],
-  ["customerCode", "客户"],
+  ["undertakingUnitName", "承接单位"],
+  ["supplierName", "供应商"],
+  ["customerName", "客户"],
   ["batchName", "批次"],
   ["requestNo", "需求单号"],
   ["poNo", "PO单号"],
@@ -30,7 +30,7 @@ const columns = [
   ["currency", "币种"],
   ["revenueExcludingTax", "合同收入（未税）", "money"],
   ["procurementCost", "采购总成本", "money"],
-  ["expectedInternalServiceFee", "预计内部服务费", "money"],
+  ["expectedInternalServiceFee", "预计管理费", "money"],
 ] as const;
 
 export function InternalServiceFeeAvailablePage() {
@@ -100,7 +100,7 @@ export function InternalServiceFeeAvailablePage() {
       notify("请至少勾选一条待初始化实例", "info");
       return;
     }
-    if (!await confirmDialog(`确认初始化 ${targets.length} 条内部服务费台账吗？`)) return;
+    if (!await confirmDialog(`确认初始化 ${targets.length} 条管理费台账吗？`)) return;
     const response = await fetch("/api/internal-service-fees", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -113,14 +113,14 @@ export function InternalServiceFeeAvailablePage() {
     }
     setSelected((current) => current.filter((id) => !targets.includes(id)));
     await loadRows();
-    notify(`已初始化 ${data.count ?? 0} 条内部服务费台账`, "info");
+    notify(`已初始化 ${data.count ?? 0} 条管理费台账`, "info");
   }
 
   return (
     <div className="space-y-5">
       <div>
-        <h1 className="text-xl font-medium text-ink">待初始化内部服务费实例</h1>
-        <p className="mt-1 text-sm text-ink-3">展示已有月账单合同但尚未生成内部服务费的实例，确认后自动建立 60 个月内部服务费计划。</p>
+        <h1 className="text-xl font-medium text-ink">待初始化管理费实例</h1>
+        <p className="mt-1 text-sm text-ink-3">展示已有月账单合同但尚未生成管理费的实例，确认后自动建立 60 个月管理费计划。</p>
       </div>
       <Panel>
         <div className="flex flex-wrap items-center gap-2 border-b border-line-soft p-4">

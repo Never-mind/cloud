@@ -9,7 +9,7 @@ import { getPermissionDomainKey } from "@/lib/permission-definitions";
 /**
  * 实体批量操作。
  * - billing-ledgers：批量删除退回。删除台账会级联清掉对应 60 个月月账单、
- *   内部服务费台账与分摊，实例回到「待生成月账单」。
+ *   管理费台账与分摊，实例回到「待生成月账单」。
  * - request-items：批量删除需求明细，已生成采购订单/预付款的明细会被服务层拦下。
  *
  * 逐条处理，单条失败不影响其余，返回逐条结果由前端汇总提示。

@@ -944,7 +944,7 @@ export async function addSettlementAttachment(projectId: string, input: Record<s
     if (!invoice) throw new Error("发票不存在");
   }
   /**
-   * 集采附件：文件内容外置到 OBS（`Cloud/集采/<项目名-编号>/`），数据库只留索引；
+   * 集采附件：文件内容外置到 OBS（`cloud/集采/<项目名-编号>/`），数据库只留索引；
    * OBS 未启用时保持原来的 base64 入库方式。
    */
   const attachmentId = randomUUID();

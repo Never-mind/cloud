@@ -899,7 +899,7 @@ export async function confirmBillingAdjustment(adjustmentNo: string) {
 }
 
 /**
- * 退回草稿：把调整单状态回退后，按"没有这张调整单"的口径重算受影响的月账单合同与内部服务费。
+ * 退回草稿：把调整单状态回退后，按"没有这张调整单"的口径重算受影响的月账单合同与管理费。
  */
 export async function rollbackBillingAdjustment(adjustmentNo: string) {
   const { adjustment, items } = await getBillingAdjustment(adjustmentNo);

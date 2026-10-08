@@ -9,6 +9,6 @@ export async function POST(request: NextRequest) {
       archiveMonth: String(body.archiveMonth ?? ""),
     }));
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "内部服务费归档失败" }, { status: 400 });
+    return NextResponse.json({ error: error instanceof Error ? error.message : "管理费生成对账单失败" }, { status: 400 });
   }
 }

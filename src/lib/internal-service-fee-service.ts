@@ -17,6 +17,37 @@ type LedgerRow = InternalServiceLedgerInput & {
   next36MonthPrice?: number;
 };
 
+/**
+ * 承接单位 / 供应商 / 客户在列表、筛选、排序里统一按“简称”取数。
+ * 取不到简称时依次退回全称、编码，避免档案没录简称时列变空白。
+ * 与 src/lib/party-display.ts 的展示口径保持一致。
+ */
+function partyShortNameExpression(party: "supplier" | "undertakingUnit" | "customer", idExpression: string) {
+  const config = {
+    supplier: { table: "merge_common_suppliers", idColumn: "supplierId", codeColumn: "supplierCode", nameColumns: ["shortName", "nameCn"] },
+    undertakingUnit: { table: "merge_common_undertaking_units", idColumn: "undertakingUnitId", codeColumn: "undertakingUnitCode", nameColumns: ["shortName", "entityName", "name"] },
+    customer: { table: "merge_common_customers", idColumn: "customerId", codeColumn: "customerCode", nameColumns: ["shortName", "nameCn", "name"] },
+  }[party];
+  const names = config.nameColumns.map((column) => `NULLIF(party.${column}, '')`).join(", ");
+  return `(SELECT COALESCE(${names}, party.${config.codeColumn}) FROM ${config.table} party WHERE party.${config.idColumn} = ${idExpression} OR party.${config.codeColumn} = ${idExpression} LIMIT 1)`;
+}
+
+function internalServicePartyNameExpressions(ids: { supplierId: string; undertakingUnitId: string; customerId: string }) {
+  return {
+    supplierName: partyShortNameExpression("supplier", ids.supplierId),
+    undertakingUnitName: partyShortNameExpression("undertakingUnit", ids.undertakingUnitId),
+    customerName: partyShortNameExpression("customer", ids.customerId),
+  };
+}
+
+const AVAILABLE_REVENUE_EXCLUDING_TAX = "ROUND(COALESCE(monthly.revenueIncludingTax, 0) / (1 + COALESCE(country.vatRate, billing.vatRate, 0)), 2)";
+const AVAILABLE_PROCUREMENT_COST = "ROUND(COALESCE(billing.quantity, 0) * (COALESCE(purchaseItem.taxExcludedUnitPrice, billing.taxExcludedUnitPrice, 0) + COALESCE(purchaseItem.taxSurcharge, billing.taxSurcharge, 0)), 2)";
+const AVAILABLE_PARTY_IDS = {
+  supplierId: "COALESCE(NULLIF(billing.supplierId, ''), requestItem.supplierId, requestByBusinessKey.supplierId)",
+  undertakingUnitId: "COALESCE(NULLIF(billing.undertakingUnitId, ''), requestItem.undertakingUnitId, requestByBusinessKey.undertakingUnitId)",
+  customerId: "COALESCE(NULLIF(billing.customerId, ''), requestItem.customerId, requestByBusinessKey.customerId)",
+};
+
 export async function syncInternalServiceLedgers(ledgerIds?: string[]) {
   const requestedLedgerIds = Array.from(new Set((ledgerIds ?? []).map((ledgerId) => ledgerId.trim()).filter(Boolean)));
   const ledgers = await queryRows<LedgerRow>(
@@ -56,8 +87,9 @@ export async function listAvailableInternalServiceLedgers(searchParams: URLSearc
   const filterExpressions: Record<string, string> = {
     countryCode: "billing.countryCode", batchName: "billing.batchName", requestNo: "billing.requestNo", poNo: "billing.poNo",
     deviceCode: "billing.deviceCode", modelCode: "billing.modelCode", nameEn: "billing.nameEn", quantity: "billing.quantity", currency: "billing.contractCurrency",
-    revenueExcludingTax: "monthly.revenueIncludingTax", procurementCost: "COALESCE(purchaseItem.taxExcludedUnitPrice, billing.taxExcludedUnitPrice, 0)",
-    expectedInternalServiceFee: "monthly.revenueIncludingTax - COALESCE(billing.quantity, 0) * (COALESCE(purchaseItem.taxExcludedUnitPrice, billing.taxExcludedUnitPrice, 0) + COALESCE(purchaseItem.taxSurcharge, billing.taxSurcharge, 0))",
+    revenueExcludingTax: AVAILABLE_REVENUE_EXCLUDING_TAX, procurementCost: AVAILABLE_PROCUREMENT_COST,
+    expectedInternalServiceFee: `${AVAILABLE_REVENUE_EXCLUDING_TAX} - ${AVAILABLE_PROCUREMENT_COST}`,
+    ...internalServicePartyNameExpressions(AVAILABLE_PARTY_IDS),
   };
   for (const [field, expression] of Object.entries(filterExpressions)) appendTableInFilter(conditions, params, expression, field, searchParams, "internalAvailable");
   const where = `WHERE ${conditions.join(" AND ")}`;
@@ -105,15 +137,19 @@ export async function listAvailableInternalServiceFilterOptions(searchParams: UR
   const expressions: Record<string, string> = {
     countryCode: "billing.countryCode", batchName: "billing.batchName", requestNo: "billing.requestNo", poNo: "billing.poNo",
     deviceCode: "billing.deviceCode", modelCode: "billing.modelCode", nameEn: "billing.nameEn", quantity: "billing.quantity", currency: "billing.contractCurrency",
-    revenueExcludingTax: "monthly.revenueIncludingTax", procurementCost: "COALESCE(purchaseItem.taxExcludedUnitPrice, billing.taxExcludedUnitPrice, 0)",
-    expectedInternalServiceFee: "monthly.revenueIncludingTax - COALESCE(billing.quantity, 0) * (COALESCE(purchaseItem.taxExcludedUnitPrice, billing.taxExcludedUnitPrice, 0) + COALESCE(purchaseItem.taxSurcharge, billing.taxSurcharge, 0))",
+    revenueExcludingTax: AVAILABLE_REVENUE_EXCLUDING_TAX, procurementCost: AVAILABLE_PROCUREMENT_COST,
+    expectedInternalServiceFee: `${AVAILABLE_REVENUE_EXCLUDING_TAX} - ${AVAILABLE_PROCUREMENT_COST}`,
+    ...internalServicePartyNameExpressions(AVAILABLE_PARTY_IDS),
   };
   return listSqlFilterOptions({
     expressions,
     searchParams,
     from: `billinginstanceledgers billing
       LEFT JOIN internalserviceledgers internal ON internal.ledgerId = billing.ledgerId
+      LEFT JOIN countries country ON country.code = billing.countryCode
       LEFT JOIN purchaseorderitems purchaseItem ON purchaseItem.id = billing.purchaseOrderItemId
+      LEFT JOIN requestitems requestItem ON requestItem.id = purchaseItem.requestItemId
+      LEFT JOIN requestitems requestByBusinessKey ON requestByBusinessKey.requestNo = billing.requestNo AND requestByBusinessKey.deviceCode = billing.deviceCode
       LEFT JOIN (
         SELECT ledgerId, SUM(COALESCE(monthlyTotalAmount, 0)) AS revenueIncludingTax
         FROM monthlybillingwriteoffs GROUP BY ledgerId
@@ -135,6 +171,7 @@ export async function listInternalServiceAdjustments(searchParams: URLSearchPara
   const filterExpressions: Record<string, string> = {
     adjustmentNo: "adjustmentNo", countryCode: "countryCode", batchName: "batchName", requestNo: "requestNo", poNo: "poNo", deviceCode: "deviceCode",
     startMonth: formatTableDateExpression("startMonth"), endMonth: formatTableDateExpression("endMonth"), monthlyAmount: "monthlyAmount", reason: "reason", status: "status", confirmedAt: formatTableDateExpression("confirmedAt"), createdAt: formatTableDateExpression("createdAt"), updatedAt: formatTableDateExpression("updatedAt"),
+    ...internalServicePartyNameExpressions({ supplierId: "supplierId", undertakingUnitId: "undertakingUnitId", customerId: "customerId" }),
   };
   for (const [field, expression] of Object.entries(filterExpressions)) appendTableInFilter(conditions, params, expression, field, searchParams, "internalAdjustment");
   const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
@@ -164,6 +201,7 @@ export async function listInternalServiceAdjustmentFilterOptions(searchParams: U
   const expressions: Record<string, string> = {
     adjustmentNo: "adjustmentNo", countryCode: "countryCode", batchName: "batchName", requestNo: "requestNo", poNo: "poNo", deviceCode: "deviceCode",
     startMonth: formatTableDateExpression("startMonth"), endMonth: formatTableDateExpression("endMonth"), monthlyAmount: "monthlyAmount", reason: "reason", status: "status", confirmedAt: formatTableDateExpression("confirmedAt"), createdAt: formatTableDateExpression("createdAt"), updatedAt: formatTableDateExpression("updatedAt"),
+    ...internalServicePartyNameExpressions({ supplierId: "supplierId", undertakingUnitId: "undertakingUnitId", customerId: "customerId" }),
   };
   return listSqlFilterOptions({ from: "internalservicefeeadjustments", expressions, searchParams });
 }
@@ -198,6 +236,7 @@ export async function listInternalServiceSnapshots(searchParams: URLSearchParams
   );
   const itemExpressions: Record<string, string> = {
     writeOffMonth: formatTableDateExpression("writeOffMonth"), countryCode: "countryCode", batchName: "batchName", requestNo: "requestNo", poNo: "poNo", deviceCode: "deviceCode", currency: "currency", internalServiceFeeAmount: "internalServiceFeeAmount", sourceType: "sourceType", adjustmentNo: "adjustmentNo", createdAt: formatTableDateExpression("createdAt"), updatedAt: formatTableDateExpression("updatedAt"),
+    ...internalServicePartyNameExpressions({ supplierId: "supplierId", undertakingUnitId: "undertakingUnitId", customerId: "customerId" }),
   };
   const itemConditions: string[] = [];
   const itemParams: Row = {};
@@ -226,6 +265,7 @@ export async function listInternalServiceSnapshotFilterOptions(searchParams: URL
   if (itemScope) {
     const expressions: Record<string, string> = {
       writeOffMonth: formatTableDateExpression("writeOffMonth"), countryCode: "countryCode", batchName: "batchName", requestNo: "requestNo", poNo: "poNo", deviceCode: "deviceCode", currency: "currency", internalServiceFeeAmount: "internalServiceFeeAmount", sourceType: "sourceType", adjustmentNo: "adjustmentNo", createdAt: formatTableDateExpression("createdAt"), updatedAt: formatTableDateExpression("updatedAt"),
+      ...internalServicePartyNameExpressions({ supplierId: "supplierId", undertakingUnitId: "undertakingUnitId", customerId: "customerId" }),
     };
     const snapshotNo = searchParams.get("snapshotNo")?.trim() ?? "";
     return listSqlFilterOptions({ from: "internalservicefeesnapshotitems", expressions, searchParams, queryPrefix: "itemFilter", conditions: snapshotNo ? ["snapshotNo = :snapshotNo"] : ["1 = 0"], params: snapshotNo ? { snapshotNo } : {} });
@@ -257,7 +297,7 @@ export async function regenerateInternalServiceLedger(ledgerId: string) {
     listConfirmedAdjustments(ledgerId),
     listPricingAdjustments(ledger),
   ]);
-  if (billingRows.length !== 60) throw new Error("月账单每月明细不完整，无法生成内部服务费");
+  if (billingRows.length !== 60) throw new Error("月账单每月明细不完整，无法生成管理费");
 
   const result = buildInternalServiceFeeSchedule({
     ledger,
@@ -343,6 +383,7 @@ export async function listInternalServiceFees(searchParams: URLSearchParams) {
     writeOffMonth: "fee.writeOffMonth", countryCode: "fee.countryCode", batchName: "fee.batchName", requestNo: "fee.requestNo", poNo: "fee.poNo",
     deviceCode: "fee.deviceCode", modelCode: "fee.modelCode", nameEn: "fee.nameEn", quantity: "fee.quantity", currency: "fee.currency",
     internalServiceFeeAmount: "fee.internalServiceFeeAmount", sourceType: "fee.sourceType", adjustmentNo: "fee.adjustmentNo", archived: "fee.archived",
+    ...internalServicePartyNameExpressions({ supplierId: "fee.supplierId", undertakingUnitId: "fee.undertakingUnitId", customerId: "fee.customerId" }),
   };
   for (const [field, expression] of Object.entries(filterExpressions)) appendTableInFilter(where, params, expression, field, searchParams, "internalServiceFee");
   if (keyword) {
@@ -400,6 +441,7 @@ export async function listInternalServiceFeeFilterOptions(searchParams: URLSearc
     writeOffMonth: formatTableDateExpression("writeOffMonth"), countryCode: "countryCode", batchName: "batchName", requestNo: "requestNo", poNo: "poNo", deviceCode: "deviceCode",
     modelCode: "modelCode", nameEn: "nameEn", quantity: "quantity", currency: "currency", internalServiceFeeAmount: "internalServiceFeeAmount",
     sourceType: "sourceType", adjustmentNo: "adjustmentNo", archived: "archived",
+    ...internalServicePartyNameExpressions({ supplierId: "supplierId", undertakingUnitId: "undertakingUnitId", customerId: "customerId" }),
   };
   const field = searchParams.get("field")?.trim() ?? "";
   const expression = expressions[field];
@@ -425,7 +467,7 @@ export async function saveInternalServiceAdjustment(input: {
   const startMonth = firstDayOfMonth(input.startMonth);
   const endMonth = firstDayOfMonth(input.endMonth);
   if (!startMonth || !endMonth || startMonth > endMonth) throw new Error("调整月份范围不正确");
-  if (!Number.isFinite(Number(input.monthlyAmount))) throw new Error("每月内部服务费金额不正确");
+  if (!Number.isFinite(Number(input.monthlyAmount))) throw new Error("每月管理费金额不正确");
   const adjustmentNo = `IFS-${Date.now()}`;
   await execute(
     `
@@ -448,12 +490,12 @@ export async function deleteInternalServiceAdjustment(adjustmentNo: string) {
     { adjustmentNo },
   );
   const ledgerId = String(rows[0]?.ledgerId ?? "");
-  if (!ledgerId) throw new Error("内部服务费调整单不存在");
+  if (!ledgerId) throw new Error("管理费调整单不存在");
   const archivedRows = await queryRows<Row>(
     "SELECT COUNT(*) AS count FROM monthlyinternalservicefees WHERE adjustmentNo = :adjustmentNo AND archived = 1",
     { adjustmentNo },
   );
-  if (Number(archivedRows[0]?.count ?? 0) > 0) throw new Error("该调整已包含归档月份，不能撤销");
+  if (Number(archivedRows[0]?.count ?? 0) > 0) throw new Error("该调整已包含对账月份，不能撤销");
   await execute("DELETE FROM internalservicefeeadjustments WHERE adjustmentNo = :adjustmentNo", { adjustmentNo });
   await regenerateInternalServiceLedger(ledgerId);
   return { adjustmentNo, ledgerId };
@@ -461,7 +503,7 @@ export async function deleteInternalServiceAdjustment(adjustmentNo: string) {
 
 export async function archiveInternalServiceFees(input: { countryCode?: string; archiveMonth: string }) {
   const archiveMonth = firstDayOfMonth(input.archiveMonth);
-  if (!archiveMonth) throw new Error("归档月份不正确");
+  if (!archiveMonth) throw new Error("对账月份不正确");
   const countryCode = input.countryCode?.trim() ?? "";
   const rows = await queryRows<Row>(
     `
@@ -472,7 +514,7 @@ export async function archiveInternalServiceFees(input: { countryCode?: string; 
     `,
     { archiveMonth, countryCode },
   );
-  if (!rows.length) throw new Error("该月份没有可归档的内部服务费明细");
+  if (!rows.length) throw new Error("该月份没有可生成对账单的管理费明细");
   const snapshotNo = `ISF-SNAP-${archiveMonth.replaceAll("-", "")}-${Date.now()}`;
   const totalAmount = rows.reduce((total, row) => total + Number(row.internalServiceFeeAmount ?? 0), 0);
   await execute(

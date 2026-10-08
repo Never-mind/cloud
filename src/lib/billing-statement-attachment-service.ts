@@ -7,7 +7,7 @@ import type { OperationActor } from "./operation-actor";
  * 月账单对账单附件。
  *
  * 和华为云对账行一致：票面文件在开票时自动挂一份进来，也可以手工上传外部发票或其它附件；
- * OBS 启用时文件内容放 `Cloud/算力/<国家>/<对账单号>/`，数据库只留索引。
+ * OBS 启用时文件内容放 `cloud/算力/<国家>/<对账单号>/`，数据库只留索引。
  */
 
 const TABLE = "merge_power_billingstatement_attachments";
@@ -33,7 +33,7 @@ async function statementStorageContext(snapshotNo: string) {
     { snapshotNo },
   ))[0];
   if (!row) throw new Error("月账单对账单不存在");
-  // 复用算力域目录规则：Cloud/算力/<国家码>/<对账单号>/
+  // 复用算力域目录规则：cloud/算力/<国家码>/<对账单号>/
   return { system: "power" as const, country: text(row.countryCode), requestNo: snapshotNo };
 }
 

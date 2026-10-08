@@ -6,6 +6,6 @@ export async function DELETE(_request: Request, context: { params: Promise<{ adj
     const { adjustmentNo } = await context.params;
     return NextResponse.json(await deleteInternalServiceAdjustment(decodeURIComponent(adjustmentNo)));
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "撤销内部服务费调整失败" }, { status: 400 });
+    return NextResponse.json({ error: error instanceof Error ? error.message : "撤销管理费调整失败" }, { status: 400 });
   }
 }

@@ -99,6 +99,9 @@ const shipmentDisplayFields = new Set([
   "customerName",
   // 需求单号是派生列（物流表没有该字段，靠采购明细回查）
   "requestNo",
+  // 是否签收按「派送时间有没有值」派生：物流表里的 isReceived 列历史数据全是 0，
+  // 直接用会导致列表筛选、排序、候选值和列上显示的"是/否"完全对不上。
+  "isReceived",
 ]);
 const partyCodeDisplayFields = new Set(["supplierCode", "undertakingUnitCode", "customerCode"]);
 const partyNameDisplayFields = new Set(["supplierName", "undertakingUnitName", "customerName"]);
@@ -925,6 +928,10 @@ function getEntityDisplayFieldExpression(config: EntityConfig, field: string, sh
   const source = shipmentAlias ? `${shipmentAlias}.` : `${quoteIdentifier(config.table)}.`;
   const derivedRequestType = field === "requestType" ? getDerivedRequestTypeExpression(config, source) : "";
   if (derivedRequestType) return derivedRequestType;
+  // 物流列表的「是否签收」是派生列：有派送时间算已签收，否则未签收（与列上的显示口径一致）。
+  if (config.key === "shipments" && field === "isReceived") {
+    return `CASE WHEN ${source}deliveredAt IS NULL THEN '否' ELSE '是' END`;
+  }
   // 采购订单主表没有国家字段，国家挂在来源需求单上，这里按明细回查，避免直接引用不存在的列。
   if (config.key === "purchase-orders" && field === "countryCode") {
     return `(SELECT UPPER(TRIM(SUBSTRING_INDEX(countryRequest.countryCode, '-', 1)))

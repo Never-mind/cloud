@@ -184,7 +184,7 @@ export async function saveUploadedDocumentFile({
   const fileId = `FILE-${randomUUID()}`;
   const safeName = sanitizeDocumentFileName(originalName);
   const contentType = mimeType || "application/octet-stream";
-  // 文档库文件同样外置到 OBS：Cloud/文档库/<文件夹路径>/
+  // 文档库文件同样外置到 OBS：cloud/文档库/<文件夹路径>/
   const { resolveDocumentContext, storeFile } = await import("./file-storage-service");
   const stored = await storeFile({
     context: await resolveDocumentContext(folderId),

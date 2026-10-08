@@ -7,7 +7,9 @@
 
 const DEFAULT_ENDPOINT = "obs.cn-east-2.myhuaweicloud.com";
 const DEFAULT_REGION = "cn-east-2";
-const DEFAULT_PREFIX = "Cloud";
+// OBS 上的目录前缀。桶 ad-data-platform 里实际用的是小写 cloud，
+// 大小写敏感，写成 Cloud 会被桶策略拒掉（403 AccessDenied）。
+const DEFAULT_PREFIX = "cloud";
 const DEFAULT_TIMEOUT_MS = 30_000;
 const MIN_TIMEOUT_MS = 1_000;
 const MAX_TIMEOUT_MS = 300_000;

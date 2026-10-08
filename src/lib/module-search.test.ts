@@ -60,9 +60,19 @@ describe("功能模块搜索", () => {
   });
 
   it("停用的功能不在索引里（索引来自已过滤的导航树）", () => {
-    // 内部服务费系列当前是停用状态，不应出现在可搜索模块中。
+    // 管理费系列（原名“内部服务费”）当前默认停用，不应出现在可搜索模块中。
     expect(entries.some((entry) => entry.key.startsWith("internal-service-fee"))).toBe(false);
-    expect(titles("内部服务费")).toEqual([]);
+    expect(titles("管理费")).toEqual([]);
+  });
+
+  it("改名后旧叫法仍能搜到（内部服务费是别名）", () => {
+    const allEnabled = Object.fromEntries(Object.keys(getDefaultModuleFeatureState()).map((key) => [key, true]));
+    const enabledEntries = buildModuleSearchIndex(
+      filterNavGroupsByModuleFeatures(navGroups as never, allEnabled) as never,
+    );
+    expect(searchModules("内部服务费", enabledEntries).map((hit) => hit.title)).toContain("管理费分摊");
+    expect(searchModules("glfft", enabledEntries).map((hit) => hit.title)).toContain("管理费分摊");
+    expect(searchModules("管理费对账单", enabledEntries).map((hit) => hit.title)).toContain("管理费对账单");
   });
 
   it("结果带上所属域与分组，便于分组显示", () => {

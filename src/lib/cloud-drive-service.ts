@@ -199,7 +199,7 @@ export async function listCloudDrive(options: { keyword?: string; prefix?: strin
     }
   }
 
-  // 月账单对账单附件（票面 / 外部发票）：复用算力域目录规则 Cloud/算力/<国家码>/<对账单号>/
+  // 月账单对账单附件（票面 / 外部发票）：复用算力域目录规则 cloud/算力/<国家码>/<对账单号>/
   if (canView("billing-statements")) {
     for (const row of statementRows) {
       const snapshotNo = String(row.snapshotNo ?? "");

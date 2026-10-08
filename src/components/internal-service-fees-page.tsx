@@ -30,10 +30,10 @@ const columns: Array<{ key: string; label: string; type?: string }> = [
   { key: "nameEn", label: "英文名称" },
   { key: "quantity", label: "数量", type: "number" },
   { key: "currency", label: "币种" },
-  { key: "internalServiceFeeAmount", label: "内部服务费（未税）", type: "money" },
+  { key: "internalServiceFeeAmount", label: "管理费（未税）", type: "money" },
   { key: "sourceType", label: "计算来源" },
   { key: "adjustmentNo", label: "调整单号" },
-  { key: "archived", label: "归档状态" },
+  { key: "archived", label: "对账状态" },
   { key: "createdAt", label: "创建时间", type: "datetime" },
   { key: "updatedAt", label: "更新时间", type: "datetime" },
 ];
@@ -83,7 +83,7 @@ export function InternalServiceFeesPage() {
   async function fetchData(nextPage: number, nextPageSize: number, exportAll = false): Promise<ListResponse> {
     const response = await fetch(`/api/internal-service-fees?${buildParams(nextPage, nextPageSize, exportAll)}`);
     const data = await response.json();
-    if (!response.ok) throw new Error(data.error ?? "内部服务费加载失败");
+    if (!response.ok) throw new Error(data.error ?? "管理费加载失败");
     return data as ListResponse;
   }
 
@@ -102,7 +102,7 @@ export function InternalServiceFeesPage() {
       setRows([]);
       setTotal(0);
       setTotalAmount(0);
-      notify(error instanceof Error ? error.message : "内部服务费加载失败", "info");
+      notify(error instanceof Error ? error.message : "管理费加载失败", "info");
     } finally {
       if (isCurrentRequest()) setLoading(false);
     }
@@ -137,12 +137,12 @@ export function InternalServiceFeesPage() {
   }
 
   async function syncLedgers() {
-    if (!await confirmDialog("将根据月账单合同、采购成本和已确认调整单生成或重算未归档内部服务费，是否继续？")) return;
+    if (!await confirmDialog("将根据月账单合同、采购成本和已确认调整单生成或重算未对账管理费，是否继续？")) return;
     const response = await fetch("/api/internal-service-fees", { method: "POST" });
     const data = await response.json();
     if (!response.ok) return notify(data.error ?? "生成失败", "info");
     await loadData();
-    notify(`已同步 ${data.count ?? 0} 条内部服务费台账`, "info");
+    notify(`已同步 ${data.count ?? 0} 条管理费台账`, "info");
   }
 
   async function saveAdjustment() {
@@ -165,7 +165,7 @@ export function InternalServiceFeesPage() {
   }
 
   async function cancelAdjustment(adjustmentNo: string) {
-    if (!await confirmDialog(`确认撤销内部服务费调整单 ${adjustmentNo} 吗？系统将重新分摊所有未归档月份。`)) return;
+    if (!await confirmDialog(`确认撤销管理费调整单 ${adjustmentNo} 吗？系统将重新分摊所有未对账月份。`)) return;
     const response = await fetch(`/api/internal-service-fees/adjustments/${encodeURIComponent(adjustmentNo)}`, { method: "DELETE" });
     const data = await response.json();
     if (!response.ok) return notify(data.error ?? "撤销调整失败", "info");
@@ -173,17 +173,17 @@ export function InternalServiceFeesPage() {
   }
 
   async function archiveSelectedMonth() {
-    if (!archiveMonth) return notify("请选择归档月份", "error");
-    if (!await confirmDialog(`确认归档 ${archiveMonth.slice(0, 7)} 的内部服务费吗？归档后该月金额不可再自动修改。`)) return;
+    if (!archiveMonth) return notify("请选择对账月份", "error");
+    if (!await confirmDialog(`确认生成 ${archiveMonth.slice(0, 7)} 的管理费对账单吗？生成后该月金额不可再自动修改。`)) return;
     const response = await fetch("/api/internal-service-fees/archive", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ countryCode, archiveMonth }),
     });
     const data = await response.json();
-    if (!response.ok) return notify(data.error ?? "归档失败", "info");
+    if (!response.ok) return notify(data.error ?? "生成对账单失败", "info");
     await loadData();
-    notify(`已生成归档快照：${data.snapshotNo}`, "info");
+    notify(`已生成管理费对账单：${data.snapshotNo}`, "info");
   }
 
   async function exportCsv() {
@@ -192,7 +192,7 @@ export function InternalServiceFeesPage() {
       const data = await fetchData(1, pageSizeRef.current, true);
       exportRows = data.rows;
     } catch (error) {
-      notify(error instanceof Error ? error.message : "内部服务费导出失败", "info");
+      notify(error instanceof Error ? error.message : "管理费导出失败", "info");
       return;
     }
     const content = [columns.map((column) => column.label).join(","), ...exportRows.map((row) => columns.map((column) => `"${String(formatValue(row[column.key], column.type)).replaceAll('"', '""')}"`).join(","))].join("\n");
@@ -207,7 +207,7 @@ export function InternalServiceFeesPage() {
   return (
     <div className="space-y-5">
       <div>
-        <h1 className="text-xl font-medium text-ink">内部服务费分摊</h1>
+        <h1 className="text-xl font-medium text-ink">管理费分摊</h1>
         <p className="mt-1 text-sm text-ink-3">独立按合同未税收入减设备采购总成本计算，不影响月账单、预付款及实际服务费核算。</p>
       </div>
       <Panel>
@@ -219,28 +219,28 @@ export function InternalServiceFeesPage() {
           <Input type="date" value={endMonth} onChange={(event) => setEndMonth(event.target.value)} />
           <Button tone="secondary" onClick={() => { setPage(1); void loadData(1, pageSizeRef.current); }}><Search size={15} />查询</Button>
           <Button onClick={() => void loadData()}><RefreshCw size={15} />刷新</Button>
-          <Button tone="success" onClick={() => void syncLedgers()}><RefreshCw size={15} />生成/重算未归档</Button>
+          <Button tone="success" onClick={() => void syncLedgers()}><RefreshCw size={15} />生成/重算未对账</Button>
           <Button className="ml-auto" tone="warning" onClick={() => void exportCsv()}><FileDown size={15} />导出</Button>
         </div>
         <div className="flex flex-wrap items-center gap-2 border-b border-line-soft bg-surface-2 px-4 py-3 text-sm text-ink-2">
-          <span>当前筛选 {total} 条，内部服务费合计 {formatValue(totalAmount, "money")}</span>
+          <span>当前筛选 {total} 条，管理费合计 {formatValue(totalAmount, "money")}</span>
           <Input className="ml-auto min-w-[150px]" type="month" value={archiveMonth} onChange={(event) => setArchiveMonth(event.target.value)} />
-          <Button onClick={() => void archiveSelectedMonth()}><Archive size={15} />归档当月</Button>
+          <Button onClick={() => void archiveSelectedMonth()}><Archive size={15} />生成对账单</Button>
         </div>
         <StickyTable className="table-scroll table-viewport overflow-auto" tableKey="internal-service-fees">
           <table className="w-full min-w-[1840px] border-collapse text-sm">
             <thead className="bg-canvas text-ink"><tr>{tableColumns.map((column) => <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium" key={column.key}>{renderHeader(column)}</th>)}<th className="whitespace-nowrap sticky right-0 z-10 w-[236px] min-w-[236px] border-b border-line-soft bg-canvas px-3 py-3 text-left font-medium">操作</th></tr></thead>
             <tbody>
               {rows.map((row) => <tr className="hover:bg-surface-2" key={String(row.id)}>{tableColumns.map((column) => <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3" key={column.key}>{formatValue(row[column.key], column.type)}</td>)}<td className="sticky right-0 z-10 w-[236px] min-w-[236px] whitespace-nowrap border-b border-line-soft bg-white px-3 py-3"><div className="flex flex-nowrap items-center gap-2"><Button className="shrink-0 whitespace-nowrap" disabled={Boolean(row.archived)} onClick={() => { setAdjustingRow(row); setAdjustmentStart(String(row.writeOffMonth ?? "")); setAdjustmentEnd(String(row.writeOffMonth ?? "")); setAdjustmentAmount(String(row.internalServiceFeeAmount ?? "")); setAdjustmentReason(""); }}><SlidersHorizontal size={15} />区间调整</Button>{String(row.adjustmentNo ?? "") && !Boolean(row.archived) ? <Button className="shrink-0 whitespace-nowrap" tone="danger" onClick={() => void cancelAdjustment(String(row.adjustmentNo))}>撤销调整</Button> : null}</div></td></tr>)}
-              {!rows.length && <tr><td className="py-12 text-center text-ink-3" colSpan={columns.length + 1}><TableStateContent empty="暂无内部服务费明细，请先生成月账单合同后点击生成" loading={loading} /></td></tr>}
+              {!rows.length && <tr><td className="py-12 text-center text-ink-3" colSpan={columns.length + 1}><TableStateContent empty="暂无管理费明细，请先生成月账单合同后点击生成" loading={loading} /></td></tr>}
             </tbody>
           </table>
         </StickyTable>
         <PaginationBar page={page} pageSize={pageSize} total={total} onPageChange={(nextPage) => { if (skipNextPageChangeRef.current) { skipNextPageChangeRef.current = false; return; } setPage(nextPage); void loadData(nextPage, pageSizeRef.current); }} onPageSizeChange={(nextPageSize) => { pageSizeRef.current = nextPageSize; skipNextPageChangeRef.current = true; setPageSize(nextPageSize); setPage(1); void loadData(1, nextPageSize); }} />
       </Panel>
       {adjustingRow && <Panel className="fixed inset-x-0 bottom-5 z-50 mx-auto w-[min(720px,calc(100vw-32px))] shadow-xl">
-        <div className="border-b border-line-soft px-4 py-3 font-medium text-ink">内部服务费区间调整：{String(adjustingRow.deviceCode ?? "")}</div>
-        <div className="grid gap-3 p-4 sm:grid-cols-2"><Input type="month" value={adjustmentStart} onChange={(event) => setAdjustmentStart(event.target.value)} /><Input type="month" value={adjustmentEnd} onChange={(event) => setAdjustmentEnd(event.target.value)} /><NumberInput step="0.01" placeholder="每月内部服务费（未税）" value={adjustmentAmount} onChange={(text) => setAdjustmentAmount(text)} /><Textarea className="min-h-9" placeholder="调整原因" value={adjustmentReason} onChange={(event) => setAdjustmentReason(event.target.value)} /></div>
+        <div className="border-b border-line-soft px-4 py-3 font-medium text-ink">管理费区间调整：{String(adjustingRow.deviceCode ?? "")}</div>
+        <div className="grid gap-3 p-4 sm:grid-cols-2"><Input type="month" value={adjustmentStart} onChange={(event) => setAdjustmentStart(event.target.value)} /><Input type="month" value={adjustmentEnd} onChange={(event) => setAdjustmentEnd(event.target.value)} /><NumberInput step="0.01" placeholder="每月管理费（未税）" value={adjustmentAmount} onChange={(text) => setAdjustmentAmount(text)} /><Textarea className="min-h-9" placeholder="调整原因" value={adjustmentReason} onChange={(event) => setAdjustmentReason(event.target.value)} /></div>
         <div className="flex justify-end gap-2 border-t border-line-soft p-3"><Button onClick={() => setAdjustingRow(null)}>取消</Button><Button tone="primary" onClick={() => void saveAdjustment()}>确认调整并重算剩余月份</Button></div>
       </Panel>}
     </div>
@@ -249,6 +249,6 @@ export function InternalServiceFeesPage() {
 
 function formatValue(value: unknown, type?: string) {
   if (type === "sourceType") return value === "manual" ? "人工区间调整" : "自动分摊";
-  if (type === "archived") return value ? "已归档" : "未归档";
+  if (type === "archived") return value ? "已对账" : "未对账";
   return formatDisplayValue(value as string | number | boolean | null | undefined, type);
 }

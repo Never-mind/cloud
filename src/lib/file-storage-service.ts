@@ -5,13 +5,13 @@ import { queryRowsRaw, type Row } from "./db";
 /**
  * 文件存储的统一入口：数据库只留索引，文件内容放 OBS。
  *
- * 目录规范（对象键前缀固定为配置的 OBS_PREFIX，默认 Cloud）：
- *   Cloud/算力/<国家码>/<需求单号>/
- *   Cloud/集采/<项目名-编号>/
- *   Cloud/华为云/<客户简称>/<YYYYMM>/
- *   Cloud/公共/<档案类型>/<档案简称>/
- *   Cloud/文档库/<文件夹路径>/
- *   Cloud/发票/<YYYYMM>/
+ * 目录规范（对象键前缀固定为配置的 OBS_PREFIX，默认小写 cloud）：
+ *   cloud/算力/<国家码>/<需求单号>/
+ *   cloud/集采/<项目名-编号>/
+ *   cloud/华为云/<客户简称>/<YYYYMM>/
+ *   cloud/公共/<档案类型>/<档案简称>/
+ *   cloud/文档库/<文件夹路径>/
+ *   cloud/发票/<YYYYMM>/
  * 发票类文件统一加 `Inv_` 前缀；同名文件末尾追附件 ID 避免互相覆盖。
  */
 
@@ -71,8 +71,8 @@ export function buildStorageFileName(fileName: unknown, attachmentId: string, is
 }
 
 /** 目录前缀（以 / 结尾）。 */
-export function buildStoragePrefix(context: StorageContext, prefix = resolveObsConfig()?.prefix ?? "Cloud") {
-  const segments: string[] = [prefix.replace(/^\/+|\/+$/g, "") || "Cloud", SYSTEM_FOLDERS[context.system]];
+export function buildStoragePrefix(context: StorageContext, prefix = resolveObsConfig()?.prefix ?? "cloud") {
+  const segments: string[] = [prefix.replace(/^\/+|\/+$/g, "") || "cloud", SYSTEM_FOLDERS[context.system]];
   switch (context.system) {
     case "power":
       segments.push(sanitizeStorageSegment(context.country), sanitizeStorageSegment(context.requestNo));

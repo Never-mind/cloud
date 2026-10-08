@@ -12,6 +12,6 @@ export async function POST(request: NextRequest) {
       reason: String(body.reason ?? ""),
     }), { status: 201 });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "保存内部服务费调整失败" }, { status: 400 });
+    return NextResponse.json({ error: error instanceof Error ? error.message : "保存管理费调整失败" }, { status: 400 });
   }
 }

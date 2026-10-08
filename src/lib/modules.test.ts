@@ -180,6 +180,7 @@ describe("module configuration", () => {
       "月账单管理",
       "预付款管理",
       "服务费核算",
+      "管理费",
     ]);
     expect(financeGroup?.children?.flatMap((child) => child.items.map((item) => item.key))).toEqual([
       "b6-type-configs",

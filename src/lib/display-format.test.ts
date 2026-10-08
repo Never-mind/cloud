@@ -44,6 +44,22 @@ describe("display format", () => {
     expect(formatDisplayValue("fee", "lineType")).toBe("非实例费用");
   });
 
+  it("formats boolean columns from numbers, booleans and text consistently", () => {
+    expect(formatDisplayValue(true, "boolean")).toBe("是");
+    expect(formatDisplayValue(false, "boolean")).toBe("否");
+    expect(formatDisplayValue(1, "boolean")).toBe("是");
+    expect(formatDisplayValue(0, "boolean")).toBe("否");
+    // 列表单元格会把值先字符串化，这里守住 "false" / "0" 不被当成真值（是否签收曾一律显示"是"）
+    expect(formatDisplayValue("false", "boolean")).toBe("否");
+    expect(formatDisplayValue("0", "boolean")).toBe("否");
+    expect(formatDisplayValue("no", "boolean")).toBe("否");
+    expect(formatDisplayValue("否", "boolean")).toBe("否");
+    expect(formatDisplayValue("true", "boolean")).toBe("是");
+    expect(formatDisplayValue("1", "boolean")).toBe("是");
+    expect(formatDisplayValue("是", "boolean")).toBe("是");
+    expect(formatConfiguredDisplayValue("false", "boolean")).toBe("否");
+  });
+
   it("formats configured select values with their Chinese labels", () => {
     expect(formatConfiguredDisplayValue("Equipment", "select", [
       { value: "Equipment", label: "设备" },

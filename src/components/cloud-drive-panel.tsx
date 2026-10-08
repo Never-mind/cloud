@@ -150,9 +150,9 @@ export function CloudDrivePanel() {
         </div>
       </div>
       <p className="border-t border-line-soft px-3 py-2 text-xs text-ink-3">
-        目录规则：算力 <span className="font-mono">Cloud/算力/&lt;国家码&gt;/&lt;需求单号&gt;</span>、集采 <span className="font-mono">Cloud/集采/&lt;项目&gt;</span>、
-        华为云 <span className="font-mono">Cloud/华为云/&lt;客户&gt;/&lt;年月&gt;</span>、公共 <span className="font-mono">Cloud/公共/&lt;档案&gt;</span>、
-        文档库 <span className="font-mono">Cloud/文档库/&lt;文件夹&gt;</span>。标「数据库」的文件等 OBS 写权限开通后跑一次迁移脚本即可搬上云盘。
+        目录规则：算力 <span className="font-mono">cloud/算力/&lt;国家码&gt;/&lt;需求单号&gt;</span>、集采 <span className="font-mono">cloud/集采/&lt;项目&gt;</span>、
+        华为云 <span className="font-mono">cloud/华为云/&lt;客户&gt;/&lt;年月&gt;</span>、公共 <span className="font-mono">cloud/公共/&lt;档案&gt;</span>、
+        文档库 <span className="font-mono">cloud/文档库/&lt;文件夹&gt;</span>。标「数据库」的文件等 OBS 写权限开通后跑一次迁移脚本即可搬上云盘。
       </p>
     </Panel>
   );

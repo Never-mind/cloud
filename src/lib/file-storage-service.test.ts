@@ -33,21 +33,26 @@ describe("buildStorageFileName", () => {
 });
 
 describe("buildStoragePrefix / buildStorageKey", () => {
+  it("未配置 OBS_PREFIX 时默认用小写 cloud（桶策略按小写目录授权）", () => {
+    delete process.env.OBS_PREFIX;
+    expect(buildStoragePrefix({ system: "power" })).toBe("cloud/算力/未分类/未分类/");
+  });
+
   it("算力按国家码 + 需求单号", () => {
-    process.env.OBS_PREFIX = "Cloud";
-    expect(buildStoragePrefix({ system: "power", country: "BR", requestNo: "eSHWC260909x91a" }, "Cloud"))
-      .toBe("Cloud/算力/BR/eSHWC260909x91a/");
+    process.env.OBS_PREFIX = "cloud";
+    expect(buildStoragePrefix({ system: "power", country: "BR", requestNo: "eSHWC260909x91a" }, "cloud"))
+      .toBe("cloud/算力/BR/eSHWC260909x91a/");
   });
 
   it("集采按项目、华为云按客户+年月", () => {
-    expect(buildStoragePrefix({ system: "po", project: "华为墨西哥机房扩容-2026" }, "Cloud")).toBe("Cloud/集采/华为墨西哥机房扩容-2026/");
-    expect(buildStoragePrefix({ system: "cloud", customer: "Hengshan", period: "202607" }, "Cloud")).toBe("Cloud/华为云/Hengshan/202607/");
+    expect(buildStoragePrefix({ system: "po", project: "华为墨西哥机房扩容-2026" }, "cloud")).toBe("cloud/集采/华为墨西哥机房扩容-2026/");
+    expect(buildStoragePrefix({ system: "cloud", customer: "Hengshan", period: "202607" }, "cloud")).toBe("cloud/华为云/Hengshan/202607/");
   });
 
   it("缺失维度回落到未分类，文档库按文件夹路径", () => {
-    expect(buildStoragePrefix({ system: "power" }, "Cloud")).toBe("Cloud/算力/未分类/未分类/");
-    expect(buildStoragePrefix({ system: "docs", folderPath: "制度/采购" }, "Cloud")).toBe("Cloud/文档库/制度/采购/");
+    expect(buildStoragePrefix({ system: "power" }, "cloud")).toBe("cloud/算力/未分类/未分类/");
+    expect(buildStoragePrefix({ system: "docs", folderPath: "制度/采购" }, "cloud")).toBe("cloud/文档库/制度/采购/");
     expect(buildStorageKey({ system: "cloud", customer: "panda pay", period: "202607" }, "发票.pdf", "1dee0edc-2222", true))
-      .toBe("Cloud/华为云/panda pay/202607/Inv_发票__1dee0e.pdf");
+      .toBe("cloud/华为云/panda pay/202607/Inv_发票__1dee0e.pdf");
   });
 });

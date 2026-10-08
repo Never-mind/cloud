@@ -62,7 +62,7 @@ export function formatDateInputValue(value: DisplayValue) {
 
 export function formatDisplayValue(value: DisplayValue, type?: string) {
   if (value === null || value === undefined || value === "") return "-";
-  if (type === "boolean") return value ? "是" : "否";
+  if (type === "boolean") return toDisplayBoolean(value) ? "是" : "否";
   if (type === "number") return formatNumberValue(value);
   if (type === "money") return formatMoneyValue(value);
   if (type === "percentage") return `${formatNumberValue(Number(value) * 100)}%`;
@@ -74,6 +74,20 @@ export function formatDisplayValue(value: DisplayValue, type?: string) {
   if (isDateLikeValue(value, type)) return formatDateLikeString(String(value));
   if (typeof value === "number") return formatNumberValue(value);
   return String(value);
+}
+
+/**
+ * 布尔列的取值来源很杂：数据库 tinyint(1) 的 0/1、后端派生出来的 true/false、
+ * 导入文件里的"是/否"。列表单元格会先把值字符串化，`"false"`、`"0"` 这类非空字符串
+ * 用 JS 真值判断会全部算成真，所以这里统一解析，避免「是否签收」这种列一律显示"是"。
+ */
+function toDisplayBoolean(value: DisplayValue) {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value !== 0;
+  const text = String(value ?? "").trim().toLowerCase();
+  if (!text) return false;
+  if (["false", "no", "n", "否"].includes(text)) return false;
+  return !/^[+-]?0+(\.0+)?$/.test(text);
 }
 
 export function formatConfiguredDisplayValue(value: DisplayValue, type?: string, options?: DisplayOption[]) {

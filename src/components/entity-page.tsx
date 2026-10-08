@@ -1568,6 +1568,8 @@ function getConfiguredValue(value: Row[string], field: EntityField) {
 }
 
 function getDisplayOptionValue(value: Row[string], field: EntityField) {
+  // 布尔列的原始类型要保留：一旦被 String() 转成 "false"，下游真值判断会把它当成"是"。
+  if (field.type === "boolean") return value;
   const rawValue = String(value ?? "");
   if (field.key === "supplierType") {
     const legacySupplierTypeValues: Record<string, string> = {
