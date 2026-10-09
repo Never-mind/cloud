@@ -7,6 +7,7 @@ import { Modal } from "./modal";
 import { notify } from "./app-dialog";
 import { SearchSelect, type SearchSelectOption } from "./search-select";
 import { InvoiceMergePicker } from "./invoice-merge-picker";
+import { InvoiceApprovalModal } from "./invoice-approval-modal";
 
 /**
  * 开票弹层（两种模式共用）：
@@ -122,6 +123,7 @@ export function InvoiceDraftModal({
   const [prefilling, setPrefilling] = useState(false);
   const [mergeOpen, setMergeOpen] = useState(false);
   const [allocationIds, setAllocationIds] = useState<string[]>([]);
+  const [approvalOpen, setApprovalOpen] = useState(false);
   const customerOptions = usePartnerOptions("customers");
   const unitOptions = usePartnerOptions("undertaking-units");
 
@@ -247,6 +249,11 @@ export function InvoiceDraftModal({
         : "票面按开票主体与客户档案生成；资料缺项会拦下并提示去补档案"}
       footer={<>
         <Button onClick={onClose}>取消</Button>
+        {mode === "generated" && sourceType !== "manual" ? (
+          <Button disabled={busy || prefilling || !draft} onClick={() => setApprovalOpen(true)}>
+            提交飞书审批
+          </Button>
+        ) : null}
         <Button disabled={busy || prefilling || !draft} onClick={() => void submit()} tone="primary">
           {busy ? "保存中…" : mode === "external" ? "保存并标记已开票" : "生成并标记已开票"}
         </Button>
@@ -289,6 +296,14 @@ export function InvoiceDraftModal({
           onClose={() => setMergeOpen(false)}
         />
       ) : null}
+      <InvoiceApprovalModal
+        onClose={() => setApprovalOpen(false)}
+        onSubmitted={() => { setApprovalOpen(false); onClose(); }}
+        open={approvalOpen}
+        sourceId={draft?.sourceId || sourceId}
+        sourceIds={allocationIds}
+        sourceType={sourceType}
+      />
     </Modal>
   );
 }

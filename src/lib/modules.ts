@@ -330,6 +330,9 @@ export const entityConfigs: EntityConfig[] = [
       { key: "city", label: "城市" },
       { key: "address", label: "注册地址", type: "textarea" },
       { key: "taxNumber", label: "税号" },
+      // 下面两个字段是飞书开票审批要用的：墨西哥的税制（Régimen Fiscal）和发票地址邮编
+      { key: "taxRegime", label: "税制（Régimen Fiscal）" },
+      { key: "postCode", label: "发票地址邮编" },
       { key: "cooperationStatus", label: "合作状态", type: "select", options: [{ label: "正常合作", value: "normal" }, { label: "暂停合作", value: "suspended" }, { label: "终止合作", value: "terminated" }, { label: "未合作过", value: "not_cooperated" }] },
       { key: "businessTypes", label: "合作业务" },
       { key: "status", label: "档案状态", type: "select", required: true, options: [{ label: "启用", value: "active" }, { label: "停用", value: "disabled" }] },

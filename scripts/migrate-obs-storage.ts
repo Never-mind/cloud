@@ -34,9 +34,27 @@ async function main() {
     if (await addColumnIfMissing(table, "storageProvider", "`storageProvider` VARCHAR(16) NOT NULL DEFAULT 'db' COMMENT '文件存放位置：db=数据库内 dataUrl，obs=对象存储'")) added.push("storageProvider");
     if (await addColumnIfMissing(table, "storageKey", "`storageKey` VARCHAR(500) NULL COMMENT 'OBS 对象键（含目录与文件名）'")) added.push("storageKey");
     if (await addColumnIfMissing(table, "storageUrl", "`storageUrl` VARCHAR(1000) NULL COMMENT '可选的对象直链（一般留空，下载走服务端代理）'")) added.push("storageUrl");
+    /**
+     * 文件外置到 OBS 后 dataUrl 就是空的，但这 4 张表历史上是 NOT NULL，
+     * 不给成可空的话，只要是走 OBS 的附件上传都会报 "Column 'dataUrl' cannot be null"。
+     * 新表 merge_power_billingstatement_attachments 建表时就是可空的，这里对齐。
+     */
+    if (await ensureNullableDataUrl(table)) added.push("dataUrl→NULL");
     console.log(added.length ? `已补字段：${table} → ${added.join(", ")}` : `字段已存在，跳过：${table}`);
   }
   console.log("OBS 文件索引字段已就绪");
+}
+
+async function ensureNullableDataUrl(table: string) {
+  const rows = await queryRowsRaw<{ IS_NULLABLE: string }>(
+    `SELECT IS_NULLABLE FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :table AND COLUMN_NAME = 'dataUrl' LIMIT 1`,
+    { table },
+  );
+  if (!rows.length) return false;
+  if (String(rows[0].IS_NULLABLE).toUpperCase() === "YES") return false;
+  await executeRaw(`ALTER TABLE \`${table}\` MODIFY COLUMN \`dataUrl\` LONGTEXT NULL COMMENT '文件内容（base64 data URL；已外置到 OBS 时为空）'`);
+  return true;
 }
 
 main()

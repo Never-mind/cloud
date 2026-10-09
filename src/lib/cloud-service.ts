@@ -806,7 +806,7 @@ export async function listCloudRows(params: URLSearchParams) {
     String(left.currency).localeCompare(String(right.currency)),
   );
   return {
-    items: (await resolveCloudRowsDisplayNames(rows)).map(normalizeCloudDateFields),
+    items: await attachCloudRowApprovalStatus((await resolveCloudRowsDisplayNames(rows)).map(normalizeCloudDateFields)),
     total: Number(count[0]?.total ?? 0),
     page,
     pageSize,
@@ -814,6 +814,38 @@ export async function listCloudRows(params: URLSearchParams) {
     currencyTotals: mergedCurrencyTotals,
     periods: periodRows,
   };
+}
+
+/**
+ * 给对账行挂上飞书开票审批状态（供「客户开票」列展示）。
+ * 只有审批中 / 已通过的会带上，字段名以 invoiceApproval 开头，不参与筛选排序。
+ */
+async function attachCloudRowApprovalStatus(rows: Row[]) {
+  if (!rows.length) return rows;
+  try {
+    const ids = Array.from(new Set(rows.map((row) => String(row.id ?? "").trim()).filter(Boolean)));
+    if (!ids.length) return rows;
+    // 这里直接查审批台账，避免 cloud-service 与 feishu-approval-service 互相 import
+    const approvals = await queryRows<{ ownerId: string; status: string; serialNumber: string; instanceCode: string; submittedAt: string }>(
+      `SELECT ownerId, status, serialNumber, instanceCode, DATE_FORMAT(submittedAt, '%Y-%m-%d %H:%i') AS submittedAt
+         FROM merge_common_feishu_approvals
+        WHERE ownerType = 'cloud_row' AND ownerId IN (:ids) AND status IN ('pending', 'approved')
+        ORDER BY submittedAt ASC`,
+      { ids },
+    );
+    const map = new Map(approvals.map((approval) => [String(approval.ownerId), approval]));
+    for (const row of rows) {
+      const approval = map.get(String(row.id ?? ""));
+      if (!approval) continue;
+      row.invoiceApprovalStatus = approval.status;
+      row.invoiceApprovalNo = approval.serialNumber || approval.instanceCode;
+      row.invoiceApprovalAt = approval.submittedAt;
+    }
+  } catch (error) {
+    // 审批状态只是展示附加信息，读不到不影响对账列表
+    console.error("[cloud] 读取开票审批状态失败:", error instanceof Error ? error.message : error);
+  }
+  return rows;
 }
 
 async function listCloudRowFilterOptions(params: URLSearchParams) {
@@ -1660,7 +1692,11 @@ async function addCloudAttachmentRecord(
     userId: actor?.userId ?? null,
     userName: actor?.displayName ?? null,
   });
-  return (await queryRowsRaw<Row>("SELECT id,ownerType,ownerId,fileName,fileType,fileSize,uploadedByName,uploadedAt FROM merge_cloud_attachments WHERE id = :id", { id }))[0] ?? null;
+  // 带上 storageProvider/storageKey：调用方（例如飞书审批回传发票）要拿它去写发票记录的文件索引
+  return (await queryRowsRaw<Row>(
+    "SELECT id,ownerType,ownerId,fileName,fileType,fileSize,storageProvider,storageKey,uploadedByName,uploadedAt FROM merge_cloud_attachments WHERE id = :id",
+    { id },
+  ))[0] ?? null;
 }
 
 /** 云附件上传：先落 OBS（启用时），再写索引；OBS 不可用时回落到原来的 base64 入库。 */
