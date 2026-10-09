@@ -238,6 +238,8 @@ export function buildInvoiceApprovalForm(input: InvoiceApprovalFormInput): Invoi
  * 金额控件的币种只认审批定义里配的范围：墨西哥是 MXN / USD，智利固定 CLP。
  * 来源账单是 MXN 就用 MXN，其余（含空值）按 USD —— 这两种之外的币种飞书会拒绝。
  */
+export const APPROVAL_AMOUNT_CURRENCIES = { mx: ["MXN", "USD"], cl: ["CLP"] } as const;
+
 export function resolveApprovalAmountCurrency(branch: InvoiceApprovalBranch, currency: unknown) {
   if (branch === "cl") return "CLP";
   return String(currency ?? "").trim().toUpperCase() === "MXN" ? "MXN" : "USD";
@@ -813,6 +815,7 @@ export async function buildInvoiceApprovalPrefill(params: { sourceType: InvoiceS
     lines: base.lines ?? [],
     currency: base.currency ?? "",
     amountIncludingTax: base.amountIncludingTax ?? "",
+    amountCurrencyOptions: [...APPROVAL_AMOUNT_CURRENCIES[party?.branch === "cl" ? "cl" : "mx"]],
     amountExcludingTax: base.amountExcludingTax ?? "",
     taxRate: base.taxRate ?? "",
     suggestedPurpose: [base.period, customer?.shortName ?? customer?.name ?? ""].filter(Boolean).join(" · "),
@@ -863,6 +866,9 @@ export async function submitInvoiceApprovalFromSource(input: {
   customerOverride?: { name?: string; taxId?: string; taxRegime?: string; address?: string; postCode?: string };
   cfsAttachmentId?: string;
   cfsFileToken?: string;
+  /** 开票金额与币种：弹层里默认带账单口径，允许人工改（飞书金额控件只能填这两个币种之一） */
+  amountIncludingTax?: number;
+  amountCurrency?: string;
   chile?: { invoiceTypeKey: string; amountIncludingTax: number; note1: string; note2Key: string; note3: number; note4: number; customerLabel?: string };
 }) {
   const prefill = await buildInvoiceApprovalPrefill({ sourceType: input.sourceType, sourceId: input.sourceId, sourceIds: input.sourceIds });
@@ -896,15 +902,17 @@ export async function submitInvoiceApprovalFromSource(input: {
     if (!customer.postCode.trim()) throw new Error("客户档案缺少邮编");
   }
 
-  const amount = Number(prefill.amountIncludingTax ?? 0);
+  // 金额与币种：弹层里允许人工覆盖（默认带账单口径）
+  const amount = Number(input.amountIncludingTax ?? prefill.amountIncludingTax ?? 0);
   if (!Number.isFinite(amount) || amount <= 0) throw new Error("开票金额不正确，无法发起审批");
+  const amountCurrency = resolveApprovalAmountCurrency(prefill.branch, input.amountCurrency ?? prefill.currency);
 
   const form = buildInvoiceApprovalForm({
     branch: prefill.branch,
     companyOptionKey: prefill.companyOptionKey,
     purpose: (input.purpose ?? prefill.suggestedPurpose).slice(0, 255),
     paymentReceivedTime: input.paymentReceivedTime,
-    amountCurrency: resolveApprovalAmountCurrency(prefill.branch, prefill.currency),
+    amountCurrency,
     mexico: prefill.branch === "mx"
       ? {
         customerName: customer.name,

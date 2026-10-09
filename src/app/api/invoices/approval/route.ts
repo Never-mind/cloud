@@ -61,6 +61,10 @@ export async function POST(request: NextRequest) {
         : undefined,
       cfsAttachmentId: text(body.cfsAttachmentId) || undefined,
       cfsFileToken: text(body.cfsFileToken) || undefined,
+      amountIncludingTax: body.amountIncludingTax === undefined || body.amountIncludingTax === null || body.amountIncludingTax === ""
+        ? undefined
+        : Number(body.amountIncludingTax),
+      amountCurrency: text(body.amountCurrency) || undefined,
       chile: body.chile && typeof body.chile === "object"
         ? {
           invoiceTypeKey: text((body.chile as Record<string, unknown>).invoiceTypeKey),

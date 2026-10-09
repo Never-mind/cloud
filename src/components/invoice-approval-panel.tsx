@@ -31,6 +31,8 @@ export type ApprovalPrefill = {
   amountIncludingTax: string;
   amountExcludingTax: string;
   taxRate: string;
+  /** 飞书金额控件允许的币种（墨西哥 MXN/USD、智利 CLP） */
+  amountCurrencyOptions: string[];
   suggestedPurpose: string;
   suggestedInvoiceContent: string;
   paymentReceivedTime: string;
@@ -49,6 +51,15 @@ export type ApprovalPanelState = {
   submitting: boolean;
   submit: () => Promise<void>;
 };
+
+/** 按「开票日 + 账期天数」重算约定收款日（用 UTC 运算避开本地时区导致的差一天）。 */
+function addDaysToDate(value: string, days: number) {
+  const match = String(value ?? "").match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!match || !Number.isFinite(days)) return "";
+  const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
 
 const BRANCH_LABEL: Record<string, string> = { mx: "墨西哥", cl: "智利", br: "巴西" };
 
@@ -74,6 +85,13 @@ export function InvoiceApprovalPanel({
   const [form, setForm] = useState({
     purpose: "",
     paymentReceivedTime: "",
+    paymentTermDays: "",
+    customerName: "",
+    amountCurrency: "",
+    amountExcludingTax: "",
+    taxRate: "",
+    taxAmount: "",
+    amountIncludingTax: "",
     taxId: "",
     taxRegime: "",
     address: "",
@@ -103,6 +121,15 @@ export function InvoiceApprovalPanel({
       setForm({
         purpose: data.suggestedPurpose,
         paymentReceivedTime: data.paymentReceivedTime,
+        paymentTermDays: String(data.paymentTermDays ?? ""),
+        customerName: data.customer?.name ?? "",
+        amountCurrency: data.amountCurrencyOptions.includes(String(data.currency ?? "").toUpperCase())
+          ? String(data.currency).toUpperCase()
+          : data.amountCurrencyOptions[data.amountCurrencyOptions.length - 1] ?? "",
+        amountExcludingTax: data.amountExcludingTax ?? "",
+        taxRate: data.taxRate ?? "",
+        taxAmount: (Number(data.amountIncludingTax || 0) - Number(data.amountExcludingTax || 0)).toFixed(2),
+        amountIncludingTax: data.amountIncludingTax ?? "",
         taxId: data.customer?.taxId ?? "",
         taxRegime: data.customer?.taxRegime ?? "",
         address: data.customer?.address ?? "",
@@ -131,6 +158,25 @@ export function InvoiceApprovalPanel({
     void load();
   }, [load]);
 
+  /** 金额联动：改「未税金额 / 税率」重算税金与含税；改「税金」重算含税；「含税金额」可直接改。 */
+  function updateAmounts(patch: Partial<Record<"amountExcludingTax" | "taxRate" | "taxAmount" | "amountIncludingTax", string>>) {
+    setForm((current) => {
+      const next = { ...current, ...patch };
+      const net = Number(next.amountExcludingTax);
+      const rate = Number(next.taxRate);
+      if (patch.amountExcludingTax !== undefined || patch.taxRate !== undefined) {
+        if (Number.isFinite(net) && Number.isFinite(rate)) {
+          const tax = (net * rate) / 100;
+          next.taxAmount = tax.toFixed(2);
+          next.amountIncludingTax = (net + tax).toFixed(2);
+        }
+      } else if (patch.taxAmount !== undefined && Number.isFinite(net) && Number.isFinite(Number(next.taxAmount))) {
+        next.amountIncludingTax = (net + Number(next.taxAmount)).toFixed(2);
+      }
+      return next;
+    });
+  }
+
   const submit = useCallback(async () => {
     if (!prefill) return;
     setSubmitting(true);
@@ -147,7 +193,9 @@ export function InvoiceApprovalPanel({
           invoiceContent: form.invoiceContent,
           paymentMethodKey: form.paymentMethodKey,
           cfdiCodeKey: form.cfdiCodeKey,
-          customerOverride: { taxId: form.taxId, taxRegime: form.taxRegime, address: form.address, postCode: form.postCode },
+          customerOverride: { name: form.customerName, taxId: form.taxId, taxRegime: form.taxRegime, address: form.address, postCode: form.postCode },
+          amountIncludingTax: Number(form.amountIncludingTax) || undefined,
+          amountCurrency: form.amountCurrency || undefined,
           cfsAttachmentId: form.cfsAttachmentId || undefined,
           chile: prefill.branch === "cl"
             ? {
@@ -188,9 +236,7 @@ export function InvoiceApprovalPanel({
     );
   }
 
-  const infoIndex = prefill.branch === "cl" ? 3 : 5;
-  const linesIndex = infoIndex + 1;
-  const taxAmount = (Number(prefill.amountIncludingTax || 0) - Number(prefill.amountExcludingTax || 0)).toFixed(2);
+  const linesIndex = prefill.branch === "cl" ? 3 : 5;
 
   return (
     <div className="space-y-4">
@@ -209,8 +255,8 @@ export function InvoiceApprovalPanel({
         <SummaryItem label="开票主体（承接单位）" value={`${prefill.companyText || "—"}${prefill.branch ? `（${BRANCH_LABEL[prefill.branch] ?? prefill.branch}）` : ""}`} />
         <SummaryItem label="账期" value={prefill.period || "—"} />
         <SummaryItem label="来源账单" value={prefill.sourceNo} />
-        <SummaryItem label="币种" value={prefill.currency} />
-        <SummaryItem label="开票金额（含税）" value={`${prefill.currency} ${prefill.amountIncludingTax}`} />
+        <SummaryItem label="币种" value={form.amountCurrency || prefill.currency} />
+        <SummaryItem label="开票金额（含税）" value={`${form.amountCurrency || prefill.currency} ${form.amountIncludingTax || prefill.amountIncludingTax}`} />
       </div>
 
       <Section index={1} title="公共字段" subtitle="Purpose / Payment Received Time">
@@ -223,8 +269,18 @@ export function InvoiceApprovalPanel({
             <Field label="约定收款日 Payment Received Time" required hint={`默认 = 开票日 + 账期天数（${prefill.paymentTermDays} 天），改成未来某天即可`}>
               <Input type="date" value={form.paymentReceivedTime} onChange={(event) => setForm({ ...form, paymentReceivedTime: event.target.value })} />
             </Field>
-            <Field label="账期天数">
-              <Input readOnly value={`${prefill.paymentTermDays} 天`} />
+            <Field label="账期天数" hint={`到期日 = 开票日 ${prefill.invoiceDate || "—"} + 天数`}>
+              <Input
+                inputMode="numeric"
+                value={form.paymentTermDays}
+                onChange={(event) => {
+                  const days = event.target.value;
+                  const next = { ...form, paymentTermDays: days };
+                  const computed = addDaysToDate(prefill.invoiceDate, Number(days));
+                  if (computed) next.paymentReceivedTime = computed;
+                  setForm(next);
+                }}
+              />
             </Field>
           </div>
         </div>
@@ -237,7 +293,7 @@ export function InvoiceApprovalPanel({
             <div className="grid gap-4 md:grid-cols-4">
               <div className="md:col-span-2">
                 <Field label="Customer Name">
-                  <Input readOnly value={prefill.customer?.name ?? ""} />
+                  <Input value={form.customerName} onChange={(event) => setForm({ ...form, customerName: event.target.value })} />
                 </Field>
               </div>
               <Field label="TAX ID" required>
@@ -268,17 +324,34 @@ export function InvoiceApprovalPanel({
 
           <Section index={3} title="发票信息" subtitle="Invoice Information">
             <div className="grid gap-4 md:grid-cols-3">
-              <Field label="Amount (incl. 16% tax)">
-                <Input readOnly value={`${prefill.amountIncludingTax} ${prefill.currency}`} />
+              {/* 金额与币种默认带账单口径，允许人工改：飞书金额控件支持 MXN / USD（智利固定 CLP） */}
+              <Field label="币种 Currency" hint={`本次按 ${form.amountCurrency} 开票`}>
+                <Select value={form.amountCurrency} onChange={(event) => setForm({ ...form, amountCurrency: event.target.value })}>
+                  {prefill.amountCurrencyOptions.map((item) => <option key={item} value={item}>{item}</option>)}
+                </Select>
               </Field>
-              <Field label="Invoice Content 开票内容" required>
-                <Input value={form.invoiceContent} onChange={(event) => setForm({ ...form, invoiceContent: event.target.value })} />
+              <Field label="未税金额">
+                <Input inputMode="decimal" value={form.amountExcludingTax} onChange={(event) => updateAmounts({ amountExcludingTax: event.target.value })} />
+              </Field>
+              <Field label="税率（%）" hint="填百分数：16% 就填 16">
+                <Input inputMode="decimal" value={form.taxRate} onChange={(event) => updateAmounts({ taxRate: event.target.value })} />
+              </Field>
+              <Field label="税金">
+                <Input inputMode="decimal" value={form.taxAmount} onChange={(event) => updateAmounts({ taxAmount: event.target.value })} />
+              </Field>
+              <Field label="含税金额 Amount" required hint="飞书审批里的开票金额就是这一项">
+                <Input inputMode="decimal" value={form.amountIncludingTax} onChange={(event) => setForm({ ...form, amountIncludingTax: event.target.value })} />
               </Field>
               <Field label="CFDI Code 用途码" required>
                 <Select value={form.cfdiCodeKey} onChange={(event) => setForm({ ...form, cfdiCodeKey: event.target.value })}>
                   {prefill.options.cfdiCodes.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
                 </Select>
               </Field>
+              <div className="md:col-span-3">
+                <Field label="Invoice Content 开票内容" required>
+                  <Input value={form.invoiceContent} onChange={(event) => setForm({ ...form, invoiceContent: event.target.value })} />
+                </Field>
+              </div>
             </div>
           </Section>
 
@@ -341,28 +414,6 @@ export function InvoiceApprovalPanel({
         </Section>
       ) : null}
 
-      <Section index={infoIndex} title="开票信息" subtitle="审批通过后自动回填" hint="下面是这张账单的开票口径，随账单一起送审；票号在审批通过后按回传的真实发票补全。">
-        <div className="grid gap-4 md:grid-cols-3">
-          <Field label="系统预留票号">
-            <Input readOnly value={prefill.suggestedInvoiceNo || "保存时自动分配"} />
-          </Field>
-          <Field label="开票日期">
-            <Input readOnly value={prefill.invoiceDate || "—"} />
-          </Field>
-          <Field label="未税金额">
-            <Input readOnly value={`${prefill.currency} ${prefill.amountExcludingTax || "—"}`} />
-          </Field>
-          <Field label="税率">
-            <Input readOnly value={prefill.taxRate ? `${prefill.taxRate}%` : "—"} />
-          </Field>
-          <Field label="税金">
-            <Input readOnly value={`${prefill.currency} ${taxAmount}`} />
-          </Field>
-          <Field label="含税金额">
-            <Input readOnly value={`${prefill.currency} ${prefill.amountIncludingTax}`} />
-          </Field>
-        </div>
-      </Section>
 
       <Section index={linesIndex} title="账期明细" subtitle="Invoice Lines" hint="明细来自来源账单，审批通过后与发票信息一并回填到该账单行。">
         {prefill.lines.length ? (
@@ -402,7 +453,8 @@ export function InvoiceApprovalPanel({
           <span className="rounded bg-white px-2 py-0.5 font-medium text-success">出票</span>
         </div>
         提交后会以<b className="text-ink-2">当前登录人的飞书身份</b>发起审批（审批流程 Cloud invoicing process · {prefill.approvalCode}），两级固定审批人。
-        审批中不需要再操作；通过后系统按回传的真实发票自动出票并回填票号、开票日期与金额，票面挂到该行的开票附件下。
+        系统预留票号 <b className="text-ink-2">{prefill.suggestedInvoiceNo || "保存时自动分配"}</b>（开票日期 {prefill.invoiceDate || "—"}）；
+        审批中不需要再操作，通过后系统按回传的真实发票自动出票并回填票号、开票日期与金额，票面挂到该行的开票附件下。
       </div>
     </div>
   );

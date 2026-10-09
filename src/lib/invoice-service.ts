@@ -481,9 +481,17 @@ export async function buildInvoicePrefill(params: { sourceType: InvoiceSourceTyp
     );
     const row = rows[0];
     if (row) {
-      const net = text(row.invoiceNetAmount) || text(row.customerReceivableNetAmount) || text(row.customerReceivable);
-      const tax = text(row.invoiceTaxAmount) || text(row.customerReceivableTaxAmount);
-      const total = text(row.invoiceTotalAmount) || text(row.customerReceivableTotalAmount) || net;
+      /**
+       * 「客户开票」三件套与「客户应收」三件套必须整体取用，不能按字段各自兜底：
+       * 对账行里 invoiceNetAmount 常常存的是 MXN 原币（invoiceTotalAmount 反而为空），
+       * 而 customerReceivable* 是折算后的 USD。混着取会得到「未税 11424 / 含税 962.55」这种跨币种组合。
+       * 所以以「含税金额」在哪一组为准，整组跟着走。
+       */
+      const invoiceTotal = text(row.invoiceTotalAmount);
+      const useInvoiceGroup = Boolean(invoiceTotal);
+      const net = useInvoiceGroup ? text(row.invoiceNetAmount) : text(row.customerReceivableNetAmount) || text(row.customerReceivable);
+      const tax = useInvoiceGroup ? text(row.invoiceTaxAmount) : text(row.customerReceivableTaxAmount);
+      const total = useInvoiceGroup ? invoiceTotal : text(row.customerReceivableTotalAmount) || net;
       Object.assign(prefill, {
         sourceType,
         sourceId,
