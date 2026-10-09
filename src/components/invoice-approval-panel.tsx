@@ -23,8 +23,14 @@ export type ApprovalPrefill = {
   companyText: string;
   sourceNo: string;
   period: string;
+  /** 系统预留票号（INV-账期-流水）；实际票号在审批通过后按回传发票回填 */
+  suggestedInvoiceNo: string;
+  invoiceDate: string;
+  lines: Array<{ date: string; desc: string; cost: string }>;
   currency: string;
   amountIncludingTax: string;
+  amountExcludingTax: string;
+  taxRate: string;
   suggestedPurpose: string;
   suggestedInvoiceContent: string;
   paymentReceivedTime: string;
@@ -182,6 +188,10 @@ export function InvoiceApprovalPanel({
     );
   }
 
+  const infoIndex = prefill.branch === "cl" ? 3 : 5;
+  const linesIndex = infoIndex + 1;
+  const taxAmount = (Number(prefill.amountIncludingTax || 0) - Number(prefill.amountExcludingTax || 0)).toFixed(2);
+
   return (
     <div className="space-y-4">
       {prefill.existingApproval ? (
@@ -195,8 +205,11 @@ export function InvoiceApprovalPanel({
       {prefill.warnings.map((item) => <Notice key={item} tone="warning">{item}</Notice>)}
 
       <div className="grid gap-3 rounded border border-line-soft bg-surface-2 p-4 sm:grid-cols-3">
+        <SummaryItem label="客户抬头" value={prefill.customer?.name ?? "—"} />
         <SummaryItem label="开票主体（承接单位）" value={`${prefill.companyText || "—"}${prefill.branch ? `（${BRANCH_LABEL[prefill.branch] ?? prefill.branch}）` : ""}`} />
+        <SummaryItem label="账期" value={prefill.period || "—"} />
         <SummaryItem label="来源账单" value={prefill.sourceNo} />
+        <SummaryItem label="币种" value={prefill.currency} />
         <SummaryItem label="开票金额（含税）" value={`${prefill.currency} ${prefill.amountIncludingTax}`} />
       </div>
 
@@ -315,10 +328,75 @@ export function InvoiceApprovalPanel({
         </Section>
       ) : null}
 
-      <p className="rounded border border-line-soft bg-surface-2 px-3 py-2 text-xs leading-relaxed text-ink-3">
-        提交后会以<b className="text-ink-2">当前登录人的飞书身份</b>发起审批（审批流程 Cloud invoicing process · {prefill.approvalCode}）。
-        审批中不需要再操作；通过后系统自动出票并回填票号、把票面挂到该行的开票附件下。
-      </p>
+      <Section index={infoIndex} title="开票信息" subtitle="审批通过后自动回填" hint="下面是这张账单的开票口径，随账单一起送审；票号在审批通过后按回传的真实发票补全。">
+        <div className="grid gap-4 md:grid-cols-4">
+          <Field label="系统预留票号">
+            <Input readOnly value={prefill.suggestedInvoiceNo || "保存时自动分配"} />
+          </Field>
+          <Field label="开票日期">
+            <Input readOnly value={prefill.invoiceDate || "—"} />
+          </Field>
+          <Field label="约定收款日">
+            <Input readOnly value={form.paymentReceivedTime || "—"} />
+          </Field>
+          <Field label="账期天数">
+            <Input readOnly value={`${prefill.paymentTermDays} 天`} />
+          </Field>
+          <Field label="未税金额">
+            <Input readOnly value={`${prefill.currency} ${prefill.amountExcludingTax || "—"}`} />
+          </Field>
+          <Field label="税率">
+            <Input readOnly value={prefill.taxRate ? `${prefill.taxRate}%` : "—"} />
+          </Field>
+          <Field label="税金">
+            <Input readOnly value={`${prefill.currency} ${taxAmount}`} />
+          </Field>
+          <Field label="含税金额">
+            <Input readOnly value={`${prefill.currency} ${prefill.amountIncludingTax}`} />
+          </Field>
+        </div>
+      </Section>
+
+      <Section index={linesIndex} title="账期明细" subtitle="Invoice Lines" hint="明细来自来源账单，审批通过后与发票信息一并回填到该账单行。">
+        {prefill.lines.length ? (
+          <div className="overflow-hidden rounded border border-line-soft">
+            <table className="w-full border-collapse text-sm">
+              <thead className="bg-canvas">
+                <tr>
+                  {["期间", "描述", "金额"].map((label) => (
+                    <th className="border-b border-line-soft px-3 py-2 text-left font-medium text-ink-2" key={label}>{label}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {prefill.lines.map((line, index) => (
+                  <tr key={`${line.date}-${index}`}>
+                    <td className="whitespace-nowrap border-b border-line-soft px-3 py-2">{line.date || "—"}</td>
+                    <td className="border-b border-line-soft px-3 py-2">{line.desc || "—"}</td>
+                    <td className="whitespace-nowrap border-b border-line-soft px-3 py-2">{`${prefill.currency} ${line.cost}`}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="rounded border border-dashed border-line bg-white px-3 py-4 text-sm text-ink-3">这张账单没有明细行，票面按金额开具。</p>
+        )}
+      </Section>
+
+      <div className="rounded border border-line-soft bg-surface-2 px-3 py-3 text-xs leading-relaxed text-ink-3">
+        <div className="mb-2 flex items-center gap-1.5 text-ink-2">
+          <span className="rounded bg-white px-2 py-0.5 font-medium">提交</span>
+          <span className="text-ink-4">→</span>
+          <span className="rounded bg-white px-2 py-0.5 font-medium">审批</span>
+          <span className="text-ink-4">→</span>
+          <span className="rounded bg-white px-2 py-0.5 font-medium">审批</span>
+          <span className="text-ink-4">→</span>
+          <span className="rounded bg-white px-2 py-0.5 font-medium text-success">出票</span>
+        </div>
+        提交后会以<b className="text-ink-2">当前登录人的飞书身份</b>发起审批（审批流程 Cloud invoicing process · {prefill.approvalCode}），两级固定审批人。
+        审批中不需要再操作；通过后系统按回传的真实发票自动出票并回填票号、开票日期与金额，票面挂到该行的开票附件下。
+      </div>
     </div>
   );
 }

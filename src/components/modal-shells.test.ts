@@ -43,8 +43,25 @@ describe("shared overlay shells", () => {
         },
       ),
     );
-    expect(html).toContain('<form class="max-h-[88vh] w-full max-w-2xl');
+    expect(html).toContain('<form class="flex max-h-[88vh] w-full max-w-2xl flex-col overflow-hidden');
     expect(html).toContain('action="/submit"');
+  });
+
+  it("keeps only the modal body scrollable so the footer buttons are always reachable", () => {
+    const html = renderToStaticMarkup(
+      createElement(
+        Modal,
+        {
+          children: createElement("div", null, "很长的表单"),
+          footer: createElement("button", { type: "button" }, "保存"),
+          onClose: vi.fn(),
+          title: "长表单",
+        },
+      ),
+    );
+    // 内容区自己滚（min-h-0 + flex-1 + overflow-auto），标题与底部按钮区不参与滚动
+    expect(html).toContain("min-h-0 flex-1 overflow-auto");
+    expect(html).toContain("flex shrink-0 justify-end gap-2 border-t");
   });
 
   it("keeps the drawer panel above its backdrop", () => {
