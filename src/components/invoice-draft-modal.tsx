@@ -249,7 +249,9 @@ export function InvoiceDraftModal({
         : "票面按开票主体与客户档案生成；资料缺项会拦下并提示去补档案"}
       footer={<>
         <Button onClick={onClose}>取消</Button>
-        {mode === "generated" && sourceType !== "manual" ? (
+        {/* 飞书审批开票目前只支持华为云对账行（审批表单的客户信息/金额/CFDI 都按对账行口径）；
+            月账单对账单、服务费对账单、集采发票汇总继续走本地开票，避免回填到错误的来源表。 */}
+        {mode === "generated" && sourceType === "cloud_row" ? (
           <Button disabled={busy || prefilling || !draft} onClick={() => setApprovalOpen(true)}>
             提交飞书审批
           </Button>
