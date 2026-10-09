@@ -7,7 +7,7 @@ import { Modal } from "./modal";
 import { notify } from "./app-dialog";
 import { SearchSelect, type SearchSelectOption } from "./search-select";
 import { InvoiceMergePicker } from "./invoice-merge-picker";
-import { InvoiceApprovalModal } from "./invoice-approval-modal";
+import { InvoiceApprovalPanel, type ApprovalPanelState } from "./invoice-approval-panel";
 
 /**
  * 开票弹层（两种模式共用）：
@@ -123,7 +123,14 @@ export function InvoiceDraftModal({
   const [prefilling, setPrefilling] = useState(false);
   const [mergeOpen, setMergeOpen] = useState(false);
   const [allocationIds, setAllocationIds] = useState<string[]>([]);
-  const [approvalOpen, setApprovalOpen] = useState(false);
+  /**
+   * 开票方式：本地开票（系统生成票面）/ 飞书审批开票。
+   * 放在弹层顶部切换 —— 原来这两个是底部两个按钮，长表单要滚到最底才看得到。
+   * 飞书审批只支持华为云对账行，所以其它来源不显示这个切换。
+   */
+  const [issueMode, setIssueMode] = useState<"local" | "approval">("local");
+  const [approvalState, setApprovalState] = useState<ApprovalPanelState | null>(null);
+  const showIssueTabs = mode === "generated" && sourceType === "cloud_row";
   const customerOptions = usePartnerOptions("customers");
   const unitOptions = usePartnerOptions("undertaking-units");
 
@@ -172,6 +179,8 @@ export function InvoiceDraftModal({
     })();
     setFile(null);
     setAllocationIds([]);
+    setIssueMode("local");
+    setApprovalState(null);
     setMergeOpen(autoOpenMergePicker && sourceType !== "manual");
     return () => { cancelled = true; };
   }, [autoOpenMergePicker, open, sourceId, sourceType]);
@@ -246,37 +255,65 @@ export function InvoiceDraftModal({
     <Modal
       description={mode === "external"
         ? "外部已经开好票：只登记 + 存文件，不生成票面"
-        : "票面按开票主体与客户档案生成；资料缺项会拦下并提示去补档案"}
+        : issueMode === "approval"
+          ? "走飞书 Cloud invoicing process 审批：审批通过后自动出票并回填票号、把票面挂到该行的开票附件下"
+          : "票面按开票主体与客户档案生成；资料缺项会拦下并提示去补档案"}
       footer={<>
         <Button onClick={onClose}>取消</Button>
-        {/* 飞书审批开票目前只支持华为云对账行（审批表单的客户信息/金额/CFDI 都按对账行口径）；
-            月账单对账单、服务费对账单、集采发票汇总继续走本地开票，避免回填到错误的来源表。 */}
-        {mode === "generated" && sourceType === "cloud_row" ? (
-          <Button disabled={busy || prefilling || !draft} onClick={() => setApprovalOpen(true)}>
-            提交飞书审批
+        {issueMode === "approval" ? (
+          <Button
+            disabled={!approvalState || approvalState.loading || approvalState.blocked || approvalState.submitting}
+            onClick={() => void approvalState?.submit()}
+            tone="primary"
+          >
+            {approvalState?.submitting ? "提交中…" : "提交飞书审批"}
           </Button>
-        ) : null}
-        <Button disabled={busy || prefilling || !draft} onClick={() => void submit()} tone="primary">
-          {busy ? "保存中…" : mode === "external" ? "保存并标记已开票" : "生成并标记已开票"}
-        </Button>
+        ) : (
+          <Button disabled={busy || prefilling || !draft} onClick={() => void submit()} tone="primary">
+            {busy ? "保存中…" : mode === "external" ? "保存并标记已开票" : "生成并标记已开票"}
+          </Button>
+        )}
       </>}
       onClose={onClose}
       title={mode === "external" ? "上传外部发票" : "开票"}
       widthClass="max-w-5xl"
     >
-      {!draft || prefilling ? (
+      {showIssueTabs ? (
+        <div className="mb-4 inline-flex rounded border border-line-soft bg-surface-2 p-0.5">
+          {([["local", "本地开票"], ["approval", "飞书审批开票"]] as const).map(([key, label]) => (
+            <button
+              className={`rounded px-4 py-1.5 text-sm transition-colors ${issueMode === key ? "bg-white font-medium text-primary shadow-sm" : "text-ink-2 hover:text-ink"}`}
+              key={key}
+              onClick={() => { setIssueMode(key); setApprovalState(null); }}
+              type="button"
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      ) : null}
+
+      {issueMode === "approval" && showIssueTabs ? (
+        <InvoiceApprovalPanel
+          onClose={onClose}
+          onStateChange={setApprovalState}
+          sourceId={draft?.sourceId || sourceId}
+          sourceIds={allocationIds}
+          sourceType={sourceType}
+        />
+      ) : !draft || prefilling ? (
         <div className="py-10 text-center text-sm text-ink-3">正在按账单预填…</div>
       ) : (
-        <div className="space-y-5">
+        <div className="space-y-4">
           {mode === "external" ? (
-            <section className="space-y-2">
-              <h3 className="text-sm font-medium text-ink">发票文件</h3>
+            <section className="rounded border border-line-soft bg-white p-4">
+              <h3 className="mb-3 border-b border-line-soft pb-2 text-sm font-medium text-ink">发票文件</h3>
               <label className="flex cursor-pointer items-center gap-2 rounded border border-dashed border-line px-4 py-4 text-sm text-ink-2 hover:border-primary hover:text-primary">
                 <FileUp size={16} />
                 <span>{file ? `${file.name}（${Math.max(1, Math.round(file.size / 1024))} KB）` : "点击选择 PDF / 图片，单个最大 25 MB"}</span>
                 <input className="hidden" onChange={(event) => setFile(event.target.files?.[0] ?? null)} type="file" />
               </label>
-              <p className="text-xs text-ink-3">存盘时文件名自动加 <code>Inv_</code> 前缀，便于和票面文件区分。</p>
+              <p className="mt-2 text-xs text-ink-3">存盘时文件名自动加 <code>Inv_</code> 前缀，便于和票面文件区分。</p>
             </section>
           ) : null}
           <DraftFormFields
@@ -298,14 +335,6 @@ export function InvoiceDraftModal({
           onClose={() => setMergeOpen(false)}
         />
       ) : null}
-      <InvoiceApprovalModal
-        onClose={() => setApprovalOpen(false)}
-        onSubmitted={() => { setApprovalOpen(false); onClose(); }}
-        open={approvalOpen}
-        sourceId={draft?.sourceId || sourceId}
-        sourceIds={allocationIds}
-        sourceType={sourceType}
-      />
     </Modal>
   );
 }
@@ -331,8 +360,9 @@ function DraftFormFields({
 }) {
   const patch = (values: Partial<DraftForm>) => onChange({ ...draft, ...values });
   const labelClass = "flex min-w-0 flex-col gap-1 text-sm";
-  const sectionClass = "space-y-3 border-t border-line-soft pt-4 first:border-t-0 first:pt-0";
+  const sectionClass = "rounded border border-line-soft bg-white p-4";
   const headingClass = "text-sm font-medium text-ink";
+  const headingRowClass = "mb-3 flex items-center gap-2 border-b border-line-soft pb-2";
   const hintClass = "text-xs text-ink-3";
 
   const updateLine = (index: number, values: Partial<DraftLine>) =>
@@ -351,7 +381,7 @@ function DraftFormFields({
   return (
     <div className="space-y-5">
       <section className={sectionClass}>
-        <h3 className={headingClass}>开票双方</h3>
+        <div className={headingRowClass}><h3 className={headingClass}>开票双方</h3></div>
         <div className="grid gap-3 sm:grid-cols-2">
           <label className={labelClass}>
             <span className="text-ink-2">客户抬头</span>
@@ -379,7 +409,7 @@ function DraftFormFields({
       </section>
 
       <section className={sectionClass}>
-        <h3 className={headingClass}>票号与日期</h3>
+        <div className={headingRowClass}><h3 className={headingClass}>票号与日期</h3></div>
         <div className="grid gap-3 sm:grid-cols-3">
           <label className={labelClass}>
             <span className="text-ink-2">发票号</span>
@@ -419,7 +449,7 @@ function DraftFormFields({
       </section>
 
       <section className={sectionClass}>
-        <h3 className={headingClass}>金额</h3>
+        <div className={headingRowClass}><h3 className={headingClass}>金额</h3></div>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <label className={labelClass}>
             <span className="text-ink-2">币种</span>
@@ -481,7 +511,7 @@ function DraftFormFields({
       {simple ? null : (
         <>
           <section className={sectionClass}>
-            <div className="flex items-center justify-between">
+            <div className="mb-3 flex items-center justify-between border-b border-line-soft pb-2">
               <h3 className={headingClass}>明细行</h3>
               <div className="flex items-center gap-2">
                 {onOpenMergePicker ? (
@@ -535,7 +565,7 @@ function DraftFormFields({
           </section>
 
           <section className={sectionClass}>
-            <h3 className={headingClass}>备注</h3>
+            <div className={headingRowClass}><h3 className={headingClass}>备注</h3></div>
             <Textarea className="w-full" onChange={(event) => patch({ comment: event.target.value })} rows={3} value={draft.comment} />
             <p className={hintClass}>备注会按票面宽度自动折行，并据此调整票面行高。</p>
           </section>

@@ -56,10 +56,14 @@ export function Modal({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [onClose]);
 
-  const panelClass = `max-h-[88vh] w-full ${widthClass} overflow-auto rounded border border-line-soft bg-white shadow-xl`;
+  /**
+   * 标题区与底部按钮区固定，只有内容区滚动（DESIGN.md 7.1「弹窗内容超过视口高度时内部滚动」）。
+   * 早先整块面板 overflow-auto，长表单必须滚到最底才看得到「保存 / 取消」。
+   */
+  const panelClass = `flex max-h-[88vh] w-full ${widthClass} flex-col overflow-hidden rounded border border-line-soft bg-white shadow-xl`;
   const content = (
     <>
-      <div className="flex items-start gap-3 border-b border-line-soft px-5 py-4">
+      <div className="flex shrink-0 items-start gap-3 border-b border-line-soft px-5 py-4">
         <div className="min-w-0 flex-1">
           <h2 className="font-medium text-ink">{title}</h2>
           {description ? <p className="mt-1 text-xs text-ink-3">{description}</p> : null}
@@ -73,8 +77,8 @@ export function Modal({
           <X size={17} />
         </button>
       </div>
-      <div className="px-5 py-4">{children}</div>
-      {footer ? <div className="flex justify-end gap-2 border-t border-line-soft px-5 py-3">{footer}</div> : null}
+      <div className="min-h-0 flex-1 overflow-auto px-5 py-4">{children}</div>
+      {footer ? <div className="flex shrink-0 justify-end gap-2 border-t border-line-soft bg-white px-5 py-3">{footer}</div> : null}
     </>
   );
 
