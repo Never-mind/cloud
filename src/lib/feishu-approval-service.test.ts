@@ -8,7 +8,9 @@ import {
   PAYMENT_METHOD_OPTIONS,
   buildInvoiceApprovalForm,
   getInvoiceApprovalCode,
+  resolveApprovalAmountCurrency,
   resolveInvoiceApprovalParty,
+  toApprovalDateValue,
   type InvoiceApprovalFormInput,
 } from "./feishu-approval-service";
 
@@ -22,6 +24,7 @@ function mexicoForm(): InvoiceApprovalFormInput {
     companyOptionKey: COMPANY_OPTIONS.newmedia.key,
     purpose: "202610 · 华为（墨西哥）· 滴滴5台F5",
     paymentReceivedTime: "2026-11-08",
+    amountCurrency: "USD",
     mexico: {
       customerName: "DAS Payments Mexico, S.A. de C.V.",
       taxId: "DPM2305243F7",
@@ -69,6 +72,26 @@ describe("飞书审批开票 · 表单组装", () => {
     expect(fields.find((field) => field.id === APPROVAL_FIELDS.customerCfs)?.value).toEqual(["token-1"]);
   });
 
+  it("日期控件必须是 RFC3339（传 YYYY-MM-DD 会被飞书判成控件值不合法）", () => {
+    const fields = buildInvoiceApprovalForm(mexicoForm());
+    expect(fields.find((field) => field.id === APPROVAL_FIELDS.paymentReceivedTime)?.value)
+      .toBe("2026-11-08T00:00:00+08:00");
+    expect(toApprovalDateValue("2026-11-08T09:30:00+08:00")).toBe("2026-11-08T00:00:00+08:00");
+    expect(() => toApprovalDateValue("")).toThrow(/约定收款日/);
+    expect(() => toApprovalDateValue("下周一")).toThrow(/约定收款日/);
+  });
+
+  it("金额控件带币种（墨西哥 MXN/USD、智利固定 CLP）", () => {
+    expect(resolveApprovalAmountCurrency("mx", "MXN")).toBe("MXN");
+    expect(resolveApprovalAmountCurrency("mx", "usd")).toBe("USD");
+    expect(resolveApprovalAmountCurrency("mx", "")).toBe("USD");
+    expect(resolveApprovalAmountCurrency("cl", "USD")).toBe("CLP");
+
+    const fields = buildInvoiceApprovalForm(mexicoForm());
+    const invoiceRow = (fields.find((field) => field.id === APPROVAL_FIELDS.invoiceInfo)?.value as Array<Array<{ id: string; currency?: string }>>)[0];
+    expect(invoiceRow.find((item) => item.id === APPROVAL_FIELDS.amountIncludingTax)?.currency).toBe("USD");
+  });
+
   it("墨西哥分支缺 CSF 附件时直接拦下（审批里是必填）", () => {
     const form = mexicoForm();
     form.mexico!.cfsFileTokens = [];
@@ -81,6 +104,7 @@ describe("飞书审批开票 · 表单组装", () => {
       companyOptionKey: COMPANY_OPTIONS.technology.key,
       purpose: "202610 · 智利 · 算力服务",
       paymentReceivedTime: "2026-12-01",
+      amountCurrency: "CLP",
       chile: {
         customerLabel: "Customer: SPARKOO TECHNOLOGIES CHILE SPA",
         invoiceTypeKey: CHILE_INVOICE_TYPE_OPTIONS.service.key,
@@ -92,7 +116,9 @@ describe("飞书审批开票 · 表单组装", () => {
       },
     });
     const ids = fields.map((field) => field.id);
-    expect(ids).toEqual([APPROVAL_FIELDS.purpose, APPROVAL_FIELDS.companyName, APPROVAL_FIELDS.paymentReceivedTime, APPROVAL_FIELDS.chileNote, APPROVAL_FIELDS.chileInvoiceInfo]);
+    // 「说明」控件（type=text）飞书 API 不支持赋值，不能提交
+    expect(ids).toEqual([APPROVAL_FIELDS.purpose, APPROVAL_FIELDS.companyName, APPROVAL_FIELDS.paymentReceivedTime, APPROVAL_FIELDS.chileInvoiceInfo]);
+    expect(ids).not.toContain(APPROVAL_FIELDS.chileNote);
     expect(ids).not.toContain(APPROVAL_FIELDS.customerInfo);
     expect(ids).not.toContain(APPROVAL_FIELDS.customerCfs);
   });
@@ -103,6 +129,7 @@ describe("飞书审批开票 · 表单组装", () => {
       companyOptionKey: COMPANY_OPTIONS.brazil.key,
       purpose: "202610 · 巴西",
       paymentReceivedTime: "2026-12-01",
+      amountCurrency: "USD",
     });
     expect(fields.map((field) => field.id)).toEqual([APPROVAL_FIELDS.purpose, APPROVAL_FIELDS.companyName, APPROVAL_FIELDS.paymentReceivedTime]);
   });

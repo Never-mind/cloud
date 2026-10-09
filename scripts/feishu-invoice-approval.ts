@@ -33,6 +33,7 @@ function sampleForm(): InvoiceApprovalFormInput {
     companyOptionKey: COMPANY_OPTIONS.newmedia.key,
     purpose: "202610 · 华为（墨西哥）· 墨西哥滴滴需求5台F5服务器",
     paymentReceivedTime: new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10),
+    amountCurrency: "USD",
     mexico: {
       customerName: "DAS Payments Mexico, S.A. de C.V.",
       taxId: "DPM2305243F7",

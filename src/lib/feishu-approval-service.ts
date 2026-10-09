@@ -117,7 +117,21 @@ export function resolveInvoiceApprovalParty(input: { undertakingUnitCode?: strin
   return null;
 }
 
-export type InvoiceApprovalFormItem = { id: string; type: string; value: unknown };
+export type InvoiceApprovalFormItem = { id: string; type: string; value: unknown; currency?: string };
+
+/**
+ * 日期控件的值必须是 **RFC3339**（官方文档「审批实例表单控件参数 - 日期」），
+ * 传 `YYYY-MM-DD` 会被飞书判成「控件值不合法或者为空」（1395006）。
+ *
+ * 时区固定东八区：审批租户时区就是 +08:00（历史审批单里存的是 `...T00:00:00+08:00`），
+ * 用同一个时区才能保证飞书里看到的日期跟用户填的同一天。
+ */
+export function toApprovalDateValue(value: unknown) {
+  const text = String(value ?? "").trim();
+  const match = text.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!match) throw new Error("请填写约定收款日（格式 YYYY-MM-DD）");
+  return `${match[1]}-${match[2]}-${match[3]}T00:00:00+08:00`;
+}
 
 export type InvoiceApprovalFormInput = {
   branch: InvoiceApprovalBranch;
@@ -126,6 +140,8 @@ export type InvoiceApprovalFormInput = {
   purpose: string;
   /** 约定收款日 YYYY-MM-DD */
   paymentReceivedTime: string;
+  /** 金额控件的币种：墨西哥 MXN/USD，智利固定 CLP */
+  amountCurrency: string;
   /** 墨西哥分支 */
   mexico?: {
     customerName: string;
@@ -163,7 +179,7 @@ export function buildInvoiceApprovalForm(input: InvoiceApprovalFormInput): Invoi
   const fields: InvoiceApprovalFormItem[] = [
     { id: APPROVAL_FIELDS.purpose, type: "textarea", value: input.purpose },
     { id: APPROVAL_FIELDS.companyName, type: "radioV2", value: input.companyOptionKey },
-    { id: APPROVAL_FIELDS.paymentReceivedTime, type: "date", value: input.paymentReceivedTime },
+    { id: APPROVAL_FIELDS.paymentReceivedTime, type: "date", value: toApprovalDateValue(input.paymentReceivedTime) },
   ];
 
   if (input.branch === "mx") {
@@ -187,7 +203,7 @@ export function buildInvoiceApprovalForm(input: InvoiceApprovalFormInput): Invoi
         id: APPROVAL_FIELDS.invoiceInfo,
         type: "fieldList",
         value: [[
-          { id: APPROVAL_FIELDS.amountIncludingTax, type: "amount", value: mexico.amountIncludingTax },
+          { id: APPROVAL_FIELDS.amountIncludingTax, type: "amount", value: mexico.amountIncludingTax, currency: input.amountCurrency },
           { id: APPROVAL_FIELDS.invoiceContent, type: "input", value: mexico.invoiceContent },
           { id: APPROVAL_FIELDS.cfdiCode, type: "radioV2", value: mexico.cfdiCodeKey },
         ]],
@@ -200,13 +216,12 @@ export function buildInvoiceApprovalForm(input: InvoiceApprovalFormInput): Invoi
     const chile = input.chile;
     if (!chile) throw new Error("智利分支缺少发票信息");
     fields.push(
-      { id: APPROVAL_FIELDS.chileNote, type: "text", value: chile.customerLabel },
       {
         id: APPROVAL_FIELDS.chileInvoiceInfo,
         type: "fieldList",
         value: [[
           { id: APPROVAL_FIELDS.chileInvoiceType, type: "radioV2", value: chile.invoiceTypeKey },
-          { id: APPROVAL_FIELDS.chileAmount, type: "amount", value: chile.amountIncludingTax },
+          { id: APPROVAL_FIELDS.chileAmount, type: "amount", value: chile.amountIncludingTax, currency: input.amountCurrency },
           { id: APPROVAL_FIELDS.chileNote1, type: "input", value: chile.note1 },
           { id: APPROVAL_FIELDS.chileNote2, type: "radioV2", value: chile.note2Key },
           { id: APPROVAL_FIELDS.chileNote3, type: "number", value: chile.note3 },
@@ -217,6 +232,15 @@ export function buildInvoiceApprovalForm(input: InvoiceApprovalFormInput): Invoi
   }
 
   return fields;
+}
+
+/**
+ * 金额控件的币种只认审批定义里配的范围：墨西哥是 MXN / USD，智利固定 CLP。
+ * 来源账单是 MXN 就用 MXN，其余（含空值）按 USD —— 这两种之外的币种飞书会拒绝。
+ */
+export function resolveApprovalAmountCurrency(branch: InvoiceApprovalBranch, currency: unknown) {
+  if (branch === "cl") return "CLP";
+  return String(currency ?? "").trim().toUpperCase() === "MXN" ? "MXN" : "USD";
 }
 
 /* --------------------------------------------------------------------------
@@ -654,31 +678,32 @@ export async function syncPendingInvoiceApprovals(limit = 50) {
  * ------------------------------------------------------------------------ */
 
 /**
- * 上传文件到飞书，用于审批的附件字段。
+ * 上传文件到飞书审批，拿到附件控件要用的文件 code。
  *
- * 注意：这一步依赖飞书权限 `drive:file:upload`（最小权限）。
- * 权限未开通时飞书会返回 99991672，这里原样抛出，前端提示管理员开通。
- * parent_type / parent_node 的取值在权限开通后第一次联调时确认（见 FEISHU_APPROVAL_ATTACHMENT_PARENT_TYPE）。
+ * 必须用**审批自己的文件上传接口**：`attachmentV2` 控件的 value 是这里返回的 `data.code`，
+ * 而云空间 `drive/v1/medias/upload_all` 返回的是 file_token，两者不通用（用错会报控件值不合法）。
+ * 接口文档：https://open.feishu.cn/document/server-docs/approval-v4/file/upload-files.md
  */
+const FEISHU_APPROVAL_FILE_UPLOAD_URL = "https://www.feishu.cn/approval/openapi/v2/file/upload";
+
 export async function uploadApprovalAttachment(input: { bytes: Buffer; fileName: string }) {
   const token = await getFeishuTenantAccessToken();
+  const fileName = input.fileName.trim() || "attachment.pdf";
   const form = new FormData();
-  form.append("file_name", input.fileName);
-  form.append("parent_type", (process.env.FEISHU_APPROVAL_ATTACHMENT_PARENT_TYPE ?? "approval").trim() || "approval");
-  form.append("parent_node", getInvoiceApprovalCode());
-  form.append("size", String(input.bytes.length));
-  form.append("file", new Blob([new Uint8Array(input.bytes)], { type: "application/octet-stream" }), input.fileName);
-  const response = await fetch(`${FEISHU_API_BASE}/open-apis/drive/v1/medias/upload_all`, {
+  form.append("name", fileName);
+  form.append("type", "attachment");
+  form.append("content", new Blob([new Uint8Array(input.bytes)], { type: "application/octet-stream" }), fileName);
+  const response = await fetch(FEISHU_APPROVAL_FILE_UPLOAD_URL, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}` },
     body: form,
   });
-  const body = (await response.json().catch(() => ({}))) as { code?: number; msg?: string; data?: { file_token?: string } };
-  if (body.code !== 0 || !body.data?.file_token) {
-    const hint = body.code === 99991672 ? "（需要管理员给应用开通 drive:file:upload 权限）" : "";
+  const body = (await response.json().catch(() => ({}))) as { code?: number; msg?: string; data?: { code?: string } };
+  if (body.code !== 0 || !body.data?.code) {
+    const hint = body.code === 99991672 ? "（需要管理员给应用开通审批相关权限）" : "";
     throw new Error(`上传审批附件失败（${String(body.code)}）：${body.msg ?? response.status}${hint}`);
   }
-  return String(body.data.file_token);
+  return String(body.data.code);
 }
 
 /** 读客户档案附件的内容（数据库回落或云盘都能读）。 */
@@ -876,6 +901,7 @@ export async function submitInvoiceApprovalFromSource(input: {
     companyOptionKey: prefill.companyOptionKey,
     purpose: (input.purpose ?? prefill.suggestedPurpose).slice(0, 255),
     paymentReceivedTime: input.paymentReceivedTime,
+    amountCurrency: resolveApprovalAmountCurrency(prefill.branch, prefill.currency),
     mexico: prefill.branch === "mx"
       ? {
         customerName: customer.name,
