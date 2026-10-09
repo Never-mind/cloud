@@ -436,12 +436,14 @@ function Section({
 
 function Field({ children, hint, label, required }: { children: React.ReactNode; hint?: string; label: string; required?: boolean }) {
   return (
-    <label className="block">
+    <label className="block min-w-0">
       <span className="mb-1 block text-xs font-medium text-ink-2">
         {required ? <span className="text-danger">*</span> : null}
         {label}
       </span>
-      {children}
+      {/* Input / Select / Textarea 只有 min-w-0 max-w-full，宽度由内容决定：textarea 会缩成默认 20 列、 */}
+      {/* select 会被最长选项撑宽。这里统一拉满，保证同一栅格里的控件等宽。 */}
+      <div className="min-w-0 [&>input]:w-full [&>select]:w-full [&>textarea]:w-full">{children}</div>
       {hint ? <span className="mt-1 block text-xs text-ink-3">{hint}</span> : null}
     </label>
   );
