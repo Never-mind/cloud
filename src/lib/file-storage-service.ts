@@ -84,7 +84,8 @@ export function buildStoragePrefix(context: StorageContext, prefix = resolveObsC
       segments.push(sanitizeStorageSegment(context.customer), sanitizeStorageSegment(context.period));
       break;
     case "common":
-      segments.push(sanitizeStorageSegment(context.partyLabel));
+      // partyLabel 形如「客户/LESPAGO」，要拆成两层目录，别把斜杠压成下划线
+      segments.push(...String(context.partyLabel ?? "").split("/").filter(Boolean).map((part) => sanitizeStorageSegment(part)));
       break;
     case "docs":
       if (context.folderPath) segments.push(...context.folderPath.split("/").filter(Boolean).map((part) => sanitizeStorageSegment(part)));
@@ -124,7 +125,13 @@ export async function storeFile(input: StoredFileInput): Promise<StoredFileResul
   const displayName = buildStorageFileName(input.fileName, input.attachmentId, input.isInvoice);
   if (!isObsEnabled()) return { provider: "db", storageKey: null, fileName: input.fileName };
   const key = `${buildStoragePrefix(input.context)}${displayName}`;
-  await obsPutObject(key, input.bytes, input.fileType || "application/octet-stream");
+  try {
+    await obsPutObject(key, input.bytes, input.fileType || "application/octet-stream");
+  } catch (error) {
+    // OBS 抖动/权限异常时不阻断业务：回落成原来的「文件存数据库」，并留日志便于排查。
+    console.error(`[file-storage] OBS 上传失败，已回落存数据库 ${key}:`, error instanceof Error ? error.message : error);
+    return { provider: "db", storageKey: null, fileName: input.fileName };
+  }
   return { provider: "obs", storageKey: key, fileName: displayName };
 }
 
@@ -135,6 +142,31 @@ export type StoredFileRecord = {
   fileType?: unknown;
   fileName?: unknown;
 };
+
+/**
+ * 附件落库时该写哪些列。
+ *
+ * 文件外置到 OBS 后，索引（storageProvider/storageKey）才是内容地址，`dataUrl` 留空；
+ * 但**只有表里真的存在这两列**时才敢把 dataUrl 留空 —— 否则内容会既没写索引、又没写 base64，
+ * 变成一条打不开的空附件（历史 bug：公共档案附件上传漏查这两列，见 2026-10-09）。
+ */
+export function planAttachmentPersistence(input: {
+  provider: "db" | "obs";
+  storageKey: string | null;
+  fileType: string;
+  bytes: Buffer;
+  /** 目标表是否存在 storageProvider + storageKey 两列 */
+  canPersistStorageKey: boolean;
+}) {
+  const useIndex = input.provider === "obs" && Boolean(input.storageKey) && input.canPersistStorageKey;
+  return {
+    storageProvider: useIndex ? "obs" : "db",
+    storageKey: useIndex ? input.storageKey : null,
+    dataUrl: useIndex ? null : `data:${input.fileType || "application/octet-stream"};base64,${input.bytes.toString("base64")}`,
+    /** 索引写不进去导致回落存库（用于告警日志） */
+    fellBackToDatabase: input.provider === "obs" && !useIndex,
+  };
+}
 
 /** 读文件：优先按索引里的 provider 取，老的（db）走 base64 解出来。 */
 export async function readFile(record: StoredFileRecord) {

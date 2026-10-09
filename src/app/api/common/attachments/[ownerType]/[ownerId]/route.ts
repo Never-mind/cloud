@@ -4,7 +4,7 @@ import { getAuthenticatedUserEmail } from "@/lib/auth";
 import { queryRowsRaw, executeRaw } from "@/lib/db";
 import { getPermissionStateForEmail } from "@/lib/permission-service";
 import { hasPermission, type PermissionAction } from "@/lib/permission-definitions";
-import { resolveCommonAttachmentContext, storeFile } from "@/lib/file-storage-service";
+import { planAttachmentPersistence, resolveCommonAttachmentContext, storeFile } from "@/lib/file-storage-service";
 
 const OWNER_MODULES: Record<string, string> = {
   suppliers: "suppliers",
@@ -61,16 +61,30 @@ export async function POST(request: NextRequest, context: { params: Promise<{ ow
       bytes,
       isInvoice: /发票|invoice/i.test(file.name),
     });
-    const dataUrl = stored.provider === "db" ? `data:${file.type || "application/octet-stream"};base64,${bytes.toString("base64")}` : null;
     const email = getAuthenticatedUserEmail(request);
     const optionalColumns = await queryRowsRaw<{ columnName: string }>(
       `SELECT COLUMN_NAME AS columnName
          FROM INFORMATION_SCHEMA.COLUMNS
         WHERE TABLE_SCHEMA = DATABASE()
           AND TABLE_NAME = 'merge_common_attachments'
-          AND COLUMN_NAME IN ('uploadedByUserId', 'uploadedByName')`,
+          AND COLUMN_NAME IN ('storageProvider', 'storageKey', 'uploadedByUserId', 'uploadedByName')`,
     );
     const availableColumns = new Set(optionalColumns.map((column) => column.columnName));
+    /**
+     * 关键：storageProvider / storageKey 必须一起判断。
+     * 早先这里只查了 uploadedBy* 两列，导致这两列永远被判为"不存在"，
+     * OBS 启用后上传的档案附件既没写对象键、dataUrl 又是空的 —— 附件内容直接读不出来。
+     */
+    const persistence = planAttachmentPersistence({
+      provider: stored.provider,
+      storageKey: stored.storageKey,
+      fileType: file.type || "application/octet-stream",
+      bytes,
+      canPersistStorageKey: availableColumns.has("storageProvider") && availableColumns.has("storageKey"),
+    });
+    if (persistence.fellBackToDatabase) {
+      console.warn(`[attachments] OBS 已启用但 storageProvider/storageKey 列缺失，${attachmentId} 回落存数据库`);
+    }
     const user = availableColumns.size && email
       ? (await queryRowsRaw<{ userId: string; displayName: string }>(
         "SELECT userId, displayName FROM merge_common_users WHERE email = :email LIMIT 1",
@@ -85,12 +99,12 @@ export async function POST(request: NextRequest, context: { params: Promise<{ ow
       fileName: stored.fileName.slice(0, 255),
       fileType: file.type || "application/octet-stream",
       fileSize: file.size,
-      dataUrl,
+      dataUrl: persistence.dataUrl,
     };
-    if (availableColumns.has("storageProvider")) {
+    if (availableColumns.has("storageProvider") && availableColumns.has("storageKey")) {
       insertFields.push("storageProvider", "storageKey");
-      insertParams.storageProvider = stored.provider;
-      insertParams.storageKey = stored.storageKey;
+      insertParams.storageProvider = persistence.storageProvider;
+      insertParams.storageKey = persistence.storageKey;
     }
     if (availableColumns.has("uploadedByUserId")) {
       insertFields.push("uploadedByUserId");
