@@ -11,6 +11,12 @@ export type TableViewportMetrics = {
   /** 同一状态下整页超出可视区的像素数（未超出时为 0 或负数）。 */
   overflow: number;
   minHeight?: number;
+  /** 滚动容器可视高度（可选；给了才能按"剩余空间"算）。 */
+  viewportHeight?: number;
+  /** 表格顶部在滚动内容里的位置（相对可视区顶部，含已滚动距离）。 */
+  tableTop?: number;
+  /** 表格下方还有多少内容（分页条、审计条、底部内边距等）。 */
+  contentBelow?: number;
 };
 
 /**
@@ -27,8 +33,26 @@ export type TableViewportMetrics = {
  * 天然溢出为 0、不会被压缩，长内容才按超出的部分收口。
  */
 export function computeTableMaxHeight(metrics: TableViewportMetrics) {
-  const overflow = Math.max(0, metrics.overflow);
-  return Math.max(metrics.minHeight ?? MIN_TABLE_VIEWPORT_HEIGHT, Math.ceil(metrics.naturalHeight - overflow));
+  const floor = metrics.minHeight ?? MIN_TABLE_VIEWPORT_HEIGHT;
+  const naturalHeight = Math.max(0, metrics.naturalHeight);
+  const byOverflow = Math.ceil(naturalHeight - Math.max(0, metrics.overflow));
+
+  const { viewportHeight, tableTop, contentBelow } = metrics;
+  if (viewportHeight === undefined || tableTop === undefined || contentBelow === undefined) {
+    return Math.max(floor, byOverflow);
+  }
+
+  /**
+   * 按"可视高度 − 表格上方内容 − 表格下方内容"算剩余空间。
+   *
+   * 剩余空间比下限还小时（例如项目结算的「发票管理」标签页：主单信息 + 状态时间线 + 指标卡
+   * 已经占掉大半屏），再收口只会剩两三行 —— 这时按自然高度放开，让整页滚动，
+   * 用户能一次看到完整的一页数据。
+   */
+  const byViewport = Math.ceil(viewportHeight - tableTop - contentBelow);
+  if (byViewport < floor) return naturalHeight;
+
+  return Math.min(naturalHeight, Math.max(floor, Math.min(byOverflow, byViewport)));
 }
 
 /**

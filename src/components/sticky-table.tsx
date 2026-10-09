@@ -63,6 +63,20 @@ function isInsideFixedOverlay(element: HTMLElement) {
   return false;
 }
 
+/**
+ * 同一页里"正在显示"的列表区数量。
+ *
+ * 项目结算详情就是典型的多列表页：未采购商品、已采购商品、成本费用、销售收入…堆在一屏里。
+ * 这些页面不能按"整页刚好一屏"给每张表收口 —— 每张表都拿整页的溢出量去减，
+ * 会被一起压到最小高度（240px，约 3 行），这就是"只显示 3 行"的根因。
+ * 隐藏的标签页（display:none）拿不到 client rect，不计入。
+ */
+function countVisibleRegions() {
+  return Array.from(document.querySelectorAll<HTMLElement>(".sticky-table-region"))
+    .filter((node) => node.getClientRects().length > 0 && !isInsideFixedOverlay(node))
+    .length;
+}
+
 function getStaticText(node: ReactNode): string {
   if (typeof node === "string" || typeof node === "number") return String(node);
   if (Array.isArray(node)) return node.map(getStaticText).join("");
@@ -267,6 +281,7 @@ export function StickyTable({ children, className, tableKey, topOffset = 0 }: St
     if (!viewport) return;
     let frame = 0;
     let lastSignature = "";
+    let lastRegionCount = -1;
 
     const fit = () => {
       if (frame) return;
@@ -276,6 +291,22 @@ export function StickyTable({ children, className, tableKey, topOffset = 0 }: St
         if (!element) return;
         if (isInsideFixedOverlay(element)) return;
         if (hasCallerHeightControl(Array.from(element.classList))) return;
+
+        /**
+         * 一页多表（项目结算详情）时不做整页收口：让每张表按内容自然展开、走页面滚动。
+         * 否则每张表都按整页溢出量收口，会一起被压到 MIN_TABLE_VIEWPORT_HEIGHT（约 3 行）。
+         */
+        const regionCount = countVisibleRegions();
+        if (regionCount !== lastRegionCount) {
+          lastRegionCount = regionCount;
+          lastSignature = "";
+        }
+        if (regionCount > 1) {
+          // 用 inline 的 none 顶掉 globals.css 里 .table-viewport 的 calc(100dvh - 210px)：
+          // 多表页每张表都限制一屏高，页面会被撑成好几屏且每张表带独立滚动条。
+          if (element.style.maxHeight !== "none") element.style.maxHeight = "none";
+          return;
+        }
 
         const scroller = findScrollContainer(element) ?? document.documentElement;
         // 先做一次便宜的比较：表格内容高度与可视高度都没变就不用重新量。
@@ -289,9 +320,19 @@ export function StickyTable({ children, className, tableKey, topOffset = 0 }: St
         element.style.maxHeight = "none";
         const naturalHeight = element.getBoundingClientRect().height;
         const overflow = scroller.scrollHeight - scroller.clientHeight;
+        // 按"可视高度 − 表格上方 − 表格下方"再算一次：上方内容很高时（项目结算各标签页）更准
+        const isDocumentScroller = scroller === document.documentElement || scroller === document.body;
+        const scrollerTop = isDocumentScroller ? 0 : scroller.getBoundingClientRect().top;
+        const scrollTop = isDocumentScroller ? window.scrollY : scroller.scrollTop;
+        const elementRect = element.getBoundingClientRect();
+        const contentTop = elementRect.top - scrollerTop + scrollTop;
+        const contentBottom = elementRect.bottom - scrollerTop + scrollTop;
         const nextHeight = computeTableMaxHeight({
           naturalHeight,
           overflow,
+          viewportHeight: scroller.clientHeight,
+          tableTop: contentTop,
+          contentBelow: Math.max(0, scroller.scrollHeight - contentBottom),
         });
         element.style.maxHeight = `${nextHeight}px`;
       });
@@ -304,6 +345,11 @@ export function StickyTable({ children, className, tableKey, topOffset = 0 }: St
     observer?.observe(viewport);
     if (document.body) observer?.observe(document.body);
 
+    // 列表增删（多表页里切换标签/展开区块）会改变"可见列表数量"，也要重新量一次。
+    // fit 内部有 rAF 合并 + 签名比较，不会因为普通重渲染反复测量。
+    const regionObserver = typeof MutationObserver === "undefined" ? null : new MutationObserver(fit);
+    if (document.body) regionObserver?.observe(document.body, { childList: true, subtree: true });
+
     // 外层 main 带 min-h-screen，数据渲染前后 document 高度可能一直是"满屏"，
     // ResizeObserver 收不到变化 —— 首屏空表算出来的高度就会一直卡住。
     // 这里直接盯表格内容的增删（数据回来、翻页、改每页条数），变化后重新量一次。
@@ -314,6 +360,7 @@ export function StickyTable({ children, className, tableKey, topOffset = 0 }: St
       window.removeEventListener("resize", fit);
       observer?.disconnect();
       mutation?.disconnect();
+      regionObserver?.disconnect();
       if (frame) window.cancelAnimationFrame(frame);
     };
   }, []);
