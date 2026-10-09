@@ -214,42 +214,55 @@ export function InvoiceApprovalPanel({
       </div>
 
       <Section index={1} title="公共字段" subtitle="Purpose / Payment Received Time">
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="space-y-4">
+          {/* 用途说明是多行文本，独立一行铺满，避免把同一行的输入框撑高 */}
           <Field label="用途说明 Purpose" required hint="默认按「账期 · 客户」生成，可改成项目/费用描述">
             <Textarea rows={3} value={form.purpose} onChange={(event) => setForm({ ...form, purpose: event.target.value })} />
           </Field>
-          <Field label="约定收款日 Payment Received Time" required hint={`默认 = 开票日 + 账期天数（${prefill.paymentTermDays} 天），改成未来某天即可`}>
-            <Input type="date" value={form.paymentReceivedTime} onChange={(event) => setForm({ ...form, paymentReceivedTime: event.target.value })} />
-          </Field>
+          <div className="grid gap-4 md:grid-cols-2">
+            <Field label="约定收款日 Payment Received Time" required hint={`默认 = 开票日 + 账期天数（${prefill.paymentTermDays} 天），改成未来某天即可`}>
+              <Input type="date" value={form.paymentReceivedTime} onChange={(event) => setForm({ ...form, paymentReceivedTime: event.target.value })} />
+            </Field>
+            <Field label="账期天数">
+              <Input readOnly value={`${prefill.paymentTermDays} 天`} />
+            </Field>
+          </div>
         </div>
       </Section>
 
       {prefill.branch === "mx" ? (
         <>
           <Section index={2} title="客户信息" subtitle="Customer Information">
-            <div className="grid gap-4 md:grid-cols-3">
-              <Field label="Customer Name">
-                <Input readOnly value={prefill.customer?.name ?? ""} />
-              </Field>
+            {/* 4 列栅格，每行正好铺满：长字段占 2 列，付款方式也给 2 列，避免它挤在窄格里显得突兀 */}
+            <div className="grid gap-4 md:grid-cols-4">
+              <div className="md:col-span-2">
+                <Field label="Customer Name">
+                  <Input readOnly value={prefill.customer?.name ?? ""} />
+                </Field>
+              </div>
               <Field label="TAX ID" required>
                 <Input value={form.taxId} onChange={(event) => setForm({ ...form, taxId: event.target.value })} />
               </Field>
-              <Field label="Tax Regime 税制" required>
-                <Input placeholder="Régimen General de Ley Personas Morales" value={form.taxRegime} onChange={(event) => setForm({ ...form, taxRegime: event.target.value })} />
-              </Field>
-              <Field label="Payment Method 付款方式" required>
-                <Select value={form.paymentMethodKey} onChange={(event) => setForm({ ...form, paymentMethodKey: event.target.value })}>
-                  {prefill.options.paymentMethods.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
-                </Select>
+              <Field label="Post code 邮编" required>
+                <Input placeholder="06500" value={form.postCode} onChange={(event) => setForm({ ...form, postCode: event.target.value })} />
               </Field>
               <div className="md:col-span-2">
+                <Field label="Tax Regime 税制" required>
+                  <Input placeholder="Régimen General de Ley Personas Morales" value={form.taxRegime} onChange={(event) => setForm({ ...form, taxRegime: event.target.value })} />
+                </Field>
+              </div>
+              <div className="md:col-span-2">
+                <Field label="Payment Method 付款方式" required>
+                  <Select value={form.paymentMethodKey} onChange={(event) => setForm({ ...form, paymentMethodKey: event.target.value })}>
+                    {prefill.options.paymentMethods.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+                  </Select>
+                </Field>
+              </div>
+              <div className="md:col-span-4">
                 <Field label="Address 注册地址" required>
                   <Input value={form.address} onChange={(event) => setForm({ ...form, address: event.target.value })} />
                 </Field>
               </div>
-              <Field label="Post code 邮编" required>
-                <Input placeholder="06500" value={form.postCode} onChange={(event) => setForm({ ...form, postCode: event.target.value })} />
-              </Field>
             </div>
           </Section>
 
@@ -329,18 +342,12 @@ export function InvoiceApprovalPanel({
       ) : null}
 
       <Section index={infoIndex} title="开票信息" subtitle="审批通过后自动回填" hint="下面是这张账单的开票口径，随账单一起送审；票号在审批通过后按回传的真实发票补全。">
-        <div className="grid gap-4 md:grid-cols-4">
+        <div className="grid gap-4 md:grid-cols-3">
           <Field label="系统预留票号">
             <Input readOnly value={prefill.suggestedInvoiceNo || "保存时自动分配"} />
           </Field>
           <Field label="开票日期">
             <Input readOnly value={prefill.invoiceDate || "—"} />
-          </Field>
-          <Field label="约定收款日">
-            <Input readOnly value={form.paymentReceivedTime || "—"} />
-          </Field>
-          <Field label="账期天数">
-            <Input readOnly value={`${prefill.paymentTermDays} 天`} />
           </Field>
           <Field label="未税金额">
             <Input readOnly value={`${prefill.currency} ${prefill.amountExcludingTax || "—"}`} />
