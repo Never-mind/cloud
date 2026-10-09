@@ -1,8 +1,6 @@
 import { execute, queryRows, type Row } from "./db";
 import {
   buildAutoPurchaseOrderId,
-  buildAutoPurchaseOrderNo,
-  buildPurchaseDraft,
   buildShipmentDraft,
   normalizeRequestNos,
 } from "./procurement-workflow";
@@ -180,67 +178,6 @@ function releaseTimelineFields(
   const material = materialByDeviceCode.get(String(deviceCode ?? "").trim()) ?? "";
   const release = pickReleaseTimeline(timeline, material);
   return release ? { releaseId: release.releaseId, ...release.fields } : {};
-}
-
-export async function createPurchaseOrderFromRequest(requestNo: string, poNo?: string, actor: OperationActor | null = null) {
-  const requestRows = await queryRows<Row>(
-    "SELECT requestNo FROM requests WHERE requestNo = :requestNo LIMIT 1",
-    { requestNo },
-  );
-  if (!requestRows.length) {
-    throw new Error("需求单不存在");
-  }
-
-  const existing = await queryRows<Row>(
-    "SELECT purchaseOrderId, poNo FROM purchaseorders WHERE requestNo = :requestNo OR sourceRequestNos = :requestNo LIMIT 1",
-    { requestNo },
-  );
-  if (existing[0]?.purchaseOrderId || existing[0]?.poNo) {
-    await markRequestAsPendingOrder(requestNo, actor);
-    return existing[0];
-  }
-
-  const purchaseOrderId = buildAutoPurchaseOrderId();
-  const nextPoNo = poNo?.trim() || buildAutoPurchaseOrderNo(requestNo);
-
-  const details = await queryRows<RequestItemRow>(
-    "SELECT id, requestNo, requestType FROM requestitems WHERE requestNo = :requestNo ORDER BY id",
-    { requestNo },
-  );
-  const draft = buildPurchaseDraft({
-    purchaseOrderId,
-    poNo: nextPoNo,
-    requestNo,
-    requestNos: [requestNo],
-    details,
-  });
-
-  await execute(
-    `
-      INSERT INTO purchaseorders
-        (purchaseOrderId, poNo, requestNo, sourceRequestNos, status, currency, usdRate, paymentDate, releasedAt,
-         createdByUserId, createdByName, updatedByUserId, updatedByName)
-      VALUES
-        (:purchaseOrderId, :poNo, :requestNo, :sourceRequestNos, :status, :currency, :usdRate, NULL, NULL,
-         :createdByUserId, :createdByName, :updatedByUserId, :updatedByName)
-    `,
-      { ...draft.order, createdByUserId: actor?.userId ?? null, createdByName: actor?.displayName ?? null, updatedByUserId: actor?.userId ?? null, updatedByName: actor?.displayName ?? null },
-  );
-
-  for (const item of draft.items) {
-    await execute(
-      `
-        INSERT INTO purchaseorderitems
-          (id, purchaseOrderId, poNo, requestNo, requestItemId, requestType, currency, unitPrice, hardwareCoefficient, softwareCoefficient, totalCoefficient)
-        VALUES
-          (:id, :purchaseOrderId, :poNo, :requestNo, :requestItemId, :requestType, :currency, :unitPrice, :hardwareCoefficient, :softwareCoefficient, :totalCoefficient)
-      `,
-      item,
-    );
-  }
-
-  await markRequestAsPendingOrder(requestNo, actor);
-  return draft.order;
 }
 
 export async function confirmPurchaseOrder(purchaseOrderIdOrPoNo: string, actor: OperationActor | null = null) {
@@ -766,6 +703,24 @@ async function markPurchaseOrderRequestsAsOrdered(order: Pick<PurchaseOrderRow, 
     .split(",")
     .filter(Boolean);
   for (const requestNo of requestNos) {
+    /**
+     * 一个需求单可能拆成多张采购订单，所以"已下单"只在**该需求单的全部明细都已进入已确认的采购订单**时才置；
+     * 还有明细没下单或下游采购单还是草稿时，保持「待下单」，避免部分下单就显示成已下单。
+     */
+    const [pending] = await queryRows<{ count: number }>(
+      `
+        SELECT COUNT(*) AS count
+        FROM requestitems ri
+        LEFT JOIN purchaseorderitems poi ON poi.requestItemId = ri.id
+        LEFT JOIN purchaseorders po ON po.purchaseOrderId = poi.purchaseOrderId
+        WHERE ri.requestNo = :requestNo AND (poi.id IS NULL OR po.status <> '已确认')
+      `,
+      { requestNo },
+    );
+    if (Number(pending?.count ?? 0) > 0) {
+      await execute("UPDATE requests SET status = '待下单' WHERE requestNo = :requestNo AND status <> '待下单'", { requestNo });
+      continue;
+    }
     const assignment = actor
       ? ", confirmedByUserId = :confirmedByUserId, confirmedByName = :confirmedByName, updatedByUserId = :updatedByUserId, updatedByName = :updatedByName"
       : "";

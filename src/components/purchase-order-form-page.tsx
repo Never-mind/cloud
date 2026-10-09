@@ -66,9 +66,20 @@ export function PurchaseOrderFormPage() {
     return fetchAllEntityRows<Row>(entity);
   }
 
+  /**
+   * 可选的采购明细 = 「待采购明细」（还没进任何采购订单的需求明细）。
+   * 一条明细只能属于一张采购订单，所以这里不再把已经排过单的明细列出来。
+   */
+  async function fetchPendingRequestItems(): Promise<Row[]> {
+    const response = await fetch("/api/procurement/pending-items?export=1", { cache: "no-store" });
+    if (!response.ok) return [];
+    const data = await response.json().catch(() => ({})) as { rows?: Row[] };
+    return (data.rows ?? []).map((row) => ({ ...row, id: String(row.requestItemId ?? "") }));
+  }
+
   useEffect(() => {
     setMaster((current) => (current.purchaseOrderId ? current : { ...current, purchaseOrderId: buildAutoPurchaseOrderId() }));
-    void Promise.all([fetchEntity("request-items"), fetchEntity("instance-models"), fetchEntity("requests")]).then(
+    void Promise.all([fetchPendingRequestItems(), fetchEntity("instance-models"), fetchEntity("requests")]).then(
       ([itemRows, modelRows, requestRows]) => {
         setRequestItems(itemRows);
         setInstanceModels(modelRows);
@@ -81,6 +92,16 @@ export function PurchaseOrderFormPage() {
     if (!master.requestNo) return requestItems;
     return requestItems.filter((item) => String(item.requestNo) === master.requestNo);
   }, [master.requestNo, requestItems]);
+  /** 来源需求单下拉：只列还有待采购明细的需求单。 */
+  const requestOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const item of requestItems) {
+      const requestNo = String(item.requestNo ?? "");
+      if (requestNo && !map.has(requestNo)) map.set(requestNo, String(item.batchName ?? ""));
+    }
+    return Array.from(map, ([requestNo, batchName]) => ({ requestNo, batchName }))
+      .sort((left, right) => left.requestNo.localeCompare(right.requestNo));
+  }, [requestItems]);
   const selectedSourceRequestNos = useMemo(
     () =>
       normalizeRequestNos(
@@ -285,10 +306,10 @@ export function PurchaseOrderFormPage() {
               value={master.requestNo}
               onChange={(event) => updateMaster("requestNo", event.target.value)}
             >
-              <option value="">全部需求明细</option>
-              {requests.map((request) => (
-                <option key={String(request.requestNo)} value={String(request.requestNo)}>
-                  {String(request.requestNo)} - {String(request.batchName ?? "")}
+              <option value="">全部待采购明细</option>
+              {requestOptions.map((request) => (
+                <option key={request.requestNo} value={request.requestNo}>
+                  {request.requestNo} - {request.batchName}
                 </option>
               ))}
             </Select>

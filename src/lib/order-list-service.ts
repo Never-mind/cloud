@@ -11,6 +11,17 @@ type OrderListResult = {
   statusCounts: { draft: number; confirmed: number };
 };
 
+/** 需求单列表按主单字段分组（明细侧用聚合列）。 */
+const REQUEST_GROUP_BY = `GROUP BY req.requestNo, req.countryCode, req.contractNo, req.batchName, req.requestType, req.status, req.remoteStatus,
+  req.createdByName, req.updatedByName, req.confirmedByName,
+  req.plannedDeliveryDate, req.createdAt, req.updatedAt`;
+
+/** 采购进度筛选的固定候选值（与 SQL 里 CASE 的输出保持一致）。 */
+export const REQUEST_ORDER_PROGRESS_OPTIONS = ["未下单", "部分下单", "全部下单"] as const;
+
+/** 采购进度口径：需求单明细里已进入采购订单的比例。 */
+const REQUEST_ORDER_PROGRESS_CASE = "CASE WHEN COUNT(DISTINCT poItem.id) = 0 THEN '未下单' WHEN COUNT(DISTINCT poItem.id) < COUNT(DISTINCT ri.id) THEN '部分下单' ELSE '全部下单' END";
+
 export async function listOrderRows(searchParams: URLSearchParams): Promise<OrderListResult> {
   const mode = searchParams.get("mode") === "purchase" ? "purchase" : "requests";
   const keyword = searchParams.get("keyword")?.trim();
@@ -46,8 +57,22 @@ async function listRequests(options: {
   const baseWhere = [keywordWhere, countryWhere, statusCondition, ...columnFilters].filter(Boolean).join(" AND ");
   const allWhereParts = [keywordWhere, countryWhere, ...columnFilters].filter(Boolean);
   const allWhere = allWhereParts.length ? `WHERE ${allWhereParts.join(" AND ")}` : "";
+  // 采购进度：该需求单的明细里，已经进了采购订单的有几条（未下单 / 部分下单 / 全部下单）。
+  const progressValues = getFilterValues(options.searchParams, "orderProgress");
+  const progressHaving = progressValues.length ? `HAVING ${REQUEST_ORDER_PROGRESS_CASE} IN (:having_orderProgress)` : "";
+  if (progressValues.length) params.having_orderProgress = progressValues;
   const [{ total }] = await queryRows<{ total: number }>(
-    `SELECT COUNT(*) AS total FROM requests AS req ${baseWhere ? `WHERE ${baseWhere}` : ""}`,
+    progressValues.length
+      ? `SELECT COUNT(*) AS total FROM (
+           SELECT req.requestNo
+           FROM requests AS req
+           LEFT JOIN requestitems AS ri ON ri.requestNo = req.requestNo
+           LEFT JOIN purchaseorderitems AS poItem ON poItem.requestItemId = ri.id
+           ${baseWhere ? `WHERE ${baseWhere}` : ""}
+           ${REQUEST_GROUP_BY}
+           ${progressHaving}
+         ) AS groupedProgress`
+      : `SELECT COUNT(*) AS total FROM requests AS req ${baseWhere ? `WHERE ${baseWhere}` : ""}`,
     params,
   );
   const [counts] = await queryRows<{ draft: number; confirmed: number }>(
@@ -84,15 +109,18 @@ async function listRequests(options: {
         req.updatedByName,
         req.confirmedByName,
         COALESCE(SUM(ri.quantity), 0) AS totalQuantity,
+        COUNT(DISTINCT ri.id) AS totalItemCount,
+        COUNT(DISTINCT poItem.id) AS orderedItemCount,
+        CONCAT(COUNT(DISTINCT poItem.id), '/', COUNT(DISTINCT ri.id)) AS orderProgress,
         DATE_FORMAT(req.plannedDeliveryDate, '%Y-%m-%d') AS plannedDeliveryDate,
         DATE_FORMAT(req.createdAt, '%Y-%m-%d %H:%i:%s') AS createdAt,
         DATE_FORMAT(req.updatedAt, '%Y-%m-%d %H:%i:%s') AS updatedAt
       FROM requests AS req
       LEFT JOIN requestitems AS ri ON ri.requestNo = req.requestNo
+      LEFT JOIN purchaseorderitems AS poItem ON poItem.requestItemId = ri.id
       ${baseWhere ? `WHERE ${baseWhere}` : ""}
-      GROUP BY req.requestNo, req.countryCode, req.contractNo, req.batchName, req.requestType, req.status, req.remoteStatus,
-        req.createdByName, req.updatedByName, req.confirmedByName,
-        req.plannedDeliveryDate, req.createdAt, req.updatedAt
+      ${REQUEST_GROUP_BY}
+      ${progressHaving}
       ORDER BY ${getRequestOrderBy(options.sortField, options.sortOrder)}
       ${options.exportAll ? "" : "LIMIT :limit OFFSET :offset"}
     `,
@@ -237,6 +265,41 @@ export async function listOrderFilterOptions(searchParams: URLSearchParams) {
         createdAt: formatTableDateExpression("req.createdAt"),
         updatedAt: formatTableDateExpression("req.updatedAt"),
       };
+
+  // 采购进度不在 expressions 里（它是聚合列），单独算候选值与数量。
+  if (mode === "requests" && field === "orderProgress") {
+    const progressParams: Row = {};
+    const whereParts: string[] = [];
+    const statusTabForProgress = searchParams.get("statusTab") === "confirmed" ? "confirmed" : "draft";
+    const confirmedCondition = "req.status IN ('待下单', '已下单')";
+    whereParts.push(statusTabForProgress === "confirmed" ? confirmedCondition : `NOT (${confirmedCondition})`);
+    const countryCode = normalizeCountryCode(searchParams.get("countryCode"));
+    if (countryCode) whereParts.push(buildCountryWhere("req", countryCode, progressParams));
+    for (const [candidateField, candidateExpression] of Object.entries(expressions)) {
+      const values = getFilterValues(searchParams, candidateField);
+      if (!values.length) continue;
+      progressParams[`option_${candidateField}`] = values;
+      whereParts.push(`${candidateExpression} IN (:option_${candidateField})`);
+    }
+    const keywordValue = searchParams.get("keyword")?.trim() ?? "";
+    if (keywordValue) progressParams.optionKeyword = `%${keywordValue}%`;
+    const progressRows = await queryRows<{ value: string; count: number }>(
+      `SELECT progressList.value AS value, COUNT(*) AS count FROM (
+         SELECT ${REQUEST_ORDER_PROGRESS_CASE} AS value
+         FROM requests AS req
+         LEFT JOIN requestitems AS ri ON ri.requestNo = req.requestNo
+         LEFT JOIN purchaseorderitems AS poItem ON poItem.requestItemId = ri.id
+         WHERE ${whereParts.join(" AND ")}
+         GROUP BY req.requestNo
+       ) AS progressList
+       WHERE 1 = 1 ${keywordValue ? "AND progressList.value LIKE :optionKeyword" : ""}
+       GROUP BY progressList.value
+       ORDER BY FIELD(progressList.value, '未下单', '部分下单', '全部下单')`,
+      progressParams,
+    );
+    return { options: progressRows.map((row) => ({ value: String(row.value ?? ""), count: Number(row.count ?? 0) })) };
+  }
+
   const expression = expressions[field];
   if (!expression) return { options: [] as Array<{ value: string; count: number }> };
 
@@ -355,6 +418,7 @@ function getRequestOrderBy(sortField: string, sortOrder: "ASC" | "DESC") {
     requestType: "req.requestType",
     status: "req.status",
     remoteStatus: "req.remoteStatus",
+    orderProgress: "CASE WHEN COUNT(DISTINCT poItem.id) = 0 THEN 0 WHEN COUNT(DISTINCT poItem.id) < COUNT(DISTINCT ri.id) THEN 1 ELSE 2 END",
     plannedDeliveryDate: "req.plannedDeliveryDate",
     totalQuantity: "totalQuantity",
     createdAt: "req.createdAt",

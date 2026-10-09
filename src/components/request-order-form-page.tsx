@@ -1,8 +1,9 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowLeft, CheckCircle2, Download, Pencil, Plus, Save, Trash2, Upload, X } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Download, Pencil, Plus, Save, ShoppingCart, Trash2, Upload, X } from "lucide-react";
 import { formatDateInputValue, formatDisplayValue } from "@/lib/display-format";
 import { formatNumericInputValue, parseNumericInputValue } from "@/lib/numeric-input";
 import { isConfirmedOrderStatus } from "@/lib/order-status";
@@ -368,7 +369,7 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
             {requestNo ? "修改需求单明细表" : "新建需求单明细表"}
           </h1>
           <p className="mt-1 text-sm text-ink-3">
-            保存后需求单为草稿；确认后需求单状态为待下单，并自动生成一张采购草稿。
+            保存后需求单为草稿；确认后状态为待下单，明细进入「待采购明细」，由采购在「采购订单」里勾选明细组成采购订单（一个需求单可以拆成多张）。
           </p>
         </div>
         <div className="ml-auto flex gap-2">
@@ -397,6 +398,14 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
                 <Pencil size={15} />
                 修改
               </Button>
+              {!canConfirm ? (
+                <Link href={`/purchase/orders?tab=pending&requestNo=${encodeURIComponent(master.requestNo)}`}>
+                  <Button tone="primary">
+                    <ShoppingCart size={15} />
+                    去生成采购订单
+                  </Button>
+                </Link>
+              ) : null}
               <Button disabled={saving || !master.requestNo || !canConfirm} tone="success" onClick={() => void saveOrder("confirm")}>
                 <CheckCircle2 size={15} />
                 {!canConfirm || confirming ? "已确认" : "确认需求单"}

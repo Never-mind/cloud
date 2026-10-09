@@ -10,7 +10,6 @@ import type { EntityConfig } from "@/lib/modules";
 import { isConfirmedOrderStatus, type OrderStatusTab } from "@/lib/order-status";
 import { formatRequestRemoteStatus } from "@/lib/request-remote-status";
 import {
-  getOrderListColumnKeys,
   getOrderListPrimaryDisplayValue,
   shouldShowPurchaseSourceGenerator,
 } from "@/lib/order-list-view";
@@ -40,10 +39,13 @@ type OrderListResponse = {
 };
 
 export function OrderListPage({
+  hideHeading = false,
   mode,
   masterConfig,
   detailConfig: _detailConfig,
 }: {
+  /** 嵌在标签页里时由外层给标题，避免出现两层标题 */
+  hideHeading?: boolean;
   mode: PageMode;
   masterConfig: EntityConfig;
   detailConfig: EntityConfig;
@@ -82,10 +84,10 @@ export function OrderListPage({
     status: searchParams.getAll("filter.status"),
     requestType: searchParams.getAll("filter.requestType"),
     currency: searchParams.getAll("filter.currency"),
+    orderProgress: searchParams.getAll("filter.orderProgress"),
   }));
   const pageSizeRef = useRef(pageSize);
   const skipNextPageChangeRef = useRef(false);
-  const columnKeys = getOrderListColumnKeys(mode);
   const currentRoute = getCurrentRoute(pathname, searchParams.toString());
   const beginRequest = useRequestGuard();
 
@@ -111,6 +113,9 @@ export function OrderListPage({
       params.delete(`filter.${key}`);
       for (const value of values) params.append(`filter.${key}`, value);
     }
+    // 外层标签壳用 ?tab= 记当前标签；采购订单列表不认这个参数，
+    // 切回列表时要丢掉，否则会把 tab=pending 又写回地址栏，看起来像没切过去。
+    params.delete("tab");
 
     const nextRoute = buildListRoute(pathname, params);
     if (nextRoute !== currentRoute) router.replace(nextRoute, { scroll: false });
@@ -257,11 +262,13 @@ export function OrderListPage({
     setConfirmingId("");
   }
 
-  async function deleteOrder(id: string) {
+  async function deleteOrder(id: string, returnItems = false) {
     const message =
       mode === "requests"
         ? `确认删除需求单 ${id} 吗？未生成月账单和预付款时，将同步删除该需求单明细及关联采购草稿。`
-        : `确认删除采购单 ${id} 吗？未生成月账单和预付款时，将同步删除采购明细及物流草稿。`;
+        : returnItems
+          ? `确认退回采购单 ${id} 的明细吗？退回后这张草稿采购单会被删除，明细回到「待采购明细」，可以重新拼单。`
+          : `确认删除采购单 ${id} 吗？未生成月账单和预付款时，将同步删除采购明细及物流草稿。`;
     if (!await confirmDialog(message)) return;
     setDeletingId(id);
     const response = await fetch(`/api/entities/${masterConfig.key}/${encodeURIComponent(id)}`, {
@@ -273,6 +280,7 @@ export function OrderListPage({
       notify(data.error ?? "删除失败", "info");
       return;
     }
+    if (returnItems) notify(`${id} 的明细已退回「待采购明细」，可以重新拼单`, "success");
     setSelectedRequestNos((current) => {
       if (!current.has(id)) return current;
       const next = new Set(current);
@@ -328,6 +336,7 @@ export function OrderListPage({
       mode === "requests"
         ? [
             ["requestNo", "需求单号"], ["countryCode", "国家"], ["batchName", "批次号"], ["status", "状态"], ["remoteStatus", "远端状态"],
+            ["orderProgress", "采购进度"],
             ["totalQuantity", "总数量"], ["plannedDeliveryDate", "计划交付日期", "date"],
             ["createdAt", "创建时间", "datetime"], ["updatedAt", "更新时间", "datetime"],
           ]
@@ -356,6 +365,19 @@ export function OrderListPage({
   const selectedPageCount = selectableRequestNos.filter((requestNo) => selectedRequestNos.has(requestNo)).length;
   const allRowsSelected = selectableRequestNos.length > 0 && selectedPageCount === selectableRequestNos.length;
   const detailTitle = mode === "requests" ? "需求单明细" : "采购订单明细";
+  /** 空数据行的 colSpan，必须与表头实际列数一致（含左侧复选框与右侧操作列）。 */
+  const emptyColSpan =
+    (canBatchDelete ? 1 : 0)
+    + 1 // 单号
+    + (mode === "requests" ? 2 : 3) // 国家 / 批次（采购单额外有来源需求单）
+    + 1 // 状态
+    + (mode === "requests" ? 2 : 0) // 远端状态 + 采购进度
+    + (mode === "purchase" ? 1 : 0) // 币种
+    + 1 // 总数量
+    + (mode === "purchase" ? 1 : 0) // 采购总金额
+    + (mode === "requests" ? 1 : 0) // 计划交付日期
+    + 2 // 创建时间 / 更新时间
+    + 1; // 操作
 
   function openOrderDetail(id: string, event: React.MouseEvent<HTMLAnchorElement>) {
     event.preventDefault();
@@ -368,6 +390,7 @@ export function OrderListPage({
 
   return (
     <div className="space-y-5">
+      {!hideHeading ? (
       <div>
         <h1 className="text-xl font-medium text-ink">
           {mode === "requests" ? "需求单列表" : "采购清单列表"}
@@ -378,6 +401,7 @@ export function OrderListPage({
             : "采购清单按草稿和已确认分区展示，草稿确认后会自动生成物流单据。"}
         </p>
       </div>
+      ) : null}
 
       <Panel>
         <div className="flex items-center gap-2 border-b border-line-soft bg-surface-2 p-3">
@@ -513,6 +537,9 @@ export function OrderListPage({
                 {mode === "requests" ? (
                   <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">{renderHeader("remoteStatus", "远端状态")}</th>
                 ) : null}
+                {mode === "requests" ? (
+                  <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">{renderHeader("orderProgress", "采购进度")}</th>
+                ) : null}
                 {mode === "purchase" ? (
                   <>
                         <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">{renderHeader("currency", "币种")}</th>
@@ -603,6 +630,16 @@ export function OrderListPage({
                     {mode === "requests" ? (
                       <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3">{formatDisplayValue(row.remoteStatus, "text")}</td>
                     ) : null}
+                    {mode === "requests" ? (
+                      <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3">
+                        <RequestOrderProgressCell
+                          confirmed={confirmed}
+                          ordered={Number(row.orderedItemCount ?? 0)}
+                          requestNo={id}
+                          total={Number(row.totalItemCount ?? 0)}
+                        />
+                      </td>
+                    ) : null}
                     {mode === "purchase" ? (
                       <>
                         <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3">
@@ -665,9 +702,9 @@ export function OrderListPage({
                               <CheckCircle2 size={15} />
                               {confirmed ? "已确认" : confirmingId === id ? "确认中..." : "确认采购"}
                             </Button>
-                            <Button disabled={deletingId === id} tone="danger" onClick={() => void deleteOrder(id)}>
+                            <Button disabled={deletingId === id} tone="danger" onClick={() => void deleteOrder(id, !confirmed)}>
                               <Trash2 size={15} />
-                              删除
+                              {confirmed ? "删除" : "退回明细"}
                             </Button>
                           </div>
                         )}
@@ -678,7 +715,7 @@ export function OrderListPage({
               })}
               {!rows.length ? (
                 <tr>
-                  <td className="py-12 text-center text-ink-3" colSpan={columnKeys.length + (canBatchDelete ? 1 : 0)}>
+                  <td className="py-12 text-center text-ink-3" colSpan={emptyColSpan}>
                     <TableStateContent empty="暂无数据" loading={loading} />
                   </td>
                 </tr>
@@ -708,6 +745,35 @@ export function OrderListPage({
         />
       </Panel>
     </div>
+  );
+}
+
+/**
+ * 需求单的采购进度：`已进采购订单的明细数 / 总明细数`。
+ * 还没下完时可以点进「采购订单 → 待采购明细」继续拼单。
+ */
+function RequestOrderProgressCell({
+  confirmed,
+  ordered,
+  requestNo,
+  total,
+}: {
+  confirmed: boolean;
+  ordered: number;
+  requestNo: string;
+  total: number;
+}) {
+  if (!total) return <span className="text-ink-3">-</span>;
+  const text = `${ordered}/${total}`;
+  if (ordered >= total) return <span className="text-ink-2">{text} 已下完</span>;
+  if (!confirmed) return <span className="text-ink-3">{text} 待确认</span>;
+  return (
+    <Link
+      className="font-medium text-primary hover:underline"
+      href={`/purchase/orders?tab=pending&requestNo=${encodeURIComponent(requestNo)}`}
+    >
+      {text} 去生成
+    </Link>
   );
 }
 
