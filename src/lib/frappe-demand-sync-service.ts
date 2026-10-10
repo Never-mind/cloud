@@ -819,9 +819,16 @@ function sourceKey(type: SourceType, id: string) {
 }
 
 function sourceHash(item: RemoteDemandItem, order: RemoteDemandOrder) {
+  /**
+   * 注意：**不要把远端的 modified 时间戳算进来**。
+   *
+   * 变更检测只关心业务字段（实例型号/数量/状态/供应商/交期/机房/收件人），
+   * 时间戳会被远端的任意编辑刷新（换环境、数据迁移更会让它整体变一遍），
+   * 算进来就会出现"什么都没改却全量提示远端已变化"的假告警。
+   */
   return createHash("sha256").update(JSON.stringify({
-    item: { id: item.id, materialId: item.materialId, supplierId: item.supplierId, status: item.status, quantity: item.quantity, requestedDeliveryDate: item.requestedDeliveryDate, modified: item.modified },
-    order: { id: order.id, customerPoNo: order.customerPoNo, datacenterId: order.datacenterId, deliveryRecipientListId: order.deliveryRecipientListId, modified: order.modified },
+    item: { id: item.id, materialId: item.materialId, supplierId: item.supplierId, status: item.status, quantity: item.quantity, requestedDeliveryDate: item.requestedDeliveryDate },
+    order: { id: order.id, customerPoNo: order.customerPoNo, datacenterId: order.datacenterId, deliveryRecipientListId: order.deliveryRecipientListId },
   })).digest("hex");
 }
 
@@ -1199,7 +1206,7 @@ export async function runFrappeDemandSync({ triggerType = "manual", dryRun = fal
       const localExists = await requestExists(connection, requestNo);
       // 变更检测：无论本地需求单是否还在，都对台账已跟踪的明细逐条比对内容，
       // 保证"客户改了需求"一定有提示（包括没有被删除的本地单据）。
-      const changedItems: Array<{ item: RemoteDemandItem; changes: RemoteDemandChange[] }> = [];
+      const changedItems: Array<{ item: RemoteDemandItem; changes: RemoteDemandChange[]; reason?: "local_missing" }> = [];
       for (let index = 0; index < items.length; index += 1) {
         const prior = existingById.get(items[index].id);
         if (!prior) continue;
@@ -1207,20 +1214,50 @@ export async function runFrappeDemandSync({ triggerType = "manual", dryRun = fal
         if (text(prior.status) === "reset") continue;
         const tracked = (TRACKED_ITEM_STATUSES as readonly string[]).includes(text(prior.status));
         if (tracked && text(prior.sourceHash) === hashes[index]) continue;
-        changedItems.push({ item: items[index], changes: describeRemoteChanges(prior.sourceDataJson, itemSnapshot(items[index], order)) });
+        const changes = describeRemoteChanges(prior.sourceDataJson, itemSnapshot(items[index], order));
+        /**
+         * 逐字段比对后业务字段其实没变（只是远端 modified 时间戳变了，或者换了抓取环境
+         * 导致历史基线的 hash 对不上），就当没变化：刷新基线并记回 synced，
+         * 不再往台账里堆"远端已变化待核对"。本地需求单不存在的仍然提示，避免掩盖漏单。
+         */
+        if (tracked && !changes.length) {
+          if (localExists) {
+            if (!dryRun) {
+              await connection.execute(
+                `UPDATE ${ITEM_TABLE}
+                    SET sourceHash = ?, sourceDataJson = ?, sourceModifiedAt = ?,
+                        status = 'synced', errorMessage = NULL, changeJson = NULL, reasonCode = 'baseline_refreshed'
+                  WHERE sourceItemId = ?`,
+                [
+                  hashes[index],
+                  JSON.stringify(itemSnapshot(items[index], order)),
+                  items[index].modified || order.modified || null,
+                  items[index].id,
+                ],
+              );
+            }
+            continue;
+          }
+          // 远端内容没变，是本地需求单不在了（被手工删过）：给准确的原因，别写成"远端已变化"
+          changedItems.push({ item: items[index], changes, reason: "local_missing" });
+          continue;
+        }
+        changedItems.push({ item: items[index], changes });
       }
       if (changedItems.length) {
         summary.changedItems += changedItems.length;
         for (const entry of changedItems) {
-          const detail = entry.changes.length
-            ? `远端需求已变化：${entry.changes.map((change) => `${change.label} ${change.from || "空"} → ${change.to || "空"}`).join("；")}`
-            : "远端需求已变化";
-          const message = `${detail}；本地需求单不自动覆盖，请人工核对`;
+          const message = entry.reason === "local_missing"
+            ? "远端内容没有变化，但本地需求单已不存在（可能被手工删除）；可在同步台账用「重新拉取」按远端重建"
+            : `${entry.changes.length
+              ? `远端需求已变化：${entry.changes.map((change) => `${change.label} ${change.from || "空"} → ${change.to || "空"}`).join("；")}`
+              : "远端需求已变化"}；本地需求单不自动覆盖，请人工核对`;
           summary.errors.push({ sourceItemId: entry.item.id, error: message });
           if (!dryRun) {
             await persistLedgerItem(connection, {
               item: entry.item, order, localRequestNo: requestNo, status: "pending_change",
-              errorMessage: message, changeJson: entry.changes, preserveBaseline: true, reasonCode: "remote_changed",
+              errorMessage: message, changeJson: entry.changes, preserveBaseline: true,
+              reasonCode: entry.reason ?? "remote_changed",
             });
           }
         }
