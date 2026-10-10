@@ -81,11 +81,15 @@ describe("飞书审批开票 · 表单组装", () => {
     expect(() => toApprovalDateValue("下周一")).toThrow(/约定收款日/);
   });
 
-  it("金额控件带币种（墨西哥 MXN/USD、智利固定 CLP）", () => {
-    expect(resolveApprovalAmountCurrency("mx", "MXN")).toBe("MXN");
-    expect(resolveApprovalAmountCurrency("mx", "usd")).toBe("USD");
-    expect(resolveApprovalAmountCurrency("mx", "")).toBe("USD");
-    expect(resolveApprovalAmountCurrency("cl", "USD")).toBe("CLP");
+  it("金额控件带币种：在审批表单允许的范围里挑（范围从审批定义读，读不到回落 MXN/USD）", () => {
+    expect(resolveApprovalAmountCurrency(["MXN", "USD"], "MXN")).toBe("MXN");
+    expect(resolveApprovalAmountCurrency(["MXN", "USD"], "usd")).toBe("USD");
+    expect(resolveApprovalAmountCurrency(["MXN", "USD"], "")).toBe("USD");
+    // 飞书后台给金额控件加上 CNY 之后，这里直接可用（不用改代码）
+    expect(resolveApprovalAmountCurrency(["MXN", "USD", "CNY"], "CNY")).toBe("CNY");
+    // 不在允许范围里（例如墨西哥控件没有 CLP）就回落 USD
+    expect(resolveApprovalAmountCurrency(["MXN", "USD"], "CLP")).toBe("USD");
+    expect(resolveApprovalAmountCurrency(["CLP"], "USD")).toBe("CLP");
 
     const fields = buildInvoiceApprovalForm(mexicoForm());
     const invoiceRow = (fields.find((field) => field.id === APPROVAL_FIELDS.invoiceInfo)?.value as Array<Array<{ id: string; currency?: string }>>)[0];

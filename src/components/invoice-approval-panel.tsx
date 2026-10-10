@@ -237,6 +237,9 @@ export function InvoiceApprovalPanel({
   }
 
   const linesIndex = prefill.branch === "cl" ? 3 : 5;
+  /** 单据原币是否在飞书金额控件支持的币种里（不在就提醒，别把金额当成另一种币种提交） */
+  const amountCurrencySupported = !prefill.currency
+    || prefill.amountCurrencyOptions.includes(String(prefill.currency).toUpperCase());
 
   return (
     <div className="space-y-4">
@@ -249,6 +252,17 @@ export function InvoiceApprovalPanel({
       ) : null}
       {prefill.blockers.map((item) => <Notice key={item} tone="danger">{item}</Notice>)}
       {prefill.warnings.map((item) => <Notice key={item} tone="warning">{item}</Notice>)}
+      {!amountCurrencySupported ? (
+        <Notice tone="warning">
+          本单原币是 {prefill.currency}，不在飞书审批表单支持的币种（{prefill.amountCurrencyOptions.join(" / ") || "—"}）里：
+          用飞书审批会把金额当成所选币种提交。建议改用「本地开票」，或者让管理员先把 {prefill.currency} 加进飞书金额控件的币种范围。
+        </Notice>
+      ) : null}
+      {sourceType === "billing_statement" ? (
+        <Notice tone="info">
+          月账单对账单按国家出具（可能覆盖多个客户），客户抬头默认取该国家的默认客户，请确认它就是本次开票的实际客户。
+        </Notice>
+      ) : null}
 
       <div className="grid gap-3 rounded border border-line-soft bg-surface-2 p-4 sm:grid-cols-3">
         <SummaryItem label="客户抬头" value={prefill.customer?.name ?? "—"} />

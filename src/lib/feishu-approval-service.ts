@@ -16,10 +16,17 @@ import { execute, queryRows, type Row } from "./db";
 import { randomUUID } from "node:crypto";
 import { FEISHU_API_BASE } from "./feishu-auth-config";
 import { getFeishuTenantAccessToken } from "./feishu-message-service";
-import { buildInvoicePrefill, resolveInvoiceParties, type InvoiceSourceType } from "./invoice-service";
+import {
+  backfillInvoiceSourceFields,
+  buildInvoicePrefill,
+  loadInvoiceSourceParties,
+  loadInvoiceSourceTotal,
+  resolveInvoiceParties,
+  type InvoiceSourceType,
+} from "./invoice-service";
 import { readFile as readStoredFile } from "./file-storage-service";
 import { parseCfdiInvoice, verifyInvoiceAgainstExpectation, type CfdiInvoice, type InvoiceVerificationIssue } from "./cfdi-invoice-parser";
-import { listCloudAttachments, storeCloudAttachment } from "./cloud-service";
+import { attachApprovalFilesToSource } from "./approval-source-attachments";
 
 /** 「Cloud invoicing process」的审批定义 code。可用 FEISHU_INVOICE_APPROVAL_CODE 覆盖。 */
 const DEFAULT_INVOICE_APPROVAL_CODE = "ABBC8240-2CA4-4A33-8E58-AC91FC8648F2";
@@ -240,9 +247,78 @@ export function buildInvoiceApprovalForm(input: InvoiceApprovalFormInput): Invoi
  */
 export const APPROVAL_AMOUNT_CURRENCIES = { mx: ["MXN", "USD"], cl: ["CLP"] } as const;
 
-export function resolveApprovalAmountCurrency(branch: InvoiceApprovalBranch, currency: unknown) {
-  if (branch === "cl") return "CLP";
-  return String(currency ?? "").trim().toUpperCase() === "MXN" ? "MXN" : "USD";
+/**
+ * 金额控件能填哪些币种，直接读审批定义里 amount 控件的 `option.currencyRange`。
+ *
+ * 好处：飞书管理员在审批后台把 CNY 之类加进金额控件后，这里自动跟上，不用改代码。
+ * 读不到（网络/权限问题）就回落到默认范围，不影响开票。
+ */
+const APPROVAL_FORM_CACHE_MS = 5 * 60 * 1000;
+let approvalFormCache: { at: number; currenciesByCompany: Map<string, string[]> } | null = null;
+
+function widgetMatchesCompany(widget: Record<string, unknown>, companyOptionKey: string) {
+  const condition = widget.display_condition as
+    | { conditions?: Array<{ expressions?: Array<{ source_widget?: { id?: string }; standard_value?: string }> }> }
+    | null
+    | undefined;
+  if (!condition?.conditions?.length) return true;
+  return condition.conditions.some((group) =>
+    (group.expressions ?? []).some((expression) =>
+      String(expression.source_widget?.id ?? "") === APPROVAL_FIELDS.companyName
+      && String(expression.standard_value ?? "") === companyOptionKey));
+}
+
+function collectAmountCurrencies(widgets: Array<Record<string, unknown>>, companyOptionKey: string, inheritedMatch = true) {
+  const found: string[] = [];
+  for (const widget of widgets) {
+    // 父级分组不匹配（例如墨西哥的客户信息分组对智利主体不可见）时，里面的子控件也不该算
+    const matched = inheritedMatch && widgetMatchesCompany(widget, companyOptionKey);
+    if (String(widget.type ?? "") === "amount" && matched) {
+      const option = widget.option as { currencyRange?: unknown } | undefined;
+      if (Array.isArray(option?.currencyRange)) found.push(...option.currencyRange.map((item) => String(item).trim().toUpperCase()).filter(Boolean));
+    }
+    if (Array.isArray(widget.children)) {
+      found.push(...collectAmountCurrencies(widget.children as Array<Record<string, unknown>>, companyOptionKey, matched));
+    }
+  }
+  return found;
+}
+
+export async function loadApprovalAmountCurrencies(companyOptionKey: string): Promise<string[]> {
+  const key = String(companyOptionKey ?? "").trim();
+  if (approvalFormCache && Date.now() - approvalFormCache.at < APPROVAL_FORM_CACHE_MS) {
+    const cached = approvalFormCache.currenciesByCompany.get(key);
+    if (cached?.length) return cached;
+  }
+  try {
+    const data = await callFeishu<{ form?: string }>(
+      `/open-apis/approval/v4/approvals/${encodeURIComponent(getInvoiceApprovalCode())}`,
+      {},
+      "读取审批定义",
+    );
+    const widgets = JSON.parse(String(data?.form ?? "[]")) as Array<Record<string, unknown>>;
+    const byCompany = new Map<string, string[]>();
+    for (const optionKey of Object.values(COMPANY_OPTIONS).map((option) => option.key)) {
+      const currencies = Array.from(new Set(collectAmountCurrencies(widgets, optionKey)));
+      if (currencies.length) byCompany.set(optionKey, currencies);
+    }
+    if (byCompany.size) {
+      approvalFormCache = { at: Date.now(), currenciesByCompany: byCompany };
+      const cached = byCompany.get(key);
+      if (cached?.length) return cached;
+    }
+  } catch {
+    // 读不到审批定义就回落到默认范围，不阻断开票
+  }
+  return [...APPROVAL_AMOUNT_CURRENCIES.mx];
+}
+
+/** 在审批表单允许的币种里挑一个：优先用户选的，其次 USD，最后列表第一个。 */
+export function resolveApprovalAmountCurrency(allowed: string[], preferred: unknown) {
+  const list = allowed.length ? allowed : [...APPROVAL_AMOUNT_CURRENCIES.mx];
+  const value = String(preferred ?? "").trim().toUpperCase();
+  if (list.includes(value)) return value;
+  return list.includes("USD") ? "USD" : list[0];
 }
 
 /* --------------------------------------------------------------------------
@@ -527,6 +603,8 @@ function readApprovalFormValue(fields: InvoiceApprovalFormItem[], id: string) {
  */
 export async function createInvoiceFromCfdi(input: {
   instanceCode: string;
+  /** 来源类型（cloud_row / billing_statement / service_fee / settlement_invoice） */
+  sourceType: string;
   ownerId: string;
   period: string;
   dueDate: string;
@@ -536,14 +614,8 @@ export async function createInvoiceFromCfdi(input: {
   sourceFile?: { fileName: string; fileType: string; fileSize: number; storageProvider: string; storageKey: string | null } | null;
 }) {
   const { cfdi } = input;
-  const rows = await queryRows<{ customerId: string; undertakingUnitId: string }>(
-    "SELECT customerId, undertakingUnitId FROM merge_cloud_rows WHERE id = :id LIMIT 1",
-    { id: input.ownerId },
-  );
-  const parties = await resolveInvoiceParties({
-    customerId: String(rows[0]?.customerId ?? ""),
-    undertakingUnitId: String(rows[0]?.undertakingUnitId ?? ""),
-  });
+  const sourceParties = await loadInvoiceSourceParties(input.sourceType, input.ownerId);
+  const parties = await resolveInvoiceParties(sourceParties);
   const id = randomUUID();
   const invoiceDate = cfdi.issuedAt.slice(0, 10);
 
@@ -560,7 +632,7 @@ export async function createInvoiceFromCfdi(input: {
         cfdiUuid, cfdiFolio, cfdiTotalAmount, cfdiIssuedAt, cfdiCurrency, cfdiIssuerRfc, cfdiReceiverRfc,
         createdByName, updatedByName)
      VALUES
-       (:id, :invoiceNo, 'external', 'issued', 'cloud_row', :sourceId, :period,
+       (:id, :invoiceNo, 'external', 'issued', :sourceType, :sourceId, :period,
         :customerId, :customerName, :customerAddress, :customerTaxNumber, :customerContact, :customerContactEmail,
         :undertakingUnitId, :sellerName, :sellerCountry, :sellerAddress, :sellerTelephone, :sellerFinanceEmail,
         :bankAccountId, :bankAccountName, :bankName, :bankAccount, :bankSwiftCode, :bankCode, :bankAddress,
@@ -574,6 +646,7 @@ export async function createInvoiceFromCfdi(input: {
       id,
       invoiceNo: cfdi.fullNumber || cfdi.uuid.slice(0, 8),
       sourceId: input.ownerId,
+      sourceType: input.sourceType,
       period: input.period || null,
       customerId: parties.customerId || null,
       customerName: parties.customerName,
@@ -619,24 +692,21 @@ export async function createInvoiceFromCfdi(input: {
     },
   );
 
-  // 回填来源账单行：票号/币种/金额/开票日期一律取真实发票的值
-  await execute(
-    `UPDATE merge_cloud_rows
-        SET invoiceNo = :invoiceNo, invoiceCurrency = :currency, invoiceNetAmount = :net,
-            invoiceTaxRate = :taxRate, invoiceTaxAmount = :tax, invoiceTotalAmount = :total,
-            invoiceDate = :invoiceDate, collectionInvoice = 'issued', updatedAt = NOW()
-      WHERE id = :sourceId`,
-    {
-      invoiceNo: cfdi.fullNumber,
-      currency: cfdi.currency,
-      net: cfdi.subtotal,
-      taxRate: cfdi.taxRate === null ? null : cfdi.taxRate / 100,
-      tax: cfdi.transferredTaxTotal,
-      total: cfdi.total,
-      invoiceDate,
-      sourceId: input.ownerId,
-    },
-  );
+  // 回填来源单据：票号/币种/金额/开票日期一律取真实发票的值（按来源分派，与本地开票同一套口径）
+  await backfillInvoiceSourceFields({
+    invoiceId: id,
+    sourceType: input.sourceType,
+    sourceId: input.ownerId,
+    invoiceNo: cfdi.fullNumber,
+    currency: cfdi.currency,
+    taxRate: cfdi.taxRate,
+    amountExcludingTax: cfdi.subtotal,
+    taxAmount: cfdi.transferredTaxTotal,
+    amountIncludingTax: cfdi.total,
+    invoiceDate,
+    undertakingUnitId: parties.undertakingUnitId || null,
+    customerId: parties.customerId || null,
+  });
 
   await execute("UPDATE merge_common_feishu_approvals SET invoiceId = :invoiceId WHERE instanceCode = :instanceCode", {
     invoiceId: id,
@@ -815,7 +885,7 @@ export async function buildInvoiceApprovalPrefill(params: { sourceType: InvoiceS
     lines: base.lines ?? [],
     currency: base.currency ?? "",
     amountIncludingTax: base.amountIncludingTax ?? "",
-    amountCurrencyOptions: [...APPROVAL_AMOUNT_CURRENCIES[party?.branch === "cl" ? "cl" : "mx"]],
+    amountCurrencyOptions: await loadApprovalAmountCurrencies(party?.optionKey ?? ""),
     amountExcludingTax: base.amountExcludingTax ?? "",
     taxRate: base.taxRate ?? "",
     suggestedPurpose: [base.period, customer?.shortName ?? customer?.name ?? ""].filter(Boolean).join(" · "),
@@ -905,7 +975,7 @@ export async function submitInvoiceApprovalFromSource(input: {
   // 金额与币种：弹层里允许人工覆盖（默认带账单口径）
   const amount = Number(input.amountIncludingTax ?? prefill.amountIncludingTax ?? 0);
   if (!Number.isFinite(amount) || amount <= 0) throw new Error("开票金额不正确，无法发起审批");
-  const amountCurrency = resolveApprovalAmountCurrency(prefill.branch, input.amountCurrency ?? prefill.currency);
+  const amountCurrency = resolveApprovalAmountCurrency(prefill.amountCurrencyOptions ?? [], input.amountCurrency ?? prefill.currency);
 
   const form = buildInvoiceApprovalForm({
     branch: prefill.branch,
@@ -1039,6 +1109,8 @@ export async function applyApprovedInvoiceFiles(instanceCode: string): Promise<A
   const record = rows[0];
   if (!record) throw new Error(`未找到审批台账：${instanceCode}`);
   const ownerId = String(record.ownerId ?? "");
+  /** 审批台账上记的来源类型 → 开票来源类型（核验、回填、挂附件都按它分派） */
+  const ownerSourceType = OWNER_TO_SOURCE_TYPE[String(record.ownerType ?? "cloud_row") as InvoiceApprovalOwnerType] ?? "cloud_row";
   let invoiceId = String(record.invoiceId ?? "");
 
   const files = await fetchApprovalTimelineAttachments(instanceCode);
@@ -1059,31 +1131,18 @@ export async function applyApprovedInvoiceFiles(instanceCode: string): Promise<A
     return result;
   }
 
-  // 1) 附件落盘到该账单行的「客户开票附件」位（同名跳过，避免重复）
-  const existing = new Set((await listCloudAttachments("invoice", ownerId)).map((item) => String(item.fileName ?? "")));
-  let pdfStored: { fileName: string; fileType: string; fileSize: number; storageProvider: string; storageKey: string | null } | null = null;
+  // 1) 附件落到来源单据的「客户开票附件」位（按来源分派，同名跳过，避免重复）
+  const incoming: Array<{ fileName: string; fileType: string; bytes: Buffer }> = [];
   for (const file of [pdfFile, xmlFile].filter(Boolean) as ApprovalTimelineAttachment[]) {
-    if (existing.has(file.title)) {
-      continue;
-    }
-    const bytes = await downloadApprovalAttachment(file.url);
-    const attachment = await storeCloudAttachment(
-      "invoice",
-      ownerId,
-      { fileName: file.title, fileType: /\.xml$/i.test(file.title) ? "application/xml" : "application/pdf", bytes },
-      { userId: "", displayName: "飞书审批回传", email: "" },
-    ) as Record<string, unknown>;
-    result.attachedFileNames.push(file.title);
-    if (file === pdfFile) {
-      pdfStored = {
-        fileName: String(attachment.fileName ?? file.title),
-        fileType: String(attachment.fileType ?? "application/pdf"),
-        fileSize: Number(attachment.fileSize ?? bytes.length),
-        storageProvider: String(attachment.storageProvider ?? "db"),
-        storageKey: attachment.storageKey ? String(attachment.storageKey) : null,
-      };
-    }
+    incoming.push({
+      fileName: file.title,
+      fileType: /\.xml$/i.test(file.title) ? "application/xml" : "application/pdf",
+      bytes: await downloadApprovalAttachment(file.url),
+    });
   }
+  const attachmentResult = await attachApprovalFilesToSource(ownerSourceType, ownerId, incoming);
+  result.attachedFileNames.push(...attachmentResult.attachedNames);
+  const pdfStored = attachmentResult.stored.find((item) => /\.pdf$/i.test(item.fileName)) ?? null;
 
   if (!xmlFile) {
     result.note = "审批回复里没有 XML，只有 PDF（已存档，未能解析发票信息）";
@@ -1102,6 +1161,7 @@ export async function applyApprovedInvoiceFiles(instanceCode: string): Promise<A
     const dueDate = String(readApprovalFormValue(form, APPROVAL_FIELDS.paymentReceivedTime) ?? "").trim().slice(0, 10);
     const created = await createInvoiceFromCfdi({
       instanceCode,
+      sourceType: ownerSourceType,
       ownerId,
       period: String(record.period ?? ""),
       dueDate,
@@ -1133,22 +1193,14 @@ export async function applyApprovedInvoiceFiles(instanceCode: string): Promise<A
 
   // 4) 核验：发票 vs 账单行/档案
   const form2 = JSON.parse(String(record.formJson ?? "[]")) as InvoiceApprovalFormItem[];
-  const [rowParties] = await queryRows<{ customerTax: string | null; unitTax: string | null }>(
-    `SELECT c.taxNumber AS customerTax, u.taxNumber AS unitTax
-       FROM merge_cloud_rows r
-       LEFT JOIN merge_common_customers c ON c.customerId = r.customerId
-       LEFT JOIN merge_common_undertaking_units u ON u.undertakingUnitId = r.undertakingUnitId
-      WHERE r.id = :id LIMIT 1`,
-    { id: ownerId },
-  );
-  const [expectedAmount] = await queryRows<{ total: string }>(
-    "SELECT invoiceTotalAmount AS total FROM merge_cloud_rows WHERE id = :id LIMIT 1",
-    { id: ownerId },
-  );
+  // 核验基准按来源取：客户/承接单位税号 + 单据上的含税金额
+  const ownerParties = await loadInvoiceSourceParties(ownerSourceType, ownerId);
+  const rowParties = await loadSourceTaxNumbers(ownerParties.customerId, ownerParties.undertakingUnitId);
+  const expectedTotal = await loadInvoiceSourceTotal(ownerSourceType, ownerId);
   result.issues = verifyInvoiceAgainstExpectation(cfdi, {
-    total: Number(expectedAmount?.total ?? 0),
-    issuerRfc: String(rowParties?.unitTax ?? ""),
-    receiverRfc: String(rowParties?.customerTax ?? ""),
+    total: expectedTotal,
+    issuerRfc: rowParties.unitTax,
+    receiverRfc: rowParties.customerTax,
     cfdiUse: KEY_TO_CFDI_USE[String(readApprovalFormValue(form2, APPROVAL_FIELDS.cfdiCode) ?? "")] ?? "",
     paymentMethod: KEY_TO_PAYMENT_METHOD[String(readApprovalFormValue(form2, APPROVAL_FIELDS.paymentMethod) ?? "")] ?? "",
   });
@@ -1157,25 +1209,42 @@ export async function applyApprovedInvoiceFiles(instanceCode: string): Promise<A
     ? `发票已登记，但与单据存在差异：${result.issues.map((issue) => `${issue.field} 应为 ${issue.expected}、实际 ${issue.actual}`).join("；")}`
     : "已按真实发票信息登记并核验通过";
   if (!result.issues.length) {
-    result.archiveFilled = await backfillArchiveFromInvoice(cfdi, ownerId);
+    result.archiveFilled = await backfillArchiveFromInvoice(cfdi, ownerSourceType, ownerId);
     if (result.archiveFilled.length) result.note += `；已补齐档案：${result.archiveFilled.join("、")}`;
   }
   await saveInvoiceParseResult(instanceCode, result);
   return result;
 }
 
+/** 承接单位 / 客户的当前税号（核验发票用）。 */
+async function loadSourceTaxNumbers(customerId: string, undertakingUnitId: string) {
+  const [customer] = customerId
+    ? await queryRows<{ tax: string | null }>("SELECT taxNumber AS tax FROM merge_common_customers WHERE customerId = :id LIMIT 1", { id: customerId })
+    : [];
+  const [unit] = undertakingUnitId
+    ? await queryRows<{ tax: string | null }>("SELECT taxNumber AS tax FROM merge_common_undertaking_units WHERE undertakingUnitId = :id LIMIT 1", { id: undertakingUnitId })
+    : [];
+  return { customerTax: String(customer?.tax ?? "").trim(), unitTax: String(unit?.tax ?? "").trim() };
+}
+
 /** 发票里的税号/邮编，缺就补到档案上（已有值不动）。 */
-async function backfillArchiveFromInvoice(cfdi: CfdiInvoice, ownerId: string) {
-  const rows = await queryRows<{ undertakingUnitId: string; customerId: string; unitTax: string | null; customerTax: string | null; postCode: string | null }>(
-    `SELECT r.undertakingUnitId, r.customerId, u.taxNumber AS unitTax, c.taxNumber AS customerTax, c.postCode AS postCode
-       FROM merge_cloud_rows r
-       LEFT JOIN merge_common_undertaking_units u ON u.undertakingUnitId = r.undertakingUnitId
-       LEFT JOIN merge_common_customers c ON c.customerId = r.customerId
-      WHERE r.id = :id LIMIT 1`,
-    { id: ownerId },
-  );
-  const row = rows[0];
-  if (!row) return [];
+async function backfillArchiveFromInvoice(cfdi: CfdiInvoice, sourceType: string, ownerId: string) {
+  const parties = await loadInvoiceSourceParties(sourceType, ownerId);
+  if (!parties.customerId && !parties.undertakingUnitId) return [];
+  const row = {
+    undertakingUnitId: parties.undertakingUnitId,
+    customerId: parties.customerId,
+    unitTax: (await loadSourceTaxNumbers("", parties.undertakingUnitId)).unitTax,
+    customerTax: (await loadSourceTaxNumbers(parties.customerId, "")).customerTax,
+    postCode: "",
+  };
+  if (row.customerId) {
+    const [customer] = await queryRows<{ postCode: string | null }>(
+      "SELECT postCode FROM merge_common_customers WHERE customerId = :id LIMIT 1",
+      { id: row.customerId },
+    );
+    row.postCode = String(customer?.postCode ?? "");
+  }
   const filled: string[] = [];
 
   if (row.undertakingUnitId && !String(row.unitTax ?? "").trim() && cfdi.issuer.rfc) {

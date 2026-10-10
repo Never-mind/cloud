@@ -1129,16 +1129,38 @@ async function attachInvoiceFileToSource(params: {
   return attachmentId;
 }
 
-/** 回填来源账单：票号/币种/金额/开票日期 + 状态置已开票。 */
-async function backfillSource(params: {
-  id: string;
+/**
+ * 回填来源单据：票号/币种/金额/开票日期 + 状态置已开票。
+ *
+ * 本地开票和飞书审批开票（审批通过后按回传的真实发票登记）都走这里，
+ * 保证两条链的字段口径一致 —— 以前飞书那条链把回填写死成只更新华为云对账行。
+ */
+export async function backfillInvoiceSourceFields(params: {
+  /** 本地开票记录 id（月账单对账单要写 invoiceId；其它来源可空） */
+  invoiceId?: string | null;
   sourceType: string;
   sourceId: string;
-  resolved: ResolvedInvoice;
-  source: InvoiceSource;
+  invoiceNo: string;
+  currency?: string | null;
+  /** 税率传百分数（16 = 16%） */
+  taxRate?: string | number | null;
+  amountExcludingTax?: string | number | null;
+  taxAmount?: string | number | null;
+  amountIncludingTax?: string | number | null;
+  invoiceDate?: string | null;
+  undertakingUnitId?: string | null;
+  customerId?: string | null;
 }) {
-  const { id, sourceType, sourceId, resolved, source } = params;
+  const { sourceType, sourceId } = params;
   if (!sourceId) return;
+  const invoiceNo = text(params.invoiceNo) || null;
+  const currency = text(params.currency) || null;
+  const net = text(params.amountExcludingTax) || null;
+  const taxRate = rateToFraction(text(params.taxRate)) || null;
+  const taxAmount = text(params.taxAmount) || null;
+  const total = text(params.amountIncludingTax) || null;
+  const invoiceDate = text(params.invoiceDate) || null;
+
   if (sourceType === "cloud_row") {
     await executeRaw(
       `UPDATE merge_cloud_rows
@@ -1146,29 +1168,18 @@ async function backfillSource(params: {
               invoiceTaxRate = :taxRate, invoiceTaxAmount = :taxAmount, invoiceTotalAmount = :total,
               invoiceDate = :invoiceDate, collectionInvoice = 'issued', updatedAt = NOW()
         WHERE id = :sourceId`,
-      {
-        invoiceNo: resolved.invoiceNo, currency: resolved.currency,
-        // 对账行存小数税率，开票界面是百分数，写回时换算
-        net: resolved.amountExcludingTax || null, taxRate: rateToFraction(resolved.taxRate) || null,
-        taxAmount: resolved.taxAmount || null, total: resolved.amountIncludingTax || null,
-        invoiceDate: resolved.invoiceDate, sourceId,
-      },
+      { invoiceNo, currency, net, taxRate, taxAmount, total, invoiceDate, sourceId },
     );
     return;
   }
   if (sourceType === "billing_statement") {
     await executeRaw(
       `UPDATE merge_power_billingstatementsnapshots
-          SET invoiceId = :id, invoiceNo = :invoiceNo, invoiceCurrency = :currency, invoiceNetAmount = :net,
+          SET invoiceId = :invoiceId, invoiceNo = :invoiceNo, invoiceCurrency = :currency, invoiceNetAmount = :net,
               invoiceTaxRate = :taxRate, invoiceTaxAmount = :taxAmount, invoiceTotalAmount = :total,
               invoiceDate = :invoiceDate, invoiceStatus = 'issued', updatedAt = NOW()
         WHERE snapshotNo = :sourceId`,
-      {
-        id, invoiceNo: resolved.invoiceNo, currency: resolved.currency,
-        net: resolved.amountExcludingTax || null, taxRate: rateToFraction(resolved.taxRate) || null,
-        taxAmount: resolved.taxAmount || null, total: resolved.amountIncludingTax || null,
-        invoiceDate: resolved.invoiceDate, sourceId,
-      },
+      { invoiceId: text(params.invoiceId) || null, invoiceNo, currency, net, taxRate, taxAmount, total, invoiceDate, sourceId },
     );
     return;
   }
@@ -1180,10 +1191,9 @@ async function backfillSource(params: {
               invoiceAmountIncludingTax = :total, receivableDate = :invoiceDate, invoiceStatus = '已开票', updatedAt = NOW()
         WHERE snapshotNo = :sourceId`,
       {
-        invoiceNo: resolved.invoiceNo, currency: resolved.currency,
-        unitId: resolved.bank.undertakingUnitId || null, customerId: resolved.customer.customerId || null,
-        net: resolved.amountExcludingTax || null, taxRate: rateToFraction(resolved.taxRate) || null,
-        total: resolved.amountIncludingTax || null, invoiceDate: resolved.invoiceDate || null, sourceId,
+        invoiceNo, currency, net, taxRate, total, invoiceDate, sourceId,
+        unitId: text(params.undertakingUnitId) || null,
+        customerId: text(params.customerId) || null,
       },
     );
     return;
@@ -1193,12 +1203,111 @@ async function backfillSource(params: {
       `UPDATE merge_po_settlement_invoices
           SET invoiceNo = :invoiceNo, invoiceDate = :invoiceDate, isInvoiced = 1, updatedAt = NOW()
         WHERE id = :sourceId`,
-      { invoiceNo: resolved.invoiceNo, invoiceDate: resolved.invoiceDate || null, sourceId },
+      { invoiceNo, invoiceDate, sourceId },
     );
-    return;
   }
+}
+
+/** 国家的默认承接单位 / 客户（月账单对账单、服务费对账单没填往来方时用它兜底）。 */
+async function defaultPartiesByCountry(countryCode: string) {
+  if (!countryCode) return { customerId: "", undertakingUnitId: "" };
+  const rows = await queryRowsRaw<Row>(
+    `SELECT defaultUndertakingUnitId, defaultCustomerId FROM merge_power_countries WHERE code = :code LIMIT 1`,
+    { code: countryCode },
+  ).catch(() => [] as Row[]);
+  return {
+    customerId: text(rows[0]?.defaultCustomerId),
+    undertakingUnitId: text(rows[0]?.defaultUndertakingUnitId),
+  };
+}
+
+/**
+ * 取来源单据上的客户 / 承接单位，规则与开票预填保持一致。
+ * 飞书审批开票（取客户税号、承接单位税号做核验）和本地开票都要用，所以放在这里共用。
+ */
+export async function loadInvoiceSourceParties(sourceType: string, sourceId: string) {
+  if (!sourceId) return { customerId: "", undertakingUnitId: "" };
+  if (sourceType === "cloud_row") {
+    const rows = await queryRowsRaw<Row>(
+      "SELECT customerId, undertakingUnitId FROM merge_cloud_rows WHERE id = :id LIMIT 1",
+      { id: sourceId },
+    );
+    return { customerId: text(rows[0]?.customerId), undertakingUnitId: text(rows[0]?.undertakingUnitId) };
+  }
+  if (sourceType === "billing_statement") {
+    // 对账单按国家出具（可能覆盖多个客户），所以取国家的默认往来方，客户仍可在弹层里改
+    const rows = await queryRowsRaw<Row>(
+      "SELECT countryCode FROM merge_power_billingstatementsnapshots WHERE snapshotNo = :id LIMIT 1",
+      { id: sourceId },
+    );
+    return defaultPartiesByCountry(text(rows[0]?.countryCode));
+  }
+  if (sourceType === "service_fee") {
+    const rows = await queryRowsRaw<Row>(
+      `SELECT invoicePayerCustomerId, invoiceReceivingUnitId, countryCode
+         FROM merge_power_servicefeesnapshots WHERE snapshotNo = :id LIMIT 1`,
+      { id: sourceId },
+    );
+    const fallback = await defaultPartiesByCountry(text(rows[0]?.countryCode));
+    return {
+      customerId: text(rows[0]?.invoicePayerCustomerId) || fallback.customerId,
+      undertakingUnitId: text(rows[0]?.invoiceReceivingUnitId) || fallback.undertakingUnitId,
+    };
+  }
+  if (sourceType === "settlement_invoice") {
+    const rows = await queryRowsRaw<Row>(
+      `SELECT p.customerId, p.contractingUnitId FROM merge_po_settlement_invoices i
+         LEFT JOIN merge_po_settlement_projects p ON p.id = i.projectId
+        WHERE i.id = :id LIMIT 1`,
+      { id: sourceId },
+    );
+    return { customerId: text(rows[0]?.customerId), undertakingUnitId: text(rows[0]?.contractingUnitId) };
+  }
+  return { customerId: "", undertakingUnitId: "" };
+}
+
+/** 来源单据上的含税金额（飞书审批回传发票的核验基准）。 */
+export async function loadInvoiceSourceTotal(sourceType: string, sourceId: string) {
+  if (!sourceId) return 0;
+  const queries: Record<string, string> = {
+    cloud_row: "SELECT invoiceTotalAmount AS total FROM merge_cloud_rows WHERE id = :id LIMIT 1",
+    billing_statement: "SELECT COALESCE(invoiceTotalAmount, totalAmount) AS total FROM merge_power_billingstatementsnapshots WHERE snapshotNo = :id LIMIT 1",
+    service_fee: "SELECT COALESCE(invoiceAmountIncludingTax, serviceFeeTotal) AS total FROM merge_power_servicefeesnapshots WHERE snapshotNo = :id LIMIT 1",
+    settlement_invoice: "SELECT invoiceTotal AS total FROM merge_po_settlement_invoices WHERE id = :id LIMIT 1",
+  };
+  const sql = queries[sourceType];
+  if (!sql) return 0;
+  const rows = await queryRowsRaw<{ total: string | null }>(sql, { id: sourceId });
+  return Number(text(rows[0]?.total) || 0);
+}
+
+/** 回填来源账单：票号/币种/金额/开票日期 + 状态置已开票。 */
+async function backfillSource(params: {
+  id: string;
+  sourceType: string;
+  sourceId: string;
+  resolved: ResolvedInvoice;
+  source: InvoiceSource;
+}) {
+  const { id, sourceType, sourceId, resolved, source } = params;
+  if (!sourceId) return;
   // 外部发票允许先存着待关联，暂不回填。
   if (source === "external") return;
+  // 字段口径统一走 backfillInvoiceSourceFields：飞书审批开票回填也调它，避免两条链分叉。
+  await backfillInvoiceSourceFields({
+    invoiceId: id,
+    sourceType,
+    sourceId,
+    invoiceNo: resolved.invoiceNo,
+    currency: resolved.currency,
+    taxRate: resolved.taxRate,
+    amountExcludingTax: resolved.amountExcludingTax,
+    taxAmount: resolved.taxAmount,
+    amountIncludingTax: resolved.amountIncludingTax,
+    invoiceDate: resolved.invoiceDate,
+    undertakingUnitId: resolved.bank?.undertakingUnitId ?? null,
+    customerId: resolved.customer?.customerId ?? null,
+  });
 }
 
 /** 作废：票面数据保留供审计，来源账单回到"未开票"。 */

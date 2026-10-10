@@ -130,7 +130,11 @@ export function InvoiceDraftModal({
    */
   const [issueMode, setIssueMode] = useState<"local" | "approval">("local");
   const [approvalState, setApprovalState] = useState<ApprovalPanelState | null>(null);
-  const showIssueTabs = mode === "generated" && sourceType === "cloud_row";
+  /**
+   * 飞书审批开票的入口：只对**有来源单据**的开票显示（手工开票没有单据可回填）。
+   * 覆盖华为云对账行、月账单对账单、服务费对账单、集采结算发票四种收入来源。
+   */
+  const showIssueTabs = mode === "generated" && sourceType !== "manual";
   const customerOptions = usePartnerOptions("customers");
   const unitOptions = usePartnerOptions("undertaking-units");
 
