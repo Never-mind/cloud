@@ -47,7 +47,8 @@ describe("远端 Frappe 配置解析", () => {
 
   it("空白值按未配置处理，回退到代码内默认地址", () => {
     setEnv({ FRAPPE_API_BASE_URL: "   ", FRAPPE_API_TOKEN: "shared:token" });
-    expect(resolveFrappeEndpoint("需求数据").baseUrl).toBe("http://192.168.3.153:1337");
+    // 2026-10-10 起远端搬到公网，代码内默认值同步换成公网入口
+    expect(resolveFrappeEndpoint("需求数据").baseUrl).toBe("https://preview.debaser.luzcorp.dev");
   });
 
   it("没有密钥时报错，并把变量名写进提示", () => {
