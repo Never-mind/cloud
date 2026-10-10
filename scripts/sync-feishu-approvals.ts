@@ -9,8 +9,13 @@
  * 幂等：按 instance_code 记台账，出过票的不会再出。
  * 部署后建议挂成定时任务（每 1~5 分钟一次）。
  */
+import { existsSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { closeDb } from "../src/lib/db";
 import { fetchInvoiceApprovalInstance, syncPendingInvoiceApprovals } from "../src/lib/feishu-approval-service";
+
+// 定时任务在裸 node 环境跑，必须自己加载 .env.local，否则拿不到飞书应用凭证
+loadLocalEnv();
 
 function argValue(name: string) {
   const index = process.argv.indexOf(name);
@@ -36,3 +41,17 @@ main()
     process.exitCode = 1;
   })
   .finally(() => closeDb());
+
+function loadLocalEnv() {
+  const filePath = resolve(process.cwd(), ".env.local");
+  if (!existsSync(filePath)) return;
+  for (const line of readFileSync(filePath, "utf8").split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const separator = trimmed.indexOf("=");
+    if (separator <= 0) continue;
+    const key = trimmed.slice(0, separator).trim();
+    const value = trimmed.slice(separator + 1).trim().replace(/^['"]|['"]$/g, "");
+    if (process.env[key] === undefined) process.env[key] = value;
+  }
+}

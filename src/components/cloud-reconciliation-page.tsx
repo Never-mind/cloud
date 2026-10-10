@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
-import { Check, ChevronDown, ChevronRight, Cloud, Download, FileUp, Pencil, Plus, Search, Trash2, X } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, Cloud, Download, FileUp, Pencil, Plus, RefreshCw, Search, Trash2, X } from "lucide-react";
 import { Button, Input, Panel } from "./ui";
 import { EmptyState } from "./table-state";
 import { Modal } from "./modal";
@@ -163,6 +163,22 @@ export function CloudReconciliationPage() {
     void load();
   });
 
+  /** 手动同步飞书审批状态：在飞书里撤回 / 被驳回 / 审批通过之后，不用等定时任务。 */
+  async function syncApprovalStatus() {
+    setBusy(true);
+    try {
+      const response = await fetch("/api/invoices/approval/sync", { method: "POST" });
+      const data = (await response.json().catch(() => ({}))) as { checked?: number; updated?: number; error?: string; errors?: string[] };
+      if (!response.ok) throw new Error(data.error ?? "同步飞书审批状态失败");
+      setNotice(`飞书审批状态已同步：检查 ${data.checked ?? 0} 条${data.errors?.length ? `，${data.errors.length} 条失败` : ""}`);
+      await load();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "同步飞书审批状态失败");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function importWorkbook() {
     if (!importFile) return;
     const form = new FormData(); form.set("file", importFile); form.set("period", period);
@@ -314,7 +330,7 @@ export function CloudReconciliationPage() {
   return <div className="flex h-[calc(100vh-40px)] flex-col gap-4">
     <header className="flex flex-wrap items-start justify-between gap-3">
       <div><div className="flex items-center gap-2"><Cloud size={22} className="text-primary" /><h1 className="text-2xl font-medium text-ink">华为云业务</h1></div><p className="mt-2 text-sm text-ink-3">月度账单、服务映射、跨月收款和供应商付款</p></div>
-      {tab === "crm-invoices" ? null : <div className="flex flex-wrap gap-2">{tab === "reconciliation" ? <Button tone="primary" onClick={() => setRowForm({ period: period || new Date().toISOString().slice(0, 7).replace("-", ""), batchCode: "", customer: "", account: "", cloudReconciler: "", catalogAmount: "", partnerAmount: "", voucherCustomerAmount: "", voucherSupplierAmount: "", supplierPayablePayer: "", supplierPayablePayee: "", supplierPayableNetAmount: "", supplierTaxRate: "0.16", supplierTaxAmount: "", supplierPayableTotalAmount: "", customerReceivablePayer: "", customerReceivablePayee: "", customerReceivableNetAmount: "", customerTaxRate: "", customerReceivableTaxAmount: "", customerReceivableTotalAmount: "", theoreticalGrossProfit: "", settlementGrossProfit: "", customerDiscount: "", remark: "" })}><Plus size={15} />手动新增</Button> : null}<label className="inline-flex h-9 cursor-pointer items-center gap-1 rounded border border-line bg-white px-3 text-sm text-ink-2"><FileUp size={15} />导入账单<input className="hidden" type="file" accept=".xlsx,.xls" onChange={(event) => setImportFile(event.target.files?.[0] ?? null)} /></label><a href="/api/cloud/template"><Button type="button"><Download size={15} />下载导入模板</Button></a>{importFile ? <Button tone="primary" disabled={busy} onClick={() => void importWorkbook()}>确认导入</Button> : null}<Button onClick={() => window.open(`/api/cloud/rows/export?keyword=${encodeURIComponent(keyword)}&period=${encodeURIComponent(period)}`, "_blank")}><Download size={15} />导出数据</Button></div>}
+      {tab === "crm-invoices" ? null : <div className="flex flex-wrap gap-2">{tab === "reconciliation" ? <Button tone="primary" onClick={() => setRowForm({ period: period || new Date().toISOString().slice(0, 7).replace("-", ""), batchCode: "", customer: "", account: "", cloudReconciler: "", catalogAmount: "", partnerAmount: "", voucherCustomerAmount: "", voucherSupplierAmount: "", supplierPayablePayer: "", supplierPayablePayee: "", supplierPayableNetAmount: "", supplierTaxRate: "0.16", supplierTaxAmount: "", supplierPayableTotalAmount: "", customerReceivablePayer: "", customerReceivablePayee: "", customerReceivableNetAmount: "", customerTaxRate: "", customerReceivableTaxAmount: "", customerReceivableTotalAmount: "", theoreticalGrossProfit: "", settlementGrossProfit: "", customerDiscount: "", remark: "" })}><Plus size={15} />手动新增</Button> : null}<label className="inline-flex h-9 cursor-pointer items-center gap-1 rounded border border-line bg-white px-3 text-sm text-ink-2"><FileUp size={15} />导入账单<input className="hidden" type="file" accept=".xlsx,.xls" onChange={(event) => setImportFile(event.target.files?.[0] ?? null)} /></label><a href="/api/cloud/template"><Button type="button"><Download size={15} />下载导入模板</Button></a>{importFile ? <Button tone="primary" disabled={busy} onClick={() => void importWorkbook()}>确认导入</Button> : null}<Button onClick={() => window.open(`/api/cloud/rows/export?keyword=${encodeURIComponent(keyword)}&period=${encodeURIComponent(period)}`, "_blank")}><Download size={15} />导出数据</Button><Button disabled={busy} onClick={() => void syncApprovalStatus()}><RefreshCw size={15} />同步审批状态</Button></div>}
     </header>
     {notice ? <div className="flex items-center justify-between border border-info-border bg-info-soft px-3 py-2 text-sm text-primary">{notice}<button type="button" title="关闭提示" onClick={() => setNotice("")}><X size={15} /></button></div> : null}
     <Panel className="flex min-h-0 flex-1 flex-col">
