@@ -30,7 +30,7 @@ export async function listRequestProductLines(searchParams: URLSearchParams): Pr
 
   if (keyword) {
     whereParts.push(`(
-      req.countryCode LIKE :keyword OR req.batchName LIKE :keyword OR ri.requestNo LIKE :keyword
+      req.countryCode LIKE :keyword OR req.batchName LIKE :keyword OR ri.batchName LIKE :keyword OR ri.requestNo LIKE :keyword
       OR ri.deviceCode LIKE :keyword OR model.modelCode LIKE :keyword OR model.nameEn LIKE :keyword
       OR supplier.shortName LIKE :keyword OR supplier.nameCn LIKE :keyword OR supplier.supplierCode LIKE :keyword
     )`);
@@ -64,7 +64,7 @@ export async function listRequestProductLines(searchParams: URLSearchParams): Pr
       SELECT
         ri.id,
         UPPER(TRIM(SUBSTRING_INDEX(req.countryCode, '-', 1))) AS countryCode,
-        req.batchName,
+        COALESCE(NULLIF(ri.batchName, ''), req.batchName) AS batchName,
         ri.requestNo,
         ri.deviceCode,
         model.modelCode,
@@ -105,7 +105,8 @@ export async function listPurchaseProductLines(searchParams: URLSearchParams): P
     whereParts.push(`(
       purchase.poNo LIKE :keyword OR purchase.requestNo LIKE :keyword OR purchase.sourceRequestNos LIKE :keyword
       OR requestItem.requestNo LIKE :keyword OR requestItem.deviceCode LIKE :keyword
-      OR model.nameZh LIKE :keyword OR model.nameEn LIKE :keyword OR requestMaster.batchName LIKE :keyword
+      OR model.nameZh LIKE :keyword OR model.nameEn LIKE :keyword
+      OR requestMaster.batchName LIKE :keyword OR requestItem.batchName LIKE :keyword
     )`);
     params.keyword = `%${keyword}%`;
   }
@@ -141,7 +142,7 @@ export async function listPurchaseProductLines(searchParams: URLSearchParams): P
         purchase.poNo,
         COALESCE(NULLIF(item.requestNo, ''), requestItem.requestNo, purchase.requestNo, '') AS requestNo,
         UPPER(TRIM(SUBSTRING_INDEX(requestMaster.countryCode, '-', 1))) AS countryCode,
-        requestMaster.batchName,
+        COALESCE(NULLIF(requestItem.batchName, ''), requestMaster.batchName) AS batchName,
         purchase.status,
         requestItem.deviceCode,
         model.nameZh,
@@ -192,7 +193,7 @@ export async function listProductLineFilterOptions(searchParams: URLSearchParams
         poNo: "purchase.poNo",
         requestNo: "COALESCE(NULLIF(item.requestNo, ''), requestItem.requestNo, purchase.requestNo, '')",
         countryCode: "UPPER(TRIM(SUBSTRING_INDEX(requestMaster.countryCode, '-', 1)))",
-        batchName: "requestMaster.batchName",
+        batchName: "COALESCE(NULLIF(requestItem.batchName, ''), requestMaster.batchName)",
         status: "purchase.status",
         deviceCode: "requestItem.deviceCode",
         nameZh: "model.nameZh",
@@ -204,7 +205,7 @@ export async function listProductLineFilterOptions(searchParams: URLSearchParams
       }
     : {
         countryCode: "UPPER(TRIM(SUBSTRING_INDEX(req.countryCode, '-', 1)))",
-        batchName: "req.batchName",
+        batchName: "COALESCE(NULLIF(ri.batchName, ''), req.batchName)",
         requestNo: "ri.requestNo",
         deviceCode: "ri.deviceCode",
         modelCode: "model.modelCode",

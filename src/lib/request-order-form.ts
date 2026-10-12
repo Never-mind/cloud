@@ -6,6 +6,8 @@ export type RequestDetailDraft = {
   undertakingUnitId: string;
   customerId: string;
   quantity: number;
+  /** 内部批次号（明细级）；不填则沿用主单的默认批次 */
+  batchName?: string;
 };
 
 /**
@@ -49,6 +51,7 @@ export function buildRequestItemRows({
       requestNo,
       deviceCode: detail.deviceCode,
       requestType,
+      batchName: detail.batchName ?? "",
       supplierId: detail.supplierId,
       undertakingUnitId: detail.undertakingUnitId,
       customerId: detail.customerId,

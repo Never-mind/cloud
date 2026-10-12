@@ -18,6 +18,7 @@ describe("request order form", () => {
         requestNo: "REQ-NEW-001",
         requestType: "整机",
         deviceCode: "DEV-1",
+        batchName: "",
         supplierId: "SUP-1",
         undertakingUnitId: "UNIT-1",
         customerId: "CUS-1",
@@ -29,6 +30,7 @@ describe("request order form", () => {
         requestNo: "REQ-NEW-001",
         requestType: "整机",
         deviceCode: "DEV-2",
+        batchName: "",
         supplierId: "SUP-2",
         undertakingUnitId: "UNIT-2",
         customerId: "CUS-2",
@@ -49,6 +51,21 @@ describe("request order form", () => {
     });
 
     expect(rows[0]).toMatchObject({ requestNo: "REQ-SPARE-001", requestType: "备件" });
+  });
+
+  // 一个需求单可以有多条明细分属不同批次，所以批次落在明细上
+  it("批次号按明细保留，不覆盖成主单的唯一值", () => {
+    const rows = buildRequestItemRows({
+      requestNo: "REQ-BATCH-001",
+      requestedAt: "2026-10-12",
+      details: [
+        { deviceCode: "DEV-1", batchName: "CL-1", supplierId: "SUP-1", undertakingUnitId: "UNIT-1", customerId: "CUS-1", quantity: 2 },
+        { deviceCode: "DEV-2", batchName: "CL-2", supplierId: "SUP-2", undertakingUnitId: "UNIT-2", customerId: "CUS-2", quantity: 3 },
+        { deviceCode: "DEV-3", supplierId: "SUP-3", undertakingUnitId: "UNIT-3", customerId: "CUS-3", quantity: 1 },
+      ],
+    });
+
+    expect(rows.map((row) => row.batchName)).toEqual(["CL-1", "CL-2", ""]);
   });
 
   // 回归：早先这里一律按行位置生成 RI-<需求单号>-001，加载已有需求单时又把行主键丢掉，

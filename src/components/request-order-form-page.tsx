@@ -56,6 +56,7 @@ const emptyMaster: MasterDraft = {
 
 const emptyDetail: DetailDraft = {
   deviceCode: "",
+  batchName: "",
   supplierId: "",
   undertakingUnitId: "",
   customerId: "",
@@ -234,6 +235,7 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
       const imported = rows
         .map((row) => ({
           deviceCode: String(row.deviceCode ?? row["设备编码"] ?? "").trim(),
+          batchName: String(row.batchName ?? row["批次号"] ?? "").trim() || master.batchName,
           supplierId: String(row.supplierId ?? row["供应商"] ?? row["供应商ID"] ?? "").trim(),
           undertakingUnitId: String(row.undertakingUnitId ?? row["承接单位ID"] ?? "").trim(),
           customerId: resolveCustomerId(row),
@@ -254,12 +256,13 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
       sheetName: "需求明细",
       columns: [
         { key: "deviceCode", label: "设备编码" },
+        { key: "batchName", label: "批次号" },
         { key: "supplierId", label: "供应商ID" },
         { key: "undertakingUnitId", label: "承接单位ID" },
         { key: "customerId", label: "客户ID" },
         { key: "quantity", label: "节点数量" },
       ],
-      rows: [{ deviceCode: "", supplierId: "", undertakingUnitId: "", customerId: "", quantity: "" }],
+      rows: [{ deviceCode: "", batchName: "", supplierId: "", undertakingUnitId: "", customerId: "", quantity: "" }],
     });
   }
 
@@ -440,7 +443,7 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
             </Select>
           </label>
           <Field disabled={!canEdit} label="合同号" required value={master.contractNo} onChange={(value) => updateMaster("contractNo", value)} />
-          <Field disabled={!canEdit} label="批次名称" required value={master.batchName} onChange={(value) => updateMaster("batchName", value)} />
+          <Field disabled={!canEdit} label="默认批次（新增明细时带入）" value={master.batchName} onChange={(value) => updateMaster("batchName", value)} />
           <label>
             <span className="mb-1 block text-sm font-medium text-ink-2">
               <span className="text-danger">*</span>
@@ -471,7 +474,7 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
               批量删除所选（{selectedDetailIndexes.length}）
             </Button>
           ) : null}
-          <Button className="ml-auto" disabled={!canEdit} onClick={() => setDetails((current) => [...current, { ...emptyDetail }])}>
+          <Button className="ml-auto" disabled={!canEdit} onClick={() => setDetails((current) => [...current, { ...emptyDetail, batchName: master.batchName }])}>
             <Plus size={15} />
             新增明细
           </Button>
@@ -511,6 +514,7 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
                   />
                 </th>
                 <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">设备编码</th>
+                <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">批次号</th>
                 <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">机型</th>
                 <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">英文名称</th>
                 <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">供应商</th>
@@ -548,6 +552,15 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
                         placeholder="搜索设备编码"
                         value={detail.deviceCode}
                         onChange={(value) => updateDetail(index, { deviceCode: value })}
+                      />
+                    </td>
+                    <td className="border-b border-r border-line-soft px-3 py-3">
+                      <Input
+                        className="min-w-[120px]"
+                        disabled={!canEdit}
+                        placeholder="批次号"
+                        value={detail.batchName ?? ""}
+                        onChange={(event) => updateDetail(index, { batchName: event.target.value })}
                       />
                     </td>
                     <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3">{formatValue(model?.modelCode)}</td>

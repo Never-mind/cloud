@@ -270,7 +270,7 @@ export async function listInstanceSettlementCandidates({
   }
   if (keyword.trim()) {
     conditions.push(`(
-      req.batchName LIKE :keyword OR poi.poNo LIKE :keyword OR COALESCE(poi.requestNo, ri.requestNo) LIKE :keyword
+      req.batchName LIKE :keyword OR ri.batchName LIKE :keyword OR poi.poNo LIKE :keyword OR COALESCE(poi.requestNo, ri.requestNo) LIKE :keyword
       OR ri.deviceCode LIKE :keyword OR im.nameEn LIKE :keyword OR im.modelCode LIKE :keyword
     )`);
     params.keyword = `%${keyword.trim()}%`;
@@ -291,7 +291,7 @@ export async function listInstanceSettlementCandidates({
     params.purchaseOrderItemIds = selectedIds;
   }
   const filterExpressions: Record<string, string> = {
-    countryCode: "req.countryCode", batchName: "req.batchName", requestNo: "COALESCE(poi.requestNo, ri.requestNo)", poNo: "poi.poNo",
+    countryCode: "req.countryCode", batchName: "COALESCE(NULLIF(ri.batchName, ''), req.batchName)", requestNo: "COALESCE(poi.requestNo, ri.requestNo)", poNo: "poi.poNo",
     deviceCode: "ri.deviceCode", modelCode: "im.modelCode", nameEn: "im.nameEn", undertakingUnitCode: "undertaking.undertakingUnitCode", supplierCode: "supplier.supplierCode", customerCode: customerDisplaySql("customer", "ri.customerId"), quantity: "ri.quantity", procurementCurrency: "COALESCE(NULLIF(poi.currency, ''), po.currency, 'USD')",
     capexUnitPrice: "poi.capexUnitPrice", opexUnitPrice: "poi.opexUnitPrice", anchorCapexUnitPrice: "anchor.capexAnchorUsd", anchorOpexUnitPrice: "anchor.opexAnchorUsd",
   };
@@ -335,12 +335,12 @@ export async function listInstanceSettlementCandidates({
         poi.id, poi.purchaseOrderId, poi.poNo, COALESCE(poi.requestNo, ri.requestNo) AS requestNo, poi.requestItemId,
         poi.taxExcludedUnitPrice, poi.taxSurcharge, poi.unitPrice, poi.capexUnitPrice, poi.opexUnitPrice,
         COALESCE(NULLIF(poi.currency, ''), po.currency, 'USD') AS procurementCurrency, po.paymentDate, po.releasedAt,
-        req.countryCode, req.batchName, req.requestType,
+        req.countryCode, COALESCE(NULLIF(ri.batchName, ''), req.batchName) AS batchName, req.requestType,
         ri.deviceCode, ri.quantity, ri.supplierId, ri.undertakingUnitId, ri.customerId,
         im.modelCode, im.nameEn,
         shipment.receiptDate
       ${from}
-      ${searchParams ? (getTableSort(searchParams, filterExpressions) || "ORDER BY req.batchName DESC, po.createdAt DESC, poi.id") : "ORDER BY req.batchName DESC, po.createdAt DESC, poi.id"}
+      ${searchParams ? (getTableSort(searchParams, filterExpressions) || "ORDER BY COALESCE(NULLIF(ri.batchName, ''), req.batchName) DESC, po.createdAt DESC, poi.id") : "ORDER BY COALESCE(NULLIF(ri.batchName, ''), req.batchName) DESC, po.createdAt DESC, poi.id"}
       LIMIT :limit OFFSET :offset
     `,
     { ...params, limit: safePageSize, offset: (safePage - 1) * safePageSize },
@@ -365,7 +365,7 @@ export async function listInstanceSettlementCandidates({
 
 export async function listInstanceSettlementCandidateFilterOptions(searchParams: URLSearchParams) {
   const expressions: Record<string, string> = {
-    countryCode: "req.countryCode", batchName: "req.batchName", requestNo: "COALESCE(poi.requestNo, ri.requestNo)", poNo: "poi.poNo",
+    countryCode: "req.countryCode", batchName: "COALESCE(NULLIF(ri.batchName, ''), req.batchName)", requestNo: "COALESCE(poi.requestNo, ri.requestNo)", poNo: "poi.poNo",
     deviceCode: "ri.deviceCode", modelCode: "im.modelCode", nameEn: "im.nameEn", undertakingUnitCode: "undertaking.undertakingUnitCode", supplierCode: "supplier.supplierCode", customerCode: customerDisplaySql("customer", "ri.customerId"), quantity: "ri.quantity", procurementCurrency: "COALESCE(NULLIF(poi.currency, ''), po.currency, 'USD')",
     capexUnitPrice: "poi.capexUnitPrice", opexUnitPrice: "poi.opexUnitPrice", anchorCapexUnitPrice: "anchor.capexAnchorUsd", anchorOpexUnitPrice: "anchor.opexAnchorUsd",
   };

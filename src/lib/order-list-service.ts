@@ -19,6 +19,21 @@ const REQUEST_GROUP_BY = `GROUP BY req.requestNo, req.countryCode, req.contractN
 /** 采购进度筛选的固定候选值（与 SQL 里 CASE 的输出保持一致）。 */
 export const REQUEST_ORDER_PROGRESS_OPTIONS = ["未下单", "部分下单", "全部下单"] as const;
 
+/**
+ * 批次号口径：取**明细批次**（去重聚合），明细没填才回落主单的默认批次。
+ *
+ * 两个坑：
+ *   1. 不能用裸别名 `batchName` 排序 —— 明细表也有同名列，MySQL 报 `ambiguous`；
+ *   2. 也不能写 `ri.batchName` —— 需求单列表是 GROUP BY 查询，非聚合列会被
+ *      `only_full_group_by` 拦下。所以这里用与 SELECT 一致的**独立子查询**。
+ */
+const REQUEST_BATCH_SORT = `COALESCE(
+  (SELECT GROUP_CONCAT(DISTINCT sortBatch.batchName ORDER BY sortBatch.batchName SEPARATOR ', ')
+     FROM requestitems AS sortBatch
+    WHERE sortBatch.requestNo = req.requestNo
+      AND sortBatch.batchName IS NOT NULL AND sortBatch.batchName <> ''),
+  req.batchName, '')`;
+
 /** 采购进度口径：需求单明细里已进入采购订单的比例。 */
 const REQUEST_ORDER_PROGRESS_CASE = "CASE WHEN COUNT(DISTINCT poItem.id) = 0 THEN '未下单' WHEN COUNT(DISTINCT poItem.id) < COUNT(DISTINCT ri.id) THEN '部分下单' ELSE '全部下单' END";
 
@@ -100,7 +115,18 @@ async function listRequests(options: {
         req.requestNo,
         UPPER(TRIM(SUBSTRING_INDEX(req.countryCode, '-', 1))) AS countryCode,
         req.contractNo,
-        req.batchName,
+        /**
+         * 批次号取**明细批次**：一个需求单的多条明细可能分属不同批次。
+         * 明细都有批次时按明细去重聚合（多批次显示成 "CL-1, CL-2"），
+         * 明细没填才回落到主单的默认批次。
+         */
+        COALESCE(
+          (SELECT GROUP_CONCAT(DISTINCT itemBatch.batchName ORDER BY itemBatch.batchName SEPARATOR ', ')
+             FROM requestitems AS itemBatch
+            WHERE itemBatch.requestNo = req.requestNo
+              AND itemBatch.batchName IS NOT NULL AND itemBatch.batchName <> ''),
+          req.batchName
+        ) AS batchName,
         req.requestType,
         req.status,
         req.remoteStatus,
@@ -300,6 +326,45 @@ export async function listOrderFilterOptions(searchParams: URLSearchParams) {
     return { options: progressRows.map((row) => ({ value: String(row.value ?? ""), count: Number(row.count ?? 0) })) };
   }
 
+  /**
+   * 批次号候选值：明细批次 ∪ 主单默认批次。
+   * 一个需求单可能有多条明细分属不同批次，只列主单值会漏掉明细上的其它批次。
+   */
+  if (mode === "requests" && field === "batchName") {
+    const batchParams: Row = {};
+    const batchWhere: string[] = [];
+    const statusTabForBatch = searchParams.get("statusTab") === "confirmed" ? "confirmed" : "draft";
+    const batchConfirmed = "req.status IN ('待下单', '已下单')";
+    batchWhere.push(statusTabForBatch === "confirmed" ? batchConfirmed : `NOT (${batchConfirmed})`);
+    const batchCountry = normalizeCountryCode(searchParams.get("countryCode"));
+    if (batchCountry) batchWhere.push(buildCountryWhere("req", batchCountry, batchParams));
+    const batchKeyword = searchParams.get("keyword")?.trim() ?? "";
+    if (batchKeyword) batchParams.optionKeyword = `%${batchKeyword}%`;
+    const rows = await queryRows<{ value: string; count: number }>(
+      `SELECT batchList.value AS value, COUNT(*) AS count FROM (
+         SELECT itemBatch.batchName AS value
+           FROM requestitems AS itemBatch
+           INNER JOIN requests AS req ON req.requestNo = itemBatch.requestNo
+          WHERE itemBatch.batchName IS NOT NULL AND itemBatch.batchName <> ''
+            AND ${batchWhere.join(" AND ")}
+         UNION
+         SELECT req.batchName AS value
+           FROM requests AS req
+          WHERE req.batchName IS NOT NULL AND req.batchName <> ''
+            AND ${batchWhere.join(" AND ")}
+       ) AS batchList
+       WHERE 1 = 1 ${batchKeyword ? "AND batchList.value LIKE :optionKeyword" : ""}
+       GROUP BY batchList.value
+       ORDER BY CASE WHEN TRIM(batchList.value) REGEXP '^[A-Za-z]+[[:space:]]*-[[:space:]]*[0-9]+$' THEN 0 ELSE 1 END ASC,
+                UPPER(TRIM(SUBSTRING_INDEX(TRIM(batchList.value), '-', 1))) ASC,
+                CAST(SUBSTRING_INDEX(TRIM(batchList.value), '-', -1) AS UNSIGNED) ASC,
+                batchList.value ASC
+       LIMIT 500`,
+      batchParams,
+    );
+    return { options: rows.map((row) => ({ value: String(row.value ?? ""), count: Number(row.count ?? 0) })) };
+  }
+
   const expression = expressions[field];
   if (!expression) return { options: [] as Array<{ value: string; count: number }> };
 
@@ -414,7 +479,11 @@ function getRequestOrderBy(sortField: string, sortOrder: "ASC" | "DESC") {
   const expressions: Record<string, string> = {
     requestNo: "req.requestNo",
     countryCode: "UPPER(TRIM(SUBSTRING_INDEX(req.countryCode, '-', 1)))",
-    batchName: "req.batchName",
+    /**
+     * 批次排序按明细批次（与 SELECT 口径一致）。
+     * 注意必须写完整表达式：列别名也叫 batchName，而明细表里也有同名列，写裸别名 MySQL 会报 ambiguous。
+     */
+    batchName: REQUEST_BATCH_SORT,
     requestType: "req.requestType",
     status: "req.status",
     remoteStatus: "req.remoteStatus",
@@ -425,7 +494,7 @@ function getRequestOrderBy(sortField: string, sortOrder: "ASC" | "DESC") {
     updatedAt: "req.updatedAt",
   };
   if (sortField === "batchName") return getNaturalBatchSort(expressions.batchName, direction, "req.createdAt DESC");
-  return expressions[sortField] ? `${expressions[sortField]} ${direction}, req.createdAt DESC` : `CASE WHEN TRIM(COALESCE(req.batchName, '')) REGEXP '^[A-Za-z]+-[0-9]+$' THEN 0 ELSE 1 END ASC, CAST(SUBSTRING_INDEX(TRIM(COALESCE(req.batchName, '')), '-', -1) AS UNSIGNED) DESC, UPPER(SUBSTRING_INDEX(TRIM(COALESCE(req.batchName, '')), '-', 1)) ASC, req.createdAt DESC`;
+  return expressions[sortField] ? `${expressions[sortField]} ${direction}, req.createdAt DESC` : `CASE WHEN TRIM(${REQUEST_BATCH_SORT}) REGEXP '^[A-Za-z]+-[0-9]+$' THEN 0 ELSE 1 END ASC, CAST(SUBSTRING_INDEX(TRIM(${REQUEST_BATCH_SORT}), '-', -1) AS UNSIGNED) DESC, UPPER(SUBSTRING_INDEX(TRIM(${REQUEST_BATCH_SORT}), '-', 1)) ASC, req.createdAt DESC`;
 }
 
 function getPurchaseOrderBy(sortField: string, sortOrder: "ASC" | "DESC") {
@@ -466,7 +535,6 @@ function buildRequestColumnFilters(searchParams: URLSearchParams, params: Row) {
   const mappings: Record<string, string> = {
     requestNo: "req.requestNo",
     countryCode: "req.countryCode",
-    batchName: "req.batchName",
     status: "req.status",
     remoteStatus: "req.remoteStatus",
     requestType: "COALESCE(NULLIF(req.requestType, ''), '整机')",
@@ -475,7 +543,21 @@ function buildRequestColumnFilters(searchParams: URLSearchParams, params: Row) {
     createdAt: formatTableDateExpression("req.createdAt"),
     updatedAt: formatTableDateExpression("req.updatedAt"),
   };
-  return Object.entries(mappings).map(([field, expression]) => buildInFilter(expression, getFilterValues(searchParams, field), params, `column_${field}`)).filter(Boolean);
+  const filters = Object.entries(mappings)
+    .map(([field, expression]) => buildInFilter(expression, getFilterValues(searchParams, field), params, `column_${field}`))
+    .filter(Boolean);
+  /**
+   * 批次号筛选：主单默认批次命中，**或该需求单任意一条明细的批次命中**。
+   * 一个需求单可能有多个批次，只按主单值筛会漏掉明细上的其它批次。
+   */
+  const batchNames = getFilterValues(searchParams, "batchName");
+  if (batchNames.length) {
+    params.column_batchName = batchNames;
+    filters.push(`(req.batchName IN (:column_batchName) OR EXISTS (
+      SELECT 1 FROM requestitems AS batchFilter
+       WHERE batchFilter.requestNo = req.requestNo AND batchFilter.batchName IN (:column_batchName)))`);
+  }
+  return filters;
 }
 
 function buildPurchaseColumnFilters(searchParams: URLSearchParams, params: Row) {

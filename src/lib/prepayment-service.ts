@@ -78,11 +78,11 @@ export async function listAvailablePrepaymentLines(options: {
     params.countryCode = options.countryCode.trim();
   }
   if (options.keyword?.trim()) {
-    conditions.push("(req.countryCode LIKE :keyword OR req.batchName LIKE :keyword OR COALESCE(poi.requestNo, po.requestNo, ri.requestNo) LIKE :keyword OR poi.poNo LIKE :keyword OR ri.deviceCode LIKE :keyword OR im.modelCode LIKE :keyword OR im.nameEn LIKE :keyword)");
+    conditions.push("(req.countryCode LIKE :keyword OR req.batchName LIKE :keyword OR ri.batchName LIKE :keyword OR COALESCE(poi.requestNo, po.requestNo, ri.requestNo) LIKE :keyword OR poi.poNo LIKE :keyword OR ri.deviceCode LIKE :keyword OR im.modelCode LIKE :keyword OR im.nameEn LIKE :keyword)");
     params.keyword = `%${options.keyword.trim()}%`;
   }
   const filterExpressions: Record<string, string> = {
-    countryCode: "req.countryCode", batchName: "req.batchName", requestNo: "COALESCE(poi.requestNo, po.requestNo, ri.requestNo)",
+    countryCode: "req.countryCode", batchName: "COALESCE(NULLIF(ri.batchName, ''), req.batchName)", requestNo: "COALESCE(poi.requestNo, po.requestNo, ri.requestNo)",
     poNo: "poi.poNo", deviceCode: "ri.deviceCode", requestType: "COALESCE(NULLIF(poi.requestType, ''), NULLIF(ri.requestType, ''), NULLIF(req.requestType, ''), '整机')",
     modelCode: "im.modelCode", nameEn: "im.nameEn", quantity: "ri.quantity", currency: "COALESCE(NULLIF(poi.currency, ''), po.currency, 'USD')", actualUnitPrice: "poi.unitPrice",
     undertakingUnitCode: "COALESCE(NULLIF(unit.shortName, ''), NULLIF(unit.entityName, ''), NULLIF(unit.name, ''), unit.undertakingUnitCode)",
@@ -123,7 +123,7 @@ export async function listAvailablePrepaymentLines(options: {
         poi.poNo,
         COALESCE(poi.requestNo, po.requestNo, ri.requestNo) AS requestNo,
         req.countryCode,
-        req.batchName,
+        COALESCE(NULLIF(ri.batchName, ''), req.batchName) AS batchName,
         poi.requestItemId,
         ri.deviceCode,
         COALESCE(NULLIF(poi.requestType, ''), NULLIF(ri.requestType, ''), NULLIF(req.requestType, ''), '整机') AS requestType,
@@ -138,7 +138,7 @@ export async function listAvailablePrepaymentLines(options: {
         po.status AS purchaseStatus,
         req.status AS requestStatus
       ${sourceFrom}
-      ${requestedSort || "ORDER BY CASE WHEN TRIM(COALESCE(req.batchName, '')) REGEXP '^[A-Za-z]+[[:space:]]*-[[:space:]]*[0-9]+$' THEN 0 ELSE 1 END, CAST(SUBSTRING_INDEX(TRIM(req.batchName), '-', -1) AS UNSIGNED) DESC, UPPER(TRIM(SUBSTRING_INDEX(TRIM(req.batchName), '-', 1))) ASC, req.countryCode ASC, po.poNo ASC, poi.id"}
+      ${requestedSort || "ORDER BY CASE WHEN TRIM(COALESCE(COALESCE(NULLIF(ri.batchName, ''), req.batchName, ''), '')) REGEXP '^[A-Za-z]+[[:space:]]*-[[:space:]]*[0-9]+$' THEN 0 ELSE 1 END, CAST(SUBSTRING_INDEX(TRIM(COALESCE(NULLIF(ri.batchName, ''), req.batchName, '')), '-', -1) AS UNSIGNED) DESC, UPPER(TRIM(SUBSTRING_INDEX(TRIM(COALESCE(NULLIF(ri.batchName, ''), req.batchName, '')), '-', 1))) ASC, req.countryCode ASC, po.poNo ASC, poi.id"}
       LIMIT :limit OFFSET :offset
     `,
     { ...params, limit: pageSize, offset: (page - 1) * pageSize },
@@ -154,7 +154,7 @@ export async function listAvailablePrepaymentLines(options: {
 
 export async function listAvailablePrepaymentLineFilterOptions(searchParams: URLSearchParams) {
   const expressions: Record<string, string> = {
-    countryCode: "req.countryCode", batchName: "req.batchName", requestNo: "COALESCE(poi.requestNo, po.requestNo, ri.requestNo)",
+    countryCode: "req.countryCode", batchName: "COALESCE(NULLIF(ri.batchName, ''), req.batchName)", requestNo: "COALESCE(poi.requestNo, po.requestNo, ri.requestNo)",
     poNo: "poi.poNo", deviceCode: "ri.deviceCode", requestType: "COALESCE(NULLIF(poi.requestType, ''), NULLIF(ri.requestType, ''), NULLIF(req.requestType, ''), '整机')",
     modelCode: "im.modelCode", nameEn: "im.nameEn", quantity: "ri.quantity", currency: "COALESCE(NULLIF(poi.currency, ''), po.currency, 'USD')", actualUnitPrice: "poi.unitPrice",
     undertakingUnitCode: "COALESCE(NULLIF(unit.shortName, ''), NULLIF(unit.entityName, ''), NULLIF(unit.name, ''), unit.undertakingUnitCode)",
