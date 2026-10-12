@@ -68,6 +68,35 @@ describe("request order form", () => {
     expect(rows.map((row) => row.batchName)).toEqual(["CL-1", "CL-2", ""]);
   });
 
+  // 主单填了「默认批次」时，只补齐明细里为空的那些行，填过的行保持原样
+  it("保存时用主单默认批次补齐空白明细批次", () => {
+    const rows = buildRequestItemRows({
+      requestNo: "REQ-BATCH-002",
+      requestedAt: "2026-10-12",
+      defaultBatchName: "BR-59",
+      details: [
+        { deviceCode: "DEV-1", batchName: "BR-60", supplierId: "SUP-1", undertakingUnitId: "UNIT-1", customerId: "CUS-1", quantity: 2 },
+        { deviceCode: "DEV-2", batchName: "", supplierId: "SUP-2", undertakingUnitId: "UNIT-2", customerId: "CUS-2", quantity: 3 },
+        { deviceCode: "DEV-3", supplierId: "SUP-3", undertakingUnitId: "UNIT-3", customerId: "CUS-3", quantity: 1 },
+      ],
+    });
+
+    expect(rows.map((row) => row.batchName)).toEqual(["BR-60", "BR-59", "BR-59"]);
+  });
+
+  it("主单默认批次为空时不猜值，明细批次保持空白", () => {
+    const rows = buildRequestItemRows({
+      requestNo: "REQ-BATCH-003",
+      requestedAt: "2026-10-12",
+      defaultBatchName: "   ",
+      details: [
+        { deviceCode: "DEV-1", supplierId: "SUP-1", undertakingUnitId: "UNIT-1", customerId: "CUS-1", quantity: 2 },
+      ],
+    });
+
+    expect(rows[0].batchName).toBe("");
+  });
+
   // 回归：早先这里一律按行位置生成 RI-<需求单号>-001，加载已有需求单时又把行主键丢掉，
   // 于是保存时会查不到老行（如 F-DOI-00107）而新建一条，同一个实例出现两条一模一样明细。
   it("已存在的明细沿用原主键，不按位置重编", () => {

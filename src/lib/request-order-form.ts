@@ -18,16 +18,23 @@ export type RequestDetailDraft = {
  * 或用户增删过行，保存时会查不到对应行而走"新建"，导致同一个实例出现两条一模一样的明细。
  */
 export function buildRequestItemRows({
+  defaultBatchName = "",
   details,
   requestedAt,
   requestNo,
   requestType = "整机",
 }: {
+  /**
+   * 明细没填批次时用它兜底（一般是主单的「默认批次」）。
+   * 只补空值：明细自己填过的批次不会被覆盖，这样"某几行有自己批次、其余跟随默认"能共存。
+   */
+  defaultBatchName?: string;
   details: RequestDetailDraft[];
   requestedAt: string;
   requestNo: string;
   requestType?: string;
 }) {
+  const fallbackBatch = String(defaultBatchName ?? "").trim();
   const usedIds = new Set(details.map((detail) => detail.id).filter((id): id is string => Boolean(id)));
   // 新编号从现有最大序号往后排，避免和已有明细的编号撞车（撞了会把别人的行覆盖掉）。
   // 只认本需求单的 RI-<需求单号>-<序号> 格式：历史数据里像 F-DOI-00107 这种旧编号不参与排号。
@@ -51,7 +58,7 @@ export function buildRequestItemRows({
       requestNo,
       deviceCode: detail.deviceCode,
       requestType,
-      batchName: detail.batchName ?? "",
+      batchName: String(detail.batchName ?? "").trim() || fallbackBatch,
       supplierId: detail.supplierId,
       undertakingUnitId: detail.undertakingUnitId,
       customerId: detail.customerId,

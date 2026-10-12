@@ -267,12 +267,19 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
   }
 
   async function upsertRequestItems() {
+    const activeDetails = details.filter((detail) => detail.deviceCode && detail.supplierId && detail.undertakingUnitId && detail.customerId);
     const requestItems = buildRequestItemRows({
       requestNo: master.requestNo,
       requestedAt: master.plannedDeliveryDate || formatDateInputValue(new Date()),
       requestType: master.requestType,
-      details: details.filter((detail) => detail.deviceCode && detail.supplierId && detail.undertakingUnitId && detail.customerId),
+      defaultBatchName: master.batchName,
+      details: activeDetails,
     });
+    // 明细没自己填批次的，保存时用主单的「默认批次」补齐（有值的行不动）
+    const blankBatchRows = String(master.batchName ?? "").trim()
+      ? activeDetails.filter((detail) => !String(detail.batchName ?? "").trim()).length
+      : 0;
+    if (blankBatchRows) notify(`已用默认批次 ${String(master.batchName).trim()} 补齐 ${blankBatchRows} 行空白批次`, "info");
 
     for (const item of requestItems) {
       // 有主键就按主键探测：存在则更新，不存在才新建。
@@ -558,7 +565,7 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
                       <Input
                         className="min-w-[120px]"
                         disabled={!canEdit}
-                        placeholder="批次号"
+                        placeholder={master.batchName?.trim() ? `默认 ${master.batchName.trim()}` : "批次号"}
                         value={detail.batchName ?? ""}
                         onChange={(event) => updateDetail(index, { batchName: event.target.value })}
                       />
