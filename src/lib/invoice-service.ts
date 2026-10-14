@@ -59,11 +59,13 @@ export type InvoiceDraftInput = {
   customerName?: string | null;
   customerAddress?: string | null;
   customerContact?: string | null;
+  customerContactPhone?: string | null;
   customerContactEmail?: string | null;
   sellerName?: string | null;
   sellerCountry?: string | null;
   sellerAddress?: string | null;
   sellerTelephone?: string | null;
+  sellerContactName?: string | null;
   sellerFinanceEmail?: string | null;
   /** 银行栏也允许在弹层里手工改（档案没建银行账户时至少能开票） */
   bankAccountName?: string | null;
@@ -244,12 +246,15 @@ type PartySnapshot = {
   customerAddress: string;
   customerTaxNumber: string;
   customerContact: string;
+  customerContactPhone: string;
   customerContactEmail: string;
   undertakingUnitId: string;
   sellerName: string;
   sellerCountry: string;
   sellerAddress: string;
   sellerTelephone: string;
+  /** 承接单位主联系人姓名（票面 FROM 的 CONTACT 一格） */
+  sellerContactName: string;
   sellerFinanceEmail: string;
   bankAccountId: string;
   bankAccountName: string;
@@ -361,16 +366,16 @@ export async function listMergeCandidates(params: { customerId?: string; currenc
 export async function resolveInvoiceParties(input: { customerId?: string | null; undertakingUnitId?: string | null; bankAccountId?: string | null }): Promise<PartySnapshot> {
   const snapshot: PartySnapshot = {
     customerId: text(input.customerId), customerName: "", customerAddress: "", customerTaxNumber: "",
-    customerContact: "", customerContactEmail: "",
+    customerContact: "", customerContactPhone: "", customerContactEmail: "",
     undertakingUnitId: text(input.undertakingUnitId), sellerName: "", sellerCountry: "", sellerAddress: "",
-    sellerTelephone: "", sellerFinanceEmail: "",
+    sellerTelephone: "", sellerContactName: "", sellerFinanceEmail: "",
     bankAccountId: "", bankAccountName: "", bankName: "", bankAccount: "", bankSwiftCode: "", bankCode: "", bankAddress: "",
     paymentTermDays: "", signatureImage: "",
   };
 
   if (snapshot.customerId) {
     const rows = await queryRowsRaw<Row>(
-      `SELECT name, nameCn, nameEn, shortName, address, country, city, taxNumber, contactName, contactEmail
+      `SELECT name, nameCn, nameEn, shortName, address, country, city, taxNumber, contactName, contactPhone, contactEmail
          FROM merge_common_customers WHERE customerId = :id LIMIT 1`,
       { id: snapshot.customerId },
     );
@@ -381,17 +386,18 @@ export async function resolveInvoiceParties(input: { customerId?: string | null;
       snapshot.customerAddress = text(row.address);
       snapshot.customerTaxNumber = text(row.taxNumber);
       const contacts = await queryRowsRaw<Row>(
-        `SELECT name, email FROM merge_common_customer_contacts WHERE customerId = :id ORDER BY isPrimary DESC, createdAt LIMIT 1`,
+        `SELECT name, phone, email FROM merge_common_customer_contacts WHERE customerId = :id ORDER BY isPrimary DESC, createdAt LIMIT 1`,
         { id: snapshot.customerId },
       );
       snapshot.customerContact = text(contacts[0]?.name) || text(row.contactName);
+      snapshot.customerContactPhone = text(contacts[0]?.phone) || text(row.contactPhone);
       snapshot.customerContactEmail = text(contacts[0]?.email) || text(row.contactEmail);
     }
   }
 
   if (snapshot.undertakingUnitId) {
     const rows = await queryRowsRaw<Row>(
-      `SELECT nameCn, nameEn, name, country, address, registeredAddress, taxNumber, contactPhone, contactEmail, financeEmail, paymentTermDays, signatureImage
+      `SELECT nameCn, nameEn, name, country, address, registeredAddress, taxNumber, contactName, contactPhone, contactEmail, financeEmail, paymentTermDays, signatureImage
          FROM merge_common_undertaking_units WHERE undertakingUnitId = :id LIMIT 1`,
       { id: snapshot.undertakingUnitId },
     );
@@ -406,6 +412,7 @@ export async function resolveInvoiceParties(input: { customerId?: string | null;
           WHERE undertakingUnitId = :id ORDER BY isPrimary DESC, createdAt LIMIT 1`,
         { id: snapshot.undertakingUnitId },
       );
+      snapshot.sellerContactName = text(contacts[0]?.name) || text(row.contactName);
       snapshot.sellerTelephone = text(contacts[0]?.phone) || text(row.contactPhone);
       snapshot.sellerFinanceEmail = text(row.financeEmail) || text(contacts[0]?.email) || text(row.contactEmail);
       snapshot.paymentTermDays = text(row.paymentTermDays);
@@ -718,6 +725,7 @@ async function resolveInvoice(input: InvoiceDraftInput, forUpdate: boolean): Pro
     customerName: pick(input.customerName, parties.customerName),
     customerAddress: pick(input.customerAddress, parties.customerAddress),
     customerContact: pick(input.customerContact, parties.customerContact),
+    customerContactPhone: pick(input.customerContactPhone, parties.customerContactPhone),
     customerContactEmail: pick(input.customerContactEmail, parties.customerContactEmail),
   };
   const bank = {
@@ -726,6 +734,7 @@ async function resolveInvoice(input: InvoiceDraftInput, forUpdate: boolean): Pro
     sellerCountry: pick(input.sellerCountry, parties.sellerCountry),
     sellerAddress: pick(input.sellerAddress, parties.sellerAddress),
     sellerTelephone: pick(input.sellerTelephone, parties.sellerTelephone),
+    sellerContactName: pick(input.sellerContactName, parties.sellerContactName),
     sellerFinanceEmail: pick(input.sellerFinanceEmail, parties.sellerFinanceEmail),
     bankAccountName: pick(input.bankAccountName, parties.bankAccountName),
     bankName: pick(input.bankName, parties.bankName),
@@ -775,6 +784,7 @@ function toRenderInput(resolved: ResolvedInvoice) {
     sellerCountry: invoiceCountryName(resolved.bank.sellerCountry),
     sellerAddress1: resolved.bank.sellerAddress,
     sellerTelephone: resolved.bank.sellerTelephone,
+    sellerContactName: resolved.bank.sellerContactName,
     sellerFinanceEmail: resolved.bank.sellerFinanceEmail,
     bankAccountName: resolved.bank.bankAccountName || resolved.bank.sellerName,
     bankName: resolved.bank.bankName,
@@ -785,7 +795,7 @@ function toRenderInput(resolved: ResolvedInvoice) {
     customerName: resolved.customer.customerName,
     customerAddress: resolved.customer.customerAddress,
     customerContact: resolved.customer.customerContact,
-    customerContactValue: resolved.customer.customerContact,
+    customerContactValue: resolved.customer.customerContactPhone,
     customerContactValue2: resolved.customer.customerContactEmail,
     comment: resolved.comment,
     authImg: resolved.bank.signatureImage,
@@ -894,8 +904,8 @@ export async function saveInvoice(input: InvoiceDraftInput, actor: InvoiceActor 
   await executeRaw(
     `INSERT INTO ${INVOICE_TABLE}
       (id, invoiceNo, source, template, status, sourceType, sourceId, sourceNo, period,
-       customerId, customerName, customerAddress, customerTaxNumber, customerContact, customerContactEmail,
-       undertakingUnitId, sellerName, sellerCountry, sellerAddress, sellerTelephone, sellerFinanceEmail,
+       customerId, customerName, customerAddress, customerTaxNumber, customerContact, customerContactPhone, customerContactEmail,
+       undertakingUnitId, sellerName, sellerCountry, sellerAddress, sellerTelephone, sellerContactName, sellerFinanceEmail,
        bankAccountId, bankAccountName, bankName, bankAccount, bankSwiftCode, bankCode, bankAddress,
        currency, exchangeRate, amountExcludingTax, taxRate, taxAmount, amountIncludingTax, sgdRate, sgdTotal, gstRegNo,
        invoiceDate, dueDate, paymentTermDays, comment, authImg,
@@ -903,8 +913,8 @@ export async function saveInvoice(input: InvoiceDraftInput, actor: InvoiceActor 
        issuedAt, issuedByUserId, issuedByName, remark, createdByUserId, createdByName, updatedByUserId, updatedByName)
      VALUES
       (:id, :invoiceNo, :source, :template, 'issued', :sourceType, :sourceId, :sourceNo, :period,
-       :customerId, :customerName, :customerAddress, :customerTaxNumber, :customerContact, :customerContactEmail,
-       :undertakingUnitId, :sellerName, :sellerCountry, :sellerAddress, :sellerTelephone, :sellerFinanceEmail,
+       :customerId, :customerName, :customerAddress, :customerTaxNumber, :customerContact, :customerContactPhone, :customerContactEmail,
+       :undertakingUnitId, :sellerName, :sellerCountry, :sellerAddress, :sellerTelephone, :sellerContactName, :sellerFinanceEmail,
        :bankAccountId, :bankAccountName, :bankName, :bankAccount, :bankSwiftCode, :bankCode, :bankAddress,
        :currency, :exchangeRate, :amountExcludingTax, :taxRate, :taxAmount, :amountIncludingTax, :sgdRate, :sgdTotal, :gstRegNo,
        :invoiceDate, :dueDate, :paymentTermDays, :comment, :authImg,
@@ -924,12 +934,14 @@ export async function saveInvoice(input: InvoiceDraftInput, actor: InvoiceActor 
       customerAddress: resolved.customer.customerAddress,
       customerTaxNumber: resolved.customer.customerTaxNumber,
       customerContact: resolved.customer.customerContact,
+      customerContactPhone: resolved.customer.customerContactPhone,
       customerContactEmail: resolved.customer.customerContactEmail,
       undertakingUnitId: resolved.bank.undertakingUnitId || null,
       sellerName: resolved.bank.sellerName,
       sellerCountry: resolved.bank.sellerCountry,
       sellerAddress: resolved.bank.sellerAddress,
       sellerTelephone: resolved.bank.sellerTelephone,
+      sellerContactName: resolved.bank.sellerContactName,
       sellerFinanceEmail: resolved.bank.sellerFinanceEmail,
       bankAccountId: resolved.bank.bankAccountId || null,
       bankAccountName: resolved.bank.bankAccountName,
@@ -1524,11 +1536,13 @@ async function resolveSnapshotInvoice(invoice: Row & { items?: Row[] }) {
     customerName: text(invoice.customerName),
     customerAddress: text(invoice.customerAddress),
     customerContact: text(invoice.customerContact),
+    customerContactPhone: text(invoice.customerContactPhone),
     customerContactEmail: text(invoice.customerContactEmail),
     sellerName: text(invoice.sellerName),
     sellerCountry: text(invoice.sellerCountry),
     sellerAddress: text(invoice.sellerAddress),
     sellerTelephone: text(invoice.sellerTelephone),
+    sellerContactName: text(invoice.sellerContactName),
     sellerFinanceEmail: text(invoice.sellerFinanceEmail),
   }, false);
 }

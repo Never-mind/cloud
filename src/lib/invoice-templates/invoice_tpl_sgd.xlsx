@@ -1662,7 +1662,7 @@ td
    <tr height="20" class="xl71" style='height:15.00pt;mso-height-source:userset;mso-height-alt:300;'>
     <td class="xl92" height="20" style='height:15.00pt;'></td>
     <td class="xl101" x:str>CONTACT</td>
-    <td class="xl102" x:str>${finance_name}</td>
+    <td class="xl102" x:str>${seller_contact}</td>
     <td class="xl79"></td>
     <td class="xl103" x:str>CUSTOMER CONTACT<font class="font13"><span style='mso-spacerun:yes;'>&nbsp;</span></font></td>
     <td class="xl104" colspan="2" style='border-right:1.0pt solid windowtext;border-bottom:.5pt solid windowtext;' x:str>${linkman}</td>

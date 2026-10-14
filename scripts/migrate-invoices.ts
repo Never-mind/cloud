@@ -38,6 +38,42 @@ async function addColumnIfMissing(tableName: string, columnName: string, ddl: st
   console.log(`已补字段：${tableName}.${columnName}`);
 }
 
+const text = (value: unknown) => (value === null || value === undefined ? "" : String(value).trim());
+
+/**
+ * 存量发票回填票面联系人两列（只补空值，不覆盖已有值）：
+ *   承接单位主联系人姓名 → sellerContactName；客户主联系人电话 → customerContactPhone。
+ * 老票的快照里这两项是错的/空的，补上之后"重生成票面"才不会又把单位名称当联系人。
+ */
+async function backfillInvoicePartyContacts() {
+  const invoices = await queryRowsRaw<{ id: string; undertakingUnitId: string | null; customerId: string | null; sellerContactName: string | null; customerContactPhone: string | null }>(
+    "SELECT id, undertakingUnitId, customerId, sellerContactName, customerContactPhone FROM merge_common_invoices",
+  );
+  const unitContacts = await queryRowsRaw<{ undertakingUnitId: string; name: string }>(
+    "SELECT undertakingUnitId, name FROM merge_common_undertaking_unit_contacts WHERE name IS NOT NULL AND name <> '' ORDER BY isPrimary DESC, createdAt",
+  );
+  const customerContacts = await queryRowsRaw<{ customerId: string; phone: string }>(
+    "SELECT customerId, phone FROM merge_common_customer_contacts WHERE phone IS NOT NULL AND phone <> '' ORDER BY isPrimary DESC, createdAt",
+  );
+  const unitContactName = new Map<string, string>();
+  for (const row of unitContacts) if (!unitContactName.has(row.undertakingUnitId)) unitContactName.set(row.undertakingUnitId, row.name);
+  const customerContactPhone = new Map<string, string>();
+  for (const row of customerContacts) if (!customerContactPhone.has(row.customerId)) customerContactPhone.set(row.customerId, row.phone);
+
+  let updated = 0;
+  for (const invoice of invoices) {
+    const sellerContactName = text(invoice.sellerContactName) || (invoice.undertakingUnitId ? unitContactName.get(invoice.undertakingUnitId) ?? "" : "");
+    const customerPhone = text(invoice.customerContactPhone) || (invoice.customerId ? customerContactPhone.get(invoice.customerId) ?? "" : "");
+    if (sellerContactName === text(invoice.sellerContactName) && customerPhone === text(invoice.customerContactPhone)) continue;
+    await executeRaw(
+      "UPDATE merge_common_invoices SET sellerContactName = :sellerContactName, customerContactPhone = :customerContactPhone WHERE id = :id",
+      { id: invoice.id, sellerContactName: sellerContactName || null, customerContactPhone: customerPhone || null },
+    );
+    updated += 1;
+  }
+  console.log(`票面联系人快照回填：${updated} 张发票`);
+}
+
 async function main() {
   /**
    * 开票记录主表。
@@ -189,6 +225,15 @@ async function main() {
   // 开票时会把票面同时挂到来源单据的开票附件位（华为云对账行的「客户开票附件」），
   // 这里记录挂上去的那条附件 ID，作废时据此摘掉，避免残留一张作废票的附件。
   await addColumnIfMissing("merge_common_invoices", "sourceAttachmentId", "`sourceAttachmentId` VARCHAR(64) NULL COMMENT '挂到来源单据开票附件位上的附件ID'");
+
+  /**
+   * 票面联系人两块修正要用到的快照列：
+   *   - sellerContactName：FROM 区 CONTACT 一格原来错填成银行户名/单位名称，要存承接单位主联系人姓名；
+   *   - customerContactPhone：TO 区原来第一行 CONTACT 和第二行重复用客户联系人，第二行应是客户电话。
+   */
+  await addColumnIfMissing("merge_common_invoices", "sellerContactName", "`sellerContactName` VARCHAR(255) NULL COMMENT '开票主体主联系人姓名（票面 FROM 的 CONTACT）' AFTER `sellerTelephone`");
+  await addColumnIfMissing("merge_common_invoices", "customerContactPhone", "`customerContactPhone` VARCHAR(100) NULL COMMENT '客户联系电话（票面 TO 的 Telephone）' AFTER `customerContact`");
+  await backfillInvoicePartyContacts();
 
   /**
    * 月账单对账单附件表。

@@ -13,7 +13,13 @@ import { trimTrailingEmptyColumns } from "./invoice-html-trim";
 
 /**
  * 金标准：BI 的两份样例输出（output/invoice.html、output/invoice-sgd.html）原样存成基线。
- * 我们唯一允许的差异是票号前缀——BI 模板里写死的 `CI-WZ_` 已参数化，票号由系统按 INV-<账期>-<流水> 分配。
+ * 允许的差异：
+ *   1. 票号前缀 —— BI 模板里写死的 `CI-WZ_` 已参数化，票号由系统按 INV-<账期>-<流水> 分配；
+ *   2. 没有签章图时不输出 `src=''` 的破图占位；
+ *   3. 裁掉右侧全空列；
+ *   4. FROM 的 CONTACT 一格：BI 原版填的是单位名称，按业务口径应为**承接单位联系人**；
+ *      TO 的第二行：BI 原版与 CUSTOMER CONTACT 重复用客户联系人，按业务口径应为**客户电话**。
+ *      这两处是 2026-10-14 修正的，基线文件里已同步替换成正确值。
  * 这两个用例的作用是：以后谁改了模板或渲染逻辑，只要票面版式跑偏就会立刻红。
  */
 const BASELINE_DIR = join(process.cwd(), "src", "lib", "invoice-templates");
@@ -44,6 +50,7 @@ function demoInput(kind: "normal" | "sgd"): InvoiceRenderInput {
     sellerAddress2: "Example address line 2",
     sellerAddress3: "",
     sellerTelephone: "0755-86561930",
+    sellerContactName: "Example Contact Person",
     sellerFinanceEmail: "finance@example.com",
     bankAccountName: "Example Company Ltd.",
     bankName: "Example Bank",
@@ -54,8 +61,8 @@ function demoInput(kind: "normal" | "sgd"): InvoiceRenderInput {
     customerName: "Example Customer Ltd.",
     customerAddress: "Customer address line 1",
     customerContact: "Example Contact",
-    customerContactLabel: "Contact",
-    customerContactValue: "Example Contact",
+    customerContactLabel: "Telephone",
+    customerContactValue: "021-12345678",
     customerContactLabel2: "Email",
     customerContactValue2: "customer@example.com",
     comment: "示例数据，仅用于模板演示。",
@@ -80,6 +87,27 @@ describe("invoice renderer", () => {
     expect(renderInvoice(demoInput("normal"))).toBe(biBaseline("bi-baseline.html"));
   });
 
+  it("FROM 的 CONTACT 显示联系人，TO 是 客户联系人 / 客户电话 / 客户邮箱 三项", () => {
+    const html = renderInvoice({
+      ...demoInput("normal"),
+      sellerContactName: "Kelly Chan",
+      customerContact: "Juan Perez",
+      customerContactLabel: "Telephone",
+      customerContactValue: "+52 55 1234 5678",
+      customerContactValue2: "juan.perez@das.mx",
+    });
+    const contactRow = html.split("</tr>").find((row) => />CONTACT</.test(row)) ?? "";
+    expect(contactRow).toContain("Kelly Chan");
+    // 以前这里错填成单位名称
+    expect(contactRow).not.toContain("Example Company Ltd.");
+    const phoneRow = html.split("</tr>").find((row) => />TELEPHONE</.test(row)) ?? "";
+    expect(phoneRow).toContain("Telephone");
+    expect(phoneRow).toContain("+52 55 1234 5678");
+    // 以前这一格又写了一遍客户联系人姓名，和 CUSTOMER CONTACT 重复
+    expect(phoneRow).not.toContain("Juan Perez");
+    expect(html).toContain("juan.perez@das.mx");
+  });
+
   it("没有签章图时不输出 img 标签（避免票面上出现破图占位）", () => {
     const withoutSeal = renderInvoice(demoInput("normal"));
     expect(withoutSeal).not.toContain("${auth_img}");
@@ -93,20 +121,34 @@ describe("invoice renderer", () => {
     expect(renderInvoice(demoInput("sgd"), { template: "sgd" })).toBe(biBaseline("bi-baseline-sgd.html"));
   });
 
-  it("过长的单位名称与地址会按格子宽度折行，避免顶出边框", () => {
+  it("英文名 / 地址 / 银行信息只要没真超宽就不折行（按显示宽度，不按字数）", () => {
     const html = renderInvoice({
       ...demoInput("normal"),
-      sellerName: "LUZ NEWMEDIA, S.A. DE C.V. AND SUBSIDIARIES HOLDING LIMITED",
-      customerName: "ATENTO MEXICO HOLDCO SOCIEDAD ANONIMA DE CAPITAL VARIABLE",
-      customerAddress: "AV. MONTERREY 100 Colonia ROMA, Alcaldia CUAUHTEMOC Ciudad de Mexico, C.P. 06700",
-      bankAccountName: "LUZ NEWMEDIA, S.A. DE C.V. AND SUBSIDIARIES HOLDING LIMITED",
+      // 香港万众这一组是实际踩过的：英文字符数比中文字数上限大，但显示宽度远不到一行的宽度
+      sellerName: "HK WANZHONG TECHNOLOGY LIMITED",
+      bankAccountName: "HK WANZHONG TECHNOLOGY LIMITED",
+      bankName: "DBS BANK (HONG KONG) LIMITED",
+      bankAddress: "FLOOR 11, THE CENTER, 99 QUEENS ROAD",
     });
-    // 超过上限的长串必须被 <br> 拆开（不校验具体断点，只保证"断开且留了换行"）
-    expect(html).not.toContain("LUZ NEWMEDIA, S.A. DE C.V. AND SUBSIDIARIES HOLDING LIMITED");
-    expect(html).not.toContain("ATENTO MEXICO HOLDCO SOCIEDAD ANONIMA");
-    expect(html).toContain("<br>SUBSIDIARIES HOLDING LIMITED");
-    expect(html).toContain("<br>CAPITAL VARIABLE");
+    expect(html).toContain("HK WANZHONG TECHNOLOGY LIMITED");
+    expect(html).toContain("DBS BANK (HONG KONG) LIMITED");
+    expect(html).toContain("FLOOR 11, THE CENTER, 99 QUEENS ROAD");
+  });
+
+  it("真的超过格子宽度才折行", () => {
+    const sellerName = "LUZ NEWMEDIA, S.A. DE C.V. AND SUBSIDIARIES HOLDING LIMITED COMPANY OF MEXICO";
+    const customerAddress = "AV. MONTERREY 100 Colonia ROMA, Alcaldia CUAUHTEMOC Ciudad de Mexico, C.P. 06700 CALLE LARGA";
+    const html = renderInvoice({ ...demoInput("normal"), sellerName, customerAddress });
+    expect(html).not.toContain(sellerName);
+    expect(html).not.toContain(customerAddress);
     expect(html).toContain("<br>");
+  });
+
+  it("中文的折行位置和以前一致（34 个中文字放得下、35 个就要断）", () => {
+    const fits = "甲".repeat(34);
+    const overflow = "甲".repeat(35);
+    expect(renderInvoice({ ...demoInput("normal"), customerAddress: fits })).toContain(fits);
+    expect(renderInvoice({ ...demoInput("normal"), customerAddress: overflow })).not.toContain(overflow);
   });
 
   it("模板已经参数化：票号前缀与 BI 电话不再写死在模板里", () => {

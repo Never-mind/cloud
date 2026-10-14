@@ -42,6 +42,8 @@ export type InvoiceRenderInput = {
   sellerAddress3?: string;
   sellerTelephone?: string;
   sellerFinanceEmail?: string;
+  /** 开票主体主联系人姓名：票面 FROM 区的 CONTACT 一格 */
+  sellerContactName?: string;
   bankAccountName?: string;
   bankName?: string;
   bankAddress?: string;
@@ -134,13 +136,53 @@ function mbStrRpos(value: unknown, search: string) {
   return -1;
 }
 
-/** 备注按字数折行，优先在空格处断；中文没有空格时按字数硬断。 */
+/**
+ * 票面折行按**显示宽度**算，不能按字数：
+ * 模板每个格子能放的中文字数是固定的，而一个中文字差不多顶两个英文字母宽，
+ * 原来按"字数"折行会让英文名、地址、银行信息这些本来放得下的内容提前换行。
+ * 下面所有上限都换算成半角单位（中文/全角 = 2，其余 = 1），即"原来 N 个中文字"→ 2N。
+ */
+function charWidth(char: string) {
+  const code = char.codePointAt(0) ?? 0;
+  const fullWidth = code > 0x1100 && (
+    code <= 0x115f
+    || code === 0x2329 || code === 0x232a
+    || (code >= 0x2e80 && code <= 0xa4cf && code !== 0x303f)
+    || (code >= 0xac00 && code <= 0xd7a3)
+    || (code >= 0xf900 && code <= 0xfaff)
+    || (code >= 0xfe30 && code <= 0xfe6f)
+    || (code >= 0xff00 && code <= 0xff60)
+    || (code >= 0xffe0 && code <= 0xffe6)
+  );
+  return fullWidth ? 2 : 1;
+}
+
+function cellWidth(value: unknown) {
+  return toChars(value).reduce((sum, char) => sum + charWidth(char), 0);
+}
+
+/** 按显示宽度取前一段文字（保证至少能取到一个字符，避免死循环）。 */
+function cutByWidth(value: string, maxWidth: number) {
+  const picked: string[] = [];
+  let width = 0;
+  for (const char of toChars(value)) {
+    const next = width + charWidth(char);
+    if (next > maxWidth && picked.length) break;
+    width = next;
+    picked.push(char);
+  }
+  return picked.join("");
+}
+
+/** 备注按显示宽度折行，优先在空格处断；中文没有空格时按宽度硬断。 */
 function wrapCommentLine(line: string, maxLength: number) {
   const wrapped: string[] = [];
   let rest = line;
-  while (mbLength(rest) > maxLength) {
-    const breakFound = mbStrRpos(mbSubstr(rest, 0, maxLength), " ");
-    const breakPosition = breakFound === -1 ? maxLength : breakFound;
+  while (cellWidth(rest) > maxLength) {
+    const chunk = cutByWidth(rest, maxLength);
+    const chunkLength = toChars(chunk).length;
+    const breakFound = mbStrRpos(chunk, " ");
+    const breakPosition = Math.max(1, breakFound <= 0 ? chunkLength : breakFound);
     wrapped.push(mbSubstr(rest, 0, breakPosition).replace(/\s+$/, ""));
     rest = mbSubstr(rest, breakPosition).replace(/^\s+/, "");
   }
@@ -159,37 +201,38 @@ function formatInvoiceComment(comment: unknown, maxLength: number) {
 
 /**
  * 票面单元格很窄（模板是 Excel 版式，格子宽度固定），长名称/地址会顶出边框。
- * 这里按字数在空格处折行——模板单元格本身就用 `<br>` 换行，效果与 BI 手工回车一致。
- * 各字段的字数上限见 CELL_WRAP_LIMITS，取值偏保守：宁可早换行，也不要压框线。
+ * 这里按**显示宽度**在空格处折行——模板单元格本身就用 `<br>` 换行，效果与 BI 手工回车一致。
+ * 上限单位是半角（中文算 2），数值 = 原来按中文字数估的格子宽度 × 2，
+ * 所以中文的换行位置和以前完全一致，英文名 / 地址 / 银行信息只要不真超宽就不会被拆开。
  */
 const CELL_WRAP_LIMITS: Record<string, number> = {
-  // 票面是 Excel 版式、格子宽度固定：下面这些值是按各格宽估算的保守上限，
-  // 宁可早换一行，也不要让文字压到框线上。
-  company_body: 34,
-  invoice_name: 26,
-  address: 34,
-  company_body_address_01: 30,
-  company_body_address_02: 30,
-  company_body_address_03: 30,
-  bank_name: 26,
-  finance_name: 24,
-  bank_address: 28,
-  account_number: 22,
-  swift_code: 22,
-  bank_number: 16,
-  linkman: 22,
+  // 票面是 Excel 版式、格子宽度固定：按各格宽估算的半角单位上限
+  company_body: 68,
+  invoice_name: 52,
+  address: 68,
+  company_body_address_01: 60,
+  company_body_address_02: 60,
+  company_body_address_03: 60,
+  bank_name: 52,
+  seller_contact: 44,
+  bank_address: 56,
+  account_number: 44,
+  swift_code: 44,
+  bank_number: 32,
+  linkman: 44,
 };
 
-function wrapCellText(value: unknown, maxChars: number) {
+function wrapCellText(value: unknown, maxWidth: number) {
   const source = String(value ?? "").trim();
   if (!source) return "";
   const lines: string[] = [];
   for (const rawLine of source.split(/\r\n|\r|\n/)) {
     let rest = rawLine;
-    while (mbLength(rest) > maxChars) {
-      const chunk = mbSubstr(rest, 0, maxChars);
+    while (cellWidth(rest) > maxWidth) {
+      const chunk = cutByWidth(rest, maxWidth);
+      const chunkLength = toChars(chunk).length;
       const at = mbStrRpos(chunk, " ");
-      const position = at === -1 ? maxChars : at;
+      const position = Math.max(1, at <= 0 ? chunkLength : at);
       lines.push(mbSubstr(rest, 0, position).replace(/\s+$/, ""));
       rest = mbSubstr(rest, position).replace(/^\s+/, "");
     }
@@ -200,7 +243,8 @@ function wrapCellText(value: unknown, maxChars: number) {
 
 /** 备注折行后按行数算合并单元格高度（WPS 不会自动扩高，必须给值）。 */
 function prepareInvoiceComment(info: Record<string, unknown>, sgd: boolean) {
-  const maxLength = sgd ? 22 : 30;
+  // 半角单位：原来 22 / 30 个中文字的位置不变
+  const maxLength = sgd ? 44 : 60;
   const { html, lineCount } = formatInvoiceComment(info.comment, maxLength);
   const firstRowHeight = sgd ? 17 : 12.75;
   const otherRowsHeight = sgd ? 34 : 25.5;
@@ -333,9 +377,10 @@ export function renderInvoice(input: InvoiceRenderInput, options: { template?: I
     bank_address: input.bankAddress ?? "",
     swift_code: input.bankSwiftCode ?? "",
     bank_number: input.bankCode ?? "",
-    finance_name: input.bankAccountName ?? input.sellerName,
+    // FROM 区的 CONTACT 一格显示联系人姓名（以前错填成银行户名/单位名称）
+    seller_contact: input.sellerContactName ?? "",
     account_number: input.bankAccount,
-    customer_contact_name_1: input.customerContactLabel ?? "Contact",
+    customer_contact_name_1: input.customerContactLabel ?? "Telephone",
     customer_contact_value_1: input.customerContactValue ?? "",
     customer_contact_name_2: input.customerContactLabel2 ?? "E-mail",
     customer_contact_value_2: input.customerContactValue2 ?? "",
