@@ -70,7 +70,7 @@ export function InvoiceRecognizeModal({ open, projectId, onClose, onSaved }: {
   return (
     <Modal
       title="上传发票识别"
-      description="支持中国增值税电子发票 PDF、墨西哥 CFDI 的 XML / PDF；核对识别结果后点确认，直接写进下方发票明细"
+      description="支持中国增值税电子发票（PDF / OFD / 数电票 XML）与墨西哥 CFDI（XML / PDF）；核对识别结果后点确认，直接写进下方发票明细"
       widthClass="max-w-4xl"
       onClose={close}
       footer={<>
@@ -82,13 +82,13 @@ export function InvoiceRecognizeModal({ open, projectId, onClose, onSaved }: {
         <div className="rounded border border-dashed border-line bg-surface-2 p-4 text-center">
           <input
             ref={inputRef}
-            accept=".pdf,.xml,application/pdf,text/xml,application/xml"
+            accept=".pdf,.ofd,.xml,application/pdf,text/xml,application/xml"
             className="hidden"
             type="file"
             onChange={(event) => { const picked = event.target.files?.[0]; event.target.value = ""; if (picked) void recognize(picked); }}
           />
           <ScanLine className="mx-auto mb-2 text-primary" size={22} />
-          <p className="text-sm text-ink-2">选择要识别的发票文件（PDF / XML）</p>
+          <p className="text-sm text-ink-2">选择要识别的发票文件（PDF / OFD / XML）</p>
           <p className="mt-1 text-xs text-ink-3">照片、扫描件没有文字层，本期识别不了</p>
           <Button className="mt-3" disabled={busy} onClick={() => inputRef.current?.click()}><FileUp size={15} />{file ? "重新选择" : "选择文件"}</Button>
           {file ? <p className="mt-2 text-xs text-ink-3">已选：{file.name}</p> : null}

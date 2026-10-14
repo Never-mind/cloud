@@ -3,6 +3,9 @@ import { extractPdfPages } from "./pdf-text-extract";
 import { parseChinaVatInvoice, cleanupInvoiceName } from "./china-vat-invoice-parser";
 import { parseCfdiInvoiceText } from "./cfdi-pdf-parser";
 import { parseCfdiInvoice } from "./cfdi-invoice-parser";
+import { extractOfdPages } from "./ofd-text-extract";
+import { parseChinaEinvoiceXml } from "./china-einvoice-xml-parser";
+import type { ChinaVatInvoice } from "./china-vat-invoice-parser";
 
 /**
  * 上传发票 → 自动识别 → 填进项目结算「发票管理」的新增发票表单。
@@ -141,9 +144,12 @@ export async function recognizeInvoiceFile(params: {
   const fileName = text(params.fileName);
   const head = params.bytes.subarray(0, 5).toString("utf8");
   const isPdf = head.startsWith("%PDF");
-  const rawText = params.bytes.toString("utf8");
-  const isXml = !isPdf && /^\s*<(\?xml|cfdi:|[a-zA-Z0-9]*:?Comprobante)/.test(rawText);
-  if (!isPdf && !isXml) throw new Error("只支持 PDF 或 XML 发票（照片、扫描件请等 OCR 版本）");
+  // OFD 本质是 zip（PK 开头）；个别环境只给扩展名，所以两个条件都认
+  const isZip = params.bytes[0] === 0x50 && params.bytes[1] === 0x4b;
+  const isOfd = !isPdf && (isZip || fileName.toLowerCase().endsWith(".ofd"));
+  const rawText = isPdf || isOfd ? "" : params.bytes.toString("utf8");
+  const isXml = !isPdf && !isOfd && /^\s*</.test(rawText);
+  if (!isPdf && !isOfd && !isXml) throw new Error("只支持 PDF / OFD / XML 发票（照片、扫描件请等 OCR 版本）");
 
   const entities = await loadEntities();
   const warnings: string[] = [];
@@ -157,7 +163,33 @@ export async function recognizeInvoiceFile(params: {
     amountExcludingTax: number | null; taxAmount: number | null; totalIncludingTax: number | null; taxRate: number | null;
   };
 
-  if (isXml) {
+  /** 中国票（PDF 文字层 / OFD 版式文件 / 数电票 XML）走同一套字段映射。 */
+  const fromChinaInvoice = (vat: ChinaVatInvoice) => ({
+    fullNumber: vat.invoiceNo, uuid: "", invoiceDate: vat.invoiceDate,
+    issuerName: vat.sellerName, issuerTaxNumber: vat.sellerTaxNumber,
+    receiverName: vat.buyerName, receiverTaxNumber: vat.buyerTaxNumber,
+    currency: vat.currency, exchangeRate: "",
+    amountExcludingTax: vat.amountExcludingTax, taxAmount: vat.taxAmount,
+    totalIncludingTax: vat.totalIncludingTax, taxRate: vat.taxRate,
+  });
+
+  if (isOfd) {
+    const content = extractOfdPages(params.bytes).join("\n");
+    if (!content.trim()) throw new Error("这个 OFD 里没有文字层（可能是扫描件转的），本期识别不了");
+    const vat = parseChinaVatInvoice(content);
+    source = "中国增值税电子发票 OFD";
+    kind = vat.kind || "增值税电子发票";
+    exact = true;
+    parsed = fromChinaInvoice(vat);
+    if (vat.taxExempt) warnings.push("这张是免税发票，税额按 0 填入");
+  } else if (isXml && !/cfdi:|Comprobante/i.test(rawText)) {
+    const vat = parseChinaEinvoiceXml(rawText);
+    source = "中国数电票 XML";
+    kind = vat.kind;
+    exact = true;
+    parsed = fromChinaInvoice(vat);
+    if (vat.taxExempt) warnings.push("这张是免税发票，税额按 0 填入");
+  } else if (isXml) {
     const xml = parseCfdiInvoice(rawText);
     source = "墨西哥 CFDI XML";
     kind = `CFDI ${xml.version}`;
@@ -176,8 +208,7 @@ export async function recognizeInvoiceFile(params: {
       taxRate: xml.taxRate,
     };
   } else {
-    const pages = await extractPdfPages(params.bytes);
-    const content = pages.join("\n");
+    const content = (await extractPdfPages(params.bytes)).join("\n");
     if (!content.trim()) throw new Error("这个 PDF 没有文字层（可能是扫描件），本期识别不了");
     const isCfdi = /CFDI|FACTURA|Comprobante|Folio Fiscal/.test(content) && !/发票号码/.test(content);
     if (isCfdi) {
@@ -199,14 +230,7 @@ export async function recognizeInvoiceFile(params: {
       source = "中国增值税电子发票";
       kind = vat.kind || "增值税电子发票";
       exact = true;
-      parsed = {
-        fullNumber: vat.invoiceNo, uuid: "", invoiceDate: vat.invoiceDate,
-        issuerName: vat.sellerName, issuerTaxNumber: vat.sellerTaxNumber,
-        receiverName: vat.buyerName, receiverTaxNumber: vat.buyerTaxNumber,
-        currency: vat.currency, exchangeRate: "",
-        amountExcludingTax: vat.amountExcludingTax, taxAmount: vat.taxAmount,
-        totalIncludingTax: vat.totalIncludingTax, taxRate: vat.taxRate,
-      };
+      parsed = fromChinaInvoice(vat);
       if (vat.taxExempt) warnings.push("这张是免税发票，税额按 0 填入");
     }
   }
