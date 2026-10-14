@@ -160,6 +160,8 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
           // 必须带上本地主键，保存时才知道该更新哪一行（丢了就会重复建明细）。
           id: item.id ? String(item.id) : undefined,
           deviceCode: String(item.deviceCode ?? ""),
+          // 明细批次必须一起带出来：漏了会让编辑页显示成空，一保存就被主单默认批次全覆盖
+          batchName: String(item.batchName ?? ""),
           supplierId: String(item.supplierId ?? ""),
           undertakingUnitId: String(item.undertakingUnitId ?? ""),
           customerId: String(item.customerId ?? ""),

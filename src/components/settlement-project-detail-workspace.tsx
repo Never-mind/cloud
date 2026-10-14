@@ -1,7 +1,7 @@
 "use client";
 
 import { ChangeEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, Check, Download, FilePlus2, FileUp, Paperclip, Pencil, Save, Trash2 } from "lucide-react";
+import { ArrowLeft, Check, Download, FilePlus2, FileUp, Paperclip, Pencil, ReceiptText, Save, Trash2 } from "lucide-react";
 import { useParams } from "next/navigation";
 import { postWorkspaceMessage } from "@/lib/tab-workspace";
 import { formatDisplayValue, formatMoneyValue } from "@/lib/display-format";
@@ -11,6 +11,7 @@ import { AuditInfoBar, Button, Input, Panel, Select } from "./ui";
 import { NumberInput } from "./number-input";
 import { SearchSelect } from "./search-select";
 import { confirmDialog } from "./app-dialog";
+import { InvoiceDraftModal, type InvoiceDraftMode } from "./invoice-draft-modal";
 import { LoadingBlock } from "./table-state";
 import { PaginationBar } from "./pagination-bar";
 import { StickyTable } from "./sticky-table";
@@ -129,6 +130,8 @@ export function SettlementProjectDetailWorkspace() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  /** 集采开票弹层：来源是项目下的收入发票行（没有就先按预计收入补一条未开票收入行）。 */
+  const [issueModal, setIssueModal] = useState<{ mode: InvoiceDraftMode; sourceId: string } | null>(null);
 
   function applyDetail(next: Detail) {
     setDetail(next);
@@ -150,6 +153,27 @@ export function SettlementProjectDetailWorkspace() {
       applyDetail(data as Detail);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "项目结算加载失败");
+    }
+  }
+
+  /**
+   * 集采开票入口：先保证项目下有一行可开票的收入发票（没有就按预计收入补一条未开票行），
+   * 再交给统一的开票弹层（本地开票 / 飞书审批开票），和华为云、算力走同一条链路。
+   */
+  async function openIssueInvoice(mode: InvoiceDraftMode) {
+    setBusy(true); setError("");
+    try {
+      const response = await fetch(`/api/po/settlement-projects/${encodeURIComponent(projectId)}/invoices/issue-draft`, { method: "POST" });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error ?? "开票准备失败");
+      const invoiceId = String(data.invoiceId ?? "");
+      if (!invoiceId) throw new Error("开票准备失败");
+      if (data.created) await load();
+      setIssueModal({ mode, sourceId: invoiceId });
+    } catch (issueError) {
+      setError(issueError instanceof Error ? issueError.message : "开票准备失败");
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -204,6 +228,8 @@ export function SettlementProjectDetailWorkspace() {
   const salesPage = pageInfo(visible.sales, pages.sales, pageSizes.sales, detail.sales as unknown as TableRow[]);
   const invoicesPage = pageInfo(visible.invoices, pages.invoices, pageSizes.invoices, detail.invoices as unknown as TableRow[]);
   const attachmentsPage = pageInfo(visible.attachments, pages.attachments, pageSizes.attachments, detail.attachments.filter((item) => !item.invoiceId) as unknown as TableRow[]);
+  /** 已开票金额（未税 USD）：项目下已开票的收入发票合计，用来算未开票余额。 */
+  const issuedIncomeUsd = moneyNumber(detail.invoices.filter((invoice) => invoice.type === "income" && invoice.isInvoiced).reduce((sum, invoice) => sum + (Number(invoice.usdAmount) || 0), 0));
 
   async function orderItems() {
     if (!selected.length) { setError("请先选择要确认采购的明细"); return; }
@@ -278,14 +304,22 @@ export function SettlementProjectDetailWorkspace() {
       <Panel>
         <div className="border-b border-line-soft p-4"><h2 className="font-medium text-ink">项目结算主单</h2></div>
         <SettlementStatusTimeline project={project} />
-        <div className="grid gap-3 p-4 md:grid-cols-3 xl:grid-cols-6">{[["采购成本（未税 USD）", money(project.quotedPurchaseCostUsd)], ["已采购成本（未税 USD）", money(project.purchasedCostUsd)], ["销售收入（未税 USD）", money(project.quotedSalesRevenueUsd)], ["已销售收入（含税 USD）", money(project.receivedRevenueTaxIncludedUsd)], ["已销售收入（未税 USD）", money(project.receivedRevenueUsd)], ["项目毛利（未税 USD）", money(project.grossProfitUsd)]].map(([label, value]) => <div className="border border-line-soft bg-surface-2 p-3" key={label}><span className="block text-xs text-ink-3">{label}</span><strong className="mt-1 block text-base text-ink">{value}</strong></div>)}</div>
+        <div className="grid gap-3 p-4 md:grid-cols-3 xl:grid-cols-4">{[["采购成本（未税 USD）", money(project.quotedPurchaseCostUsd)], ["已采购成本（未税 USD）", money(project.purchasedCostUsd)], ["销售收入（未税 USD）", money(project.quotedSalesRevenueUsd)], ["已开票金额（未税 USD）", money(issuedIncomeUsd)], ["未开票余额（未税 USD）", money(Math.max(project.quotedSalesRevenueUsd - issuedIncomeUsd, 0))], ["已销售收入（含税 USD）", money(project.receivedRevenueTaxIncludedUsd)], ["已销售收入（未税 USD）", money(project.receivedRevenueUsd)], ["项目毛利（未税 USD）", money(project.grossProfitUsd)]].map(([label, value]) => <div className="border border-line-soft bg-surface-2 p-3" key={label}><span className="block text-xs text-ink-3">{label}</span><strong className="mt-1 block text-base text-ink">{value}</strong></div>)}</div>
         <div className="grid gap-3 border-t border-line-soft p-4 text-sm md:grid-cols-3"><Info label="报价单号" value={project.quotationNo} link={() => openRoute(`/quotation/list?keyword=${encodeURIComponent(project.quotationNo)}`, "报价列表")} /><Info label="客户" value={project.customerName || "-"} /><Info label="承接单位" value={project.contractingUnitName || "-"} /><Info label="项目名称" value={project.projectName || "-"} /><Info label="备注" value={project.remark || "-"} /></div>
       </Panel>
       <div className="flex border-b border-line"><TabButton active={tab === "detail"} onClick={() => setTab("detail")}>结算详情</TabButton><TabButton active={tab === "invoices"} onClick={() => setTab("invoices")}>发票管理（{detail.invoices.length}）</TabButton><TabButton active={tab === "attachments"} onClick={() => setTab("attachments")}>附件管理（{detail.attachments.filter((item) => !item.invoiceId).length}）</TabButton></div>
       {tab === "detail" ? <fieldset className="min-w-0"><DetailSections detail={detail} itemDrafts={itemDrafts} editingItemRows={editingItemRows} selected={selected} busy={busy} importingItems={importingItems} expenseDraft={expenseDraft} saleDraft={saleDraft} editingExpense={editingExpense} editingSale={editingSale} unpurchased={unpurchasedPage} purchased={purchasedPage} expenses={expensesPage} sales={salesPage} pageSizes={pageSizes} states={tableStates} onState={updateTableState} onPage={(key, page) => setPages((current) => ({ ...current, [key]: page }))} onPageSize={(key, pageSize) => { setPageSizes((current) => ({ ...current, [key]: pageSize })); setPages((current) => ({ ...current, [key]: 1 })); }} onSelect={setSelected} onItemChange={(itemId, key, value) => setItemDrafts((current) => ({ ...current, [itemId]: { ...current[itemId], [key]: value } }))} onEditItem={(itemId) => { const item = detail.purchasedItems.find((candidate) => candidate.id === itemId); if (!item) return; setItemDrafts((current) => ({ ...current, [itemId]: draftItem(item) })); setEditingItemRows((current) => ({ ...current, [itemId]: true })); }} onOrder={() => void orderItems()} onImportItems={(file) => void importUnpurchasedItems(file)} onSaveItem={(itemId) => void write(`/api/po/settlement-projects/${encodeURIComponent(projectId)}/items/${encodeURIComponent(itemId)}`, "PUT", { ...itemDrafts[itemId], purchaseQty: Number(itemDrafts[itemId]?.purchaseQty || 0), purchaseUnitPrice: Number(itemDrafts[itemId]?.purchaseUnitPrice || 0), taxRate: Number(itemDrafts[itemId]?.taxRate || 0) })} onReturn={(itemId) => void write(`/api/po/settlement-projects/${encodeURIComponent(projectId)}/items/${encodeURIComponent(itemId)}`, "DELETE")} onExpenseChange={(id, key, value) => setEditingExpense((current) => ({ ...current, [id]: { ...current[id], [key]: value } }))} onEditExpense={(entry) => setEditingExpense((current) => ({ ...current, [entry.id]: draftExpense(entry) }))} onSaleChange={(id, key, value) => setEditingSale((current) => ({ ...current, [id]: { ...current[id], [key]: value } }))} onEditSale={(entry) => setEditingSale((current) => ({ ...current, [entry.id]: draftSale(entry) }))} onSaveExpense={(id) => void write(`/api/po/settlement-projects/${encodeURIComponent(projectId)}/expenses/${encodeURIComponent(id)}`, "PUT", toExpense(editingExpense[id]))} onDeleteExpense={(id) => void write(`/api/po/settlement-projects/${encodeURIComponent(projectId)}/expenses/${encodeURIComponent(id)}`, "DELETE")} onSaveSale={(id) => void write(`/api/po/settlement-projects/${encodeURIComponent(projectId)}/sales/${encodeURIComponent(id)}`, "PUT", toSale(editingSale[id]))} onDeleteSale={(id) => void write(`/api/po/settlement-projects/${encodeURIComponent(projectId)}/sales/${encodeURIComponent(id)}`, "DELETE")} onExpenseDraftChange={(key, value) => setExpenseDraft((current) => ({ ...current, [key]: value }))} onSaleDraftChange={(key, value) => setSaleDraft((current) => ({ ...current, [key]: value }))} onAddExpense={() => void addExpense()} onAddSale={() => void addSale()} /></fieldset> : null}
-      {tab === "invoices" ? <div className="space-y-5"><fieldset className="min-w-0"><InvoiceSection invoices={invoicesPage} allInvoices={detail.invoices} pageSize={pageSizes.invoices} draft={invoiceDraft} editing={editingInvoice} partners={invoicePartners} busy={busy} readOnly={readOnly} attachmentDescriptions={invoiceAttachmentDescriptions} onAttachmentDescriptionChange={(invoiceId, value) => setInvoiceAttachmentDescriptions((current) => ({ ...current, [invoiceId]: value }))} onUpload={uploadInvoiceAttachment} onDeleteAttachment={(attachmentId) => void write(`/api/po/settlement-projects/${encodeURIComponent(projectId)}/attachments/${encodeURIComponent(attachmentId)}`, "DELETE")} state={tableStates.invoices} onState={(patch) => updateTableState("invoices", patch)} onPage={(page) => setPages((current) => ({ ...current, invoices: page }))} onPageSize={(pageSize) => { setPageSizes((current) => ({ ...current, invoices: pageSize })); setPages((current) => ({ ...current, invoices: 1 })); }} onDraftChange={(key, value) => setInvoiceDraft((current) => ({ ...current, [key]: value }))} onEditingChange={(id, key, value, patch) => setEditingInvoice((current) => ({ ...current, [id]: { ...current[id], [key]: value, ...patch } }))} onEdit={(invoice) => setEditingInvoice((current) => ({ ...current, [invoice.id]: draftInvoice(invoice) }))} onToggle={(id, field, checked) => void toggleInvoiceStatus(id, field, checked)} onAdd={() => void addInvoice()} onSave={(id) => void write(`/api/po/settlement-projects/${encodeURIComponent(projectId)}/invoices/${encodeURIComponent(id)}`, "PUT", toInvoice(editingInvoice[id]))} onDelete={(id) => void write(`/api/po/settlement-projects/${encodeURIComponent(projectId)}/invoices/${encodeURIComponent(id)}`, "DELETE")} /></fieldset></div> : null}
+      {tab === "invoices" ? <div className="space-y-5"><fieldset className="min-w-0"><InvoiceSection invoices={invoicesPage} allInvoices={detail.invoices} pageSize={pageSizes.invoices} draft={invoiceDraft} editing={editingInvoice} partners={invoicePartners} busy={busy} readOnly={readOnly} attachmentDescriptions={invoiceAttachmentDescriptions} onAttachmentDescriptionChange={(invoiceId, value) => setInvoiceAttachmentDescriptions((current) => ({ ...current, [invoiceId]: value }))} onUpload={uploadInvoiceAttachment} onDeleteAttachment={(attachmentId) => void write(`/api/po/settlement-projects/${encodeURIComponent(projectId)}/attachments/${encodeURIComponent(attachmentId)}`, "DELETE")} state={tableStates.invoices} onState={(patch) => updateTableState("invoices", patch)} onPage={(page) => setPages((current) => ({ ...current, invoices: page }))} onPageSize={(pageSize) => { setPageSizes((current) => ({ ...current, invoices: pageSize })); setPages((current) => ({ ...current, invoices: 1 })); }} onDraftChange={(key, value) => setInvoiceDraft((current) => ({ ...current, [key]: value }))} onEditingChange={(id, key, value, patch) => setEditingInvoice((current) => ({ ...current, [id]: { ...current[id], [key]: value, ...patch } }))} onEdit={(invoice) => setEditingInvoice((current) => ({ ...current, [invoice.id]: draftInvoice(invoice) }))} onToggle={(id, field, checked) => void toggleInvoiceStatus(id, field, checked)} onAdd={() => void addInvoice()} onIssue={(mode) => void openIssueInvoice(mode)} onSave={(id) => void write(`/api/po/settlement-projects/${encodeURIComponent(projectId)}/invoices/${encodeURIComponent(id)}`, "PUT", toInvoice(editingInvoice[id]))} onDelete={(id) => void write(`/api/po/settlement-projects/${encodeURIComponent(projectId)}/invoices/${encodeURIComponent(id)}`, "DELETE")} /></fieldset></div> : null}
        {tab === "attachments" ? <AttachmentSection readOnly={false} attachments={attachmentsPage} state={tableStates.attachments} onState={(patch) => updateTableState("attachments", patch)} onPage={(page) => setPages((current) => ({ ...current, attachments: page }))} onPageSize={(pageSize) => { setPageSizes((current) => ({ ...current, attachments: pageSize })); setPages((current) => ({ ...current, attachments: 1 })); }} description={attachmentDescription} onDescriptionChange={setAttachmentDescription} onUpload={uploadAttachment} onDelete={(attachmentId) => void write(`/api/po/settlement-projects/${encodeURIComponent(projectId)}/attachments/${encodeURIComponent(attachmentId)}`, "DELETE")} /> : null}
        <AuditInfoBar createdBy={project.createdByName} createdAt={project.createdAt} updatedBy={project.updatedByName} updatedAt={project.updatedAt} confirmedBy={project.confirmedByName} confirmedAt={project.confirmedAt} />
+        <InvoiceDraftModal
+          mode={issueModal?.mode ?? "generated"}
+          onClose={() => setIssueModal(null)}
+          onSaved={() => { void load(); }}
+          open={Boolean(issueModal)}
+          sourceId={issueModal?.sourceId ?? ""}
+          sourceType="settlement_invoice"
+        />
      </div>
   );
 }
@@ -386,16 +420,17 @@ type InvoiceSectionProps = {
   onEdit: (invoice: Invoice) => void;
   onToggle: (id: string, field: "isPaid" | "isInvoiced", checked: boolean) => void;
   onAdd: () => void;
+  onIssue: (mode: InvoiceDraftMode) => void;
   onSave: (id: string) => void;
   onDelete: (id: string) => void;
 };
 
-function InvoiceSection({ invoices, allInvoices, draft, editing, partners, busy, readOnly, attachmentDescriptions, onAttachmentDescriptionChange, onUpload, onDeleteAttachment, state, onState, onPage, onPageSize, onDraftChange, onEditingChange, onEdit, onToggle, onAdd, onSave, onDelete }: InvoiceSectionProps) {
+function InvoiceSection({ invoices, allInvoices, draft, editing, partners, busy, readOnly, attachmentDescriptions, onAttachmentDescriptionChange, onUpload, onDeleteAttachment, state, onState, onPage, onPageSize, onDraftChange, onEditingChange, onEdit, onToggle, onAdd, onIssue, onSave, onDelete }: InvoiceSectionProps) {
   const rows = invoices.rows as unknown as Invoice[];
   const renderColumnHeader = (column: Column) => <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium" key={column.key}><ColumnHeader tableKey="invoices" column={column} rows={allInvoices as unknown as TableRow[]} state={state} onState={onState} /></th>;
 
   return <Panel>
-    <SectionTitle title="发票管理" action={<Button disabled={readOnly} tone="primary" onClick={onAdd}><FilePlus2 size={15} />新增发票</Button>} />
+    <SectionTitle title="发票管理" action={<div className="flex items-center gap-2"><Button disabled={readOnly} onClick={onAdd}><FilePlus2 size={15} />新增发票</Button><Button disabled={readOnly || busy} tone="primary" onClick={() => onIssue("generated")} title="按项目预计收入开票（本地开票 / 飞书审批开票）"><ReceiptText size={15} />开具发票</Button><Button disabled={readOnly || busy} onClick={() => onIssue("external")} title="外部已开好票：上传文件并登记"><FileUp size={15} />上传外部发票</Button></div>} />
     <InvoiceFormFields draft={draft} partners={partners} onChange={onDraftChange} />
     <TableScroll tableKey="settlement-invoices">
       <table className="min-w-[2500px] border-collapse text-sm">
@@ -592,7 +627,8 @@ function Field({ label, required, children }: { label: string; required?: boolea
 function PriceType({ value, onChange }: { value: string; onChange: (value: string) => void }) { return <Select value={value} onChange={(event) => onChange(event.target.value)}><option value="tax_excluded">未税价</option><option value="tax_included">含税价</option></Select>; }
 
 function Toggle({ checked, onChange, label, disabled = false }: { checked: boolean; onChange: (checked: boolean) => void; label: string; disabled?: boolean }) {
-  return <button className="inline-flex h-9 items-center gap-2 rounded border border-line bg-white px-2.5 text-sm text-ink-2 disabled:cursor-not-allowed disabled:opacity-50" disabled={disabled} type="button" role="switch" aria-checked={checked} onClick={() => onChange(!checked)}><span className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${checked ? "bg-success-strong" : "bg-ink-4"}`}><span className={`h-4 w-4 rounded-full bg-white shadow transition-transform ${checked ? "translate-x-4" : "translate-x-0.5"}`} /></span><span>{checked ? `已${label}` : `未${label}`}</span></button>;
+  // 和华为云对账、服务费对账单的开关统一：只有轨道 + 文案，外面不再套一圈输入框样式的边框。
+  return <button className="inline-flex h-6 items-center gap-1.5 text-xs text-ink-2 disabled:cursor-not-allowed disabled:opacity-50" disabled={disabled} type="button" role="switch" aria-checked={checked} onClick={() => onChange(!checked)}><span className={`relative inline-flex h-4 w-7 shrink-0 items-center rounded-full transition-colors ${checked ? "bg-success-strong" : "bg-ink-4"}`}><span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white shadow transition-transform ${checked ? "translate-x-[15px]" : "translate-x-0.5"}`} /></span><span>{checked ? `已${label}` : `未${label}`}</span></button>;
 }
 
 function PurchaseInput({ item, draft, field, onChange }: { item: Item; draft: Record<string, string>; field: string; onChange: (value: string) => void }) {

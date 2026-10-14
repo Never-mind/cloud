@@ -822,6 +822,8 @@ focus:border-[#1890ff] focus:ring-2 focus:ring-[#1890ff]/20
 
 - 纯图标按钮必须带 `aria-label` 或 `title`。
 - 开关类控件使用 `role="switch"` + `aria-checked`。
+- 列表行内的开关（是否开票、是否支付、是否收款等）统一是「轨道 + 文案」的无边框样式
+  （`h-4 w-7` 轨道 + `text-xs` 文案），不要再给开关外套一圈输入框样式的边框，各模块要长得一样。
 - 表单字段的可见标签用 `<label>` 包裹，不要只用 placeholder 代替标签。
 - 尊重 `prefers-reduced-motion`，已在 `globals.css` 统一处理。
 - 颜色不是唯一的信息载体：状态除了颜色，还要有文字。

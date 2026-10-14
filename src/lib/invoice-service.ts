@@ -1156,7 +1156,9 @@ export async function backfillInvoiceSourceFields(params: {
   const invoiceNo = text(params.invoiceNo) || null;
   const currency = text(params.currency) || null;
   const net = text(params.amountExcludingTax) || null;
-  const taxRate = rateToFraction(text(params.taxRate)) || null;
+  /** 开票界面统一按百分数录入，写回按小数存税率的表时再换算。 */
+  const taxRatePercent = text(params.taxRate) || null;
+  const taxRate = rateToFraction(taxRatePercent) || null;
   const taxAmount = text(params.taxAmount) || null;
   const total = text(params.amountIncludingTax) || null;
   const invoiceDate = text(params.invoiceDate) || null;
@@ -1199,12 +1201,31 @@ export async function backfillInvoiceSourceFields(params: {
     return;
   }
   if (sourceType === "settlement_invoice") {
+    // 集采结算发票：税率存百分数、金额直接写回，否则开完票在发票汇总里还是旧金额（老毛病）。
+    const existing = (await queryRowsRaw<Row>(
+      "SELECT type, exchangeRate FROM merge_po_settlement_invoices WHERE id = :sourceId LIMIT 1",
+      { sourceId },
+    ))[0];
+    const exchangeRate = Number(text(existing?.exchangeRate)) || 1;
+    const netNumber = net === null ? null : Number(net);
+    const usdAmount = netNumber === null || !Number.isFinite(netNumber)
+      ? null
+      : ((text(existing?.type) === "cost" ? -1 : 1) * netNumber / exchangeRate).toFixed(2);
     await executeRaw(
       `UPDATE merge_po_settlement_invoices
-          SET invoiceNo = :invoiceNo, invoiceDate = :invoiceDate, isInvoiced = 1, updatedAt = NOW()
+          SET invoiceNo = COALESCE(:invoiceNo, invoiceNo),
+              invoiceDate = COALESCE(:invoiceDate, invoiceDate),
+              currency = COALESCE(:currency, currency),
+              taxRate = COALESCE(:taxRatePercent, taxRate),
+              invoiceTotal = COALESCE(:total, invoiceTotal),
+              invoiceTaxExcludedTotal = COALESCE(:net, invoiceTaxExcludedTotal),
+              invoiceTaxAmount = COALESCE(:taxAmount, invoiceTaxAmount),
+              usdAmount = COALESCE(:usdAmount, usdAmount),
+              isInvoiced = 1, updatedAt = NOW()
         WHERE id = :sourceId`,
-      { invoiceNo, invoiceDate, sourceId },
+      { invoiceNo, invoiceDate, currency, taxRatePercent, total, net, taxAmount, usdAmount, sourceId },
     );
+    return;
   }
 }
 

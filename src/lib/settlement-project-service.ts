@@ -915,6 +915,84 @@ export async function addSettlementInvoice(projectId: string, input: Record<stri
   return touchAndRecalculate(projectId, actor);
 }
 
+/** 本地日期 → YYYY-MM-DD（开票默认值统一按服务器本地时间取）。 */
+function localDateOnly(date: Date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function addDaysToDateOnly(dateOnly: string, days: number) {
+  const base = new Date(`${dateOnly}T00:00:00`);
+  if (Number.isNaN(base.getTime())) return dateOnly;
+  return localDateOnly(new Date(base.getTime() + days * 86400000));
+}
+
+/**
+ * 集采开票的金额默认值：
+ *   - 未开满 → 按未开票余额（预计收入 − 已开票，未税 USD）；
+ *   - 没开过票、或已经开满 → 按全额预计收入打底（用户可在弹层里改）。
+ * 税率沿用项目上一张收入发票的税率，没有则按墨西哥主体常用的 16% 打底。
+ */
+export function settlementInvoiceDraftDefaults(input: { revenueNet: number; issuedNet: number; previousTaxRate?: number | null }) {
+  const revenueNet = round(numeric(input.revenueNet));
+  const issuedNet = round(numeric(input.issuedNet));
+  const remainingNet = round(revenueNet - issuedNet);
+  const previousTaxRate = numeric(input.previousTaxRate);
+  const taxRate = previousTaxRate > 0 ? previousTaxRate : 16;
+  const netAmount = remainingNet > 0.005 ? remainingNet : revenueNet;
+  return { revenueNet, issuedNet, remainingNet, netAmount, taxRate, invoiceTotal: Math.round(netAmount * (1 + taxRate / 100) * 100) / 100 };
+}
+
+/**
+ * 项目结算「开具发票 / 上传外部发票」的准备步骤。
+ *
+ * 集采的开票口径是「按项目预计收入开票」，而开票链路（预填、本地开票、飞书审批、票面附件回填）
+ * 全都挂在 settlement_invoice 这一条收入发票行上，所以这里负责保证"有一行可以开票"：
+ *   - 项目下已有未开票的收入发票行 → 直接复用它；
+ *   - 没有 → 按「销售收入（未税 USD）」与未开票余额自动建一条收入发票草稿行（未开票）。
+ * 金额、税率、币种在开票弹层里都还能改，这里只解决"从哪一行开"。
+ */
+export async function prepareSettlementIssueInvoice(projectId: string, actor: OperationActor | null) {
+  const project = await recalculateProject(projectId);
+  assertEditable(project);
+  const incomeInvoices = await queryRows<SettlementInvoice>(
+    `SELECT * FROM merge_po_settlement_invoices
+      WHERE projectId = :projectId AND type = 'income'
+      ORDER BY createdAt DESC, id`,
+    { projectId },
+  );
+  const pending = incomeInvoices.find((invoice) => !invoice.isInvoiced);
+  if (pending) return { invoiceId: pending.id, created: false };
+
+  // 未税口径：预计收入取项目上的销售收入，已开票取已开票收入发票的 USD 未税金额。
+  const issuedNet = round(incomeInvoices.reduce((sum, invoice) => sum + (invoice.isInvoiced ? numeric(invoice.usdAmount) : 0), 0));
+  const previousTaxRate = incomeInvoices.map((invoice) => numeric(invoice.taxRate)).find((rate) => rate > 0) ?? null;
+  const defaults = settlementInvoiceDraftDefaults({ revenueNet: project.quotedSalesRevenueUsd, issuedNet, previousTaxRate });
+  const invoiceDate = localDateOnly(new Date());
+  const values = await invoiceValues(projectId, {
+    type: "income",
+    currency: "USD",
+    exchangeRate: 1,
+    taxRate: defaults.taxRate,
+    invoiceTotal: defaults.invoiceTotal,
+    accountPeriod: `${invoiceDate.slice(0, 7)}-01`,
+    invoiceDate,
+    receivableDate: addDaysToDateOnly(invoiceDate, 30),
+    companyEntityId: project.contractingUnitId,
+    invoiceEntityId: project.customerId,
+    invoiceEntityType: "customer",
+    isPaid: false,
+    isInvoiced: false,
+  });
+  const invoiceId = randomUUID();
+  await execute(
+    `INSERT INTO merge_po_settlement_invoices (id,projectId,type,accountPeriod,accountingDate,companyEntity,invoiceEntity,companyEntityId,invoiceEntityId,invoiceEntityType,invoiceDate,invoiceNo,invoiceTotal,invoiceTaxExcludedTotal,taxRate,invoiceTaxAmount,currency,exchangeRate,usdAmount,isPaid,isInvoiced,receivableDate,actualReceiptDate)
+     VALUES (:id,:projectId,:type,:accountPeriod,:accountingDate,:companyEntity,:invoiceEntity,:companyEntityId,:invoiceEntityId,:invoiceEntityType,:invoiceDate,:invoiceNo,:invoiceTotal,:invoiceTaxExcludedTotal,:taxRate,:invoiceTaxAmount,:currency,:exchangeRate,:usdAmount,:isPaid,:isInvoiced,:receivableDate,:actualReceiptDate)`,
+    { id: invoiceId, projectId, ...values },
+  );
+  await touchAndRecalculate(projectId, actor);
+  return { invoiceId, created: true, ...defaults };
+}
+
 export async function updateSettlementInvoice(projectId: string, invoiceId: string, input: Record<string, unknown>, actor: OperationActor | null) {
   const project = await getProject(projectId); assertEditable(project);
   const invoice = (await queryRows<SettlementInvoice>("SELECT * FROM merge_po_settlement_invoices WHERE id=:id AND projectId=:projectId LIMIT 1", { id: invoiceId, projectId }))[0];
