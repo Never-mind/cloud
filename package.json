@@ -37,6 +37,7 @@
     "invoices:refresh": "tsx scripts/refresh-invoice-files.ts",
     "schema:obs-storage": "tsx scripts/migrate-obs-storage.ts",
     "schema:requestitem-batch": "tsx scripts/migrate-requestitem-batch.ts",
+    "schema:settlement-invoice-uuid": "tsx scripts/migrate-settlement-invoice-uuid.ts",
     "schema:feishu-approvals": "tsx scripts/migrate-feishu-approvals.ts",
     "feishu:invoice-approval": "tsx scripts/feishu-invoice-approval.ts",
     "feishu:approval-sync": "tsx scripts/sync-feishu-approvals.ts",
@@ -58,6 +59,7 @@
     "lucide-react": "latest",
     "mysql2": "latest",
     "next": "latest",
+    "pdfjs-dist": "^5.4.296",
     "react": "latest",
     "react-dom": "latest",
     "xlsx": "latest"

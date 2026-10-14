@@ -118,6 +118,8 @@ type SettlementInvoice = {
   invoiceEntityType: "supplier" | "customer" | null;
   invoiceDate: string | null;
   invoiceNo: string | null;
+  /** 发票税务唯一标识（CFDI UUID），只用于查重，列表不展示 */
+  taxUuid: string | null;
   invoiceTotal: number;
   invoiceTaxExcludedTotal: number;
   taxRate: number;
@@ -866,7 +868,7 @@ async function invoiceValues(_projectId: string, input: Record<string, unknown>)
     companyEntityId ? resolveSettlementPartnerName("undertaking", companyEntityId) : null,
     invoiceEntityId ? resolveSettlementPartnerName(invoiceEntityType === "customer" ? "customer" : invoiceEntityType === "supplier" ? "supplier" : "any", invoiceEntityId) : null,
   ]);
-  return { type, accountPeriod, accountingDate, companyEntity: companyEntityName || text(input.companyEntity) || null, invoiceEntity: invoiceEntityName || text(input.invoiceEntity) || null, companyEntityId, invoiceEntityId, invoiceEntityType, invoiceDate, invoiceNo: text(input.invoiceNo) || null, invoiceTotal, invoiceTaxExcludedTotal, taxRate, invoiceTaxAmount, currency, exchangeRate, usdAmount, isPaid: input.isPaid ? 1 : 0, isInvoiced: input.isInvoiced ? 1 : 0, receivableDate, actualReceiptDate };
+  return { type, accountPeriod, accountingDate, companyEntity: companyEntityName || text(input.companyEntity) || null, invoiceEntity: invoiceEntityName || text(input.invoiceEntity) || null, companyEntityId, invoiceEntityId, invoiceEntityType, invoiceDate, invoiceNo: text(input.invoiceNo) || null, taxUuid: text(input.taxUuid) || null, invoiceTotal, invoiceTaxExcludedTotal, taxRate, invoiceTaxAmount, currency, exchangeRate, usdAmount, isPaid: input.isPaid ? 1 : 0, isInvoiced: input.isInvoiced ? 1 : 0, receivableDate, actualReceiptDate };
 }
 
 async function resolveSettlementPartnerName(kind: "undertaking" | "supplier" | "customer" | "any", value: string) {
@@ -906,13 +908,33 @@ async function resolveSettlementPartnerName(kind: "undertaking" | "supplier" | "
 
 export async function addSettlementInvoice(projectId: string, input: Record<string, unknown>, actor: OperationActor | null) {
   const project = await getProject(projectId); assertEditable(project);
+  const taxUuid = text(input.taxUuid);
+  if (taxUuid) {
+    const duplicated = (await queryRows<{ invoiceNo: string | null }>(
+      "SELECT invoiceNo FROM merge_po_settlement_invoices WHERE projectId = :projectId AND taxUuid = :taxUuid LIMIT 1",
+      { projectId, taxUuid },
+    ))[0];
+    if (duplicated) throw new Error(`这张发票已经录过了${duplicated.invoiceNo ? `（发票号 ${duplicated.invoiceNo}）` : ""}，不需要重复上传`);
+  }
   const values = await invoiceValues(projectId, input);
+  const id = randomUUID();
   await execute(
-    `INSERT INTO merge_po_settlement_invoices (id,projectId,type,accountPeriod,accountingDate,companyEntity,invoiceEntity,companyEntityId,invoiceEntityId,invoiceEntityType,invoiceDate,invoiceNo,invoiceTotal,invoiceTaxExcludedTotal,taxRate,invoiceTaxAmount,currency,exchangeRate,usdAmount,isPaid,isInvoiced,receivableDate,actualReceiptDate)
-     VALUES (:id,:projectId,:type,:accountPeriod,:accountingDate,:companyEntity,:invoiceEntity,:companyEntityId,:invoiceEntityId,:invoiceEntityType,:invoiceDate,:invoiceNo,:invoiceTotal,:invoiceTaxExcludedTotal,:taxRate,:invoiceTaxAmount,:currency,:exchangeRate,:usdAmount,:isPaid,:isInvoiced,:receivableDate,:actualReceiptDate)`,
-    { id: randomUUID(), projectId, ...values },
+    `INSERT INTO merge_po_settlement_invoices (id,projectId,type,accountPeriod,accountingDate,companyEntity,invoiceEntity,companyEntityId,invoiceEntityId,invoiceEntityType,invoiceDate,invoiceNo,taxUuid,invoiceTotal,invoiceTaxExcludedTotal,taxRate,invoiceTaxAmount,currency,exchangeRate,usdAmount,isPaid,isInvoiced,receivableDate,actualReceiptDate)
+     VALUES (:id,:projectId,:type,:accountPeriod,:accountingDate,:companyEntity,:invoiceEntity,:companyEntityId,:invoiceEntityId,:invoiceEntityType,:invoiceDate,:invoiceNo,:taxUuid,:invoiceTotal,:invoiceTaxExcludedTotal,:taxRate,:invoiceTaxAmount,:currency,:exchangeRate,:usdAmount,:isPaid,:isInvoiced,:receivableDate,:actualReceiptDate)`,
+    { id, projectId, ...values },
   );
+  // 识别发票时文件要跟着这条记录一起进附件（走和手工上传附件同一条链路，含 OBS）
+  const attachment = input.attachment as Record<string, unknown> | undefined;
+  if (attachment && text(attachment.fileName) && text(attachment.dataUrl)) {
+    await addSettlementAttachment(projectId, attachment, actor, id);
+  }
   return touchAndRecalculate(projectId, actor);
+}
+
+/** 发票识别要用项目的汇率把外币折算成 USD，这里只读不重算。 */
+export async function getSettlementProjectIssueContext(projectId: string) {
+  const project = await getProject(projectId);
+  return { exchangeRateUsd: project.exchangeRateUsd, exchangeRateMxn: project.exchangeRateMxn };
 }
 
 /** 本地日期 → YYYY-MM-DD（开票默认值统一按服务器本地时间取）。 */
@@ -999,7 +1021,7 @@ export async function updateSettlementInvoice(projectId: string, invoiceId: stri
   if (!invoice) throw new Error("发票不存在");
   const values = await invoiceValues(projectId, input);
   await execute(
-    `UPDATE merge_po_settlement_invoices SET type=:type,accountPeriod=:accountPeriod,accountingDate=:accountingDate,companyEntity=:companyEntity,invoiceEntity=:invoiceEntity,companyEntityId=:companyEntityId,invoiceEntityId=:invoiceEntityId,invoiceEntityType=:invoiceEntityType,invoiceDate=:invoiceDate,invoiceNo=:invoiceNo,invoiceTotal=:invoiceTotal,invoiceTaxExcludedTotal=:invoiceTaxExcludedTotal,taxRate=:taxRate,invoiceTaxAmount=:invoiceTaxAmount,currency=:currency,exchangeRate=:exchangeRate,usdAmount=:usdAmount,isPaid=:isPaid,isInvoiced=:isInvoiced,receivableDate=:receivableDate,actualReceiptDate=:actualReceiptDate WHERE id=:id AND projectId=:projectId`,
+    `UPDATE merge_po_settlement_invoices SET type=:type,accountPeriod=:accountPeriod,accountingDate=:accountingDate,companyEntity=:companyEntity,invoiceEntity=:invoiceEntity,companyEntityId=:companyEntityId,invoiceEntityId=:invoiceEntityId,invoiceEntityType=:invoiceEntityType,invoiceDate=:invoiceDate,invoiceNo=:invoiceNo,taxUuid=:taxUuid,invoiceTotal=:invoiceTotal,invoiceTaxExcludedTotal=:invoiceTaxExcludedTotal,taxRate=:taxRate,invoiceTaxAmount=:invoiceTaxAmount,currency=:currency,exchangeRate=:exchangeRate,usdAmount=:usdAmount,isPaid=:isPaid,isInvoiced=:isInvoiced,receivableDate=:receivableDate,actualReceiptDate=:actualReceiptDate WHERE id=:id AND projectId=:projectId`,
     { id: invoiceId, projectId, ...values },
   );
   return touchAndRecalculate(projectId, actor);
