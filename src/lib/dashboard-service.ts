@@ -120,18 +120,83 @@ async function loadDomainPortfolio() {
 
 export async function getDashboardOverview(searchParams: URLSearchParams) {
   const countryCode = searchParams.get("countryCode")?.trim() || "";
-  const [serviceFeeRows, newInstanceRows, countries] = await Promise.all([
+  const [serviceFeeRows, newInstanceRows, countries, instanceReceiptRows] = await Promise.all([
     listServiceFeeRows(countryCode),
     listNewInstanceRows(countryCode),
     listDashboardCountries(),
+    listInstanceReceiptRows(countryCode),
   ]);
 
   return {
     countries,
     serviceFees: aggregateServiceFeesByCountryMonthCurrency(serviceFeeRows),
     newInstances: aggregateNewInstancesByCountryMonth(newInstanceRows),
+    instanceReceipt: instanceReceiptRows,
     portfolio: await loadDomainPortfolio(),
   };
+}
+
+/**
+ * 首页「设备签收情况」两个饼图的数据源。
+ *
+ * 口径（按业务确认）：
+ *   - 范围：**全部历史**的已确认需求单（待下单/已下单），草稿单不计（不按月份截取）；
+ *   - 类型：只统计**设备（Equipment）**的实例型号，配件/组件不计；
+ *   - 单位：**设备台数**，取需求明细的数量（一个实例 16 台即算 16 台）；
+ *   - 签收：该明细关联的物流派送时间有值算已签收，无物流或派送时间为空算未签收
+ *     （与物流列表「是否签收」同一口径）；
+ *   - 分组：按需求单国家 × 签收状态。
+ */
+async function listInstanceReceiptRows(countryCode: string) {
+  const params: Row = {};
+  const countryWhere = countryCode ? "AND req.countryCode = :countryCode" : "";
+  if (countryCode) params.countryCode = countryCode;
+  // 物流表没有国家字段：经采购明细回查来源需求单取国家（与采购订单/物流列表同一口径）。
+  // 签收判定用 EXISTS 子查询：同一需求明细对应多条物流时不会把台数放大。
+  const rows = await queryRows<{
+    countryCode: string | null;
+    requestStatus: string | null;
+    quantity: number | null;
+    receivedFlag: number | null;
+  }>(
+    `
+      SELECT UPPER(TRIM(SUBSTRING_INDEX(req.countryCode, '-', 1))) AS countryCode,
+             req.status AS requestStatus,
+             ri.quantity AS quantity,
+             CASE WHEN EXISTS (
+                    SELECT 1
+                      FROM purchaseorderitems poi
+                      JOIN shipments s ON s.purchaseOrderItemId = poi.id
+                     WHERE poi.requestItemId = ri.id
+                       AND s.deliveredAt IS NOT NULL
+                  ) THEN 1 ELSE 0 END AS receivedFlag
+        FROM requestitems ri
+        JOIN requests req ON req.requestNo = ri.requestNo
+        LEFT JOIN instancemodels im ON im.deviceCode = ri.deviceCode
+       WHERE COALESCE(NULLIF(im.instanceType, ''), 'Equipment') = 'Equipment'
+         ${countryWhere}
+    `,
+    params,
+  );
+
+  // 已确认（待下单/已下单）的需求单才算真实业务，草稿单不计入。
+  const buckets = new Map<string, { received: number; unreceived: number }>();
+  for (const row of rows) {
+    if (!isConfirmedOrderStatus("requests", row.requestStatus)) continue;
+    const key = String(row.countryCode ?? "").trim();
+    const bucket = buckets.get(key) ?? { received: 0, unreceived: 0 };
+    const quantity = Number(row.quantity ?? 0);
+    if (Number(row.receivedFlag ?? 0) > 0) bucket.received += quantity;
+    else bucket.unreceived += quantity;
+    buckets.set(key, bucket);
+  }
+
+  return [...buckets.entries()]
+    .sort((left, right) => left[0].localeCompare(right[0]))
+    .flatMap(([key, bucket]) => [
+      { countryCode: key, receiptStatus: "received" as const, devices: bucket.received },
+      { countryCode: key, receiptStatus: "unreceived" as const, devices: bucket.unreceived },
+    ]);
 }
 
 async function listServiceFeeRows(countryCode: string) {
