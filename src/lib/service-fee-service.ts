@@ -350,6 +350,71 @@ async function loadFastServiceFeePage(sql: string, params: Row, page: number, pa
   return rows.slice((page - 1) * pageSize, page * pageSize);
 }
 
+/**
+ * 批次一致性检查。
+ *
+ * 月账单/预付款/管理费的台账与核销行，批次是**生成（导入）那一刻的快照**；需求单的批次后来被改过，
+ * 两边就会不一致 —— 服务费按批次搜索时会把别的批次的数据一起搜出来（BR-18 / BR-19 那次就是）。
+ * 这里把不一致的需求单列出来，供页面提示与一键同步。
+ */
+const BATCH_CONSISTENCY_TABLES = [
+  "billinginstanceledgers",
+  "monthlybillingwriteoffs",
+  "prepaymentcontractitems",
+  "monthlyprepaymentwriteoffs",
+  "internalserviceledgers",
+  "monthlyinternalservicefees",
+];
+
+export type BatchInconsistency = {
+  table: string;
+  requestNo: string;
+  countryCode: string;
+  requestBatch: string;
+  storedBatch: string;
+  rowCount: number;
+};
+
+export async function findBatchInconsistencies() {
+  const items: BatchInconsistency[] = [];
+  for (const table of BATCH_CONSISTENCY_TABLES) {
+    const rows = await queryRows<Row>(
+      `SELECT t.requestNo, MAX(t.countryCode) AS countryCode, MAX(r.batchName) AS requestBatch,
+              GROUP_CONCAT(DISTINCT t.batchName ORDER BY t.batchName SEPARATOR ', ') AS storedBatch,
+              COUNT(*) AS rowCount
+         FROM \`${table}\` t
+         JOIN requests r ON r.requestNo = t.requestNo
+        WHERE COALESCE(NULLIF(r.batchName, ''), '') <> ''
+          AND COALESCE(t.batchName, '') <> COALESCE(r.batchName, '')
+        GROUP BY t.requestNo`,
+    ).catch(() => [] as Row[]);
+    for (const row of rows) {
+      items.push({ table, requestNo: String(row.requestNo ?? ""), countryCode: String(row.countryCode ?? ""), requestBatch: String(row.requestBatch ?? ""), storedBatch: String(row.storedBatch ?? ""), rowCount: Number(row.rowCount ?? 0) });
+    }
+  }
+  return {
+    requestCount: new Set(items.map((item) => item.requestNo)).size,
+    rowCount: items.reduce((total, item) => total + item.rowCount, 0),
+    items,
+  };
+}
+
+/** 按需求单当前批次对齐下游台账/核销（一键同步）。只改批次，不动金额与月份。 */
+export async function alignBatchToRequests() {
+  let updated = 0;
+  for (const table of BATCH_CONSISTENCY_TABLES) {
+    const result = await execute(
+      `UPDATE \`${table}\` t
+         JOIN requests r ON r.requestNo = t.requestNo
+          SET t.batchName = r.batchName
+        WHERE COALESCE(NULLIF(r.batchName, ''), '') <> ''
+          AND COALESCE(t.batchName, '') <> COALESCE(r.batchName, '')`,
+    );
+    updated += Number((result as { affectedRows?: number }).affectedRows ?? 0);
+  }
+  return { updated };
+}
+
 async function loadFastServiceFeeRows(sql: string, params: Row) {
   if (fastServiceFeeRowsCache && fastServiceFeeRowsCache.expiresAt > Date.now()) {
     return fastServiceFeeRowsCache.rows;

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { CheckCircle2, FileDown, RefreshCw, Search } from "lucide-react";
+import { CheckCircle2, FileDown, Info, RefreshCw, Search } from "lucide-react";
 import { formatDisplayValue } from "@/lib/display-format";
 import { DEFAULT_PAGE_SIZE } from "@/lib/pagination";
 import { Button, Input, Panel, Select } from "./ui";
@@ -77,6 +77,9 @@ export function ServiceFeesPage() {
   const [lineType, setLineType] = useState("");
   const [requestType, setRequestType] = useState("");
   const [snapshotNo, setSnapshotNo] = useState("");
+  /** 批次一致性检查：核销表批次与需求单批次不一致时给提示，可一键对齐 */
+  const [batchIssue, setBatchIssue] = useState<{ requestCount: number; rowCount: number } | null>(null);
+  const [batchSyncing, setBatchSyncing] = useState(false);
   const [loading, setLoading] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [page, setPage] = useState(1);
@@ -125,6 +128,32 @@ export function ServiceFeesPage() {
     return data as ListResponse;
   }
 
+  async function loadBatchIssue() {
+    try {
+      const response = await fetch("/api/service-fees/batch-consistency", { cache: "no-store" });
+      if (!response.ok) return;
+      const data = await response.json();
+      setBatchIssue({ requestCount: Number(data.requestCount ?? 0), rowCount: Number(data.rowCount ?? 0) });
+    } catch {
+      setBatchIssue(null);
+    }
+  }
+
+  async function syncBatchToRequests() {
+    setBatchSyncing(true);
+    try {
+      const response = await fetch("/api/service-fees/batch-consistency", { method: "POST" });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error ?? "批次同步失败");
+      notify(`已按需求单批次对齐 ${Number(data.updated ?? 0)} 行`, "success");
+      await loadBatchIssue();
+      await loadData();
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "批次同步失败", "error");
+    } finally {
+      setBatchSyncing(false);
+    }
+  }
   async function loadData(nextPage = page, nextPageSize = pageSizeRef.current, includeSummary = true) {
     const isCurrentRequest = beginRequest();
     requestControllerRef.current?.abort();
@@ -160,6 +189,11 @@ export function ServiceFeesPage() {
 
   useEffect(() => {
     void loadData();
+  }, []);
+
+  // 首次进入时做一次批次一致性检查（核销表批次 vs 需求单批次）
+  useEffect(() => {
+    void loadBatchIssue();
   }, []);
 
   useEffect(() => {
@@ -263,6 +297,19 @@ export function ServiceFeesPage() {
         <h1 className="text-xl font-medium text-ink">服务费核算</h1>
         <p className="mt-1 text-sm text-ink-3">按月度月账单核销总额减预付款核销金额生成服务费核算结果，非实例预付款费用的月账单金额按0显示。</p>
       </div>
+
+      {batchIssue && batchIssue.requestCount > 0 ? (
+        <div className="flex flex-wrap items-center gap-2 rounded border border-warning-border-soft bg-warning-soft px-3 py-2 text-sm text-warning-ink">
+          <Info size={15} />
+          <span>
+            检测到 <b>{batchIssue.requestCount}</b> 个需求单的批次与月账单/预付款核销不一致（共 {batchIssue.rowCount} 行）：
+            核销表的批次是生成时的快照，需求单批次后来改过就会错位，按批次搜索会把别的批次数据一起搜出来。
+          </span>
+          <Button className="ml-auto" disabled={batchSyncing} onClick={() => void syncBatchToRequests()} title="把下游台账/核销的批次按需求单当前批次对齐（只改批次，不动金额与月份）">
+            <RefreshCw size={14} />{batchSyncing ? "同步中…" : "按需求单批次同步"}
+          </Button>
+        </div>
+      ) : null}
 
       <Panel>
         <div className="flex flex-wrap items-center gap-2 border-b border-line-soft p-4">

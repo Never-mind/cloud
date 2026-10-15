@@ -327,6 +327,47 @@ export async function createImportPreviewJob({
   return { jobId, status, ...preview };
 }
 
+/**
+ * 导入月账单/预付款/管理费台账与核销时，批次统一以**需求单当前批次**为准。
+ *
+ * 背景：核销表里的批次是生成那一刻的快照，需求单的批次后来被改过就会两边错位，
+ * 服务费按批次搜索时会把别的批次的数据一起搜出来（BR-18/BR-19 那次就是）。
+ * 所以导入时如果文件里的批次和需求单不一致，直接用需求单的，并在导入报告里给出提示。
+ */
+async function alignImportRowBatches(operations: Record<string, Array<Record<string, unknown>>>) {
+  const targetRows: Array<Record<string, unknown>> = [];
+  for (const list of Object.values(operations)) {
+    if (!Array.isArray(list)) continue;
+    for (const row of list) {
+      if (!row || typeof row !== "object") continue;
+      if (!("batchName" in row) || !("requestNo" in row)) continue;
+      if (!String(row.requestNo ?? "").trim()) continue;
+      targetRows.push(row);
+    }
+  }
+  if (!targetRows.length) return { corrected: 0, requests: 0 };
+  const requestBatch = new Map<string, string>();
+  const correctedRequests = new Set<string>();
+  let corrected = 0;
+  for (const row of targetRows) {
+    const requestNo = String(row.requestNo ?? "").trim();
+    if (!requestBatch.has(requestNo)) {
+      const rows = await queryRows<Row>(
+        "SELECT batchName FROM merge_power_requests WHERE requestNo = :requestNo LIMIT 1",
+        { requestNo },
+      );
+      requestBatch.set(requestNo, String(rows[0]?.batchName ?? "").trim());
+    }
+    const expected = requestBatch.get(requestNo) ?? "";
+    if (!expected) continue;
+    if (String(row.batchName ?? "").trim() === expected) continue;
+    row.batchName = expected;
+    corrected += 1;
+    correctedRequests.add(requestNo);
+  }
+  return { corrected, requests: correctedRequests.size };
+}
+
 export async function confirmImportJob(jobId: string, options: { allowConfirmed?: boolean } = {}) {
   const job = await getImportJob(jobId);
   if (!job) throw new Error("导入任务不存在");
@@ -349,6 +390,8 @@ export async function confirmImportJob(jobId: string, options: { allowConfirmed?
   if (preview.targetKey === "prepayment-contracts") {
     await assertPrepaymentInstanceOwnership(preview.operations.prepaymentContractItems as any);
   }
+  // 批次以需求单当前值为准（防止导入的批次与需求单错位，导致按批次搜索串数据）
+  const batchAlign = await alignImportRowBatches(preview.operations as Record<string, Array<Record<string, unknown>>>);
 
   for (const plan of EXECUTION_PLAN) {
     for (const row of preview.operations[plan.key]) {
@@ -382,6 +425,8 @@ export async function confirmImportJob(jobId: string, options: { allowConfirmed?
   const report = {
     total: preview.report.total,
     success: failed.length ? 0 : success,
+    batchCorrected: batchAlign.corrected,
+    batchCorrectedRequests: batchAlign.requests,
     failed,
   };
 
