@@ -53,7 +53,10 @@ type SettlementProject = {
 type SettlementItem = {
   id: string;
   projectId: string;
-  quotationItemId: string;
+  /** 报价明细ID；客户变更追加的行为空 */
+  quotationItemId: string | null;
+  /** quotation 报价单 / customer_change 客户变更 */
+  source: string;
   productId: string | null;
   productCode: string;
   productName: string;
@@ -70,6 +73,11 @@ type SettlementItem = {
   invoiceNo: string | null;
   ordered: boolean;
   orderedAt: string | null;
+  /** 客户取消时间：取消行不计入结算收入/成本，但已发生的采购成本仍留在实际成本里 */
+  cancelledAt: string | null;
+  cancelReason: string | null;
+  /** 追加变更行时的依据 */
+  changeNote: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -152,9 +160,33 @@ type SettlementAttachment = {
   updatedAt: string;
 };
 
+/**
+ * 报价原值 / 客户变更 / 结算合计的拆分：
+ *   - 报价原值：报价单带来的行（含被客户取消的行，那是报价当时的原值）；
+ *   - 客户变更：追加的行（正）减掉被取消的报价行（负），是净变更；
+ *   - 结算合计 = 报价原值 + 客户变更 = 当前有效的行。
+ */
+export type SettlementChangeSummary = {
+  quoteRevenueUsd: number;
+  quoteCostUsd: number;
+  changeRevenueUsd: number;
+  changeCostUsd: number;
+  settledRevenueUsd: number;
+  settledCostUsd: number;
+  /** 追加的客户变更行数（已取消的不算） */
+  changeItemCount: number;
+  /** 被客户取消的行数 */
+  cancelledItemCount: number;
+  /** 取消行的报价收入合计（用来展示「取消 −X」） */
+  cancelledRevenueUsd: number;
+  /** 取消行已经发生的采购成本（已采购才有） */
+  cancelledCostUsd: number;
+};
+
 export type SettlementDetail = {
   project: SettlementProject;
   items: SettlementItem[];
+  summary: SettlementChangeSummary;
   unpurchasedItems: SettlementItem[];
   purchasedItems: SettlementItem[];
   expenses: SettlementExpense[];
@@ -453,9 +485,11 @@ async function recalculateProject(projectId: string, actor: OperationActor | nul
     }
   }
 
-  const quotedPurchaseCostUsd = round(items.reduce((sum, item) => sum + item.quotedWarehouseCostUsd, 0));
+  // 客户取消的行不计入结算口径；但已经采购的成本仍然算在实际成本里（钱确实花了）
+  const activeItems = items.filter((item) => !item.cancelledAt);
+  const quotedPurchaseCostUsd = round(activeItems.reduce((sum, item) => sum + item.quotedWarehouseCostUsd, 0));
   const purchasedCostUsd = round(items.filter((item) => item.ordered).reduce((sum, item) => sum + item.purchasedCostUsd, 0) + expenses.reduce((sum, item) => sum + item.costUsd, 0));
-  const quotedSalesRevenueUsd = round(items.reduce((sum, item) => sum + item.quotedSalesRevenueUsd, 0));
+  const quotedSalesRevenueUsd = round(activeItems.reduce((sum, item) => sum + item.quotedSalesRevenueUsd, 0));
   const receivedRevenueTaxIncludedUsd = round(sales.reduce((sum, item) => sum + item.receivedRevenueTaxIncludedUsd, 0));
   const receivedRevenueUsd = round(sales.reduce((sum, item) => sum + item.receivedRevenueUsd, 0));
   // 验收中及之后的状态由状态流转按钮控制，重算时不能覆盖（否则"验收完成"会被打回采购完成）。
@@ -491,6 +525,31 @@ async function recalculateProject(projectId: string, actor: OperationActor | nul
   return getProject(projectId);
 }
 
+/** 把明细拆成「报价原值 / 客户变更 / 结算合计」三块，指标区和角标都用它。 */
+export function buildChangeSummary(items: SettlementItem[]): SettlementChangeSummary {
+  const active = items.filter((item) => !item.cancelledAt);
+  const quotationItems = items.filter((item) => item.source !== "customer_change");
+  const changeItems = items.filter((item) => item.source === "customer_change" && !item.cancelledAt);
+  const cancelled = items.filter((item) => item.cancelledAt);
+  const sum = (rows: SettlementItem[], pick: (item: SettlementItem) => number) => round(rows.reduce((total, item) => total + pick(item), 0));
+  const settledRevenueUsd = sum(active, (item) => item.quotedSalesRevenueUsd);
+  const settledCostUsd = sum(active, (item) => item.quotedWarehouseCostUsd);
+  const quoteRevenueUsd = sum(quotationItems, (item) => item.quotedSalesRevenueUsd);
+  const quoteCostUsd = sum(quotationItems, (item) => item.quotedWarehouseCostUsd);
+  return {
+    quoteRevenueUsd,
+    quoteCostUsd,
+    changeRevenueUsd: round(settledRevenueUsd - quoteRevenueUsd),
+    changeCostUsd: round(settledCostUsd - quoteCostUsd),
+    settledRevenueUsd,
+    settledCostUsd,
+    changeItemCount: changeItems.length,
+    cancelledItemCount: cancelled.length,
+    cancelledRevenueUsd: sum(cancelled, (item) => item.quotedSalesRevenueUsd),
+    cancelledCostUsd: sum(cancelled, (item) => item.purchasedCostUsd),
+  };
+}
+
 async function detailRows(projectId: string) {
   const [items, expenses, sales, invoices, attachments] = await Promise.all([
     queryRows<SettlementItem>("SELECT * FROM merge_po_settlement_items WHERE projectId = :projectId ORDER BY createdAt, id", { projectId }),
@@ -519,11 +578,14 @@ async function detailRows(projectId: string) {
 export async function getSettlementProjectDetail(projectId: string): Promise<SettlementDetail> {
   const project = await recalculateProject(projectId);
   const rows = await detailRows(projectId);
+  // 已取消的行不进「未采购/已采购」两个待办列表（它们只是留档）
+  const visibleItems = rows.items.filter((item) => !item.cancelledAt);
   return {
     project,
     ...rows,
-    unpurchasedItems: rows.items.filter((item) => !item.ordered),
-    purchasedItems: rows.items.filter((item) => item.ordered),
+    summary: buildChangeSummary(rows.items),
+    unpurchasedItems: visibleItems.filter((item) => !item.ordered),
+    purchasedItems: visibleItems.filter((item) => item.ordered),
   };
 }
 
@@ -743,7 +805,7 @@ export async function orderSettlementItems(projectId: string, inputItems: Array<
   for (const input of inputItems) {
     const itemId = text(input.itemId);
     const item = byId.get(itemId);
-    if (!item || Boolean(item.ordered)) continue;
+    if (!item || Boolean(item.ordered) || item.cancelledAt) continue;
     const values = inputValues(input, { currency: "USD", priceType: "tax_excluded" });
     const purchaseQty = text(input.purchaseQty) === "" ? numeric(item.plannedQty) : numeric(input.purchaseQty);
     if (values.amount < 0 || purchaseQty <= 0) throw new Error("采购数量和单价必须有效");
@@ -781,6 +843,106 @@ export async function returnSettlementItem(projectId: string, itemId: string, ac
   const project = await getProject(projectId);
   assertPurchasingEditable(project);
   await execute("UPDATE merge_po_settlement_items SET ordered=0, orderedAt=NULL, purchasedCostUsd=0 WHERE id=:id AND projectId=:projectId", { id: itemId, projectId });
+  return touchAndRecalculate(projectId, actor);
+}
+async function getSettlementItemOrThrow(projectId: string, itemId: string) {
+  const item = (await queryRows<SettlementItem>("SELECT * FROM merge_po_settlement_items WHERE id = :id AND projectId = :projectId LIMIT 1", { id: itemId, projectId }))[0];
+  if (!item) throw new Error("项目明细不存在");
+  return item;
+}
+
+/**
+ * 客户变更：在项目里追加一行。
+ * 报价单确认后是锁定的，客户加设备走这里；追加的行标 source=customer_change，
+ * 预计收入/成本由业务填写（报价单里没有这台设备），之后和报价设备一样走采购流程。
+ */
+export async function addSettlementChangeItem(projectId: string, input: Record<string, unknown>, actor: OperationActor | null) {
+  const project = await getProject(projectId);
+  assertPurchasingEditable(project);
+  const productName = text(input.productName);
+  if (!productName) throw new Error("请填写设备/服务名称");
+  const plannedQty = numeric(input.plannedQty) > 0 ? numeric(input.plannedQty) : 1;
+  const revenueUsd = round(numeric(input.quotedSalesRevenueUsd));
+  const costUsd = round(numeric(input.quotedWarehouseCostUsd));
+  if (revenueUsd < 0 || costUsd < 0) throw new Error("预计收入与预计成本不能为负数");
+  const maxLine = (await queryRows<{ maxLine: number | null }>("SELECT MAX(lineNo) AS maxLine FROM merge_po_settlement_items WHERE projectId = :projectId", { projectId }))[0];
+  await execute(
+    `INSERT INTO merge_po_settlement_items
+      (id, projectId, quotationItemId, source, lineNo, productId, productCode, productName, brand, plannedQty, purchaseQty, purchaseUnitPrice,
+       currency, priceType, taxRate, quotedWarehouseCostUsd, quotedSalesRevenueUsd, purchasedCostUsd, ordered, changeNote)
+     VALUES (:id,:projectId,NULL,'customer_change',:lineNo,:productId,:productCode,:productName,NULL,:plannedQty,0,0,
+       :currency,'tax_excluded',0,:costUsd,:revenueUsd,0,0,:changeNote)`,
+    {
+      id: randomUUID(), projectId, lineNo: Math.trunc(numeric(maxLine?.maxLine)) + 1,
+      productId: text(input.productId) || null,
+      productCode: text(input.productCode) || "CUSTOMER-CHANGE",
+      productName, plannedQty,
+      currency: validCurrency(input.currency) ? input.currency : "USD",
+      costUsd, revenueUsd,
+      changeNote: text(input.changeNote) || null,
+    },
+  );
+  return touchAndRecalculate(projectId, actor);
+}
+
+/** 编辑客户变更行；报价带来的行不能在这里改（它跟着报价单）。 */
+export async function updateSettlementChangeItem(projectId: string, itemId: string, input: Record<string, unknown>, actor: OperationActor | null) {
+  const project = await getProject(projectId);
+  assertPurchasingEditable(project);
+  const item = await getSettlementItemOrThrow(projectId, itemId);
+  if (item.source !== "customer_change") throw new Error("报价单带来的明细不能修改，客户变更请用「新增明细行」");
+  if (item.cancelledAt) throw new Error("已取消的明细不能修改，请先撤销取消");
+  if (Boolean(item.ordered)) throw new Error("已采购的明细不能修改");
+  const productName = text(input.productName) || item.productName;
+  const plannedQty = numeric(input.plannedQty) > 0 ? numeric(input.plannedQty) : item.plannedQty;
+  const revenueUsd = round(numeric(input.quotedSalesRevenueUsd));
+  const costUsd = round(numeric(input.quotedWarehouseCostUsd));
+  if (revenueUsd < 0 || costUsd < 0) throw new Error("预计收入与预计成本不能为负数");
+  await execute(
+    `UPDATE merge_po_settlement_items
+        SET productName=:productName, plannedQty=:plannedQty, currency=:currency,
+            quotedWarehouseCostUsd=:costUsd, quotedSalesRevenueUsd=:revenueUsd, changeNote=:changeNote
+      WHERE id=:id AND projectId=:projectId`,
+    {
+      id: itemId, projectId, productName, plannedQty,
+      currency: validCurrency(input.currency) ? input.currency : item.currency,
+      costUsd, revenueUsd,
+      changeNote: text(input.changeNote) || item.changeNote,
+    },
+  );
+  return touchAndRecalculate(projectId, actor);
+}
+
+/** 删除客户变更行：只有未采购的变更行能删；报价带来的行请用「标记客户取消」。 */
+export async function deleteSettlementChangeItem(projectId: string, itemId: string, actor: OperationActor | null) {
+  const project = await getProject(projectId);
+  assertPurchasingEditable(project);
+  const item = await getSettlementItemOrThrow(projectId, itemId);
+  if (item.source !== "customer_change") throw new Error("报价单带来的明细不能删除，如需取消请用「标记客户取消」");
+  if (Boolean(item.ordered)) throw new Error("已采购的明细不能删除，请用「标记客户取消」");
+  await execute("DELETE FROM merge_po_settlement_items WHERE id=:id AND projectId=:projectId", { id: itemId, projectId });
+  return touchAndRecalculate(projectId, actor);
+}
+
+/**
+ * 标记客户取消：这一行不再计入结算收入/预计成本，但已经采购花掉的钱仍留在实际成本里。
+ * 已采购的行也允许取消（客户取消但货已经买了），这正是要看见的亏损。
+ */
+export async function cancelSettlementItem(projectId: string, itemId: string, input: Record<string, unknown>, actor: OperationActor | null) {
+  const project = await getProject(projectId);
+  assertEditable(project);
+  const item = await getSettlementItemOrThrow(projectId, itemId);
+  if (item.cancelledAt) return touchAndRecalculate(projectId, actor);
+  await execute("UPDATE merge_po_settlement_items SET cancelledAt = NOW(), cancelReason = :reason WHERE id = :id AND projectId = :projectId", { id: itemId, projectId, reason: text(input.reason) || null });
+  return touchAndRecalculate(projectId, actor);
+}
+
+/** 撤销客户取消，这一行重新计入结算。 */
+export async function restoreSettlementItem(projectId: string, itemId: string, actor: OperationActor | null) {
+  const project = await getProject(projectId);
+  assertEditable(project);
+  await getSettlementItemOrThrow(projectId, itemId);
+  await execute("UPDATE merge_po_settlement_items SET cancelledAt = NULL, cancelReason = NULL WHERE id = :id AND projectId = :projectId", { id: itemId, projectId });
   return touchAndRecalculate(projectId, actor);
 }
 
