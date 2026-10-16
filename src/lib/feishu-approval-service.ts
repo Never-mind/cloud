@@ -256,6 +256,94 @@ export const APPROVAL_AMOUNT_CURRENCIES = { mx: ["MXN", "USD"], cl: ["CLP"] } as
 const APPROVAL_FORM_CACHE_MS = 5 * 60 * 1000;
 let approvalFormCache: { at: number; currenciesByCompany: Map<string, string[]> } | null = null;
 
+export type InvoiceApprovalOption = { key: string; value: string; label: string };
+export type InvoiceApprovalOptionLists = {
+  company: InvoiceApprovalOption[];
+  paymentMethods: InvoiceApprovalOption[];
+  cfdiCodes: InvoiceApprovalOption[];
+  chileInvoiceTypes: InvoiceApprovalOption[];
+  chileNote2: InvoiceApprovalOption[];
+};
+
+const APPROVAL_OPTION_CACHE_MS = 10 * 60 * 1000;
+let invoiceOptionCache: { at: number; value: InvoiceApprovalOptionLists } | null = null;
+let invoiceOptionPromise: Promise<InvoiceApprovalOptionLists> | null = null;
+
+function optionListFromWidget(
+  widget: Record<string, unknown> | undefined,
+  fallback: Array<{ key: string; text: string }>,
+): InvoiceApprovalOption[] {
+  const option = widget?.option;
+  if (!Array.isArray(option) || !option.length) {
+    return fallback.map((item) => ({ key: item.key, value: item.key, label: item.text }));
+  }
+  return option
+    .map((item) => {
+      const entry = item as { value?: unknown; text?: unknown };
+      const label = String(entry.text ?? "").trim();
+      return { key: label.split(" ")[0] || label, value: String(entry.value ?? "").trim(), label };
+    })
+    .filter((item) => item.value);
+}
+
+/**
+ * 从**飞书审批定义**里读开票审批的可选项（公司名称 / 付款方式 / CFDI 用途码 / 智利发票类型与 Notes 2）。
+ *
+ * 以前这些选项是写死在代码里的：审批后台加了新选项（比如 CFDI Code 多一个用途码），
+ * 系统下拉里不会出现。现在每次弹层打开读一次审批定义（缓存 10 分钟），
+ * 读不到时回落到内置常量，不影响发起。
+ */
+export async function loadInvoiceApprovalOptionLists(force = false): Promise<InvoiceApprovalOptionLists> {
+  if (!force && invoiceOptionCache && Date.now() - invoiceOptionCache.at < APPROVAL_OPTION_CACHE_MS) return invoiceOptionCache.value;
+  if (!invoiceOptionPromise) {
+    const fallback: InvoiceApprovalOptionLists = {
+      company: Object.values(COMPANY_OPTIONS).map((item) => ({ key: item.text.split(" ")[0] || item.text, value: item.key, label: item.text })),
+      paymentMethods: optionListFromWidget(undefined, Object.values(PAYMENT_METHOD_OPTIONS)),
+      cfdiCodes: optionListFromWidget(undefined, Object.values(CFDI_OPTIONS)),
+      chileInvoiceTypes: optionListFromWidget(undefined, Object.values(CHILE_INVOICE_TYPE_OPTIONS)),
+      chileNote2: optionListFromWidget(undefined, Object.values(CHILE_NOTE2_OPTIONS)),
+    };
+    invoiceOptionPromise = (async () => {
+      const data = await callFeishu<{ form?: string }>(
+        `/open-apis/approval/v4/approvals/${encodeURIComponent(getInvoiceApprovalCode())}`,
+        {},
+        "读取审批定义",
+      );
+      const widgets = JSON.parse(String(data?.form ?? "[]")) as Array<Record<string, unknown>>;
+      const byId = new Map<string, Record<string, unknown>>();
+      const walk = (list: Array<Record<string, unknown>>) => {
+        for (const widget of list) {
+          byId.set(String(widget.id ?? ""), widget);
+          if (Array.isArray(widget.children)) walk(widget.children as Array<Record<string, unknown>>);
+        }
+      };
+      walk(widgets);
+      const pick = (id: string, fallbackList: Array<{ key: string; text: string }>) => {
+        const list = optionListFromWidget(byId.get(id), fallbackList);
+        return list.length ? list : fallbackList.map((item) => ({ key: item.key, value: item.key, label: item.text }));
+      };
+      const value: InvoiceApprovalOptionLists = {
+        company: optionListFromWidget(byId.get(APPROVAL_FIELDS.companyName), Object.values(COMPANY_OPTIONS)),
+        paymentMethods: pick(APPROVAL_FIELDS.paymentMethod, Object.values(PAYMENT_METHOD_OPTIONS)),
+        cfdiCodes: pick(APPROVAL_FIELDS.cfdiCode, Object.values(CFDI_OPTIONS)),
+        chileInvoiceTypes: pick(APPROVAL_FIELDS.chileInvoiceType, Object.values(CHILE_INVOICE_TYPE_OPTIONS)),
+        chileNote2: pick(APPROVAL_FIELDS.chileNote2, Object.values(CHILE_NOTE2_OPTIONS)),
+      };
+      if (!value.company.length) value.company = fallback.company;
+      invoiceOptionCache = { at: Date.now(), value };
+      return value;
+    })()
+      .catch(() => {
+        invoiceOptionCache = { at: Date.now(), value: fallback };
+        return fallback;
+      })
+      .finally(() => {
+        invoiceOptionPromise = null;
+      });
+  }
+  return invoiceOptionPromise;
+}
+
 function widgetMatchesCompany(widget: Record<string, unknown>, companyOptionKey: string) {
   const condition = widget.display_condition as
     | { conditions?: Array<{ expressions?: Array<{ source_widget?: { id?: string }; standard_value?: string }> }> }
@@ -848,12 +936,11 @@ function addDays(dateString: string, days: number) {
 export async function buildInvoiceApprovalPrefill(params: { sourceType: InvoiceSourceType; sourceId?: string | null; sourceIds?: string[] | null }) {
   const base = await buildInvoicePrefill(params);
   const unit = await loadUndertakingUnit(String(base.undertakingUnitId ?? ""));
-  const party = resolveInvoiceApprovalParty({
-    undertakingUnitCode: unit?.undertakingUnitCode,
-    undertakingUnitName: [unit?.shortName, unit?.entityName, unit?.name].filter(Boolean).join(" "),
-  });
+  const unitName = [unit?.shortName, unit?.entityName, unit?.name].filter(Boolean).join(" ");
+  const party = resolveInvoiceApprovalParty({ undertakingUnitCode: unit?.undertakingUnitCode, undertakingUnitName: unitName });
   const customer = await loadCustomerForApproval(String(base.customerId ?? ""));
   const attachments = await listCustomerAttachments(String(customer?.customerId ?? base.customerId ?? ""));
+  const optionLists = await loadInvoiceApprovalOptionLists();
   const termDays = Number(unit?.paymentTermDays ?? 30) || 30;
   const invoiceDate = String(base.invoiceDate ?? "").slice(0, 10) || new Date().toISOString().slice(0, 10);
 
@@ -904,10 +991,11 @@ export async function buildInvoiceApprovalPrefill(params: { sourceType: InvoiceS
       : null,
     customerAttachments: attachments,
     options: {
-      paymentMethods: Object.entries(PAYMENT_METHOD_OPTIONS).map(([key, value]) => ({ key, value: value.key, label: value.text })),
-      cfdiCodes: Object.entries(CFDI_OPTIONS).map(([key, value]) => ({ key, value: value.key, label: value.text })),
-      chileInvoiceTypes: Object.entries(CHILE_INVOICE_TYPE_OPTIONS).map(([key, value]) => ({ key, value: value.key, label: value.text })),
-      chileNote2: Object.entries(CHILE_NOTE2_OPTIONS).map(([key, value]) => ({ key, value: value.key, label: value.text })),
+      // 选项全部来自飞书审批定义（读不到时回落内置），审批后台加了新选项下拉自动跟着变
+      paymentMethods: optionLists.paymentMethods,
+      cfdiCodes: optionLists.cfdiCodes,
+      chileInvoiceTypes: optionLists.chileInvoiceTypes,
+      chileNote2: optionLists.chileNote2,
     },
     blockers,
     warnings,
@@ -1081,6 +1169,11 @@ export async function downloadApprovalAttachment(url: string) {
 const KEY_TO_CFDI_USE = Object.fromEntries(Object.values(CFDI_OPTIONS).map((option) => [option.key, option.text.split(" ")[0]]));
 const KEY_TO_PAYMENT_METHOD = Object.fromEntries(Object.values(PAYMENT_METHOD_OPTIONS).map((option) => [option.key, option.text.split(" ")[0]]));
 
+/** 审批回传的发票核验用：按「选项 key → 用途码/付款方式」反查，优先用飞书里当前的定义。 */
+function optionCodeMap(options: InvoiceApprovalOption[]) {
+  return Object.fromEntries(options.map((option) => [option.value, option.key]));
+}
+
 export type ApplyInvoiceFilesResult = {
   instanceCode: string;
   /** 建立/更新的本地开票记录 ID（没拿到 XML 时为空） */
@@ -1197,12 +1290,21 @@ export async function applyApprovedInvoiceFiles(instanceCode: string): Promise<A
   const ownerParties = await loadInvoiceSourceParties(ownerSourceType, ownerId);
   const rowParties = await loadSourceTaxNumbers(ownerParties.customerId, ownerParties.undertakingUnitId);
   const expectedTotal = await loadInvoiceSourceTotal(ownerSourceType, ownerId);
+  const optionLists = await loadInvoiceApprovalOptionLists();
+  const cfdiUseMap = optionCodeMap(optionLists.cfdiCodes);
+  const paymentMethodMap = optionCodeMap(optionLists.paymentMethods);
   result.issues = verifyInvoiceAgainstExpectation(cfdi, {
     total: expectedTotal,
     issuerRfc: rowParties.unitTax,
     receiverRfc: rowParties.customerTax,
-    cfdiUse: KEY_TO_CFDI_USE[String(readApprovalFormValue(form2, APPROVAL_FIELDS.cfdiCode) ?? "")] ?? "",
-    paymentMethod: KEY_TO_PAYMENT_METHOD[String(readApprovalFormValue(form2, APPROVAL_FIELDS.paymentMethod) ?? "")] ?? "",
+    cfdiUse:
+      cfdiUseMap[String(readApprovalFormValue(form2, APPROVAL_FIELDS.cfdiCode) ?? "")]
+      ?? KEY_TO_CFDI_USE[String(readApprovalFormValue(form2, APPROVAL_FIELDS.cfdiCode) ?? "")]
+      ?? "",
+    paymentMethod:
+      paymentMethodMap[String(readApprovalFormValue(form2, APPROVAL_FIELDS.paymentMethod) ?? "")]
+      ?? KEY_TO_PAYMENT_METHOD[String(readApprovalFormValue(form2, APPROVAL_FIELDS.paymentMethod) ?? "")]
+      ?? "",
   });
 
   result.note = result.issues.length
