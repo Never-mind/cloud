@@ -168,6 +168,8 @@ export type CostPaymentEntryInput = {
   ownerNo?: string;
   period?: string;
   undertakingUnitCode: string;
+  /** 成本公司直接带上飞书选项 key（弹层里可切换承接单位） */
+  companyKey?: string;
   amount: number;
   currency: string;
   payee: string;
@@ -179,6 +181,11 @@ export type CostPaymentEntryInput = {
   invoiceIssued?: boolean;
   /** 华为云分支必填 */
   customerName?: string;
+  /** 客户名称直接带上飞书选项 key（优先于 customerName） */
+  customerOptionKey?: string;
+  /** 手续费 / 发票直接带上飞书选项 key（优先于 feeKey / invoiceIssued） */
+  feeOptionKey?: string;
+  invoiceOptionKey?: string;
   /** 算力分支必填 */
   orderNo?: string;
   batchNo?: string;
@@ -199,6 +206,9 @@ export function buildCostPaymentForm(
       bankName: string;
       swiftCode: string;
       feeKey: CostPaymentFeeKey;
+      /** 直接来自飞书选项的手续费 key（优先） */
+      feeOptionValue?: string;
+      invoiceOptionValue?: string;
       paymentDate: string;
       invoiceIssued: boolean;
       customerKey?: string;
@@ -224,9 +234,9 @@ export function buildCostPaymentForm(
       { id: columns.bankAccount, type: "input", value: entry.bankAccount },
       { id: columns.bankName, type: "input", value: entry.bankName },
       { id: columns.swiftCode, type: "input", value: entry.swiftCode },
-      { id: columns.fee, type: "radioV2", value: FEE_WIDGET_KEY[branch][entry.feeKey] },
+      { id: columns.fee, type: "radioV2", value: entry.feeOptionValue || FEE_WIDGET_KEY[branch][entry.feeKey] },
       { id: columns.paymentDate, type: "date", value: entry.paymentDate },
-      { id: columns.invoice, type: "radioV2", value: entry.invoiceIssued ? INVOICE_WIDGET_KEY[branch].issued : INVOICE_WIDGET_KEY[branch].notIssued },
+      { id: columns.invoice, type: "radioV2", value: entry.invoiceOptionValue || (entry.invoiceIssued ? INVOICE_WIDGET_KEY[branch].issued : INVOICE_WIDGET_KEY[branch].notIssued) },
       { id: columns.attachment, type: "attachmentV2", value: entry.attachmentTokens },
     );
     return items;
@@ -244,7 +254,9 @@ export function buildCostPaymentForm(
 /** 提交前的完整校验，返回第一条错误信息；没问题返回空串。 */
 export function validateCostPaymentEntries(branch: CostPaymentBranch, entries: CostPaymentEntryInput[]) {
   if (!entries.length) return "至少需要一条付款明细";
-  const companyKeys = new Set(entries.map((entry) => resolveCostPaymentCompanyKey(entry.undertakingUnitCode)));
+  const companyKeys = new Set(
+    entries.map((entry) => String(entry.companyKey ?? "").trim() || resolveCostPaymentCompanyKey(entry.undertakingUnitCode)),
+  );
   if (companyKeys.size > 1) return "所选单据的承接单位不一致，请分开发起付款申请";
   if (![...companyKeys][0]) return "承接单位在飞书审批里没有对应的公司选项（例如阿根廷主体），请先补选项";
   for (const [index, entry] of entries.entries()) {
@@ -256,7 +268,9 @@ export function validateCostPaymentEntries(branch: CostPaymentBranch, entries: C
     if (!String(entry.bankName ?? "").trim()) return `${label} 缺少开户行`;
     if (!String(entry.swiftCode ?? "").trim()) return `${label} 缺少 SWIFT CODE`;
     if (!String(entry.paymentDate ?? "").trim()) return `${label} 缺少需求付款日期`;
-    if (branch === "huawei" && !resolveCostPaymentCustomerKey(entry.customerName)) return `${label} 客户名称没有对应的审批选项`;
+    if (branch === "huawei" && !String(entry.customerOptionKey ?? "").trim() && !resolveCostPaymentCustomerKey(entry.customerName)) {
+      return `${label} 客户名称没有对应的审批选项`;
+    }
     if (branch === "compute" && !String(entry.orderNo ?? "").trim()) return `${label} 缺少订单号`;
   }
   return "";
@@ -329,7 +343,8 @@ export async function submitCostPaymentApproval(input: {
   const validationError = validateCostPaymentEntries(input.branch, input.entries);
   if (validationError) throw new Error(validationError);
 
-  const companyKey = resolveCostPaymentCompanyKey(input.entries[0].undertakingUnitCode);
+  const companyKey =
+    String(input.entries[0].companyKey ?? "").trim() || resolveCostPaymentCompanyKey(input.entries[0].undertakingUnitCode);
   const formEntries = [];
   const savedAttachments: Array<{ ownerId: string; fileName: string; dataUrl: string; fileType: string }> = [];
   for (const entry of input.entries) {
@@ -354,9 +369,11 @@ export async function submitCostPaymentApproval(input: {
       bankName: String(entry.bankName).trim(),
       swiftCode: String(entry.swiftCode).trim(),
       feeKey: entry.feeKey ?? "none",
+      feeOptionValue: entry.feeOptionKey,
+      invoiceOptionValue: entry.invoiceOptionKey,
       paymentDate: String(entry.paymentDate).slice(0, 10),
       invoiceIssued: Boolean(entry.invoiceIssued),
-      customerKey: input.branch === "huawei" ? resolveCostPaymentCustomerKey(entry.customerName) : undefined,
+      customerKey: input.branch === "huawei" ? String(entry.customerOptionKey ?? "").trim() || resolveCostPaymentCustomerKey(entry.customerName) : undefined,
       orderNo: entry.orderNo,
       batchNo: entry.batchNo,
       attachmentTokens: tokens,
@@ -524,6 +541,113 @@ export function parseCloudSupplierPaymentOwnerId(ownerId: unknown) {
   return { period, supplierId };
 }
 
+/** 飞书审批定义里的一个控件。 */
+type ApprovalWidget = {
+  id?: string;
+  name?: string;
+  type?: string;
+  required?: boolean;
+  option?: Array<{ value?: string; text?: string }> | { currencyRange?: string[] } | null;
+  children?: ApprovalWidget[];
+};
+
+export type CostPaymentOption = { value: string; text: string };
+
+/** 从飞书审批定义解析出来的可选项（供前端下拉直接用）。 */
+export type CostPaymentBranchOptions = {
+  /** 成本公司选项（按审批里的顺序）。 */
+  company: CostPaymentOption[];
+  /** 客户名称选项（只有华为云分支有）。 */
+  customer: CostPaymentOption[];
+  fee: CostPaymentOption[];
+  invoice: CostPaymentOption[];
+  /** 金额控件允许的币种。 */
+  currencies: string[];
+};
+
+const APPROVAL_OPTIONS_CACHE_MS = 10 * 60 * 1000;
+let approvalOptionsCache: { at: number; value: Record<CostPaymentBranch, CostPaymentBranchOptions> } | null = null;
+let approvalOptionsPromise: Promise<Record<CostPaymentBranch, CostPaymentBranchOptions>> | null = null;
+
+/** 内置兜底（飞书读不到时用，值与审批定义一致）。 */
+function builtinOptions(): Record<CostPaymentBranch, CostPaymentBranchOptions> {
+  const company = Object.entries(COMPANY_KEY_BY_UNIT_CODE).map(([, value]) => ({ value, text: value }));
+  const build = (branch: CostPaymentBranch, extras?: { customer?: CostPaymentOption[] }): CostPaymentBranchOptions => ({
+    company,
+    customer: extras?.customer ?? [],
+    fee: Object.entries(FEE_WIDGET_KEY[branch]).map(([key, value]) => ({ value, text: key })),
+    invoice: [INVOICE_WIDGET_KEY[branch].issued, INVOICE_WIDGET_KEY[branch].notIssued].map((value) => ({ value, text: value })),
+    currencies: ["BRL", "CLP", "CNY", "MXN", "USD"],
+  });
+  return {
+    huawei: build("huawei", { customer: Object.entries(CUSTOMER_WIDGET_KEY).map(([key, value]) => ({ value, text: key })) }),
+    other: build("other"),
+    compute: build("compute"),
+  };
+}
+
+function readOptions(widget: ApprovalWidget | undefined): CostPaymentOption[] {
+  if (!Array.isArray(widget?.option)) return [];
+  return widget.option
+    .map((item) => ({ value: String(item?.value ?? ""), text: String(item?.text ?? "") }))
+    .filter((item) => item.value);
+}
+
+function findWidget(widgets: ApprovalWidget[] | undefined, name: string): ApprovalWidget | undefined {
+  return (widgets ?? []).find((widget) => widget.name === name);
+}
+
+/**
+ * 从飞书审批定义读可选项（**不写死**）：审批里加了新选项（客户名称、手续费、币种等），
+ * 系统下拉会自动跟着出现，不用改代码。读不到时回落到内置列表。
+ */
+export async function loadCostPaymentApprovalOptions(force = false) {
+  if (!force && approvalOptionsCache && Date.now() - approvalOptionsCache.at < APPROVAL_OPTIONS_CACHE_MS) {
+    return approvalOptionsCache.value;
+  }
+  if (!approvalOptionsPromise) {
+    approvalOptionsPromise = (async () => {
+      const data = await callFeishu<{ form?: string }>(
+        `/open-apis/approval/v4/approvals/${encodeURIComponent(COST_PAYMENT_APPROVAL_CODE)}`,
+        {},
+        "读取审批定义",
+      );
+      const widgets = JSON.parse(String(data?.form ?? "[]")) as ApprovalWidget[];
+      const company = readOptions(findWidget(widgets, "成本公司"));
+      const parseBranch = (branch: CostPaymentBranch, listName: string) => {
+        const list = findWidget(widgets, listName);
+        const children = list?.children ?? [];
+        const amount = findWidget(children, "金额");
+        const currencyRange = (!Array.isArray(amount?.option) && amount?.option?.currencyRange) || [];
+        return {
+          company,
+          customer: branch === "huawei" ? readOptions(findWidget(children, "客户名称")) : [],
+          fee: readOptions(findWidget(children, "手续费")),
+          invoice: readOptions(findWidget(children, "发票")),
+          currencies: Array.isArray(currencyRange) && currencyRange.length ? [...currencyRange] : ["BRL", "CLP", "CNY", "MXN", "USD"],
+        } satisfies CostPaymentBranchOptions;
+      };
+      const value = {
+        huawei: parseBranch("huawei", "付款明细-华为云"),
+        other: parseBranch("other", "付款明细-其他"),
+        compute: parseBranch("compute", "付款明细-算力"),
+      };
+      approvalOptionsCache = { at: Date.now(), value };
+      return value;
+    })()
+      .catch(() => {
+        // 飞书读不到就用内置兜底，不能因为审批定义读不到就让整个弹层打不开
+        const fallback = builtinOptions();
+        approvalOptionsCache = { at: Date.now(), value: fallback };
+        return fallback;
+      })
+      .finally(() => {
+        approvalOptionsPromise = null;
+      });
+  }
+  return approvalOptionsPromise;
+}
+
 export type CostPaymentPreviewRow = {
   ownerId: string;
   ownerNo: string;
@@ -541,6 +665,8 @@ export type CostPaymentPreviewRow = {
   paymentDate: string;
   invoiceIssued: boolean;
   customerName: string;
+  /** 华为云：这次付款覆盖的客户 / 华为云账号（来自对账账单）。 */
+  sources: Array<{ customer: string; account: string; amount: number }>;
   orderNo: string;
   batchNo: string;
   paid: boolean;
@@ -558,7 +684,15 @@ export async function loadCostPaymentPreview(branch: CostPaymentBranch, ownerIds
   const sourceRows = branch === "huawei"
     ? await queryRows<Row>(
         `SELECT CONCAT(p.period, '::', p.supplierId) AS ownerId, p.id AS physicalId, p.period AS ownerNo, p.period, p.supplierId, p.supplierName,
-                COALESCE(p.paymentTotalAmount, 0) AS amount, COALESCE(p.currency, p.supplierPayableCurrency, 'USD') AS currency,
+                -- 金额优先取已登记的付款总额，没登记就按账单汇总（供应商应付含税）
+                COALESCE(
+                  NULLIF(p.paymentTotalAmount, 0),
+                  (SELECT SUM(r.supplierPayableTotalAmount) FROM merge_cloud_rows r
+                    WHERE r.period = p.period AND r.supplierId = p.supplierId),
+                  p.supplierPayableTotalAmount,
+                  0
+                ) AS amount,
+                COALESCE(NULLIF(p.currency, ''), NULLIF(p.supplierPayableCurrency, ''), 'USD') AS currency,
                 p.receivableDate AS paymentDate, p.paid, p.invoiceNo,
                 (SELECT u.undertakingUnitCode FROM merge_common_undertaking_units u
                   WHERE u.undertakingUnitId = p.payerUnitId OR u.undertakingUnitCode = p.payerUnitName LIMIT 1) AS undertakingUnitCode,
@@ -604,6 +738,8 @@ export async function loadCostPaymentPreview(branch: CostPaymentBranch, ownerIds
           { ids },
         );
 
+  /** 可选项优先取飞书审批定义里的（后台加了新选项，下拉自动跟着变）。 */
+  const branchOptions = (await loadCostPaymentApprovalOptions())[branch];
   const found = new Set<string>();
   for (const row of sourceRows) {
     found.add(String(row.ownerId ?? ""));
@@ -638,6 +774,31 @@ export async function loadCostPaymentPreview(branch: CostPaymentBranch, ownerIds
     accountsBySupplier.set(key, list);
   }
 
+  /** 华为云：这笔付款覆盖的客户 / 华为云账号（来自对账账单），用于弹层展示「账号信息」。 */
+  const sourcesByKey = new Map<string, CostPaymentPreviewRow["sources"]>();
+  if (branch === "huawei") {
+    const periods = Array.from(new Set(sourceRows.map((row) => String(row.period ?? "")).filter(Boolean)));
+    const cloudSources = periods.length && supplierIds.length
+      ? await queryRows<Row>(
+          `SELECT period, supplierId, customer, account, COALESCE(supplierPayableTotalAmount, 0) AS amount
+             FROM merge_cloud_rows
+            WHERE period IN (:periods) AND supplierId IN (:supplierIds)
+            ORDER BY customer, account`,
+          { periods, supplierIds },
+        )
+      : [];
+    for (const row of cloudSources) {
+      const key = `${String(row.period ?? "")}::${String(row.supplierId ?? "")}`;
+      const list = sourcesByKey.get(key) ?? [];
+      list.push({
+        customer: String(row.customer ?? ""),
+        account: String(row.account ?? ""),
+        amount: Number(row.amount ?? 0),
+      });
+      sourcesByKey.set(key, list);
+    }
+  }
+
   const rows: CostPaymentPreviewRow[] = sourceRows.map((row) => {
     const supplierId = String(row.supplierId ?? "");
     const bankAccounts = accountsBySupplier.get(supplierId) ?? [];
@@ -660,6 +821,7 @@ export async function loadCostPaymentPreview(branch: CostPaymentBranch, ownerIds
       paymentDate: String(branch === "other" && row.isInvoiced === 0 ? "" : row.paymentDate ?? "").slice(0, 10),
       invoiceIssued: branch === "other" ? Number(row.isInvoiced ?? 0) === 1 : Boolean(row.invoiceNo),
       customerName: String(row.customerName ?? ""),
+      sources: branch === "huawei" ? sourcesByKey.get(`${String(row.period ?? "")}::${String(row.supplierId ?? "")}`) ?? [] : [],
       orderNo: String(row.ownerNo ?? ""),
       batchNo: String(row.batchNo ?? ""),
       paid,
@@ -669,6 +831,8 @@ export async function loadCostPaymentPreview(branch: CostPaymentBranch, ownerIds
   return {
     branch,
     rows,
+    options: branchOptions,
+    companies: await loadCostPaymentCompanyOptions(branchOptions.company),
     warnings: rows.flatMap((row) => {
       const list: string[] = [];
       if (!row.bankAccounts.length) list.push(`${row.ownerNo || row.ownerId}：供应商还没有银行账户，请先在供应商档案里补`);
@@ -677,6 +841,42 @@ export async function loadCostPaymentPreview(branch: CostPaymentBranch, ownerIds
       return list;
     }),
   };
+}
+
+/**
+ * 成本公司下拉用：系统承接单位 + 对应的审批公司选项。
+ *
+ * 先按承接单位代码查内置映射；查不到时**用飞书里的公司选项文字做名称匹配**
+ * （去掉空格标点、忽略括号里的国家后缀），这样审批后台新加了公司选项也能自动对上。
+ * 两边都对不上时 companyKey 为空，弹层里会置灰并提示。
+ */
+export async function loadCostPaymentCompanyOptions(companyOptions: CostPaymentOption[] = []) {
+  const rows = await queryRows<{ undertakingUnitCode: string | null; shortName: string | null; entityName: string | null }>(
+    `SELECT undertakingUnitCode, shortName, entityName FROM merge_common_undertaking_units ORDER BY shortName`,
+  );
+  return rows.map((row) => {
+    const code = String(row.undertakingUnitCode ?? "").trim().toUpperCase();
+    const name = String(row.shortName ?? "").trim() || String(row.entityName ?? "").trim() || code;
+    const companyKey = resolveCostPaymentCompanyKey(code) || matchCompanyOptionByName(companyOptions, [name, String(row.entityName ?? ""), code]);
+    return { code, name, companyKey };
+  });
+}
+
+export function matchCompanyOptionByName(options: CostPaymentOption[], candidates: string[]) {
+  const normalized = (value: unknown) => String(value ?? "").toUpperCase().replace(/（[^）]*）|\([^)]*\)/g, "").replace(/[^A-Z0-9\u4e00-\u9fa5]/g, "");
+  const candidatesNorm = candidates.map(normalized).filter((value) => value.length >= 3);
+  if (!candidatesNorm.length) return "";
+  let best: { value: string; length: number } | null = null;
+  for (const option of options) {
+    const optionNorm = normalized(option.text);
+    if (!optionNorm) continue;
+    for (const candidate of candidatesNorm) {
+      if (!optionNorm.includes(candidate) && !candidate.includes(optionNorm)) continue;
+      // 命中多个时取最"具体"（文字最短）的那个：LUZ NEWMEDIA 同时能命中 LUZ NEWMEDIA 与 LUZ NEWMEDIA, S.A. …
+      if (!best || optionNorm.length < best.length) best = { value: option.value, length: optionNorm.length };
+    }
+  }
+  return best?.value ?? "";
 }
 
 export type CostPaymentApprovalView = {
