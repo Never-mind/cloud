@@ -14,6 +14,11 @@ vi.mock("./settlement-project-service", () => ({
   ensureSettlementProjectForQuotation: vi.fn().mockResolvedValue({}),
 }));
 
+// 报价单默认汇率来自「月度汇率维护」；这里模拟成"没有维护汇率"，走原来的固定默认值。
+vi.mock("./exchange-rate-service", () => ({
+  resolveQuotationDefaultRates: vi.fn().mockResolvedValue({ periodMonth: "", exchangeRateUsd: null, exchangeRateMxn: null }),
+}));
+
 import { confirmQuotation, createQuotationFromCustomerPo, recalculateQuotationSummary } from "./quotation-workflow";
 
 describe("报价工作流", () => {

@@ -13,7 +13,17 @@ import { useRequestGuard } from "@/lib/table-query-client";
 import { TableStateContent } from "./table-state";
 
 type Row = Record<string, string | number | boolean | null>;
-type ListResponse = { rows: Row[]; summary: Summary; currencySummaries?: CurrencySummary[]; total: number; page: number; pageSize: number; totalPages: number };
+type ListResponse = {
+  rows: Row[];
+  summary: Summary;
+  currencySummaries?: CurrencySummary[];
+  /** 缺当月汇率、未参与合计的行数（页面要提示「待维护汇率」）。 */
+  unconvertedCount?: number;
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+};
 
 type Summary = {
   billingTotal: number;
@@ -46,8 +56,12 @@ const columns: Array<{ key: string; label: string; type?: string }> = [
   { key: "billingAmount", label: "月账单总额（含税）", type: "money" },
   { key: "prepaymentCurrency", label: "预付款币种" },
   { key: "prepaymentAmount", label: "预付款核销金额（含税）", type: "money" },
+  { key: "exchangeRate", label: "折算汇率", type: "number" },
+  { key: "prepaymentAmountConverted", label: "折算后预付款", type: "money" },
   { key: "serviceFeeAmount", label: "月度服务费（含税）", type: "money" },
   { key: "serviceFeeAmountExcludingTax", label: "月度服务费（未税）", type: "money" },
+  { key: "serviceFeeCurrency", label: "服务费币种" },
+  { key: "fxStatus", label: "折算状态" },
   { key: "prepaymentContractNos", label: "预付款合同号" },
   { key: "sourceNote", label: "来源说明" },
   { key: "createdAt", label: "创建时间", type: "datetime" },
@@ -68,12 +82,15 @@ export function ServiceFeesPage() {
   const [rows, setRows] = useState<Row[]>([]);
   const [summary, setSummary] = useState<Summary>(emptySummary);
   const [currencySummaries, setCurrencySummaries] = useState<CurrencySummary[]>([]);
+  /** 缺当月汇率、未参与合计的行数 */
+  const [unconvertedCount, setUnconvertedCount] = useState(0);
   const [keyword, setKeyword] = useState("");
   const [startMonth, setStartMonth] = useState("");
   const [endMonth, setEndMonth] = useState("");
   const [countryCode, setCountryCode] = useState("");
   const [batchName, setBatchName] = useState("");
   const [currency, setCurrency] = useState("");
+  const [fxStatus, setFxStatus] = useState("");
   const [lineType, setLineType] = useState("");
   const [requestType, setRequestType] = useState("");
   const [snapshotNo, setSnapshotNo] = useState("");
@@ -95,7 +112,7 @@ export function ServiceFeesPage() {
   const beginRequest = useRequestGuard();
 
   const params = useMemo(() => {
-    const next = buildParams({ keyword, startMonth, endMonth, countryCode, batchName, currency, lineType, requestType });
+    const next = buildParams({ keyword, startMonth, endMonth, countryCode, batchName, currency, fxStatus, lineType, requestType });
     if (sortField && sortOrder) { next.set("sortField", sortField); next.set("sortOrder", sortOrder); }
     for (const [key, values] of Object.entries(columnFilters)) values.forEach((value) => next.append(`filter.${key}`, value));
     return next;
@@ -167,6 +184,7 @@ export function ServiceFeesPage() {
       if (includeSummary) {
         setSummary(data.summary ?? emptySummary);
         setCurrencySummaries(data.currencySummaries ?? []);
+        setUnconvertedCount(Number(data.unconvertedCount ?? 0));
         setTotal(Number(data.total ?? 0));
       }
       if (data.page !== nextPage) setPage(data.page);
@@ -320,6 +338,16 @@ export function ServiceFeesPage() {
           <Input className="w-[88px]" placeholder="批次" value={batchName} onChange={(event) => setBatchName(event.target.value)} />
           <Input className="w-[132px]" placeholder="币种，如 USD / CNY" value={currency} onChange={(event) => setCurrency(event.target.value)} />
           <Select
+            className="w-[124px]"
+            value={fxStatus}
+            onChange={(event) => setFxStatus(event.target.value)}
+          >
+            <option value="">全部折算情况</option>
+            <option value="converted">已折算</option>
+            <option value="same">同币种</option>
+            <option value="missing">待维护汇率</option>
+          </Select>
+          <Select
             className="w-[104px]"
             value={lineType}
             onChange={(event) => setLineType(event.target.value)}
@@ -350,6 +378,23 @@ export function ServiceFeesPage() {
             导出
           </Button>
         </div>
+
+        {unconvertedCount ? (
+          <div className="flex flex-wrap items-center gap-2 border-b border-line-soft bg-[#fdf6ec] px-4 py-2 text-xs text-[#8a5a00]">
+            <Info size={14} />
+            <span>
+              有 <b>{unconvertedCount}</b> 行是跨币种（月账单与预付款币种不同）但缺少当月汇率，未折算、也未计入下方合计。
+              请到「财务管理 → 汇率维护」补上对应账期的汇率。
+            </span>
+            <button
+              className="underline"
+              type="button"
+              onClick={() => { setFxStatus("missing"); setPage(1); void loadData(1, pageSizeRef.current); }}
+            >
+              只看这些行
+            </button>
+          </div>
+        ) : null}
 
         <div className="grid grid-cols-2 gap-2 border-b border-line-soft bg-surface-2 p-3 md:grid-cols-3 xl:grid-cols-6">
           <SummaryItem label="月账单合计" summaries={currencySummaries} fallback={summary} valueKey="billingTotal" />
@@ -385,7 +430,7 @@ export function ServiceFeesPage() {
                 <tr className="hover:bg-surface-2" key={String(row.id)}>
                   {columns.map((column) => (
                     <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3" key={column.key}>
-                      {formatValue(row[column.key], column.type)}
+                      {renderFxCell(row, column)}
                     </td>
                   ))}
                 </tr>
@@ -423,6 +468,25 @@ export function ServiceFeesPage() {
       </Panel>
     </div>
   );
+}
+
+/**
+ * 跨币种折算相关列的渲染：
+ *   - 缺汇率的行金额列显示「待维护」，不显示一个看着像真数字的 0；
+ *   - 折算状态用中文标签，同币种显示「—」。
+ */
+function renderFxCell(row: Row, column: { key: string; type?: string }) {
+  const missing = String(row.fxStatus ?? "") === "missing";
+  if (column.key === "fxStatus") {
+    const status = String(row.fxStatus ?? "");
+    if (status === "converted") return <span className="rounded border border-[#b3d8ff] bg-[#ecf5ff] px-1.5 py-0.5 text-xs text-[#1d6fd0]">已折算 {formatValue(row.exchangeRate, "number")}</span>;
+    if (status === "missing") return <span className="rounded border border-[#f5dab1] bg-[#fdf6ec] px-1.5 py-0.5 text-xs text-[#b8860b]">待维护汇率</span>;
+    return <span className="text-ink-3">—</span>;
+  }
+  if (missing && ["exchangeRate", "prepaymentAmountConverted", "serviceFeeAmount", "serviceFeeAmountExcludingTax"].includes(column.key)) {
+    return <span className="text-[#b8860b]">待维护</span>;
+  }
+  return <>{formatValue(row[column.key], column.type)}</>;
 }
 
 function SummaryItem({ label, summaries, fallback, valueKey }: { label: string; summaries: CurrencySummary[]; fallback: Summary; valueKey: keyof Summary }) {

@@ -3,6 +3,7 @@ import { execute, queryRows, type Row } from "./db";
 import type { OperationActor } from "./operation-actor";
 import { ensureSettlementProjectForQuotation } from "./settlement-project-service";
 import { calculateQuotation, type QuotationCalculationInput, type QuotationCalculationParams, type QuotationProductSnapshot } from "./quotation-calculator";
+import { resolveQuotationDefaultRates } from "./exchange-rate-service";
 
 type CustomerPoRow = {
   id: string;
@@ -221,8 +222,19 @@ export async function createQuotationFromCustomerPo(poId: string, actor: Operati
     const code = String(history.productCode ?? "").trim();
     if (code && !historyByProductCode.has(code)) historyByProductCode.set(code, history);
   });
+  /**
+   * 报价单默认汇率改成取「月度汇率维护」当月维护的值（`exchangeRateUsd` = 1 USD 折多少 CNY，
+   * `exchangeRateMxn` = 1 MXN 折多少 USD）；没有维护到就退回原来的固定默认值。
+   * 汇率既写进报价单字段，也参与报价计算，避免两者口径不一致。
+   */
+  const defaultRates = await resolveQuotationDefaultRates();
+  const quotationDefaults = {
+    ...DEFAULT_QUOTATION_PARAMS,
+    ...(defaultRates.exchangeRateUsd ? { exchangeRateUsd: defaultRates.exchangeRateUsd } : {}),
+    ...(defaultRates.exchangeRateMxn ? { exchangeRateMxn: defaultRates.exchangeRateMxn } : {}),
+  };
   const calculation = calculateQuotation(
-    DEFAULT_QUOTATION_PARAMS,
+    quotationDefaults,
     items.map((item, index) => ({
       id: randomUUID(),
       lineNo: index + 1,
@@ -246,7 +258,7 @@ export async function createQuotationFromCustomerPo(poId: string, actor: Operati
   );
   const quotationId = randomUUID();
   const quotationNo = buildQuotationNo(customerPo.poNo);
-  const quotationParams = { ...DEFAULT_QUOTATION_PARAMS, ...calculation };
+  const quotationParams = { ...quotationDefaults, ...calculation };
   await execute(
     `INSERT INTO merge_po_quotations
       (id, quotationNo, projectName, customerId, contractingUnitId, sourcePoId, sourcePoNo, currency,

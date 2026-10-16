@@ -10,6 +10,7 @@ import { resolveDemandPlanImportRow } from "@/lib/purchase-order-demand-plan";
 import { autofillInstanceContractImportRow } from "@/lib/instance-contract-import";
 import { getOperationActorForLog, getOperationRequestId, recordOperationLog } from "@/lib/operation-log";
 import { getPermissionDomainKey } from "@/lib/permission-definitions";
+import { prepareExchangeRateWrite } from "@/lib/exchange-rate-service";
 
 export async function POST(request: NextRequest, context: { params: Promise<{ entity: string }> }) {
   const { entity } = await context.params;
@@ -78,7 +79,8 @@ export async function POST(request: NextRequest, context: { params: Promise<{ en
     if ((config.key === "purchase-order-sn-items" || config.key === "purchase-order-plan-items") && !normalizeText(row.purchaseOrderId)) {
       throw new Error("未找到对应的PO订单号，请检查PO订单号是否存在");
     }
-    await upsertEntityRow(config, row);
+    // 汇率的「账期 + 币种对」是唯一键：按同一天然键生成主键，重复导入即更新。
+    await upsertEntityRow(config, config.key === "exchange-rates" ? prepareExchangeRateWrite(row) : row);
   });
   await recordOperationLog({
     actor: await getOperationActorForLog(request),

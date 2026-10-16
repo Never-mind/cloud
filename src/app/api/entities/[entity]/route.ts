@@ -6,6 +6,7 @@ import { recalculateQuotationSummary } from "@/lib/quotation-workflow";
 import { assertPurchaseItemPowerPricingStorage, persistPurchaseItemPowerPricing, persistPurchaseOrderUsdRate } from "@/lib/purchase-power-pricing-service";
 import { getOperationRequestId, recordOperationLog } from "@/lib/operation-log";
 import { getPermissionDomainKey } from "@/lib/permission-definitions";
+import { describeExchangeRateWriteError, prepareExchangeRateWrite } from "@/lib/exchange-rate-service";
 
 export async function GET(request: NextRequest, context: { params: Promise<{ entity: string }> }) {
   const { entity } = await context.params;
@@ -48,9 +49,11 @@ export async function POST(request: NextRequest, context: { params: Promise<{ en
       return NextResponse.json({ error: "客户PO请通过确认操作确认，不能直接修改状态" }, { status: 400 });
     }
     const actor = await getOperationActor(request);
-    const auditedBody = ["requests", "purchase-orders", "customer-pos", "quotations", "history-quotations"].includes(entity)
-      ? { ...body, ...operationFields(actor, "create") }
-      : body;
+    const auditedBody = entity === "exchange-rates"
+      ? { ...prepareExchangeRateWrite(body), ...operationFields(actor, "create") }
+      : ["requests", "purchase-orders", "customer-pos", "quotations", "history-quotations"].includes(entity)
+        ? { ...body, ...operationFields(actor, "create") }
+        : body;
     if (entity === "quotation-items") {
       const quotationId = String(auditedBody.quotationId ?? "").trim();
       if (!quotationId) {
@@ -80,7 +83,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ en
     return NextResponse.json(row, { status: 201 });
   } catch (error) {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "保存失败" },
+      { error: entity === "exchange-rates" ? describeExchangeRateWriteError(error) : error instanceof Error ? error.message : "保存失败" },
       { status: 400 },
     );
   }

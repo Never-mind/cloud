@@ -13,6 +13,7 @@ import { getOperationActor, operationFields } from "@/lib/operation-actor";
 import { assertPurchaseItemPowerPricingStorage, persistPurchaseItemPowerPricing, persistPurchaseOrderUsdRate } from "@/lib/purchase-power-pricing-service";
 import { getOperationRequestId, recordOperationLog } from "@/lib/operation-log";
 import { getPermissionDomainKey } from "@/lib/permission-definitions";
+import { describeExchangeRateWriteError, prepareExchangeRateWrite } from "@/lib/exchange-rate-service";
 
 export async function GET(_request: NextRequest, context: { params: Promise<{ entity: string; id: string }> }) {
   const { entity, id } = await context.params;
@@ -88,9 +89,11 @@ export async function PUT(request: NextRequest, context: { params: Promise<{ ent
 
   try {
     const before = entity === "purchase-orders" || entity === "quotation-items" ? await getEntityRow(config, id) : null;
-    const auditedBody = ["requests", "purchase-orders", "customer-pos", "quotations", "history-quotations"].includes(entity)
-      ? { ...body, ...operationFields(actor, "update") }
-      : body;
+    const auditedBody = entity === "exchange-rates"
+      ? { ...prepareExchangeRateWrite(body), ...operationFields(actor, "update") }
+      : ["requests", "purchase-orders", "customer-pos", "quotations", "history-quotations"].includes(entity)
+        ? { ...body, ...operationFields(actor, "update") }
+        : body;
     const row = await updateEntityRow(config, id, auditedBody);
     if (entity === "purchase-orders") await persistPurchaseOrderUsdRate(id, auditedBody);
     if (entity === "purchase-order-items") await persistPurchaseItemPowerPricing(id, auditedBody);
@@ -121,7 +124,7 @@ export async function PUT(request: NextRequest, context: { params: Promise<{ ent
     return NextResponse.json(row);
   } catch (error) {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "保存失败" },
+      { error: entity === "exchange-rates" ? describeExchangeRateWriteError(error) : error instanceof Error ? error.message : "保存失败" },
       { status: 400 },
     );
   }

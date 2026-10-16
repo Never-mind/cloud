@@ -37,6 +37,7 @@
     "invoices:refresh": "tsx scripts/refresh-invoice-files.ts",
     "schema:obs-storage": "tsx scripts/migrate-obs-storage.ts",
     "schema:requestitem-batch": "tsx scripts/migrate-requestitem-batch.ts",
+    "schema:exchange-rates": "tsx scripts/migrate-exchange-rates.ts",
     "schema:settlement-invoice-uuid": "tsx scripts/migrate-settlement-invoice-uuid.ts",
     "schema:settlement-item-change": "tsx scripts/migrate-settlement-item-change.ts",
     "schema:feishu-approvals": "tsx scripts/migrate-feishu-approvals.ts",

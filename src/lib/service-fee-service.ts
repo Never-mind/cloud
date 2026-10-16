@@ -17,10 +17,13 @@ import { DEFAULT_PAGE_SIZE, normalizePageSize } from "./pagination";
 import { appendTableInFilter, formatTableDateExpression, getTableFilterOptionsOrderBy, getTableSort } from "./table-query";
 import { sanitizeDocumentFileName } from "./document-utils";
 import {
+  applyExchangeRateConversion,
+  countUnconvertedServiceFeeRows,
   type ServiceFeeBillingRow,
   type ServiceFeePrepaymentRow,
   type ServiceFeeRow,
 } from "./service-fee-workflow";
+import { buildExchangeRateMap, toPeriodMonth } from "./exchange-rate-service";
 
 type ServiceFeeFilters = {
   keyword?: string;
@@ -31,6 +34,8 @@ type ServiceFeeFilters = {
   currency?: string;
   lineType?: string;
   requestType?: string;
+  /** 折算情况：converted=已折算，same=同币种，missing=未维护汇率。 */
+  fxStatus?: string;
 };
 
 type ServiceFeeStatementFilters = {
@@ -76,11 +81,20 @@ export async function calculateServiceFees(searchParams: URLSearchParams) {
   const allRows = fastPageQuery
     ? await loadFastServiceFeeRows(fastPageQuery.sql, fastPageQuery.params)
     : await loadServiceFeeDataset(searchParams);
-  const total = allRows.length;
+  /**
+   * 跨币种折算：月账单与预付款币种不一致时，用该核销月份维护的汇率折算后再相减
+   * （以前是直接相减，会把美金当人民币减）。折算必须在汇总、分页之前完成，
+   * 否则「折算情况」筛选和合计都不准。
+   */
+  const convertedRows = await applyServiceFeeExchangeRates(allRows);
+  const filteredRows = filters.fxStatus
+    ? convertedRows.filter((row) => row.fxStatus === filters.fxStatus)
+    : convertedRows;
+  const total = filteredRows.length;
   const rows = shouldPaginate
-    ? allRows.slice((requestedPage - 1) * pageSize, requestedPage * pageSize)
-    : allRows;
-  const summarizedRows = allRows;
+    ? filteredRows.slice((requestedPage - 1) * pageSize, requestedPage * pageSize)
+    : filteredRows;
+  const summarizedRows = filteredRows;
   const summary = summarizeServiceFeeRows(summarizedRows);
   const currencySummaries = summarizeServiceFeeRowsByCurrency(summarizedRows);
 
@@ -96,6 +110,7 @@ export async function calculateServiceFees(searchParams: URLSearchParams) {
     rows: await attachPartyCodes(rows),
     summary,
     currencySummaries,
+    unconvertedCount: countUnconvertedServiceFeeRows(summarizedRows),
     total,
     page,
     pageSize,
@@ -169,6 +184,23 @@ type ServiceFeeCurrencySummary = {
   instanceServiceFeeTotal: number;
   feeServiceFeeTotal: number;
 };
+
+/** 月账单与预付款币种不一致的行才需要折算。 */
+function isCrossCurrencyServiceFeeRow(row: Pick<ServiceFeeRow, "billingCurrency" | "prepaymentCurrency">) {
+  const billingCurrency = String(row.billingCurrency ?? "").trim().toUpperCase();
+  const prepaymentCurrency = String(row.prepaymentCurrency ?? "").trim().toUpperCase();
+  return Boolean(billingCurrency && prepaymentCurrency && billingCurrency !== prepaymentCurrency);
+}
+
+/**
+ * 给服务费行套上跨币种折算：一次性把用到的账期汇率读出来，再逐行折算。
+ * 没有跨币种行时直接返回原数组，避免多打一次汇率查询。
+ */
+async function applyServiceFeeExchangeRates(rows: ServiceFeeRow[]) {
+  if (!rows.some(isCrossCurrencyServiceFeeRow)) return rows;
+  const rates = await buildExchangeRateMap(rows.map((row) => toPeriodMonth(row.writeOffMonth)));
+  return applyExchangeRateConversion(rows, rates);
+}
 
 function emptyServiceFeeSummary() {
   return {
@@ -298,9 +330,10 @@ function normalizeServiceFeeSummaryRows(rows: ServiceFeeSummaryRow[]) {
 }
 
 function summarizeServiceFeeRows(rows: ServiceFeeRow[]) {
-  return rows.reduce((summary, row) => {
+  // 缺汇率的行不参与合计（原因见 service-fee-workflow 的 summarizeServiceFeeRows）。
+  return rows.filter((row) => row.fxStatus !== "missing").reduce((summary, row) => {
     const billingAmount = Number(row.billingAmount ?? 0);
-    const prepaymentAmount = Number(row.prepaymentAmount ?? 0);
+    const prepaymentAmount = Number(row.prepaymentAmountConverted ?? row.prepaymentAmount ?? 0);
     const serviceFeeAmount = Number(row.serviceFeeAmount ?? 0);
     const serviceFeeAmountExcludingTax = Number(row.serviceFeeAmountExcludingTax ?? 0);
     summary.billingTotal += billingAmount;
@@ -316,7 +349,10 @@ function summarizeServiceFeeRows(rows: ServiceFeeRow[]) {
 function summarizeServiceFeeRowsByCurrency(rows: ServiceFeeRow[]): ServiceFeeCurrencySummary[] {
   const grouped = new Map<string, ServiceFeeRow[]>();
   for (const row of rows) {
-    const currency = firstNonBlank(row.billingCurrency, row.prepaymentCurrency, row.currency) || "未指定币种";
+    // 折算后统一按月账单币种归集：跨币种行的服务费已经换算到月账单币种了。
+    const currency = firstNonBlank(row.serviceFeeCurrency, row.billingCurrency, row.prepaymentCurrency, row.currency) || "未指定币种";
+    // 缺汇率的行不进币种合计，由页面单独提示「X 行待维护汇率」。
+    if (row.fxStatus === "missing") continue;
     const current = grouped.get(currency) ?? [];
     current.push(row);
     grouped.set(currency, current);
@@ -836,6 +872,11 @@ export async function createServiceFeeStatementDraft({
   }
   const calculated = await calculateServiceFees(params);
   if (!calculated.rows.length) throw new Error("该国家和核销月份没有可生成的服务费明细");
+  /**
+   * 缺汇率的行照常写进草稿（页面上标「待维护」、金额留空），但**不允许确认**——
+   * 见 confirmServiceFeeStatement。这样用户能先把账拉出来看，又不会把没折算的错数确认掉。
+   */
+  const statementRows = calculated.rows;
   if (calculated.rows.some((row) => row.countryCode !== statementFilters.countryCode)) {
     throw new Error("服务费对账单只能包含一个国家的数据");
   }
@@ -929,7 +970,7 @@ export async function createServiceFeeStatementDraft({
       },
     );
 
-    for (const [index, row] of calculated.rows.entries()) {
+    for (const [index, row] of statementRows.entries()) {
       await insertSnapshotItem(connection, finalSnapshotNo, index + 1, row);
     }
   });
@@ -1257,6 +1298,24 @@ export async function confirmServiceFeeStatement(snapshotNo: string) {
       { snapshotNo },
     );
     if (Number(total ?? 0) === 0) throw new Error("对账单没有明细，不能确认");
+    /**
+     * 跨币种折算缺汇率时**拦住确认**：以前这里不判断币种，把美金当人民币减；
+     * 现在缺当月汇率就不给确认，逼着先到「月度汇率维护」补上汇率再重新生成。
+     */
+    const pendingRows = await queryRowsInTransaction<{ writeOffMonth: string | null; prepaymentCurrency: string | null; billingCurrency: string | null }>(
+      connection,
+      `SELECT DISTINCT DATE_FORMAT(writeOffMonth, '%Y-%m') AS writeOffMonth, prepaymentCurrency, billingCurrency
+         FROM servicefeesnapshotitems
+        WHERE snapshotNo = :snapshotNo AND fxStatus = 'missing'`,
+      { snapshotNo },
+    );
+    if (pendingRows.length) {
+      const detail = pendingRows
+        .map((row) => `${row.writeOffMonth ?? ""} ${row.prepaymentCurrency ?? ""}→${row.billingCurrency ?? ""}`.trim())
+        .filter(Boolean)
+        .join("、");
+      throw new Error(`有 ${pendingRows.length} 类明细缺少当月汇率（${detail}），请先在「月度汇率维护」补上汇率并重新生成对账单`);
+    }
     await executeInTransaction(
       connection,
       "UPDATE servicefeesnapshots SET status = '已确认', confirmedAt = CURRENT_TIMESTAMP WHERE snapshotNo = :snapshotNo",
@@ -1421,6 +1480,7 @@ function getFilters(searchParams: URLSearchParams): ServiceFeeFilters {
     currency: searchParams.get("currency")?.trim() || "",
     lineType: searchParams.get("lineType")?.trim() || "",
     requestType: searchParams.get("requestType")?.trim() || "",
+    fxStatus: searchParams.get("fxStatus")?.trim() || "",
   };
 }
 
@@ -1571,14 +1631,23 @@ async function insertSnapshotItem(connection: PoolConnection, snapshotNo: string
         INSERT INTO servicefeesnapshotitems
           (id, snapshotNo, writeOffMonth, countryCode, vatRate, batchName, requestNo, poNo, deviceCode,
           modelCode, nameEn, supplierId, undertakingUnitId, customerId, quantity, currency, billingCurrency, prepaymentCurrency, lineType, billingAmount, prepaymentAmount,
-          serviceFeeAmount, serviceFeeAmountExcludingTax, billingSourceIds, prepaymentSourceIds, prepaymentContractNos, sourceNote)
+          exchangeRate, prepaymentAmountConverted, serviceFeeAmount, serviceFeeAmountExcludingTax, serviceFeeCurrency, fxStatus,
+          billingSourceIds, prepaymentSourceIds, prepaymentContractNos, sourceNote)
         VALUES
           (:id, :snapshotNo, :writeOffMonth, :countryCode, :vatRate, :batchName, :requestNo, :poNo, :deviceCode,
           :modelCode, :nameEn, :supplierId, :undertakingUnitId, :customerId, :quantity, :currency, :billingCurrency, :prepaymentCurrency, :lineType, :billingAmount, :prepaymentAmount,
-          :serviceFeeAmount, :serviceFeeAmountExcludingTax, :billingSourceIds, :prepaymentSourceIds, :prepaymentContractNos, :sourceNote)
+          :exchangeRate, :prepaymentAmountConverted, :serviceFeeAmount, :serviceFeeAmountExcludingTax, :serviceFeeCurrency, :fxStatus,
+          :billingSourceIds, :prepaymentSourceIds, :prepaymentContractNos, :sourceNote)
     `,
     {
       ...row,
+      exchangeRate: row.exchangeRate ?? null,
+      prepaymentAmountConverted: row.prepaymentAmountConverted ?? null,
+      serviceFeeCurrency: row.serviceFeeCurrency ?? null,
+      fxStatus: row.fxStatus ?? null,
+      // 缺汇率的行金额留空，避免明细里出现一个看着像真数字的 0。
+      serviceFeeAmount: row.fxStatus === "missing" ? null : row.serviceFeeAmount,
+      serviceFeeAmountExcludingTax: row.fxStatus === "missing" ? null : row.serviceFeeAmountExcludingTax,
       id: `${snapshotNo}-${String(index).padStart(5, "0")}`,
       snapshotNo,
     },

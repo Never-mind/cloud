@@ -91,6 +91,7 @@ const MODULE_GROUP: Record<string, string> = {
   "billing-adjustments": "合同管理",
   "billing-statements": "财务管理",
   "service-fees": "财务管理",
+  "exchange-rates": "财务管理",
   "service-fee-snapshots": "财务管理",
   "service-fee-snapshot-items": "财务管理",
   "prepayment-available": "财务管理",
@@ -287,7 +288,7 @@ const PERMISSION_MODULE_ORDER: Record<string, string[]> = {
     "b6-type-configs", "capex-pricing", "balance-settlements", "non-instance-settlements", "balance-final-settlements",
     "billing-available", "billing-ledgers", "monthly-billing-writeoffs", "billing-statements",
     "prepayment-available", "prepayment-contracts", "monthly-prepayment-writeoffs", "prepayment-writeoff-adjustments",
-    "prepayment-contract-items", "write-off-items", "service-fees", "service-fee-snapshots", "service-fee-snapshot-items",
+    "prepayment-contract-items", "write-off-items", "exchange-rates", "service-fees", "service-fee-snapshots", "service-fee-snapshot-items",
     "internal-service-fee-available", "internal-service-fees", "internal-service-fee-adjustments", "internal-service-fee-snapshots",
   ],
   "domain:power:基础信息": ["countries", "delivery-locations", "delivery-contacts", "datacenters", "instance-models"],
@@ -427,6 +428,7 @@ const PAGE_ROUTE_RULES: RoutePermissionRule[] = [
   { prefix: "/finance/prepayment-contracts", moduleKey: "prepayment-contracts" },
   { prefix: "/finance/service-fee-snapshots", moduleKey: "service-fee-snapshots" },
   { prefix: "/finance/service-fees", moduleKey: "service-fees" },
+  { prefix: "/finance/exchange-rates", moduleKey: "exchange-rates" },
 ];
 
 function routeMatches(pathname: string, prefix: string) {

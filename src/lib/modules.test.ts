@@ -179,6 +179,7 @@ describe("module configuration", () => {
       "成本与锚定价格",
       "月账单管理",
       "预付款管理",
+      "汇率维护",
       "服务费核算",
       "管理费",
     ]);
@@ -196,6 +197,7 @@ describe("module configuration", () => {
       "prepayment-contracts",
       "monthly-prepayment-writeoffs",
       "prepayment-writeoff-adjustments",
+      "exchange-rates",
       "service-fees",
       "service-fee-snapshots",
       "service-fee-snapshot-items",

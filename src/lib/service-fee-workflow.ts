@@ -1,3 +1,5 @@
+import { lookupExchangeRate, toPeriodMonth, type ExchangeRateMap } from "./exchange-rate-service";
+
 export type ServiceFeeBillingRow = {
   id: string;
   writeOffMonth: string;
@@ -47,6 +49,9 @@ export type ServiceFeePrepaymentRow = {
   updatedAt?: string | null;
 };
 
+/** 跨币种折算状态：same=同币种直接相减，converted=已按当月汇率折算，missing=缺汇率未折算。 */
+export type ServiceFeeFxStatus = "same" | "converted" | "missing";
+
 export type ServiceFeeRow = {
   id: string;
   writeOffMonth: string;
@@ -71,6 +76,13 @@ export type ServiceFeeRow = {
   prepaymentAmount: number;
   serviceFeeAmount: number;
   serviceFeeAmountExcludingTax: number;
+  /** 折算用的汇率（1 预付款币种 = 汇率 × 月账单币种）；同币种或缺失时为 null。 */
+  exchangeRate: number | null;
+  /** 折算到月账单币种后的预付款核销金额。 */
+  prepaymentAmountConverted: number;
+  /** 月度服务费的币种（跨币种折算后统一落在月账单币种）。 */
+  serviceFeeCurrency: string;
+  fxStatus: ServiceFeeFxStatus;
   createdAt?: string | null;
   updatedAt?: string | null;
   billingSourceIds: string;
@@ -130,16 +142,71 @@ export function buildServiceFeeRows({
     );
 }
 
+/**
+ * 跨币种折算：月账单与预付款币种不同时，按**该核销月份**维护的汇率把预付款折算成
+ * 月账单币种后再算服务费。找不到汇率时**不按 1:1 硬算**，整行标成 `missing`
+ * 并把服务费留 0，由页面提示「待维护汇率」、确认对账单时拦住。
+ *
+ * 同币种（含只有单边数据的行）保持原来的直接相减，不受影响。
+ */
+export function applyExchangeRateConversion(rows: ServiceFeeRow[], rates: ExchangeRateMap): ServiceFeeRow[] {
+  return rows.map((row) => {
+    const billingCurrency = normalizeText(row.billingCurrency).toUpperCase();
+    const prepaymentCurrency = normalizeText(row.prepaymentCurrency).toUpperCase();
+    const billingAmount = toNumber(row.billingAmount);
+    const prepaymentAmount = toNumber(row.prepaymentAmount);
+    const withDefaults: ServiceFeeRow = {
+      ...row,
+      exchangeRate: null,
+      prepaymentAmountConverted: prepaymentAmount,
+      serviceFeeCurrency: billingCurrency || prepaymentCurrency || normalizeText(row.currency).toUpperCase(),
+      fxStatus: "same",
+    };
+    if (!billingCurrency || !prepaymentCurrency || billingCurrency === prepaymentCurrency) return withDefaults;
+
+    const period = toPeriodMonth(row.writeOffMonth);
+    const rate = period ? lookupExchangeRate(rates, period, prepaymentCurrency, billingCurrency) : null;
+    if (!rate) {
+      return {
+        ...withDefaults,
+        prepaymentAmountConverted: 0,
+        serviceFeeAmount: 0,
+        serviceFeeAmountExcludingTax: 0,
+        fxStatus: "missing",
+      };
+    }
+
+    const prepaymentAmountConverted = roundMoney(prepaymentAmount * rate);
+    const serviceFeeAmount = roundMoney(billingAmount - prepaymentAmountConverted);
+    const vatRate = toNumber(row.vatRate);
+    return {
+      ...withDefaults,
+      exchangeRate: rate,
+      prepaymentAmountConverted,
+      serviceFeeAmount,
+      serviceFeeAmountExcludingTax: roundMoney(serviceFeeAmount / (1 + vatRate)),
+      fxStatus: "converted",
+    };
+  });
+}
+
 export function summarizeServiceFeeRows(
   rows: Array<
     Pick<ServiceFeeRow, "billingAmount" | "prepaymentAmount" | "serviceFeeAmount" | "lineType">
-    & Partial<Pick<ServiceFeeRow, "serviceFeeAmountExcludingTax">>
+    & Partial<Pick<ServiceFeeRow, "serviceFeeAmountExcludingTax" | "prepaymentAmountConverted" | "fxStatus" | "serviceFeeCurrency">>
   >,
 ): ServiceFeeSummary {
-  return rows.reduce<ServiceFeeSummary>(
+  /**
+   * 缺汇率的行不参与合计：它的月账单是 CNY、预付款是 USD，混进任何一个币种的合计
+   * 都会让合计对不上明细，所以整行排除，页面单独提示「X 行待维护汇率」。
+   */
+  const summedRows = rows.filter((row) => row.fxStatus !== "missing");
+  return summedRows.reduce<ServiceFeeSummary>(
     (summary, row) => ({
       billingTotal: roundMoney(summary.billingTotal + Number(row.billingAmount ?? 0)),
-      prepaymentTotal: roundMoney(summary.prepaymentTotal + Number(row.prepaymentAmount ?? 0)),
+      prepaymentTotal: roundMoney(
+        summary.prepaymentTotal + Number(row.prepaymentAmountConverted ?? row.prepaymentAmount ?? 0),
+      ),
       serviceFeeTotal: roundMoney(summary.serviceFeeTotal + Number(row.serviceFeeAmount ?? 0)),
       serviceFeeTotalExcludingTax: roundMoney(
         summary.serviceFeeTotalExcludingTax + Number(row.serviceFeeAmountExcludingTax ?? 0),
@@ -158,6 +225,11 @@ export function summarizeServiceFeeRows(
       feeServiceFeeTotal: 0,
     },
   );
+}
+
+/** 缺汇率、未参与合计的行数（页面上要提示「待维护汇率」）。 */
+export function countUnconvertedServiceFeeRows(rows: Array<Pick<ServiceFeeRow, "fxStatus">>) {
+  return rows.filter((row) => row.fxStatus === "missing").length;
 }
 
 function buildServiceFeeRow(bucket: Bucket): ServiceFeeRow {
@@ -195,6 +267,10 @@ function buildServiceFeeRow(bucket: Bucket): ServiceFeeRow {
     prepaymentAmount,
     serviceFeeAmount,
     serviceFeeAmountExcludingTax,
+    exchangeRate: null,
+    prepaymentAmountConverted: prepaymentAmount,
+    serviceFeeCurrency: normalizeText(billing?.currency ?? prepayment?.currency),
+    fxStatus: "same",
     createdAt: billing?.createdAt ?? prepayment?.createdAt ?? null,
     updatedAt: billing?.updatedAt ?? prepayment?.updatedAt ?? null,
     billingSourceIds: bucket.billingRows.map((row) => normalizeText(row.id)).filter(Boolean).join(","),
