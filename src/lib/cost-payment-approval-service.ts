@@ -406,12 +406,35 @@ export async function submitCostPaymentApproval(input: {
   return { approvalId, instanceCode };
 }
 
+/**
+ * 华为云的来源行按「账期 + 供应商」更新（列表用的是合成 id，见
+ * `parseCloudSupplierPaymentOwnerId`）；传进来的如果不是合成 id 就退回按物理 id 更新。
+ */
+async function updateCloudSupplierPayment(ownerId: string, patch: { approvalId: string; paid?: number }) {
+  const parsed = parseCloudSupplierPaymentOwnerId(ownerId);
+  if (!parsed) {
+    await execute(
+      `UPDATE merge_cloud_supplier_payments
+          SET paymentApprovalId = :approvalId${patch.paid ? ", paid = 1" : ""}
+        WHERE id = :ownerId`,
+      { approvalId: patch.approvalId, ownerId },
+    );
+    return;
+  }
+  await execute(
+    `UPDATE merge_cloud_supplier_payments
+        SET paymentApprovalId = :approvalId${patch.paid ? ", paid = 1" : ""}
+      WHERE period = :period AND supplierId = :supplierId`,
+    { approvalId: patch.approvalId, ...parsed },
+  );
+}
+
 async function markCostPaymentPending(entries: Array<{ ownerType: CostPaymentOwnerType; ownerId: string }>, approvalId: string) {
   for (const entry of entries) {
     if (entry.ownerType === "purchase_order_payment") {
       await execute("UPDATE merge_power_purchaseorders SET paymentStatus = '审批中', paymentApprovalId = :approvalId WHERE purchaseOrderId = :ownerId", { approvalId, ownerId: entry.ownerId });
     } else if (entry.ownerType === "cloud_supplier_payment") {
-      await execute("UPDATE merge_cloud_supplier_payments SET paymentApprovalId = :approvalId WHERE id = :ownerId", { approvalId, ownerId: entry.ownerId });
+      await updateCloudSupplierPayment(entry.ownerId, { approvalId });
     } else {
       await execute("UPDATE merge_po_settlement_invoices SET paymentApprovalId = :approvalId WHERE id = :ownerId", { approvalId, ownerId: entry.ownerId });
     }
@@ -478,10 +501,7 @@ async function applyCostPaymentStatus(ownerType: CostPaymentOwnerType, ownerIds:
         { paymentStatus: paid ? "已付款" : status === "rejected" ? "已驳回" : "未付款", ownerId },
       );
     } else if (ownerType === "cloud_supplier_payment") {
-      await execute(
-        `UPDATE merge_cloud_supplier_payments SET paid = ${paid ? 1 : "paid"}, paymentApprovalId = :approvalId WHERE id = :ownerId`,
-        { approvalId, ownerId },
-      );
+      await updateCloudSupplierPayment(ownerId, { approvalId, ...(paid ? { paid: 1 } : {}) });
     } else {
       await execute(
         `UPDATE merge_po_settlement_invoices SET isPaid = ${paid ? 1 : "isPaid"}, paymentApprovalId = :approvalId WHERE id = :ownerId`,
@@ -489,6 +509,19 @@ async function applyCostPaymentStatus(ownerType: CostPaymentOwnerType, ownerIds:
       );
     }
   }
+}
+
+/**
+ * 华为云供应商付款的列表用的是合成 id：`账期::供应商ID`（一个账期一个供应商一行），
+ * 和表里的物理 id 不是一回事，所以这里统一按「账期 + 供应商」定位来源行。
+ */
+export function parseCloudSupplierPaymentOwnerId(ownerId: unknown) {
+  const parts = String(ownerId ?? "").split("::");
+  if (parts.length < 2) return null;
+  const period = parts[0].trim();
+  const supplierId = parts.slice(1).join("::").trim();
+  if (!period || !supplierId) return null;
+  return { period, supplierId };
 }
 
 export type CostPaymentPreviewRow = {
@@ -524,7 +557,7 @@ export async function loadCostPaymentPreview(branch: CostPaymentBranch, ownerIds
 
   const sourceRows = branch === "huawei"
     ? await queryRows<Row>(
-        `SELECT p.id AS ownerId, p.period AS ownerNo, p.period, p.supplierId, p.supplierName,
+        `SELECT CONCAT(p.period, '::', p.supplierId) AS ownerId, p.id AS physicalId, p.period AS ownerNo, p.period, p.supplierId, p.supplierName,
                 COALESCE(p.paymentTotalAmount, 0) AS amount, COALESCE(p.currency, p.supplierPayableCurrency, 'USD') AS currency,
                 p.receivableDate AS paymentDate, p.paid, p.invoiceNo,
                 (SELECT u.undertakingUnitCode FROM merge_common_undertaking_units u
@@ -538,7 +571,7 @@ export async function loadCostPaymentPreview(branch: CostPaymentBranch, ownerIds
                 (SELECT MAX(m.customerName) FROM merge_cloud_mappings m
                   WHERE m.supplierId = p.supplierId AND m.undertakingUnitId = p.payerUnitId LIMIT 1) AS customerName
            FROM merge_cloud_supplier_payments p
-          WHERE p.id IN (:ids)`,
+          WHERE CONCAT(p.period, '::', p.supplierId) IN (:ids) OR p.id IN (:ids)`,
         { ids },
       )
     : branch === "other"
@@ -571,7 +604,11 @@ export async function loadCostPaymentPreview(branch: CostPaymentBranch, ownerIds
           { ids },
         );
 
-  const found = new Set(sourceRows.map((row) => String(row.ownerId ?? "")));
+  const found = new Set<string>();
+  for (const row of sourceRows) {
+    found.add(String(row.ownerId ?? ""));
+    if (row.physicalId) found.add(String(row.physicalId));
+  }
   const missing = ids.filter((id) => !found.has(id));
   if (missing.length) throw new Error(`有 ${missing.length} 条单据找不到或类型不符，请刷新后重试`);
 
