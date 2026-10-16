@@ -24,6 +24,7 @@ import { useRequestGuard } from "@/lib/table-query-client";
 import { readJsonResponse } from "@/lib/client-response";
 import { postWorkspaceMessage } from "@/lib/tab-workspace";
 import { Button, Input, Panel, Select } from "./ui";
+import { CostPaymentApprovalModal } from "./cost-payment-approval-modal";
 import { confirmDialog, notify } from "./app-dialog";
 import { TableStateContent } from "./table-state";
 
@@ -69,6 +70,8 @@ export function OrderListPage({
   const [confirmingId, setConfirmingId] = useState("");
   const [deletingId, setDeletingId] = useState("");
   const [selectedRequestNos, setSelectedRequestNos] = useState<Set<string>>(() => new Set());
+  /** 采购订单合并发起成本款付款申请时选中的订单。 */
+  const [paymentApprovalOwnerIds, setPaymentApprovalOwnerIds] = useState<string[] | null>(null);
   const [batchDeleting, setBatchDeleting] = useState(false);
   const [page, setPage] = useState(() => getPositiveNumber(searchParams.get("page"), 1));
   const [pageSize, setPageSize] = useState(() => getPositiveNumber(searchParams.get("pageSize"), DEFAULT_PAGE_SIZE));
@@ -357,17 +360,21 @@ export function OrderListPage({
 
   const hasActionColumn = mode === "purchase" || mode === "requests";
   const canBatchDelete = mode === "requests" && statusTab === "draft";
+  /** 采购订单页「已确认」页签：勾选多张合并发起一张成本款付款申请。 */
+  const canPayApproval = mode === "purchase" && statusTab === "confirmed";
   const selectableRequestNos = canBatchDelete
     ? rows
       .filter((row) => !isConfirmedOrderStatus(mode, row.status))
       .map((row) => String(row[masterConfig.primaryKey]))
-    : [];
+    : canPayApproval
+      ? rows.filter((row) => isConfirmedOrderStatus(mode, row.status)).map((row) => String(row[masterConfig.primaryKey]))
+      : [];
   const selectedPageCount = selectableRequestNos.filter((requestNo) => selectedRequestNos.has(requestNo)).length;
   const allRowsSelected = selectableRequestNos.length > 0 && selectedPageCount === selectableRequestNos.length;
   const detailTitle = mode === "requests" ? "需求单明细" : "采购订单明细";
   /** 空数据行的 colSpan，必须与表头实际列数一致（含左侧复选框与右侧操作列）。 */
   const emptyColSpan =
-    (canBatchDelete ? 1 : 0)
+    (canBatchDelete || canPayApproval ? 1 : 0)
     + 1 // 单号
     + (mode === "requests" ? 2 : 3) // 国家 / 批次（采购单额外有来源需求单）
     + 1 // 状态
@@ -482,6 +489,15 @@ export function OrderListPage({
               {batchDeleting ? "删除中..." : `批量删除${selectedRequestNos.size ? ` (${selectedRequestNos.size})` : ""}`}
             </Button>
           ) : null}
+          {canPayApproval ? (
+            <Button
+              disabled={!selectedRequestNos.size}
+              tone="primary"
+              onClick={() => setPaymentApprovalOwnerIds([...selectedRequestNos])}
+            >
+              {`合并发起付款申请${selectedRequestNos.size ? ` (${selectedRequestNos.size})` : ""}`}
+            </Button>
+          ) : null}
           {shouldShowPurchaseSourceGenerator(mode) ? <div className="ml-auto" /> : null}
         </div>
 
@@ -489,7 +505,7 @@ export function OrderListPage({
           <table className="w-full min-w-[1180px] border-collapse text-sm">
             <thead className="bg-canvas text-ink">
               <tr>
-                {canBatchDelete ? (
+                {canBatchDelete || canPayApproval ? (
                   <th className="whitespace-nowrap table-select-cell border-b border-r border-line-soft py-3 text-center font-medium [&>input]:h-4 [&>input]:w-4 [&>input]:align-middle">
                     <input
                       aria-label="全选当前页需求单"
@@ -572,13 +588,13 @@ export function OrderListPage({
                 const confirmed = isConfirmedOrderStatus(mode, row.status);
                 return (
                   <tr className="hover:bg-surface-2" key={id}>
-                    {canBatchDelete ? (
+                    {canBatchDelete || canPayApproval ? (
                       <td className="table-select-cell border-b border-r border-line-soft py-3 text-center [&>input]:h-4 [&>input]:w-4 [&>input]:align-middle">
                         <input
-                          aria-label={`选择需求单 ${id}`}
+                          aria-label={`${canPayApproval ? "选择采购订单" : "选择需求单"} ${id}`}
                           type="checkbox"
                           checked={selectedRequestNos.has(id)}
-                          disabled={confirmed || batchDeleting}
+                          disabled={canPayApproval ? (!confirmed || batchDeleting) : (confirmed || batchDeleting)}
                           onChange={(event) => {
                             setSelectedRequestNos((current) => {
                               const next = new Set(current);
@@ -744,6 +760,14 @@ export function OrderListPage({
           }}
         />
       </Panel>
+      {paymentApprovalOwnerIds?.length ? (
+        <CostPaymentApprovalModal
+          branch="compute"
+          onClose={() => setPaymentApprovalOwnerIds(null)}
+          onSubmitted={() => { setPaymentApprovalOwnerIds(null); setSelectedRequestNos(new Set()); void loadData(); }}
+          ownerIds={paymentApprovalOwnerIds}
+        />
+      ) : null}
     </div>
   );
 }

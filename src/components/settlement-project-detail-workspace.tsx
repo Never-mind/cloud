@@ -13,6 +13,7 @@ import { SearchSelect } from "./search-select";
 import { confirmDialog } from "./app-dialog";
 import { InvoiceDraftModal, type InvoiceDraftMode } from "./invoice-draft-modal";
 import { InvoiceRecognizeModal } from "./invoice-recognize-modal";
+import { CostPaymentApprovalModal } from "./cost-payment-approval-modal";
 import { SettlementChangeModal, type SettlementChangeItem, type SettlementChangeSummary } from "./settlement-change-modal";
 import type { RecognizedInvoiceForm } from "@/lib/invoice-recognition-service";
 import { LoadingBlock } from "./table-state";
@@ -509,6 +510,8 @@ type InvoiceSectionProps = {
 
 function InvoiceSection({ invoices, allInvoices, draft, editing, partners, busy, readOnly, attachmentDescriptions, onAttachmentDescriptionChange, onUpload, onDeleteAttachment, state, onState, onPage, onPageSize, onDraftChange, onEditingChange, onEdit, onToggle, onAdd, onIssue, onRecognize, onSave, onDelete }: InvoiceSectionProps) {
   const rows = invoices.rows as unknown as Invoice[];
+  /** 成本发票发起成本款付款申请（成本部门 CLOUD + 成本项目 其他）。 */
+  const [paymentApprovalOwnerIds, setPaymentApprovalOwnerIds] = useState<string[] | null>(null);
   const renderColumnHeader = (column: Column) => <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium" key={column.key}><ColumnHeader tableKey="invoices" column={column} rows={allInvoices as unknown as TableRow[]} state={state} onState={onState} /></th>;
 
   return <Panel>
@@ -534,7 +537,7 @@ function InvoiceSection({ invoices, allInvoices, draft, editing, partners, busy,
               })}
               <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3"><div className="space-y-2">{attachments.map((attachment) => <div className="flex max-w-[280px] items-center gap-2" key={attachment.id}><span className="min-w-0 flex-1 truncate" title={attachment.fileName}>{attachment.fileName}</span><a className="inline-flex h-8 w-8 shrink-0 items-center justify-center text-primary hover:text-info" aria-label="下载附件" title="下载附件" href={`/api/po/settlement-projects/${attachment.projectId}/invoices/${invoice.id}/attachments/${attachment.id}/download`}><Download size={15} /></a>{true ? <button className="inline-flex h-8 w-8 shrink-0 items-center justify-center text-danger hover:text-danger-strong" type="button" aria-label="删除附件" title="删除附件" onClick={() => onDeleteAttachment(attachment.id)}><Trash2 size={15} /></button> : null}</div>)}{!attachments.length ? <div className="flex items-center gap-2"><Input className="min-w-[150px]" placeholder="附件说明" value={attachmentDescriptions[invoice.id] ?? ""} onChange={(event) => onAttachmentDescriptionChange(invoice.id, event.target.value)} /><label className="inline-flex h-9 shrink-0 cursor-pointer items-center gap-1 rounded border border-primary px-3 text-sm text-primary"><Paperclip size={15} />上传<input className="hidden" type="file" onChange={(event) => void onUpload(invoice.id, event)} /></label></div> : null}{null}</div></td>
               {invoiceAuditColumns.map((column) => <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3" key={column.key}>{formatColumnValue(column.key, invoice[column.key as keyof Invoice], column.type)}</td>)}
-              <td className="whitespace-nowrap border-b border-line-soft px-3 py-3">{isEditing ? <Button disabled={busy} tone="primary" onClick={() => onSave(invoice.id)}><Save size={14} />保存</Button> : <Button disabled={readOnly || busy} onClick={() => onEdit(invoice)}><Pencil size={14} />修改</Button>}<Button className="ml-2" tone="danger" disabled={readOnly || busy} onClick={() => onDelete(invoice.id)}><Trash2 size={15} />删除</Button></td>
+              <td className="whitespace-nowrap border-b border-line-soft px-3 py-3">{isEditing ? <Button disabled={busy} tone="primary" onClick={() => onSave(invoice.id)}><Save size={14} />保存</Button> : <Button disabled={readOnly || busy} onClick={() => onEdit(invoice)}><Pencil size={14} />修改</Button>}{invoice.type === "cost" ? <Button className="ml-2" disabled={readOnly || busy} onClick={() => setPaymentApprovalOwnerIds([invoice.id])} title="以这张成本发票发起飞书付款申请">发起付款申请</Button> : null}<Button className="ml-2" tone="danger" disabled={readOnly || busy} onClick={() => onDelete(invoice.id)}><Trash2 size={15} />删除</Button></td>
             </tr>;
           })}
           {!rows.length ? <Empty colSpan={invoiceDataColumns.length + invoiceAuditColumns.length + 2} text="暂无发票" /> : null}
@@ -542,6 +545,14 @@ function InvoiceSection({ invoices, allInvoices, draft, editing, partners, busy,
       </table>
     </TableScroll>
     <PaginationBar page={invoices.page} pageSize={invoices.pageSize} total={invoices.total} onPageChange={onPage} onPageSizeChange={onPageSize} />
+    {paymentApprovalOwnerIds?.length ? (
+      <CostPaymentApprovalModal
+        branch="other"
+        onClose={() => setPaymentApprovalOwnerIds(null)}
+        onSubmitted={() => setPaymentApprovalOwnerIds(null)}
+        ownerIds={paymentApprovalOwnerIds}
+      />
+    ) : null}
   </Panel>;
 }
 

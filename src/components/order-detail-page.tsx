@@ -14,6 +14,7 @@ import type { OrderRouteMode } from "@/lib/order-routes";
 import { buildPurchaseProductLines, calculatePurchaseTotalAmount } from "@/lib/purchase-lines";
 import { buildPowerPricingSnapshot, refreshPowerPricingSnapshot, serializePowerPricingSnapshot, type PowerPriceContext, type PowerPricingSnapshot } from "@/lib/power-price-calculator";
 import { PurchaseOrderDemandPlanTabs } from "./purchase-order-demand-plan-tabs";
+import { PurchaseOrderAttachments } from "./purchase-order-attachments";
 import { getReturnTo } from "@/lib/client-list-navigation";
 import { readJsonResponse } from "@/lib/client-response";
 import { AuditInfoBar, Button, Input, Panel, Select } from "./ui";
@@ -480,6 +481,9 @@ export function OrderDetailPage({
         const context = detail ? getPricingContext(detail) : null;
         return detail && context ? <PowerPriceCalculationDrawer context={context} existingSnapshot={detail.powerPricingJson} onClose={() => setPricingDetailId(null)} onApply={(snapshot) => { setDetailDrafts((current) => current.map((item) => String(item.id) === pricingDetailId ? applyPricingSnapshot(item, snapshot) : item)); setPricingDetailId(null); }} /> : null;
       })() : null}
+      {mode === "purchase" ? (
+        <PurchaseOrderAttachments purchaseOrderId={String(master.purchaseOrderId ?? id)} />
+      ) : null}
       {mode === "purchase" ? (
         <PurchaseOrderDemandPlanTabs
           poNo={String(master.poNo ?? "")}

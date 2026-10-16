@@ -9,6 +9,8 @@ const OWNER_MODULES: Record<string, string> = {
   suppliers: "suppliers",
   customers: "customers",
   "undertaking-units": "undertaking-units",
+  // 采购订单附件（付款申请上传的发票/合同）
+  "purchase-orders": "purchase-orders",
 };
 
 async function getAccess(request: NextRequest, ownerType: string, action: "view" | "delete") {
