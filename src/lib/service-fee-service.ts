@@ -194,11 +194,16 @@ function isCrossCurrencyServiceFeeRow(row: Pick<ServiceFeeRow, "billingCurrency"
 
 /**
  * 给服务费行套上跨币种折算：一次性把用到的账期汇率读出来，再逐行折算。
- * 没有跨币种行时直接返回原数组，避免多打一次汇率查询。
+ *
+ * 注意：即使没有跨币种行也必须跑一遍 —— 这一步同时给每行补上
+ * `fxStatus` / `serviceFeeCurrency` / `prepaymentAmountConverted`
+ * （SQL 里不带这三个字段），跳过就会在列表和快照里写成空值。
+ * 没有跨币种行时不查汇率表，只走一次内存映射。
  */
 async function applyServiceFeeExchangeRates(rows: ServiceFeeRow[]) {
-  if (!rows.some(isCrossCurrencyServiceFeeRow)) return rows;
-  const rates = await buildExchangeRateMap(rows.map((row) => toPeriodMonth(row.writeOffMonth)));
+  const rates = rows.some(isCrossCurrencyServiceFeeRow)
+    ? await buildExchangeRateMap(rows.map((row) => toPeriodMonth(row.writeOffMonth)))
+    : new Map<string, number>();
   return applyExchangeRateConversion(rows, rates);
 }
 
@@ -507,8 +512,6 @@ function buildLightweightServiceFeeSummaryQuery(filters: ServiceFeeFilters) {
   }
   if (filters.currency) {
     params.currency = filters.currency;
-    billingWhere.push("m.currency = :currency");
-    prepaymentWhere.push("p.currency = :currency");
   }
   if (filters.lineType) params.lineType = filters.lineType;
   if (filters.requestType) params.requestType = filters.requestType;
@@ -701,8 +704,13 @@ function buildServiceFeeQuery(filters: ServiceFeeFilters, searchParams = new URL
   }
   if (filters.currency) {
     params.currency = filters.currency;
-    billingWhere.push("m.currency = :currency");
-    prepaymentWhere.push("p.currency = :currency");
+    /**
+     * 币种筛选**不能**下推到月账单 / 预付款各自的分支里。
+     *
+     * BR-30 这类行月账单是 CNY、预付款是 USD：按币种分别过滤会把另一边的数据整条丢掉，
+     * 于是「月账单 CNY」的对账单里只剩下账单金额、预付款变成 0（服务费被虚增）。
+     * 只在外层按合并后的 `currency`（= 月账单币种）过滤，两边都保留，跨币种折算才有数据可用。
+     */
   }
   if (filters.requestType) {
     billingWhere.push(`${serviceFeeBillingRequestTypeExpression()} = :requestType`);
