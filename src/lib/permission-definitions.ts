@@ -333,6 +333,10 @@ const API_ROUTE_RULES: RoutePermissionRule[] = [
   { prefix: "/api/po/quotations", moduleKey: "quotations" },
   { prefix: "/api/po/settlement-projects", moduleKey: "settlement-projects" },
   { prefix: "/api/po/invoices", moduleKey: "po-invoice-summary" },
+  // 成本款付款申请：按入口对应来源模块鉴权（华为云供应商付款 / 集采发票汇总 / 算力采购订单）
+  { prefix: "/api/payments/cost-approval/huawei", moduleKey: "huawei-cloud-supplier-payments" },
+  { prefix: "/api/payments/cost-approval/other", moduleKey: "po-invoice-summary" },
+  { prefix: "/api/payments/cost-approval/compute", moduleKey: "purchase-orders" },
   { prefix: "/api/cloud", moduleKey: "huawei-cloud" },
   { prefix: "/api/requests/product-lines", moduleKey: "request-items" },
   { prefix: "/api/purchase/product-lines", moduleKey: "purchase-order-items" },
