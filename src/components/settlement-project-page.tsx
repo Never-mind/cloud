@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { Eye, FileDown, RefreshCw, Search, Trash2 } from "lucide-react";
 import { Button, Input, Panel, Select } from "./ui";
 import { confirmDialog } from "./app-dialog";
@@ -28,9 +29,11 @@ const columns = [
 ] as const;
 
 export function SettlementProjectPage() {
+  const searchParams = useSearchParams();
   const [keyword, setKeyword] = useState("");
   const [appliedKeyword, setAppliedKeyword] = useState("");
-  const [status, setStatus] = useState("");
+  /** 支持从首页带过来的筛选：?status=purchasing|procurement_completed|accepting|acceptance_completed|closed */
+  const [status, setStatus] = useState(() => searchParams.get("status") ?? "");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [result, setResult] = useState<ListResult>({ items: [], total: 0, page: 1, pageSize: 20, totalPages: 1 });

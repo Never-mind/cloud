@@ -1666,6 +1666,13 @@ entityConfigs.push({
   filters: [
     { key: "keyword", label: "报价单", placeholder: "请输入报价单号、客户或来源PO" },
     { key: "status", label: "状态", type: "select", options: [{ label: "草稿", value: "draft" }, { label: "已确认", value: "confirmed" }] },
+      {
+        key: "projectStatus",
+        label: "项目结算",
+        type: "select",
+        placeholder: "全部",
+        options: [{ label: "已立项", value: "created" }, { label: "待立项", value: "pending" }],
+      },
   ],
   listFields: [
     { key: "quotationNo", label: "报价单号", sortable: true, filterable: true },
@@ -1681,6 +1688,7 @@ entityConfigs.push({
     { key: "totalProfit", label: "利润", type: "money" },
     { key: "grossMarginRate", label: "毛利率", type: "percentage" },
     { key: "status", label: "状态", filterable: true },
+      { key: "settlementProjectNo", label: "项目结算" },
   ],
   formFields: [
     { key: "id", label: "内部ID", hidden: true },

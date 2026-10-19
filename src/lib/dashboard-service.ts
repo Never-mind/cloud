@@ -18,7 +18,7 @@ const PO_SETTLEMENT_STATUSES = ["purchasing", "procurement_completed", "acceptin
  * 华为云的应收/应付直接按对账表求和（与对账页"按币种合计"的 USD 段同源）。
  */
 async function loadDomainPortfolio() {
-  const [poRows, cloudRows, poStatusRows, poCustomerRows, grossProfitRows] = await Promise.all([
+  const [poRows, cloudRows, poStatusRows, poCustomerRows, grossProfitRows, pipelineRows] = await Promise.all([
     queryRows<Row>(
       `SELECT
          (SELECT COUNT(*) FROM merge_po_customer_pos) AS customerPoCount,
@@ -54,8 +54,27 @@ async function loadDomainPortfolio() {
         GROUP BY period, customer
         ORDER BY period, customer`,
     ),
+    /**
+     * 集采售前两个环节的「当前数量」：
+     *   - 客户询价中 = 客户PO 草稿（还没确认）；
+     *   - 报价中 = 报价单草稿；
+     *   - 报价确认（待立项）= 已确认、但还没生成项目结算的报价单。
+     * 改版后确认报价单不再自动建项目，所以「待立项」是一个真实的停留阶段。
+     */
+    queryRows<Row>(
+      `SELECT
+         (SELECT COUNT(*) FROM merge_po_customer_pos WHERE COALESCE(status, 'draft') <> 'confirmed') AS customerPoDraft,
+         (SELECT COUNT(*) FROM merge_po_quotations WHERE status = 'draft') AS quotationDraft,
+         (SELECT COALESCE(SUM(COALESCE(totalAmount, 0)), 0) FROM merge_po_quotations WHERE status = 'draft') AS quotationDraftAmount,
+         (SELECT COUNT(*) FROM merge_po_quotations q WHERE q.status = 'confirmed'
+            AND NOT EXISTS (SELECT 1 FROM merge_po_settlement_projects sp WHERE sp.quotationId = q.id)) AS quotationPendingProject,
+         (SELECT COALESCE(SUM(COALESCE(totalAmount, 0)), 0) FROM merge_po_quotations q WHERE q.status = 'confirmed'
+            AND NOT EXISTS (SELECT 1 FROM merge_po_settlement_projects sp WHERE sp.quotationId = q.id)) AS quotationPendingProjectAmount,
+         (SELECT COUNT(*) FROM merge_po_quotations WHERE status = 'confirmed') AS quotationConfirmed`,
+    ),
   ]);
   const po = poRows[0] ?? {};
+  const pipeline = pipelineRows[0] ?? {};
   const cloud = cloudRows[0] ?? {};
   // 五个状态固定给出，缺的补 0，前端按流程顺序展示。
   const statusCounts: Record<(typeof PO_SETTLEMENT_STATUSES)[number], number> = {
@@ -99,6 +118,15 @@ async function loadDomainPortfolio() {
       settlementProjectCount: Number(po.settlementProjectCount ?? 0),
       statusCounts,
       statusAmounts,
+      /** 售前三个环节的当前数量与金额（首页 8 格卡片用）。 */
+      pipeline: {
+        customerPoDraft: Number(pipeline.customerPoDraft ?? 0),
+        quotationDraft: Number(pipeline.quotationDraft ?? 0),
+        quotationDraftAmount: Number(pipeline.quotationDraftAmount ?? 0),
+        quotationPendingProject: Number(pipeline.quotationPendingProject ?? 0),
+        quotationPendingProjectAmount: Number(pipeline.quotationPendingProjectAmount ?? 0),
+        quotationConfirmed: Number(pipeline.quotationConfirmed ?? 0),
+      },
       byCustomer: poByCustomer,
       quotedUsdTotal: poByCustomer.reduce((sum, row) => sum + row.quotedUsd, 0),
       receivedUsdTotal: poByCustomer.reduce((sum, row) => sum + row.receivedUsd, 0),

@@ -14,7 +14,7 @@ import { TableColumnMenu, type TableFilterOption, type TableSortOrder } from "./
 import { StatusTag } from "./status-tag";
 import { AuditInfoBar, Button, Input, Panel, Select, Textarea } from "./ui";
 import { NumberInput } from "./number-input";
-import { confirmDialog } from "./app-dialog";
+import { confirmDialog, notify } from "./app-dialog";
 import { LoadingBlock, TableSkeleton } from "./table-state";
 import { ProductMasterPicker } from "./customer-po-page";
 
@@ -116,7 +116,10 @@ export function QuotationListPage({ config }: { config: EntityConfig }) {
   const searchParams = useSearchParams();
   const [keyword, setKeyword] = useState("");
   const [appliedKeyword, setAppliedKeyword] = useState("");
-  const [status, setStatus] = useState("");
+  /** 支持从首页带过来的筛选：?status=draft|confirmed&projectStatus=created|pending */
+  const [status, setStatus] = useState(() => searchParams.get("status") ?? "");
+  const [projectStatus, setProjectStatus] = useState(() => searchParams.get("projectStatus") ?? "");
+  const [generatingId, setGeneratingId] = useState("");
   const [rows, setRows] = useState<Row[]>([]);
   const [total, setTotal] = useState(0);
   const [statusCounts, setStatusCounts] = useState({ draft: 0, confirmed: 0 });
@@ -140,6 +143,7 @@ export function QuotationListPage({ config }: { config: EntityConfig }) {
         keyword: appliedKeyword,
       });
       if (status) params.set("status", status);
+      if (projectStatus) params.set("projectStatus", projectStatus);
       if (sortField && sortOrder) {
         params.set("sortField", sortField);
         params.set("sortOrder", sortOrder);
@@ -179,7 +183,34 @@ export function QuotationListPage({ config }: { config: EntityConfig }) {
     }
   }
 
-  useEffect(() => { void load(); }, [appliedKeyword, columnFilters, page, pageSize, sortField, sortOrder, status]);
+  /**
+   * 生成项目结算（幂等）。
+   * 改版后确认报价单不再自动建项目，业务点这个按钮才进入采购阶段。
+   */
+  async function createSettlementProject(id: string) {
+    if (generatingId) return;
+    if (!await confirmDialog("将为这张报价单生成项目结算，并进入「采购中」阶段。同一张报价单只会生成一次。")) return;
+    setGeneratingId(id);
+    setError("");
+    try {
+      const response = await fetch(`/api/po/quotations/${encodeURIComponent(id)}/settlement-project`, { method: "POST" });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error ?? "生成项目结算失败");
+      notify(
+        data.created
+          ? `已生成项目结算 ${String(data.project?.projectNo ?? "")}，报价单已进入采购中`
+          : `该报价单已有项目结算 ${String(data.project?.projectNo ?? "")}`,
+        "success",
+      );
+      await load();
+    } catch (generateError) {
+      setError(generateError instanceof Error ? generateError.message : "生成项目结算失败");
+    } finally {
+      setGeneratingId("");
+    }
+  }
+
+  useEffect(() => { void load(); }, [appliedKeyword, columnFilters, page, pageSize, sortField, sortOrder, status, projectStatus]);
 
   function openRoute(route: string, title: string) {
     postWorkspaceMessage({ type: "cloud-power:open-tab", route, title });
@@ -243,6 +274,11 @@ export function QuotationListPage({ config }: { config: EntityConfig }) {
             <Input className="h-8 w-full" value={keyword} placeholder="搜索报价单号、客户、承接单位或来源PO" onChange={(event) => setKeyword(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { setPage(1); setAppliedKeyword(keyword.trim()); } }} />
           </div>
           <Button tone="secondary" size="sm" aria-label="查询" title="查询" onClick={() => { setPage(1); setAppliedKeyword(keyword.trim()); }}><Search size={14} />查询</Button>
+          <Select className="h-8 w-[136px] text-xs" value={projectStatus} onChange={(event) => { setPage(1); setProjectStatus(event.target.value); }}>
+            <option value="">全部项目结算</option>
+            <option value="pending">待立项</option>
+            <option value="created">已立项</option>
+          </Select>
           <Button size="sm" onClick={() => void load()} disabled={loading}><RefreshCw size={14} />刷新</Button>
           <Button tone="warning" size="sm" onClick={() => download(`/api/entities/quotations/export?status=${encodeURIComponent(status)}`)}><FileDown size={14} />导出 Excel</Button>
         </div>
@@ -263,11 +299,30 @@ export function QuotationListPage({ config }: { config: EntityConfig }) {
                 const id = String(row[config.primaryKey] ?? "");
                 return <tr className="hover:bg-surface-2" key={id}>
                   {config.listFields.map((field, index) => <td className="max-w-[250px] truncate whitespace-nowrap border-b border-r border-line-soft px-3 py-3" key={field.key}>
-                    {index === 0 ? <button className="text-primary hover:underline" type="button" onClick={() => openQuotationDetail(id)}>{formatQuotationValue(row[field.key], field.type)}</button> : field.key === "status" ? <StatusTag status={String(row[field.key] ?? "draft")} label={formatQuotationValue(row[field.key], field.type)} /> : formatQuotationValue(row[field.key], field.type)}
+                    {index === 0 ? <button className="text-primary hover:underline" type="button" onClick={() => openQuotationDetail(id)}>{formatQuotationValue(row[field.key], field.type)}</button>
+                      : field.key === "status" ? <StatusTag status={String(row[field.key] ?? "draft")} label={formatQuotationValue(row[field.key], field.type)} />
+                      : field.key === "settlementProjectNo" ? (String(row.settlementProjectNo ?? "").trim()
+                          ? <button className="text-primary hover:underline" type="button" onClick={() => openRoute(`/po/settlement-projects/${encodeURIComponent(String(row.settlementProjectId ?? ""))}`, "项目结算")}>{String(row.settlementProjectNo)}</button>
+                          : String(row.status ?? "") === "confirmed"
+                            ? <span className="inline-flex items-center rounded border border-warning-border-soft bg-warning-soft px-1.5 py-0.5 text-xs text-warning-ink">待立项</span>
+                            : <span className="text-ink-4">—</span>)
+                      : formatQuotationValue(row[field.key], field.type)}
                   </td>)}
                   <td className="sticky right-0 whitespace-nowrap border-b border-line-soft bg-white px-3 py-3">
                     <button className="inline-flex h-8 w-8 items-center justify-center text-ink-2 hover:text-primary" type="button" aria-label="查看" title="查看" onClick={() => openQuotationDetail(id)}><Eye size={16} /></button>
                     <button className="ml-2 inline-flex h-8 w-8 items-center justify-center text-ink-2 hover:text-primary" type="button" aria-label="导出" title="导出报价单" onClick={() => download(`/api/entities/quotations/export?filter.quotationNo=${encodeURIComponent(String(row.quotationNo ?? ""))}`)}><FileDown size={16} /></button>
+                    {String(row.status ?? "") === "confirmed" && !String(row.settlementProjectNo ?? "").trim() ? (
+                      <Button
+                        className="ml-2"
+                        disabled={generatingId === id}
+                        onClick={() => void createSettlementProject(id)}
+                        size="sm"
+                        title="为这张报价单生成项目结算，进入采购中"
+                        tone="secondary"
+                      >
+                        {generatingId === id ? "生成中…" : "生成项目结算"}
+                      </Button>
+                    ) : null}
                     {String(row.status ?? "draft") !== "confirmed" ? <button className="ml-2 inline-flex h-8 w-8 items-center justify-center text-danger hover:text-danger-strong" type="button" aria-label="删除" title="删除草稿" onClick={() => void deleteQuotation(id, String(row.quotationNo ?? ""))}><Trash2 size={16} /></button> : null}
                   </td>
                 </tr>;
@@ -294,6 +349,9 @@ export function QuotationDetailPage({ id }: { id: string }) {
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [draft, setDraft] = useState<Row>({});
+  /** 这张报价单对应的项目结算（改版后确认不再自动建，需要手动生成）。 */
+  const [settlementProject, setSettlementProject] = useState<{ id: string; projectNo: string; status: string } | null>(null);
+  const [generatingProject, setGeneratingProject] = useState(false);
   const [itemDrafts, setItemDrafts] = useState<QuotationItemDrafts>({});
   const [itemFilters, setItemFilters] = useState<Record<string, string[]>>({});
   const [itemSortField, setItemSortField] = useState("");
@@ -306,14 +364,21 @@ export function QuotationDetailPage({ id }: { id: string }) {
     setLoading(true);
     setError("");
     try {
-      const [masterResponse, itemRows] = await Promise.all([
+      const [masterResponse, itemRows, projectResponse] = await Promise.all([
         fetch(`/api/entities/quotations/${encodeURIComponent(id)}`, { cache: "no-store" }),
         fetchAllQuotationItems(id),
+        fetch(`/api/po/quotations/${encodeURIComponent(id)}/settlement-project`, { cache: "no-store" }).catch(() => null),
       ]);
       const master = await masterResponse.json().catch(() => ({}));
       if (!masterResponse.ok) throw new Error(master.error ?? "报价单详情加载失败");
       setQuotation(master);
       setItems(itemRows);
+      if (projectResponse?.ok) {
+        const projectData = await projectResponse.json().catch(() => ({}));
+        setSettlementProject(projectData.project ?? null);
+      } else {
+        setSettlementProject(null);
+      }
     } catch (loadError) {
       setQuotation(null);
       setItems([]);
@@ -333,11 +398,31 @@ export function QuotationDetailPage({ id }: { id: string }) {
       const response = await fetch(`/api/po/quotations/${encodeURIComponent(id)}/confirm`, { method: "POST" });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error ?? "确认报价单失败");
+      notify("报价单已确认，请点「生成项目结算」进入采购", "success");
       await load();
     } catch (confirmError) {
       setError(confirmError instanceof Error ? confirmError.message : "确认报价单失败");
     } finally {
       setConfirming(false);
+    }
+  }
+
+  /** 生成项目结算（幂等）；确认后不再自动建项目，由业务在这里手动触发。 */
+  async function createSettlementProject() {
+    if (generatingProject) return;
+    if (!await confirmDialog("将为这张报价单生成项目结算，并进入「采购中」阶段。同一张报价单只会生成一次。")) return;
+    setGeneratingProject(true);
+    setError("");
+    try {
+      const response = await fetch(`/api/po/quotations/${encodeURIComponent(id)}/settlement-project`, { method: "POST" });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error ?? "生成项目结算失败");
+      notify(`已生成项目结算 ${String(data.project?.projectNo ?? "")}，报价单已进入采购中`, "success");
+      await load();
+    } catch (generateError) {
+      setError(generateError instanceof Error ? generateError.message : "生成项目结算失败");
+    } finally {
+      setGeneratingProject(false);
     }
   }
 
@@ -568,6 +653,15 @@ export function QuotationDetailPage({ id }: { id: string }) {
         <Button onClick={() => router.push(returnTo)}><ArrowLeft size={15} />返回报价列表</Button>
         <div className="mr-auto"><h1 className="text-xl font-medium text-ink">{String(quotation.quotationNo ?? "报价单详情")}</h1><p className="mt-1 text-sm text-ink-3">报价单主单与产品明细。</p></div>
         {String(quotation.status ?? "") === "draft" ? <>{editing ? <><Button onClick={cancelEditing} disabled={saving}><X size={15} />取消</Button><Button tone="primary" onClick={() => void saveQuotation()} disabled={saving}><Save size={15} />{saving ? "保存中..." : "保存"}</Button></> : <Button onClick={startEditing}><Edit3 size={15} />修改</Button>}<Button tone="success" disabled={confirming || editing} onClick={() => void confirmQuotation()}><CheckCircle2 size={15} />{confirming ? "确认中" : "确认报价单"}</Button></> : null}
+        {String(quotation.status ?? "") === "confirmed" ? (settlementProject ? (
+          <Button onClick={() => postWorkspaceMessage({ type: "cloud-power:open-tab", route: `/po/settlement-projects/${encodeURIComponent(settlementProject.id)}`, title: "项目结算" })}>
+            <CheckCircle2 size={15} />项目结算 {settlementProject.projectNo}
+          </Button>
+        ) : (
+          <Button tone="primary" disabled={generatingProject} onClick={() => void createSettlementProject()}>
+            <CheckCircle2 size={15} />{generatingProject ? "生成中…" : "生成项目结算"}
+          </Button>
+        )) : null}
         {String(quotation.status ?? "") === "draft" ? <>
           <Button onClick={() => { const link = document.createElement("a"); link.href = `/api/po/quotations/${encodeURIComponent(id)}/items/template`; link.download = ""; link.click(); }}><Download size={15} />下载明细模板</Button>
           <Button onClick={() => importInputRef.current?.click()} disabled={importing}><FileUp size={15} />{importing ? "导入中..." : "导入明细"}</Button>

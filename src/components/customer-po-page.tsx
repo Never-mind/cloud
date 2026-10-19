@@ -141,9 +141,11 @@ function nextLineNo(rows: Row[]) {
 }
 
 export function CustomerPoListPage({ config }: { config: EntityConfig }) {
+  const searchParams = useSearchParams();
   const [keyword, setKeyword] = useState("");
   const [appliedKeyword, setAppliedKeyword] = useState("");
-  const [status, setStatus] = useState("");
+  /** 支持从首页带过来的筛选：?status=draft|confirmed */
+  const [status, setStatus] = useState(() => searchParams.get("status") ?? "");
   const [rows, setRows] = useState<Row[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);

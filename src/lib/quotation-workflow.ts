@@ -327,7 +327,6 @@ export async function confirmQuotation(quotationIdOrNo: string, actor: Operation
   const quotation = rows[0];
   if (!quotation) throw new Error("报价单不存在");
   if (String(quotation.status ?? "") === "confirmed") {
-    await ensureSettlementProjectForQuotation(quotation.id, actor);
     return { quotationId: quotation.id, quotationNo: quotation.quotationNo, itemCount: 0, confirmed: true };
   }
 
@@ -379,8 +378,6 @@ export async function confirmQuotation(quotationIdOrNo: string, actor: Operation
       },
     );
   }
-
-  await ensureSettlementProjectForQuotation(quotation.id, actor);
 
   return { quotationId: quotation.id, quotationNo: quotation.quotationNo, itemCount: items.length };
 }

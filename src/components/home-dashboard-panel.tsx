@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { RefreshCw } from "lucide-react";
+import { ArrowUpRight, RefreshCw } from "lucide-react";
 import { buildServiceFeeChartSeries } from "@/lib/dashboard-workflow";
 import { formatDisplayValue, formatMoneyValue } from "@/lib/display-format";
 import { Button, Panel, Select } from "./ui";
 import { TableStateContent } from "./table-state";
+import { postWorkspaceMessage } from "@/lib/tab-workspace";
 
 type ServiceFeeSummary = {
   countryCode: string;
@@ -36,6 +37,15 @@ type DomainPortfolio = {
     settlementProjectCount: number;
     statusCounts: Record<string, number>;
     statusAmounts: Record<string, number>;
+    /** 售前三个环节的当前数量与金额（客户询价中 / 报价中 / 报价确认待立项）。 */
+    pipeline?: {
+      customerPoDraft: number;
+      quotationDraft: number;
+      quotationDraftAmount: number;
+      quotationPendingProject: number;
+      quotationPendingProjectAmount: number;
+      quotationConfirmed: number;
+    };
     byCustomer: Array<{ customer: string; projectCount: number; quotedUsd: number; receivedUsd: number }>;
     quotedUsdTotal: number;
     receivedUsdTotal: number;
@@ -251,6 +261,7 @@ export function HomeDashboardPanel() {
       <div className="mt-5 grid gap-4 lg:grid-cols-2">
         <DomainCard
           accent="#67c23a"
+          className="lg:col-span-2"
           title="集采系统"
           hint={data.portfolio ? `客户PO ${data.portfolio.po.customerPoCount} · 报价单 ${data.portfolio.po.quotationCount} · 项目结算 ${data.portfolio.po.settlementProjectCount}` : "加载中…"}
         >
@@ -260,16 +271,46 @@ export function HomeDashboardPanel() {
               <span>报价收入（USD） <b className="text-ink">{formatMoneyValue(data.portfolio?.po.quotedUsdTotal ?? 0)}</b></span>
               <span>已确认收入（USD） <b className="text-ink">{formatMoneyValue(data.portfolio?.po.receivedUsdTotal ?? 0)}</b></span>
             </div>
-            <div className="grid gap-2 sm:grid-cols-3">
+            {/*
+              集采流水线：8 个环节排成一排（存量口径 —— 每格是「当前停在这个状态的数量」，互不重叠）。
+              售前用绿色顶边、交付用蓝色顶边；整块可点，落到对应列表并带上筛选。
+            */}
+            <div className="mb-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-ink-3">
+              <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-sm bg-success-strong" />售前：客户PO / 报价单</span>
+              <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-sm bg-primary" />交付：项目结算</span>
+              <span className="ml-auto">点卡片跳到对应列表</span>
+            </div>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-8">
+              <PipelineStage
+                hint="客户PO 草稿"
+                href="/customer-pos?status=draft"
+                label="客户询价中"
+                tone="pre"
+                value={data.portfolio?.po.pipeline?.customerPoDraft ?? 0}
+              />
+              <PipelineStage
+                hint={`${formatCompactNumber(data.portfolio?.po.pipeline?.quotationDraftAmount ?? 0)} USD`}
+                href="/quotation/list?status=draft"
+                label="报价中"
+                tone="pre"
+                value={data.portfolio?.po.pipeline?.quotationDraft ?? 0}
+              />
+              <PipelineStage
+                hint={`待立项 · ${formatCompactNumber(data.portfolio?.po.pipeline?.quotationPendingProjectAmount ?? 0)} USD`}
+                href="/quotation/list?status=confirmed&projectStatus=pending"
+                label="报价确认"
+                tone="pre"
+                value={data.portfolio?.po.pipeline?.quotationPendingProject ?? 0}
+              />
               {SETTLEMENT_STATUS_LABELS.map(([status, label]) => (
-                <div className="rounded-md border border-line-soft bg-surface-2 px-3 py-2" key={status}>
-                  <div className="text-xs text-ink-3">{label}</div>
-                  <div className="mt-0.5 text-lg font-semibold text-ink">
-                    {data.portfolio?.po.statusCounts?.[status] ?? 0}
-                    <span className="ml-1 text-xs font-normal text-ink-3">个</span>
-                  </div>
-                  <div className="text-[11px] text-ink-4">报价 {formatMoneyValue(data.portfolio?.po.statusAmounts?.[status] ?? 0)} USD</div>
-                </div>
+                <PipelineStage
+                  hint={`${formatCompactNumber(data.portfolio?.po.statusAmounts?.[status] ?? 0)} USD`}
+                  href={`/po/settlement-projects?status=${encodeURIComponent(status)}`}
+                  key={status}
+                  label={label}
+                  tone="dev"
+                  value={data.portfolio?.po.statusCounts?.[status] ?? 0}
+                />
               ))}
             </div>
             {data.portfolio?.po.byCustomer.length ? (
@@ -295,6 +336,7 @@ export function HomeDashboardPanel() {
 
       <DomainCard
         accent="#7c5cff"
+          className="lg:col-span-2"
         title="华为云业务"
         hint={data.portfolio ? `共 ${data.portfolio.cloud.cloudRowCount} 条对账 · 应收 ${formatMoneyValue(data.portfolio.cloud.receivableUsd)} USD · 应付 ${formatMoneyValue(data.portfolio.cloud.payableUsd)} USD` : "加载中…"}
       >
@@ -395,16 +437,18 @@ function DomainCard({
   accent,
   metrics,
   children,
+  className = "",
 }: {
   title: string;
   hint: string;
   accent: string;
   metrics?: Array<{ label: string; value: number; unit: string; money?: boolean }>;
   children?: React.ReactNode;
+  className?: string;
 }) {
   const [open, setOpen] = useState(true);
   return (
-    <section className="rounded-lg border border-line-soft bg-surface">
+    <section className={`rounded-lg border border-line-soft bg-surface ${className}`}>
       <button className="flex w-full items-center gap-2 px-4 py-3 text-left" onClick={() => setOpen((value) => !value)} type="button">
         <span className="h-2 w-2 flex-none rounded-full" style={{ background: accent }} />
         <h2 className="text-sm font-medium text-ink">{title}</h2>
@@ -556,6 +600,43 @@ function ServiceFeeLineChart({
         </svg>
       </div>
     </div>
+  );
+}
+
+/**
+ * 集采流水线的单个环节卡片：整块可点，在工作区里新开一个标签并带上筛选。
+ * 数量为 0 时数字用浅灰，避免抢视觉。
+ */
+function PipelineStage({
+  label,
+  value,
+  hint,
+  href,
+  tone,
+}: {
+  label: string;
+  value: number;
+  hint: string;
+  href: string;
+  tone: "pre" | "dev";
+}) {
+  return (
+    <button
+      className={`group relative flex flex-col rounded border border-line-soft border-t-[3px] bg-surface-2 px-2.5 py-2 text-left transition-colors hover:border-primary hover:bg-white ${
+        tone === "pre" ? "border-t-success-strong" : "border-t-primary"
+      }`}
+      onClick={() => postWorkspaceMessage({ type: "cloud-power:open-tab", route: href, title: label })}
+      title={`${label}：${value} 个`}
+      type="button"
+    >
+      <span className="truncate pr-4 text-xs text-ink-3">{label}</span>
+      <span className={`mt-0.5 text-lg font-semibold leading-tight ${value ? "text-ink" : "text-ink-4"}`}>
+        {formatNumber(value)}
+        <span className="ml-0.5 text-[11px] font-normal text-ink-3">个</span>
+      </span>
+      <span className="truncate text-[11px] text-ink-4" title={hint}>{hint}</span>
+      <ArrowUpRight className="absolute right-2 top-2 text-ink-4 transition-colors group-hover:text-primary" size={12} />
+    </button>
   );
 }
 

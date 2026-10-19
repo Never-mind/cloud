@@ -328,7 +328,7 @@ export async function listEntityRows(config: EntityConfig, searchParams: URLSear
   const displayOnlyFields = config.key === "customer-pos"
     ? new Set(["undertakingUnitName", "customerName"])
     : config.key === "quotations"
-      ? new Set(["contractingUnitName", "customerName"])
+      ? new Set(["contractingUnitName", "customerName", "settlementProjectNo", "settlementProjectId"])
       : config.key === "history-quotations"
         ? new Set(["customerId"])
         : config.key === "customer-product-aliases"
@@ -388,6 +388,14 @@ export async function listEntityRows(config: EntityConfig, searchParams: URLSear
         .filter((field) => ["contractingUnitName", "customerName"].includes(field.key))
         .map((field) => `${getEntityDisplayFieldExpression(config, field.key)} AS ${quoteIdentifier(field.key)}`)
       : [])
+    /**
+     * 报价单的「项目结算」是派生值：改版后确认报价单不再自动建项目，
+     * 所以要能看出这张报价单立没立项、对应哪个项目单号。
+     */
+    .concat(config.key === "quotations" ? [
+      `(SELECT sp.projectNo FROM merge_po_settlement_projects sp WHERE sp.quotationId = ${table}.id LIMIT 1) AS ${quoteIdentifier("settlementProjectNo")}`,
+      `(SELECT sp.id FROM merge_po_settlement_projects sp WHERE sp.quotationId = ${table}.id LIMIT 1) AS ${quoteIdentifier("settlementProjectId")}`,
+    ] : [])
     .concat(config.key === "history-quotations"
       ? config.listFields
         .filter((field) => field.key === "customerId")
@@ -466,6 +474,17 @@ export async function listEntityRows(config: EntityConfig, searchParams: URLSear
             ? `${table}.status = '已确认' AND ${gap} <= ${WRITE_OFF_BALANCE_TOLERANCE}`
             : `${table}.status = '已确认' AND ${gap} > ${WRITE_OFF_BALANCE_TOLERANCE}`,
         );
+        continue;
+      }
+      /**
+       * 报价单的「项目结算」筛选：已立项 / 待立项。
+       * 用 EXISTS 在库侧筛，分页 total、翻页、导出跟列表口径一致。
+       */
+      if (config.key === "quotations" && filter.key === "projectStatus") {
+        const exists = `EXISTS (SELECT 1 FROM merge_po_settlement_projects sp WHERE sp.quotationId = ${table}.id)`;
+        if (value === "created") whereParts.push(exists);
+        // 「待立项」只针对已确认的报价单：草稿本来就没有项目，不该算进来
+        else if (value === "pending") whereParts.push(`${table}.status = 'confirmed' AND NOT ${exists}`);
         continue;
       }
       if (config.key === "shipments" && filter.key === "receiptStatus") {
