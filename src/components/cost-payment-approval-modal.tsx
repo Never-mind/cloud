@@ -355,6 +355,9 @@ export function CostPaymentApprovalModal({
               <div className="flex items-center gap-2 border-b border-line-soft px-3 py-2">
                 <Banknote className="text-ink-3" size={14} />
                 <span className="text-xs font-medium text-ink-2">收款账号</span>
+                {row.bankAccounts.length > 1 ? (
+                  <span className="ml-auto text-[11px] text-ink-3">该供应商有 {row.bankAccounts.length} 个账户，可切换</span>
+                ) : null}
                 {!row.bankAccounts.length ? (
                   <span className="text-xs text-warning-ink">供应商还没有银行账户，请先到供应商档案补</span>
                 ) : null}
@@ -364,7 +367,7 @@ export function CostPaymentApprovalModal({
                   <Select className="w-full" value={row.accountId} onChange={(event) => pickAccount(row, event.target.value)}>
                     {row.bankAccounts.map((account) => (
                       <option key={account.accountId} value={account.accountId}>
-                        {account.accountName} · {account.bankAccount}{account.isDefault ? "（默认）" : ""}
+                        {account.accountName} · {account.bankAccount} · {account.currency || "-"}{account.isDefault ? "（默认）" : ""}
                       </option>
                     ))}
                   </Select>
