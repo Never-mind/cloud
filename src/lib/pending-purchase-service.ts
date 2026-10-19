@@ -295,19 +295,32 @@ export async function createPurchaseOrdersFromItems(input: CreatePurchaseOrdersF
 async function refreshRequestStatusAfterItemsChange(connection: Parameters<Parameters<typeof withTransaction>[0]>[0], requestNos: string[]) {
   const nos = normalizeRequestNos(requestNos).split(",").filter(Boolean);
   if (!nos.length) return;
+  /**
+   * 注意：这里必须把 IN 的参数**逐个展开**，不能直接传数组。
+   * 生产库是 MySQL 8.0.21，预编译语句（connection.execute）收到数组参数会报
+   * `Incorrect arguments to mysqld_stmt_execute`；本地 8.0.46 能过，所以只在生产暴露。
+   */
+  const inParams: Row = {};
+  const inPlaceholders = nos
+    .map((value, index) => {
+      const key = `requestNo${index}`;
+      inParams[key] = value;
+      return `:${key}`;
+    })
+    .join(", ");
   await executeInTransaction(
     connection,
     `
       UPDATE requests req
         SET req.status = '待下单'
-      WHERE req.requestNo IN (:nos) AND req.status = '已下单'
+      WHERE req.requestNo IN (${inPlaceholders}) AND req.status = '已下单'
         AND EXISTS (
           SELECT 1 FROM requestitems ri
           LEFT JOIN purchaseorderitems poi ON poi.requestItemId = ri.id
           WHERE ri.requestNo = req.requestNo AND poi.id IS NULL
         )
     `,
-    { nos },
+    inParams,
   );
 }
 
