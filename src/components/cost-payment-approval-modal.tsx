@@ -9,7 +9,7 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { Banknote, Building2, ChevronDown, Paperclip, Upload } from "lucide-react";
-import { Button, Input, Select } from "./ui";
+import { Button, Input, Select, Textarea } from "./ui";
 import { Modal } from "./modal";
 import { notify } from "./app-dialog";
 import { formatDisplayValue } from "@/lib/display-format";
@@ -246,7 +246,7 @@ export function CostPaymentApprovalModal({
           <span className="rounded bg-info-soft px-1.5 py-0.5 text-[11px] font-normal text-primary">{PROJECT_LABEL[branch]}</span>
         </span>
       }
-      widthClass="max-w-5xl"
+      widthClass="max-w-3xl"
     >
       {error ? (
         <div className="mb-3 rounded border border-danger-border-strong bg-danger-soft px-3 py-2 text-sm text-danger">
@@ -269,12 +269,12 @@ export function CostPaymentApprovalModal({
       {/* 基本信息 */}
       <section className="rounded border border-line-soft bg-white">
         <SectionHead icon={<Building2 size={14} />} title="基本信息" hint="成本部门与成本项目由入口决定，不用选" />
-        <div className="grid gap-x-4 gap-y-3 px-4 py-3 sm:grid-cols-2">
-          <Field label="付款事由">
-            <Input value={reason} onChange={(event) => setReason(event.target.value)} />
-          </Field>
-          <Field label="成本公司（承接单位）" hint="默认取来源单据的承接单位，可以改">
-            <Select value={companyKey} onChange={(event) => setCompanyKey(event.target.value)}>
+        <div className="divide-y divide-line-soft">
+          <FormRow hint="审批单上的用途说明，尽量写清楚账期/项目" label="付款事由">
+            <Textarea className="w-full" rows={3} value={reason} onChange={(event) => setReason(event.target.value)} />
+          </FormRow>
+          <FormRow hint="默认取来源单据的承接单位，可以改" label="成本公司">
+            <Select className="w-full" value={companyKey} onChange={(event) => setCompanyKey(event.target.value)}>
               <option value="">请选择成本公司</option>
               {companies.map((company) => (
                 <option disabled={!company.companyKey} key={company.code} value={company.companyKey || `unmapped:${company.code}`}>
@@ -283,7 +283,7 @@ export function CostPaymentApprovalModal({
                 </option>
               ))}
             </Select>
-          </Field>
+          </FormRow>
         </div>
       </section>
 
@@ -302,85 +302,90 @@ export function CostPaymentApprovalModal({
               {row.paid ? <span className="rounded bg-warning-soft px-1.5 py-0.5 text-[11px] text-warning-ink">系统里已标记已付款</span> : null}
             </div>
 
-            <div className="grid gap-x-4 gap-y-3 px-4 py-3 sm:grid-cols-2 lg:grid-cols-3">
+            {/* 明细字段：标签在左、控件等宽满行（之前用多列网格，控件宽度不一） */}
+            <div className="divide-y divide-line-soft">
               {branch === "huawei" ? (
-                <Field label="客户名称（审批选项）">
-                  <Select value={row.customerOptionKey} onChange={(event) => patchRow(row.ownerId, { customerOptionKey: event.target.value })}>
+                <FormRow hint="飞书审批里的选项" label="客户名称">
+                  <Select className="w-full" value={row.customerOptionKey} onChange={(event) => patchRow(row.ownerId, { customerOptionKey: event.target.value })}>
                     <option value="">请选择客户</option>
                     {(options?.customer ?? []).map((option) => (
                       <option key={option.value} value={option.value}>{option.text}</option>
                     ))}
                   </Select>
-                </Field>
+                </FormRow>
               ) : null}
-              <Field label="金额" hint="默认取系统账单，可改">
+              <FormRow hint="默认取系统账单，可改" label="金额">
                 <Input
+                  className="w-full"
                   step="0.01"
                   type="number"
                   value={String(row.amount ?? "")}
                   onChange={(event) => patchRow(row.ownerId, { amount: Number(event.target.value) })}
                 />
-              </Field>
-              <Field label="币种">
-                <Select value={row.currency} onChange={(event) => patchRow(row.ownerId, { currency: event.target.value })}>
+              </FormRow>
+              <FormRow label="币种">
+                <Select className="w-full" value={row.currency} onChange={(event) => patchRow(row.ownerId, { currency: event.target.value })}>
                   {Array.from(new Set([row.currency, ...(options?.currencies ?? [])].filter(Boolean))).map((currency) => (
                     <option key={currency} value={currency}>{currency}</option>
                   ))}
                 </Select>
-              </Field>
-              <Field label="手续费">
-                <Select value={row.feeOptionKey} onChange={(event) => patchRow(row.ownerId, { feeOptionKey: event.target.value })}>
+              </FormRow>
+              <FormRow label="手续费">
+                <Select className="w-full" value={row.feeOptionKey} onChange={(event) => patchRow(row.ownerId, { feeOptionKey: event.target.value })}>
                   {(options?.fee ?? []).map((option) => <option key={option.value} value={option.value}>{option.text}</option>)}
                 </Select>
-              </Field>
-              <Field label="需求付款日期">
+              </FormRow>
+              <FormRow label="需求付款日期">
                 <Input
+                  className="w-full"
                   type="date"
                   value={row.paymentDate ? row.paymentDate.slice(0, 10) : ""}
                   onChange={(event) => patchRow(row.ownerId, { paymentDate: event.target.value })}
                 />
-              </Field>
-              <Field label="发票">
-                <Select value={row.invoiceOptionKey} onChange={(event) => patchRow(row.ownerId, { invoiceOptionKey: event.target.value })}>
+              </FormRow>
+              <FormRow label="发票">
+                <Select className="w-full" value={row.invoiceOptionKey} onChange={(event) => patchRow(row.ownerId, { invoiceOptionKey: event.target.value })}>
                   {(options?.invoice ?? []).map((option) => <option key={option.value} value={option.value}>{option.text}</option>)}
                 </Select>
-              </Field>
+              </FormRow>
             </div>
 
-            {/* 收款账号 */}
-            <div className="mx-4 mb-3 rounded border border-line-soft bg-canvas px-3 py-2.5">
-              <div className="mb-1.5 flex flex-wrap items-center gap-2">
+            {/* 收款账号：与上方字段同样的「标签左 + 内容右」等宽竖排 */}
+            <div className="mx-4 mb-3 overflow-clip rounded border border-line-soft bg-canvas">
+              <div className="flex items-center gap-2 border-b border-line-soft px-3 py-2">
                 <Banknote className="text-ink-3" size={14} />
                 <span className="text-xs font-medium text-ink-2">收款账号</span>
-                {row.bankAccounts.length > 1 ? (
-                  <Select className="ml-auto h-8 w-[300px] text-xs" value={row.accountId} onChange={(event) => pickAccount(row, event.target.value)}>
+                {!row.bankAccounts.length ? (
+                  <span className="text-xs text-warning-ink">供应商还没有银行账户，请先到供应商档案补</span>
+                ) : null}
+              </div>
+              {row.bankAccounts.length > 1 ? (
+                <div className="px-3 py-2">
+                  <Select className="w-full" value={row.accountId} onChange={(event) => pickAccount(row, event.target.value)}>
                     {row.bankAccounts.map((account) => (
                       <option key={account.accountId} value={account.accountId}>
                         {account.accountName} · {account.bankAccount}{account.isDefault ? "（默认）" : ""}
                       </option>
                     ))}
                   </Select>
-                ) : null}
-                {!row.bankAccounts.length ? (
-                  <span className="text-xs text-warning-ink">供应商还没有银行账户，请先到供应商档案补</span>
-                ) : null}
-              </div>
-              <div className="grid gap-x-6 gap-y-1 text-xs sm:grid-cols-2">
-                <div className="flex gap-2"><span className="w-[64px] shrink-0 text-ink-3">收款单位</span><span className="truncate text-ink" title={row.payee}>{row.payee || "-"}</span></div>
-                <div className="flex gap-2"><span className="w-[64px] shrink-0 text-ink-3">银行账户</span><span className="truncate text-ink">{row.bankAccount || "-"}</span></div>
-                <div className="flex gap-2"><span className="w-[64px] shrink-0 text-ink-3">开户行</span><span className="truncate text-ink" title={row.bankName}>{row.bankName || "-"}</span></div>
-                <div className="flex gap-2"><span className="w-[64px] shrink-0 text-ink-3">SWIFT</span><span className="truncate text-ink">{row.swiftCode || "-"}</span></div>
+                </div>
+              ) : null}
+              <div className="divide-y divide-line-soft/70">
+                <AccountRow label="收款单位" value={row.payee} />
+                <AccountRow label="银行账户" value={row.bankAccount} />
+                <AccountRow label="开户行" value={row.bankName} />
+                <AccountRow label="SWIFT CODE" value={row.swiftCode} />
               </div>
               {row.sources.length ? (
-                <details className="mt-2 border-t border-line-soft pt-2">
+                <details className="border-t border-line-soft px-3 py-2">
                   <summary className="flex cursor-pointer list-none items-center gap-1 text-xs text-ink-3 hover:text-primary">
                     <ChevronDown size={13} />
                     覆盖的客户 / 华为云账号（{row.sources.length} 个）
                   </summary>
-                  <div className="mt-2 grid gap-x-6 gap-y-1 text-xs sm:grid-cols-2">
+                  <div className="mt-2 divide-y divide-line-soft/70 text-xs">
                     {row.sources.map((source) => (
-                      <div className="flex items-center justify-between gap-3" key={`${source.customer}-${source.account}`}>
-                        <span className="truncate text-ink-2">{source.customer || "-"} · <span className="text-ink-3">{source.account || "-"}</span></span>
+                      <div className="flex items-center justify-between gap-3 py-1" key={`${source.customer}-${source.account}`}>
+                        <span className="min-w-0 truncate text-ink-2">{source.customer || "-"} · <span className="text-ink-3">{source.account || "-"}</span></span>
                         <span className="shrink-0 tabular-nums text-ink-3">{formatDisplayValue(source.amount, "money")}</span>
                       </div>
                     ))}
@@ -446,15 +451,25 @@ function SectionHead({ icon, title, hint }: { icon: React.ReactNode; title: stri
   );
 }
 
-function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+/** 表单行：标签在左固定宽度、控件在右占满剩余宽度 —— 所有控件宽度一致。 */
+function FormRow({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
   return (
-    <label className="block min-w-0">
-      <span className="mb-1 flex items-baseline gap-1 text-xs text-ink-3">
+    <div className="grid grid-cols-[104px_minmax(0,1fr)] items-start gap-3 px-4 py-2.5">
+      <div className="pt-2 text-xs text-ink-3">
         {label}
-        {hint ? <span className="text-[11px] text-ink-4">{hint}</span> : null}
-      </span>
-      {children}
-    </label>
+        {hint ? <div className="mt-0.5 text-[11px] leading-4 text-ink-4">{hint}</div> : null}
+      </div>
+      <div className="min-w-0">{children}</div>
+    </div>
+  );
+}
+
+function AccountRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="grid grid-cols-[104px_minmax(0,1fr)] items-baseline gap-3 px-3 py-1.5 text-xs">
+      <span className="text-ink-3">{label}</span>
+      <span className="break-words text-ink-2">{value || "-"}</span>
+    </div>
   );
 }
 
