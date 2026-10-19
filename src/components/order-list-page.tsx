@@ -4,7 +4,7 @@ import Link from "next/link";
 import * as XLSX from "xlsx";
 import { useEffect, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { CheckCircle2, FileDown, Pencil, Plus, RefreshCw, Search, Trash2 } from "lucide-react";
+import { Banknote, CheckCircle2, FileDown, Pencil, Plus, RefreshCw, Search, Trash2 } from "lucide-react";
 import { formatDisplayValue } from "@/lib/display-format";
 import type { EntityConfig } from "@/lib/modules";
 import { isConfirmedOrderStatus, type OrderStatusTab } from "@/lib/order-status";
@@ -495,6 +495,7 @@ export function OrderListPage({
               tone="primary"
               onClick={() => setPaymentApprovalOwnerIds([...selectedRequestNos])}
             >
+              <Banknote size={15} />
               {`合并发起付款申请${selectedRequestNos.size ? ` (${selectedRequestNos.size})` : ""}`}
             </Button>
           ) : null}

@@ -3,12 +3,13 @@
 /**
  * 成本款付款申请弹层（华为云供应商付款 / 集采发票汇总 / 算力采购订单共用）。
  *
- * 版式：**一条明细一张卡片、字段竖排**（早期是横向大表格，字段多了在窄屏上很难看）。
+ * 版式：顶部「明细数 / 合计 / 成本项目」摘要 → 基本信息 → 每条明细一张卡片（字段竖排）。
  * 可选项（客户名称 / 手续费 / 发票 / 币种 / 成本公司）优先用**飞书审批定义里读回来的选项**，
  * 审批后台加了新选项，这里会自动出现；读不到时回落到内置列表。
  */
 import { useEffect, useMemo, useState } from "react";
-import { Button, Input, Panel, Select } from "./ui";
+import { Banknote, Building2, ChevronDown, Paperclip, Upload } from "lucide-react";
+import { Button, Input, Select } from "./ui";
 import { Modal } from "./modal";
 import { notify } from "./app-dialog";
 import { formatDisplayValue } from "@/lib/display-format";
@@ -222,67 +223,86 @@ export function CostPaymentApprovalModal({
 
   return (
     <Modal
-      description={`${BRANCH_TITLE[branch]} · ${rows.length} 条明细 · 合计 ${totals || "-"} · 以你的飞书身份提交`}
+      description={`${BRANCH_TITLE[branch]} · 以你的飞书身份提交，审批通过后自动回写已付款`}
       footer={
-        <>
-          <Button onClick={onClose} disabled={submitting}>取消</Button>
-          <Button disabled={loading || submitting || !rows.length} onClick={() => void submit()} tone="primary">
-            {submitting ? "发起中…" : "确认并发起审批"}
-          </Button>
-        </>
+        <div className="flex w-full items-center justify-between gap-3">
+          <div className="min-w-0 truncate text-xs text-ink-3">
+            合计 <span className="ml-1 text-sm font-medium text-ink">{totals || "-"}</span>
+            {selectedCompany ? <span className="ml-2">· {selectedCompany.name}</span> : null}
+          </div>
+          <div className="flex shrink-0 gap-2">
+            <Button onClick={onClose} disabled={submitting}>取消</Button>
+            <Button disabled={loading || submitting || !rows.length} onClick={() => void submit()} tone="primary">
+              <Banknote size={15} />
+              {submitting ? "发起中…" : "确认并发起审批"}
+            </Button>
+          </div>
+        </div>
       }
       onClose={onClose}
-      title="发起成本款付款申请"
-      widthClass="max-w-4xl"
+      title={
+        <span className="flex items-center gap-2">
+          发起成本款付款申请
+          <span className="rounded bg-info-soft px-1.5 py-0.5 text-[11px] font-normal text-primary">{PROJECT_LABEL[branch]}</span>
+        </span>
+      }
+      widthClass="max-w-5xl"
     >
-      {error ? <div className="mb-3 rounded border border-danger/30 bg-danger-soft px-3 py-2 text-sm text-danger-strong">{error}</div> : null}
+      {error ? (
+        <div className="mb-3 rounded border border-danger-border-strong bg-danger-soft px-3 py-2 text-sm text-danger">
+          {error}
+        </div>
+      ) : null}
       {warnings.length ? (
-        <div className="mb-3 rounded border border-[#f5dab1] bg-[#fdf6ec] px-3 py-2 text-xs text-[#8a5a00]">
-          {warnings.map((warning) => <div key={warning}>· {warning}</div>)}
+        <div className="mb-3 rounded border border-warning-border-soft bg-warning-soft px-3 py-2 text-xs text-warning-ink">
+          {warnings.map((warning) => <div key={warning} className="flex gap-1.5"><span>•</span><span>{warning}</span></div>)}
         </div>
       ) : null}
 
-      {/* 表头信息：竖排字段 */}
-      <div className="grid gap-3 sm:grid-cols-2">
-        <Field label="付款事由">
-          <Input value={reason} onChange={(event) => setReason(event.target.value)} />
-        </Field>
-        <Field label="成本部门 / 成本项目">
-          <div className="flex h-9 items-center rounded border border-line-soft bg-surface-2 px-3 text-sm text-ink-2">
-            CLOUD / {PROJECT_LABEL[branch]}
-          </div>
-        </Field>
-        <Field label="成本公司（承接单位，可切换）">
-          <Select value={companyKey} onChange={(event) => setCompanyKey(event.target.value)}>
-            <option value="">请选择成本公司</option>
-            {companies.map((company) => (
-              <option disabled={!company.companyKey} key={company.code} value={company.companyKey || `unmapped:${company.code}`}>
-                {companyOptionLabel(options?.company, company.companyKey) || company.name}
-                {company.companyKey ? "" : "（飞书审批里还没对应选项）"}
-              </option>
-            ))}
-          </Select>
-        </Field>
-        <Field label="合计">
-          <div className="flex h-9 items-center rounded border border-line-soft bg-surface-2 px-3 text-sm font-medium text-ink">{totals || "-"}</div>
-        </Field>
+      {/* 摘要 */}
+      <div className="mb-4 grid gap-px overflow-hidden rounded border border-line-soft bg-line-soft sm:grid-cols-3">
+        <SummaryCell label="付款明细" value={`${rows.length || 0} 条`} />
+        <SummaryCell label="合计金额" value={totals || "-"} />
+        <SummaryCell label="成本部门 / 项目" value={`CLOUD / ${PROJECT_LABEL[branch]}`} />
       </div>
 
-      <div className="mt-4 space-y-4">
-        {loading ? <Panel className="p-6 text-center text-sm text-ink-3">加载中…</Panel> : null}
-        {!loading && !rows.length ? <Panel className="p-6 text-center text-sm text-ink-3">没有可发起的数据</Panel> : null}
+      {/* 基本信息 */}
+      <section className="rounded border border-line-soft bg-white">
+        <SectionHead icon={<Building2 size={14} />} title="基本信息" hint="成本部门与成本项目由入口决定，不用选" />
+        <div className="grid gap-x-4 gap-y-3 px-4 py-3 sm:grid-cols-2">
+          <Field label="付款事由">
+            <Input value={reason} onChange={(event) => setReason(event.target.value)} />
+          </Field>
+          <Field label="成本公司（承接单位）" hint="默认取来源单据的承接单位，可以改">
+            <Select value={companyKey} onChange={(event) => setCompanyKey(event.target.value)}>
+              <option value="">请选择成本公司</option>
+              {companies.map((company) => (
+                <option disabled={!company.companyKey} key={company.code} value={company.companyKey || `unmapped:${company.code}`}>
+                  {companyOptionLabel(options?.company, company.companyKey) || company.name}
+                  {company.companyKey ? "" : "（飞书审批里还没对应选项）"}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        </div>
+      </section>
+
+      {/* 明细 */}
+      <div className="mt-4 space-y-3">
+        {loading ? <div className="rounded border border-line-soft bg-white p-8 text-center text-sm text-ink-3">加载中…</div> : null}
+        {!loading && !rows.length ? <div className="rounded border border-line-soft bg-white p-8 text-center text-sm text-ink-3">没有可发起的数据</div> : null}
         {rows.map((row, index) => (
-          <Panel className="p-4" key={row.ownerId}>
-            <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-line-soft pb-2 text-sm">
-              <span className="font-medium text-ink">明细 {index + 1}</span>
-              {branch === "compute" ? <span className="text-ink-2">订单号 {row.orderNo}</span> : null}
-              {branch === "compute" ? <span className="text-ink-2">批次序号 {row.batchNo || "-"}</span> : null}
-              {branch !== "compute" ? <span className="text-ink-2">{branch === "huawei" ? `账期 ${row.period}` : `发票号 ${row.ownerNo}`}</span> : null}
-              <span className="text-ink-2">供应商 {row.supplierName || "-"}</span>
-              {row.paid ? <span className="text-[#b8860b]">已标记为已付款</span> : null}
+          <section className="overflow-clip rounded border border-line-soft bg-white" key={row.ownerId}>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-line-soft bg-canvas px-4 py-2.5">
+              <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-primary/10 px-2 text-xs font-medium text-primary">
+                {index + 1}
+              </span>
+              <span className="text-sm font-medium text-ink">{rowTitle(branch, row)}</span>
+              <span className="text-xs text-ink-3">供应商 {row.supplierName || "-"}</span>
+              {row.paid ? <span className="rounded bg-warning-soft px-1.5 py-0.5 text-[11px] text-warning-ink">系统里已标记已付款</span> : null}
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="grid gap-x-4 gap-y-3 px-4 py-3 sm:grid-cols-2 lg:grid-cols-3">
               {branch === "huawei" ? (
                 <Field label="客户名称（审批选项）">
                   <Select value={row.customerOptionKey} onChange={(event) => patchRow(row.ownerId, { customerOptionKey: event.target.value })}>
@@ -293,7 +313,7 @@ export function CostPaymentApprovalModal({
                   </Select>
                 </Field>
               ) : null}
-              <Field label="金额（默认取系统账单，可改）">
+              <Field label="金额" hint="默认取系统账单，可改">
                 <Input
                   step="0.01"
                   type="number"
@@ -301,14 +321,14 @@ export function CostPaymentApprovalModal({
                   onChange={(event) => patchRow(row.ownerId, { amount: Number(event.target.value) })}
                 />
               </Field>
-              <Field label="币种（审批允许的币种）">
+              <Field label="币种">
                 <Select value={row.currency} onChange={(event) => patchRow(row.ownerId, { currency: event.target.value })}>
                   {Array.from(new Set([row.currency, ...(options?.currencies ?? [])].filter(Boolean))).map((currency) => (
                     <option key={currency} value={currency}>{currency}</option>
                   ))}
                 </Select>
               </Field>
-              <Field label="手续费（分摊方案）">
+              <Field label="手续费">
                 <Select value={row.feeOptionKey} onChange={(event) => patchRow(row.ownerId, { feeOptionKey: event.target.value })}>
                   {(options?.fee ?? []).map((option) => <option key={option.value} value={option.value}>{option.text}</option>)}
                 </Select>
@@ -327,12 +347,13 @@ export function CostPaymentApprovalModal({
               </Field>
             </div>
 
-            {/* 收款/账号信息：单独一块，完整展示 */}
-            <div className="mt-3 rounded border border-line-soft bg-surface-2 p-3">
-              <div className="mb-2 flex items-center gap-2">
-                <span className="text-xs text-ink-3">收款账号信息</span>
+            {/* 收款账号 */}
+            <div className="mx-4 mb-3 rounded border border-line-soft bg-canvas px-3 py-2.5">
+              <div className="mb-1.5 flex flex-wrap items-center gap-2">
+                <Banknote className="text-ink-3" size={14} />
+                <span className="text-xs font-medium text-ink-2">收款账号</span>
                 {row.bankAccounts.length > 1 ? (
-                  <Select className="w-[320px]" value={row.accountId} onChange={(event) => pickAccount(row, event.target.value)}>
+                  <Select className="ml-auto h-8 w-[300px] text-xs" value={row.accountId} onChange={(event) => pickAccount(row, event.target.value)}>
                     {row.bankAccounts.map((account) => (
                       <option key={account.accountId} value={account.accountId}>
                         {account.accountName} · {account.bankAccount}{account.isDefault ? "（默认）" : ""}
@@ -340,70 +361,107 @@ export function CostPaymentApprovalModal({
                     ))}
                   </Select>
                 ) : null}
-                {!row.bankAccounts.length ? <span className="text-xs text-[#b8860b]">供应商还没有银行账户，请先到供应商档案补</span> : null}
+                {!row.bankAccounts.length ? (
+                  <span className="text-xs text-warning-ink">供应商还没有银行账户，请先到供应商档案补</span>
+                ) : null}
               </div>
-              <div className="grid gap-x-6 gap-y-1 text-sm text-ink-2 sm:grid-cols-2">
-                <div>收款单位：<span className="text-ink">{row.payee || "-"}</span></div>
-                <div>银行账户：<span className="text-ink">{row.bankAccount || "-"}</span></div>
-                <div>开户行：<span className="text-ink">{row.bankName || "-"}</span></div>
-                <div>SWIFT CODE：<span className="text-ink">{row.swiftCode || "-"}</span></div>
+              <div className="grid gap-x-6 gap-y-1 text-xs sm:grid-cols-2">
+                <div className="flex gap-2"><span className="w-[64px] shrink-0 text-ink-3">收款单位</span><span className="truncate text-ink" title={row.payee}>{row.payee || "-"}</span></div>
+                <div className="flex gap-2"><span className="w-[64px] shrink-0 text-ink-3">银行账户</span><span className="truncate text-ink">{row.bankAccount || "-"}</span></div>
+                <div className="flex gap-2"><span className="w-[64px] shrink-0 text-ink-3">开户行</span><span className="truncate text-ink" title={row.bankName}>{row.bankName || "-"}</span></div>
+                <div className="flex gap-2"><span className="w-[64px] shrink-0 text-ink-3">SWIFT</span><span className="truncate text-ink">{row.swiftCode || "-"}</span></div>
               </div>
               {row.sources.length ? (
-                <div className="mt-2 border-t border-line-soft pt-2 text-xs text-ink-3">
-                  <div className="mb-1">覆盖的客户 / 华为云账号（{row.sources.length} 个）：</div>
-                  <div className="grid gap-x-6 gap-y-0.5 sm:grid-cols-2">
+                <details className="mt-2 border-t border-line-soft pt-2">
+                  <summary className="flex cursor-pointer list-none items-center gap-1 text-xs text-ink-3 hover:text-primary">
+                    <ChevronDown size={13} />
+                    覆盖的客户 / 华为云账号（{row.sources.length} 个）
+                  </summary>
+                  <div className="mt-2 grid gap-x-6 gap-y-1 text-xs sm:grid-cols-2">
                     {row.sources.map((source) => (
-                      <div className="flex items-center justify-between gap-2" key={`${source.customer}-${source.account}`}>
-                        <span className="truncate">{source.customer || "-"} · {source.account || "-"}</span>
-                        <span className="shrink-0 tabular-nums">{formatDisplayValue(source.amount, "money")}</span>
+                      <div className="flex items-center justify-between gap-3" key={`${source.customer}-${source.account}`}>
+                        <span className="truncate text-ink-2">{source.customer || "-"} · <span className="text-ink-3">{source.account || "-"}</span></span>
+                        <span className="shrink-0 tabular-nums text-ink-3">{formatDisplayValue(source.amount, "money")}</span>
                       </div>
                     ))}
                   </div>
-                </div>
+                </details>
               ) : null}
             </div>
 
-            <div className="mt-3">
-              <div className="mb-1 text-xs text-ink-3">
-                附件（必填）{branch === "other" ? " · 发票上已传的附件会在提交时自动带上" : ""}
-              </div>
+            {/* 附件 */}
+            <div className="mx-4 mb-4 rounded border border-dashed border-line px-3 py-2.5">
               <div className="flex flex-wrap items-center gap-2">
-                {row.attachments.map((attachment) => (
-                  <span className="inline-flex items-center gap-2 rounded border border-line-soft bg-white px-2 py-1 text-xs text-ink-2" key={attachment.fileName}>
-                    <span className="max-w-[220px] truncate">{attachment.fileName}</span>
-                    <button
-                      className="text-danger hover:underline"
-                      onClick={() => patchRow(row.ownerId, { attachments: row.attachments.filter((item) => item !== attachment) })}
-                      type="button"
-                    >
-                      移除
-                    </button>
-                  </span>
-                ))}
-                <label className="inline-flex h-8 cursor-pointer items-center gap-1 rounded border border-line bg-white px-3 text-xs text-ink-2 hover:border-primary hover:text-primary">
-                  + 上传附件
+                <Paperclip className="text-ink-3" size={14} />
+                <span className="text-xs text-ink-2">附件<span className="text-danger">*</span></span>
+                <span className="text-[11px] text-ink-3">
+                  {branch === "other" ? "发票上已传的附件会自动带上，可再补充" : "付款申请必须带附件（发票 / 合同）"}
+                </span>
+                <label className="ml-auto inline-flex h-8 cursor-pointer items-center gap-1 rounded border border-line bg-white px-3 text-xs text-ink-2 transition-colors hover:border-primary hover:text-primary">
+                  <Upload size={13} />选择文件
                   <input className="hidden" multiple type="file" onChange={(event) => { void readFiles(row, event.target.files); event.target.value = ""; }} />
                 </label>
               </div>
+              {row.attachments.length ? (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {row.attachments.map((attachment) => (
+                    <span className="inline-flex max-w-[280px] items-center gap-2 rounded bg-canvas px-2 py-1 text-xs text-ink-2" key={attachment.fileName}>
+                      <Paperclip className="shrink-0 text-ink-3" size={12} />
+                      <span className="truncate">{attachment.fileName}</span>
+                      <button
+                        className="shrink-0 text-danger hover:underline"
+                        onClick={() => patchRow(row.ownerId, { attachments: row.attachments.filter((item) => item !== attachment) })}
+                        type="button"
+                      >
+                        移除
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              ) : null}
             </div>
-          </Panel>
+          </section>
         ))}
       </div>
-
-      {selectedCompany ? (
-        <div className="mt-3 text-xs text-ink-3">成本公司将按「{selectedCompany.name}」提交到审批。</div>
-      ) : null}
     </Modal>
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function SummaryCell({ label, value }: { label: string; value: string }) {
   return (
-    <label className="block">
-      <span className="mb-1 block text-xs text-ink-3">{label}</span>
+    <div className="bg-white px-4 py-2.5">
+      <div className="text-[11px] text-ink-3">{label}</div>
+      <div className="mt-0.5 truncate text-sm font-medium text-ink">{value}</div>
+    </div>
+  );
+}
+
+function SectionHead({ icon, title, hint }: { icon: React.ReactNode; title: string; hint?: string }) {
+  return (
+    <div className="flex items-center gap-2 border-b border-line-soft px-4 py-2.5">
+      <span className="text-ink-3">{icon}</span>
+      <span className="text-sm font-medium text-ink">{title}</span>
+      {hint ? <span className="text-[11px] text-ink-3">{hint}</span> : null}
+    </div>
+  );
+}
+
+function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+  return (
+    <label className="block min-w-0">
+      <span className="mb-1 flex items-baseline gap-1 text-xs text-ink-3">
+        {label}
+        {hint ? <span className="text-[11px] text-ink-4">{hint}</span> : null}
+      </span>
       {children}
     </label>
   );
+}
+
+function rowTitle(branch: Branch, row: DraftRow) {
+  if (branch === "compute") return `${row.orderNo}${row.batchNo ? ` · 批次 ${row.batchNo}` : ""}`;
+  if (branch === "huawei") return `${row.period} 账期`;
+  return `发票 ${row.ownerNo || "-"}`;
 }
 
 function companyOptionLabel(options: Option[] | undefined, companyKey: string) {
