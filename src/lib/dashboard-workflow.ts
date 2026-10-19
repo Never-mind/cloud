@@ -74,8 +74,15 @@ export function aggregateNewInstancesByCountryMonth(
   );
 }
 
-export function buildServiceFeeChartSeries(rows: DashboardServiceFeeSummary[]): ServiceFeeChartData {
-  const months = Array.from(new Set(rows.map((row) => row.month))).sort();
+/**
+ * 服务费折线图：默认只取**最近 6 个有数据的账期**（按月份升序展示）。
+ *
+ * 首页是经营看板，历史月份越积越多，全量画在一张图上 x 轴会挤成一团；
+ * 需要看更早的月份去服务费核算页查。传 `monthLimit=0` 可取全部月份。
+ */
+export function buildServiceFeeChartSeries(rows: DashboardServiceFeeSummary[], monthLimit = 6): ServiceFeeChartData {
+  const allMonths = Array.from(new Set(rows.map((row) => row.month))).sort();
+  const months = monthLimit > 0 ? allMonths.slice(-monthLimit) : allMonths;
   const rowBySeriesMonth = new Map<string, DashboardServiceFeeSummary>();
   const seriesKeys = new Map<string, { countryCode: string; currency: string }>();
 

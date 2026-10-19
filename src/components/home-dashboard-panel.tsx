@@ -112,14 +112,17 @@ export function HomeDashboardPanel() {
     void loadData("");
   }, []);
 
-  const totalServiceFee = useMemo(
-    () => data.serviceFees.reduce((total, row) => total + Number(row.serviceFeeTotal ?? 0), 0),
-    [data.serviceFees],
-  );
-
   const serviceFeeChart = useMemo(
     () => buildServiceFeeChartSeries(data.serviceFees),
     [data.serviceFees],
+  );
+  /** 图表只画最近 6 个月，所以「合计」也只合计图上这几个月，避免口径对不上。 */
+  const totalServiceFee = useMemo(
+    () => serviceFeeChart.series.reduce(
+      (total, line) => total + line.values.reduce<number>((sum, value) => sum + (value ?? 0), 0),
+      0,
+    ),
+    [serviceFeeChart],
   );
   const grossProfit = data.portfolio?.cloud.grossProfit;
   // 复用服务费那张折线图：全部客户用月度合计，单个客户取该客户的月度序列。
@@ -211,9 +214,11 @@ export function HomeDashboardPanel() {
       <DomainCard accent="#409eff" hint="服务费、新增实例" title="算力系统">
       <div className="grid gap-4 p-4 lg:grid-cols-[1.15fr_0.85fr]">
         <div>
-          <div className="mb-2 flex items-center justify-between">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
             <div className="font-medium text-ink">每月服务费合计</div>
-            <div className="text-xs text-ink-3">当前合计：{formatMoneyValue(totalServiceFee)}</div>
+            <div className="text-xs text-ink-3">
+              {serviceFeeChart.months.length ? `近 ${serviceFeeChart.months.length} 个月合计` : "合计"}：{formatMoneyValue(totalServiceFee)}
+            </div>
           </div>
           <ServiceFeeLineChart chart={serviceFeeChart} loading={loading} />
           <div className="mb-1 text-xs text-ink-3">最近一个月（{latestServiceFee.month || "-"}）各国服务费</div>
@@ -462,6 +467,24 @@ function ServiceFeeLineChart({
 
   const yTicks = [maxValue, minValue + span / 2, minValue];
 
+  /**
+   * x 轴标签防重叠：
+   *   - 单年数据用「09月」，跨年用「25-12」，比完整 YYYY-MM 短一半；
+   *   - 按画布宽度算最多能放几个标签，放不下就隔几个显示一个（并且保证最后一个一定有标签）。
+   */
+  const sameYear = new Set(chart.months.map((month) => month.slice(0, 4))).size <= 1;
+  const maxTicks = Math.max(2, Math.floor(plotWidth / 62));
+  const tickStep = Math.max(1, Math.ceil(chart.months.length / maxTicks));
+  const tickOffset = chart.months.length ? (chart.months.length - 1) % tickStep : 0;
+  const axisTicks = chart.months
+    .map((month, index) => ({ month, index }))
+    .filter(({ index }) => index % tickStep === tickOffset);
+  const formatAxisMonth = (month: string) => {
+    const [year, mm] = month.split("-");
+    if (!year || !mm) return month;
+    return sameYear ? `${mm}月` : `${year.slice(2)}-${mm}`;
+  };
+
   return (
     <div className="mb-3 border border-line-soft bg-white p-3">
       <div className="mb-2 flex flex-wrap items-center gap-3 text-xs text-ink-2">
@@ -485,9 +508,9 @@ function ServiceFeeLineChart({
                   </text>
                 </g>
               ))}
-              {chart.months.map((month, index) => (
+              {axisTicks.map(({ month, index }) => (
                 <text fill="#909399" fontSize="11" key={month} textAnchor="middle" x={x(index)} y={height - 16}>
-                  {month}
+                  {formatAxisMonth(month)}
                 </text>
               ))}
               <line stroke="#dcdfe6" x1={padding.left} x2={padding.left} y1={padding.top} y2={height - padding.bottom} />

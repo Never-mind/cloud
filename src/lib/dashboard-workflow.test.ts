@@ -49,4 +49,20 @@ describe("dashboard workflow", () => {
       { key: "MX-MXN", label: "MX / MXN", values: [null, 50] },
     ]);
   });
+
+  it("服务费折线图只取最近 6 个月（首页看板）", () => {
+    const rows = ["2026-01", "2026-02", "2026-03", "2026-04", "2026-05", "2026-06", "2026-07", "2026-08"].map((month) => ({
+      countryCode: "BR",
+      month,
+      currency: "CNY",
+      serviceFeeTotal: 100,
+    }));
+
+    const chart = buildServiceFeeChartSeries(rows);
+    expect(chart.months).toEqual(["2026-03", "2026-04", "2026-05", "2026-06", "2026-07", "2026-08"]);
+    expect(chart.series[0].values).toHaveLength(6);
+
+    // 传 0 表示不限制
+    expect(buildServiceFeeChartSeries(rows, 0).months).toHaveLength(8);
+  });
 });
