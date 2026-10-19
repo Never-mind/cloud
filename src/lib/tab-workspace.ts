@@ -23,6 +23,19 @@ type WorkspaceMessage =
   | { type: "cloud-power:route"; route: string; title: string }
   | { type: "cloud-power:open-tab"; route: string; title: string };
 
+declare global {
+  interface Window {
+    /**
+     * app-shell 注册的本地工作区处理器。
+     *
+     * 首页是被 app-shell 直接渲染的（不在 iframe 里），它发的 open-tab 消息没有 iframe 父级，
+     * 以前会退化成 `window.location.assign` 整页跳转 —— 页面被替换后工作区状态和 URL 对不上，
+     * 再点「首页」就回不去了。现在有处理器就交给它开标签。
+     */
+    __cloudPowerWorkspaceHandler?: (message: WorkspaceMessage) => void;
+  }
+}
+
 function flattenNavItems(groups: typeof navGroups) {
   return groups.flatMap((group) => {
     const flattenChildren = (children: NonNullable<typeof group.children>): EntityConfig[] => children.flatMap((child) => [
@@ -179,6 +192,10 @@ export function getWorkspaceTabTitle(route: string) {
 export function postWorkspaceMessage(message: WorkspaceMessage) {
   if (typeof window === "undefined") return;
   if (window.parent === window) {
+    if (window.__cloudPowerWorkspaceHandler) {
+      window.__cloudPowerWorkspaceHandler(message);
+      return;
+    }
     window.location.assign(message.route);
     return;
   }

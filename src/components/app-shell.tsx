@@ -393,6 +393,33 @@ export function AppShell({
     }
   }, [isEmbedded, moduleFeatureState, workspace.activeRoute]);
 
+  /**
+   * 顶层页面（首页）发的「开标签」消息：交给工作区开标签，不做整页跳转。
+   *
+   * 注意：这些 hook 必须放在下面的条件 return **之前**（login / embedded / 加载中），
+   * 否则首屏和 ready 之后 hook 数量不一致，React 会直接抛 #310 白屏。
+   * `openTab` 要等 workspaceReady 之后才定义，所以用 ref 桥接。
+   */
+  const openTabRef = useRef<((tab: WorkspaceTab) => void) | null>(null);
+  useEffect(() => {
+    window.__cloudPowerWorkspaceHandler = (message) => {
+      const url = new URL(message.route, window.location.origin);
+      const route = getWorkspaceRouteFromLocation(url.pathname, url.search);
+      const title = message.title || getWorkspaceTabTitle(route);
+      if (message.type === "cloud-power:open-tab") {
+        openTabRef.current?.({ route, title, closable: true });
+        return;
+      }
+      const current = workspaceRef.current;
+      const activeTab = current.tabs.find((tab) => tab.route === current.activeRoute);
+      const tabId = getWorkspaceTabId(activeTab ?? { route, title, closable: true });
+      setWorkspace((state) => updateWorkspaceTabRoute(state, tabId, route, title));
+    };
+    return () => {
+      delete window.__cloudPowerWorkspaceHandler;
+    };
+  }, []);
+
   const currentModuleKey = getModuleFeatureKeyForRoute(pathname);
   if (pathname === "/login") return <>{children}</>;
 
@@ -424,6 +451,8 @@ export function AppShell({
     else if (readyTabIdsRef.current.has(tabId)) setDisplayedTabId(tabId);
     setWorkspace((current) => openWorkspaceTab(current, tab));
   };
+  // 首屏 ready 之后才定义 openTab：把最新实现挂到 ref，供顶层页面的开标签消息使用。
+  openTabRef.current = openTab;
 
   const closeTab = (route: string) => {
     setWorkspace((current) => {
