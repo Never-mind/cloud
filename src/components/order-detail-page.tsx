@@ -415,6 +415,15 @@ export function OrderDetailPage({
             {masterListFields.map((field) => (
               <Info key={field.key} label={field.label} value={master[field.key]} />
             ))}
+            {mode === "purchase" ? (
+              <>
+                <Info label="发票号" value={master.invoiceNo} />
+                <Info label="开票状态" value={master.invoiceStatus || "未开票"} />
+                <Info label="付款状态" value={master.paymentStatus || "未付款"} />
+                <Info label="预计付款日期" value={master.paymentDate} type="date" />
+                <Info label="实际付款日期" value={master.paidAt} type="date" />
+              </>
+            ) : null}
             <Info label="整机价转合同汇率（CNY → USD）" value={master.usdRate} type="number" />
             <Info label="总数量" value={totalQuantity} />
             {mode === "purchase" ? <Info label="采购总金额" value={purchaseTotalAmount} type="money" /> : null}
