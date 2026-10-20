@@ -57,9 +57,9 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
         ? null
         : current.actualPaymentDate ?? null;
     const invoiceStatus = body.invoiced === true
-      ? "issued"
+      ? "已开票"
       : body.invoiced === false
-        ? "not_issued"
+        ? "未开票"
         : current.invoiceStatus ?? null;
 
     const actor = await getOperationActor(request);

@@ -31,7 +31,7 @@ async function main() {
     ["invoiceDate", "DATE NULL COMMENT '开票日期' AFTER `invoiceNo`"],
     ["invoiceAmount", "DECIMAL(18,4) NULL COMMENT '发票金额' AFTER `invoiceDate`"],
     ["invoiceCurrency", "VARCHAR(16) NULL COMMENT '发票币种' AFTER `invoiceAmount`"],
-    ["invoiceStatus", "VARCHAR(16) NULL COMMENT '开票状态：issued / not_issued' AFTER `invoiceCurrency`"],
+    ["invoiceStatus", "VARCHAR(16) NULL COMMENT '开票状态：已开票 / 未开票' AFTER `invoiceCurrency`"],
     ["invoiceRemark", "VARCHAR(500) NULL COMMENT '发票备注' AFTER `invoiceStatus`"],
   ];
   for (const [column, ddl] of columns) {

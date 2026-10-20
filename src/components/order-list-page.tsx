@@ -346,6 +346,7 @@ export function OrderListPage({
         : [
             ["poNo", "PO订单号"], ["requestNo", "来源需求单"], ["countryCode", "国家"], ["batchName", "批次号"], ["status", "状态"],
             ["currency", "币种"], ["totalQuantity", "总数量"], ["purchaseTotalAmount", "采购总金额", "money"],
+            ["invoiceStatus", "开票状态"], ["paymentStatus", "付款状态"], ["paymentDate", "预计付款日期", "date"], ["paidAt", "实际付款日期", "date"],
             ["createdAt", "创建时间", "datetime"], ["updatedAt", "更新时间", "datetime"],
           ];
     const worksheet = XLSX.utils.aoa_to_sheet([
@@ -382,6 +383,7 @@ export function OrderListPage({
     + (mode === "purchase" ? 1 : 0) // 币种
     + 1 // 总数量
     + (mode === "purchase" ? 1 : 0) // 采购总金额
+    + (mode === "purchase" ? 4 : 0) // 开票/付款状态、预计/实际付款日期
     + (mode === "requests" ? 1 : 0) // 计划交付日期
     + 2 // 创建时间 / 更新时间
     + 1; // 操作
@@ -568,6 +570,14 @@ export function OrderListPage({
                     {renderHeader("purchaseTotalAmount", "采购总金额")}
                   </th>
                 ) : null}
+                {mode === "purchase" ? (
+                  <>
+                    <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">{renderHeader("invoiceStatus", "开票状态")}</th>
+                    <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">{renderHeader("paymentStatus", "付款状态")}</th>
+                    <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">{renderHeader("paymentDate", "预计付款日期")}</th>
+                    <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">{renderHeader("paidAt", "实际付款日期")}</th>
+                  </>
+                ) : null}
                 {mode === "requests" ? (
                   <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">
                     {renderHeader("plannedDeliveryDate", "计划交付日期")}
@@ -671,6 +681,14 @@ export function OrderListPage({
                       <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3">
                         {formatValue(row.purchaseTotalAmount, "money")}
                       </td>
+                    ) : null}
+                    {mode === "purchase" ? (
+                      <>
+                        <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3"><InvoiceStatusBadge value={String(row.invoiceStatus ?? "")} /></td>
+                        <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3"><PaymentStatusBadge value={String(row.paymentStatus ?? "")} /></td>
+                        <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3">{formatValue(row.paymentDate, "date")}</td>
+                        <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3">{formatValue(row.paidAt, "date")}</td>
+                      </>
                     ) : null}
                     {mode === "requests" ? (
                       <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3">
@@ -803,6 +821,23 @@ function StatusBadge({ mode, value }: { mode: PageMode; value: string }) {
       : "border-line bg-white text-ink-2";
 
   return <span className={`inline-flex rounded border px-2 py-0.5 text-xs ${tone}`}>{value}</span>;
+}
+
+function InvoiceStatusBadge({ value }: { value: string }) {
+  const issued = value === "已开票" || value === "issued";
+  return <span className={`inline-flex rounded border px-2 py-0.5 text-xs ${issued ? "border-success bg-success-soft text-success-dark" : "border-line bg-white text-ink-3"}`}>{issued ? "已开票" : "未开票"}</span>;
+}
+
+function PaymentStatusBadge({ value }: { value: string }) {
+  const text = value || "未付款";
+  const tone = text === "已付款"
+    ? "border-success bg-success-soft text-success-dark"
+    : text === "审批中"
+      ? "border-warning bg-warning-soft text-warning-ink"
+      : text === "已驳回"
+        ? "border-danger-border-strong bg-danger-soft text-danger"
+        : "border-line bg-white text-ink-3";
+  return <span className={`inline-flex rounded border px-2 py-0.5 text-xs ${tone}`}>{text}</span>;
 }
 
 function formatValue(value: unknown, type?: string) {

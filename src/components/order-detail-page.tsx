@@ -15,6 +15,7 @@ import { buildPurchaseProductLines, calculatePurchaseTotalAmount } from "@/lib/p
 import { buildPowerPricingSnapshot, refreshPowerPricingSnapshot, serializePowerPricingSnapshot, type PowerPriceContext, type PowerPricingSnapshot } from "@/lib/power-price-calculator";
 import { PurchaseOrderDemandPlanTabs } from "./purchase-order-demand-plan-tabs";
 import { PurchaseOrderAttachments } from "./purchase-order-attachments";
+import { PurchaseOrderInvoicePanel } from "./purchase-order-invoice-panel";
 import { getReturnTo } from "@/lib/client-list-navigation";
 import { readJsonResponse } from "@/lib/client-response";
 import { AuditInfoBar, Button, Input, Panel, Select } from "./ui";
@@ -108,7 +109,7 @@ export function OrderDetailPage({
   const masterFormFields = useMemo(
     () =>
       mode === "purchase"
-        ? masterConfig.formFields.filter((field) => !hiddenPurchaseMasterFieldKeys.has(field.key))
+        ? masterConfig.formFields.filter((field) => !field.hidden && !hiddenPurchaseMasterFieldKeys.has(field.key))
         : masterConfig.formFields,
     [masterConfig.formFields, mode],
   );
@@ -420,6 +421,7 @@ export function OrderDetailPage({
             <Info label="明细数量" value={details.length} />
           </div>
         )}
+        {mode === "purchase" ? <PurchaseOrderInvoicePanel purchaseOrderId={String(master.purchaseOrderId ?? id)} /> : null}
       </Panel>
 
       <Panel>
