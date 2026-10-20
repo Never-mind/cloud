@@ -11,7 +11,7 @@ import { StickyTable } from "./sticky-table";
 import { TableColumnMenu, type TableFilterOption, type TableSortOrder } from "./table-column-menu";
 import { useRequestGuard } from "@/lib/table-query-client";
 import { buildDetailRoute, buildListRoute, getCurrentRoute, getPositiveNumber, useListScrollPosition } from "@/lib/client-list-navigation";
-import { Button, Input, Panel, Select } from "./ui";
+import { Button, IconButton, Input, Panel, Select } from "./ui";
 import { confirmDialog, notify } from "./app-dialog";
 import { monthlyPrepaymentWriteOffColumns } from "@/lib/writeoff-export-columns";
 import { TableStateContent } from "./table-state";
@@ -260,10 +260,13 @@ export function MonthlyPrepaymentWriteOffsPage() {
                   ))}
                   <td className="sticky right-0 whitespace-nowrap border-b border-line-soft bg-white px-3 py-3">
                     {Number(row.isAppendedTail ?? 0) === 1 ? (
-                      <Button disabled={deletingId === String(row.id)} tone="danger" onClick={() => void deleteTail(row)}>
-                        <Trash2 size={15} />
-                        {deletingId === String(row.id) ? "删除中" : "删除尾期"}
-                      </Button>
+                      <IconButton
+                        disabled={deletingId === String(row.id)}
+                        icon={<Trash2 size={15} />}
+                        label={deletingId === String(row.id) ? "删除中" : "删除尾期"}
+                        onClick={() => void deleteTail(row)}
+                        tone="danger"
+                      />
                     ) : (
                       <span className="text-xs text-ink-3">—</span>
                     )}

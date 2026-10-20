@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { FileDown, Paperclip, Trash2 } from "lucide-react";
 import { confirmDialog, notify } from "./app-dialog";
+import { IconButton, IconLink } from "./ui";
 
 type CloudAttachment = {
   id: string;
@@ -143,27 +144,15 @@ export function CloudAttachments({
                       <span className="block truncate text-ink" title={item.fileName}>{item.fileName}</span>
                       <span className="text-ink-4">{formatSize(item.fileSize)}</span>
                     </span>
-                    <a
-                      className="inline-flex h-6 items-center gap-1 rounded border border-line bg-white px-1.5 text-ink-2 hover:border-primary hover:text-primary"
+                    <IconLink
                       download={item.fileName || undefined}
                       href={`/api/cloud/attachments/${encodeURIComponent(item.id)}`}
+                      label="下载"
                       onClick={() => notify(`正在下载 ${item.fileName}…`, "info")}
-                      title="下载"
                     >
-                      <FileDown size={12} />
-                      下载
-                    </a>
-                    <button
-                      aria-label="删除附件"
-                      className="inline-flex h-6 items-center gap-1 rounded border border-line bg-white px-1.5 text-ink-2 hover:border-danger hover:text-danger disabled:opacity-50"
-                      disabled={busy}
-                      onClick={() => void remove(item)}
-                      title="删除"
-                      type="button"
-                    >
-                      <Trash2 size={12} />
-                      删除
-                    </button>
+                      <FileDown size={14} />
+                    </IconLink>
+                    <IconButton disabled={busy} icon={<Trash2 size={14} />} label="删除附件" onClick={() => void remove(item)} tone="danger" />
                   </div>
                 ))
               )}

@@ -1,11 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { CheckCircle2, Download, RefreshCw, Search, Trash2 } from "lucide-react";
+import { CheckCircle2, Download, ExternalLink, Paperclip, RefreshCw, Search, Trash2 } from "lucide-react";
 import { formatDisplayValue } from "@/lib/display-format";
 import { DEFAULT_PAGE_SIZE } from "@/lib/pagination";
 import { postWorkspaceMessage } from "@/lib/tab-workspace";
-import { Button, Input, Panel, Select } from "./ui";
+import { Button, IconButton, IconLink, Input, Panel, Select } from "./ui";
 import { confirmDialog, notify } from "./app-dialog";
 import { PaginationBar } from "./pagination-bar";
 import { StickyTable } from "./sticky-table";
@@ -358,26 +358,18 @@ export function BillingStatementsPage() {
                           上传发票
                         </button>
                         {row.invoiceId ? (
-                          <a
-                            className="inline-flex h-8 items-center rounded border border-line bg-white px-2.5 text-xs text-primary hover:border-primary"
+                          <IconLink
                             href={`/api/invoices/${encodeURIComponent(String(row.invoiceId))}/file?inline=1`}
+                            label="在新标签打开票面"
                             rel="noreferrer"
                             target="_blank"
-                            title="在新标签打开票面"
                           >
-                            查看票面
-                          </a>
+                            <ExternalLink size={15} />
+                          </IconLink>
                         ) : null}
-                        <button
-                          className="inline-flex h-8 items-center rounded border border-line bg-white px-2.5 text-xs text-ink-2 hover:border-primary hover:text-primary"
-                          onClick={() => setAttachmentTarget(snapshot)}
-                          title="查看/上传本对账单附件（票面会自动挂进来）"
-                          type="button"
-                        >
-                          附件
-                        </button>
+                        <IconButton icon={<Paperclip size={15} />} label="查看/上传本对账单附件" onClick={() => setAttachmentTarget(snapshot)} />
                         {!confirmed ? <Button tone="success" onClick={() => void changeSnapshot(snapshot, "confirm")}><CheckCircle2 size={15} />确认</Button> : null}
-                        {!confirmed ? <Button tone="danger" onClick={() => void changeSnapshot(snapshot, "delete")}><Trash2 size={15} />删除</Button> : null}
+                        {!confirmed ? <IconButton icon={<Trash2 size={15} />} label="删除" onClick={() => void changeSnapshot(snapshot, "delete")} tone="danger" /> : null}
                         <a href={`/api/billing-statements/${encodeURIComponent(snapshot)}/export`}>
                           <Button tone="warning"><Download size={15} />导出 Excel</Button>
                         </a>

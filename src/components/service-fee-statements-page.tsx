@@ -12,7 +12,7 @@ import { PaginationBar } from "./pagination-bar";
 import { StickyTable } from "./sticky-table";
 import { TableColumnMenu, type TableFilterOption, type TableSortOrder } from "./table-column-menu";
 import { useRequestGuard } from "@/lib/table-query-client";
-import { Button, Input, Panel, Select } from "./ui";
+import { Button, IconButton, IconLink, Input, Panel, Select } from "./ui";
 import { NumberInput } from "./number-input";
 import { Modal } from "./modal";
 import { confirmDialog, notify } from "./app-dialog";
@@ -622,36 +622,21 @@ export function ServiceFeeStatementsPage() {
                                 >
                                   上传发票
                                 </button>
-                                <button
-                                  aria-label={hasInvoice ? "替换发票附件" : "上传发票附件"}
-                                  className="inline-flex h-6 w-6 items-center justify-center rounded text-ink-3 hover:bg-canvas hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
+                                <IconButton
                                   disabled={busyNo === snapshotNo}
-                                  title={hasInvoice ? "替换发票附件" : "上传发票附件"}
-                                  type="button"
+                                  icon={<Upload size={13} />}
+                                  label={hasInvoice ? "替换发票附件" : "上传发票附件"}
                                   onClick={() => chooseInvoice(row)}
-                                >
-                                  <Upload size={13} />
-                                </button>
+                                />
                                 {hasInvoice ? (
                                   <>
-                                    <a
-                                      aria-label="下载发票附件"
-                                      className="max-w-[80px] truncate text-xs text-primary hover:underline"
+                                    <IconLink
                                       href={`/api/service-fees/snapshots/${encodeURIComponent(snapshotNo)}/invoice`}
-                                      title={`下载 ${String(row.invoiceOriginalName)}`}
+                                      label={`下载 ${String(row.invoiceOriginalName)}`}
                                     >
-                                      附件
-                                    </a>
-                                    <button
-                                      aria-label="删除发票附件"
-                                      className="inline-flex h-6 w-6 items-center justify-center rounded text-danger hover:bg-danger-soft disabled:cursor-not-allowed disabled:opacity-50"
-                                      disabled={busyNo === snapshotNo}
-                                      title="删除发票附件"
-                                      type="button"
-                                      onClick={() => void deleteInvoice(row)}
-                                    >
-                                      <Trash2 size={13} />
-                                    </button>
+                                      <FileDown size={13} />
+                                    </IconLink>
+                                    <IconButton disabled={busyNo === snapshotNo} icon={<Trash2 size={13} />} label="删除发票附件" onClick={() => void deleteInvoice(row)} tone="danger" />
                                   </>
                                 ) : null}
                               </div>
@@ -665,28 +650,10 @@ export function ServiceFeeStatementsPage() {
                     <td className="sticky right-0 whitespace-nowrap border-b border-line-soft bg-white px-3 py-3">
                       <div className="flex items-center gap-1">
                         {!confirmed ? (
-                          <button
-                            aria-label="确认对账单"
-                            className="inline-flex h-8 w-8 items-center justify-center rounded border border-success bg-white text-success transition hover:bg-success-soft disabled:cursor-not-allowed disabled:opacity-50"
-                            disabled={busyNo === snapshotNo}
-                            title="确认对账单"
-                            type="button"
-                            onClick={() => void postAction(snapshotNo, "confirm")}
-                          >
-                            <CheckCircle2 size={15} />
-                          </button>
+                          <IconButton disabled={busyNo === snapshotNo} icon={<CheckCircle2 size={15} />} label="确认对账单" onClick={() => void postAction(snapshotNo, "confirm")} tone="success" />
                         ) : null}
                         {!confirmed ? (
-                          <button
-                            aria-label="删除对账单"
-                            className="inline-flex h-8 w-8 items-center justify-center rounded border border-danger bg-white text-danger transition hover:bg-danger-soft disabled:cursor-not-allowed disabled:opacity-50"
-                            disabled={busyNo === snapshotNo}
-                            title="删除未确认对账单"
-                            type="button"
-                            onClick={() => void postAction(snapshotNo, "delete")}
-                          >
-                            <Trash2 size={15} />
-                          </button>
+                          <IconButton disabled={busyNo === snapshotNo} icon={<Trash2 size={15} />} label="删除未确认对账单" onClick={() => void postAction(snapshotNo, "delete")} tone="danger" />
                         ) : null}
                         {confirmed ? <span className="px-2 text-ink-4">-</span> : null}
                       </div>

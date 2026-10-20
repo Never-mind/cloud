@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Download, HardDrive, RefreshCw, Search } from "lucide-react";
-import { Button, Input, Panel } from "./ui";
+import { Button, IconLink, Input, Panel } from "./ui";
 import { formatDisplayValue } from "@/lib/display-format";
 import { LoadingBlock } from "./table-state";
 
@@ -139,7 +139,7 @@ export function CloudDrivePanel() {
                     <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-2 text-xs">{file.uploadedByName}</td>
                     <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-2 text-xs text-ink-3">{file.uploadedAt ? formatDisplayValue(file.uploadedAt, "datetime") : "-"}</td>
                     <td className="whitespace-nowrap border-b border-line-soft px-3 py-2">
-                      <a className="inline-flex items-center gap-1 text-primary hover:underline" href={file.downloadHref}><Download size={13} />下载</a>
+                      <IconLink href={file.downloadHref} label="下载"><Download size={15} /></IconLink>
                     </td>
                   </tr>
                 ))}

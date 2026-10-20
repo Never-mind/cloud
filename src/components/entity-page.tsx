@@ -4,7 +4,7 @@ import Link from "next/link";
 import { SignatureField } from "./signature-field";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Columns3, Eye, EyeOff, FileDown, FileSpreadsheet, Plus, RefreshCw, Search, Trash2, Upload } from "lucide-react";
+import { Columns3, Eye, EyeOff, FileDown, FileSpreadsheet, Pencil, Plus, RefreshCw, Search, Trash2, Upload } from "lucide-react";
 import { formatConfiguredDisplayValue, formatDateInputValue, formatDisplayValue } from "@/lib/display-format";
 import { buildImportMessage, type ImportReport } from "@/lib/entity-import";
 import { getInstanceContractModelAutofill } from "@/lib/instance-contract-form";
@@ -26,7 +26,7 @@ import { TableColumnMenu, type TableFilterOption, type TableSortOrder } from "./
 import { useRequestGuard } from "@/lib/table-query-client";
 import { broadcastMasterDataChanged, useWorkspaceDataRefresh } from "@/lib/workspace-events";
 import type { MaterialSyncSummary } from "@/lib/material-sync-service";
-import { Button, Input, Panel, Select, Textarea } from "./ui";
+import { Button, IconButton, IconLink, Input, Panel, Select, Textarea } from "./ui";
 import { Modal } from "./modal";
 import { confirmDialog, notify } from "./app-dialog";
 import { TableStateContent } from "./table-state";
@@ -1049,12 +1049,10 @@ export function EntityPage({
                     <td className="sticky right-0 whitespace-nowrap border-b border-line-soft bg-white px-3 py-3">
                       {isPartyArchive ? (
                         <>
-                          <Link className="inline-flex h-8 w-8 items-center justify-center text-ink-2 hover:text-primary" href={`${config.detailRoute}/${encodeURIComponent(String(row[config.primaryKey] ?? ""))}`} aria-label="查看" title="查看">
+                          <IconLink href={`${config.detailRoute}/${encodeURIComponent(String(row[config.primaryKey] ?? ""))}`} label="查看">
                             <Eye size={16} />
-                          </Link>
-                          <button className="ml-2 inline-flex h-8 w-8 items-center justify-center text-danger hover:text-danger-strong" type="button" onClick={() => void deleteRow(row)} aria-label="删除" title="删除">
-                            <Trash2 size={16} />
-                          </button>
+                          </IconLink>
+                          <IconButton className="ml-2" icon={<Trash2 size={16} />} label="删除" onClick={() => void deleteRow(row)} tone="danger" />
                         </>
                       ) : (
                         <>
@@ -1067,21 +1065,18 @@ export function EntityPage({
                               {refreshingShipmentId === String(row.shipmentId ?? "") ? "拉取中" : "重新拉取"}
                             </Button>
                           ) : null}
-                          <Button
+                          <IconButton
                             className={config.key === "shipments" ? "ml-2" : undefined}
+                            icon={<Pencil size={15} />}
+                            label="编辑"
                             onClick={() => {
                               setEditing(row);
                               setInstanceContractDeviceCode(String(row.deviceCode ?? ""));
                               setBillingContractNo(String(row.instanceContractNo ?? ""));
                               setShowForm(true);
                             }}
-                          >
-                            编辑
-                          </Button>
-                          <Button className="ml-2" tone="danger" onClick={() => deleteRow(row)}>
-                            <Trash2 size={14} />
-                            删除
-                          </Button>
+                          />
+                          <IconButton className="ml-2" icon={<Trash2 size={14} />} label="删除" onClick={() => deleteRow(row)} tone="danger" />
                         </>
                       )}
                     </td>

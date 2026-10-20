@@ -9,7 +9,7 @@ import {
   mergePrepaymentAdjustmentSelection,
   type PrepaymentMonthlyWriteOffForAdjustment,
 } from "@/lib/prepayment-adjustment-workflow";
-import { Button, Input, Panel } from "./ui";
+import { Button, IconButton, Input, Panel } from "./ui";
 import { NumberInput } from "./number-input";
 import { AutoGrowTextarea } from "./auto-grow-textarea";
 import { confirmDialog, notify } from "./app-dialog";
@@ -543,10 +543,7 @@ export function PrepaymentWriteOffAdjustmentDetailPage({ adjustmentNo: routeAdju
                                   <span className="whitespace-nowrap text-xs text-ink-2">
                                     {tail.writeOffMonth} · 第 {tail.monthIndex} 期 · {formatValue(tail.amount, "number")}
                                   </span>
-                                  <Button disabled={tailBusy} tone="danger" onClick={() => void deleteTail(line, tail)}>
-                                    <Trash2 size={14} />
-                                    删除
-                                  </Button>
+                                  <IconButton disabled={tailBusy} icon={<Trash2 size={14} />} label="删除" onClick={() => void deleteTail(line, tail)} tone="danger" />
                                 </div>
                               ))}
                             </div>
@@ -633,10 +630,7 @@ function AdjustmentTable({
                   />
                 </td>
                 <td className="sticky right-0 whitespace-nowrap border-b border-line-soft bg-white px-3 py-3">
-                  <Button tone="danger" onClick={() => onRemove(id)}>
-                    <Trash2 size={15} />
-                    移除
-                  </Button>
+                  <IconButton icon={<Trash2 size={15} />} label="移除" onClick={() => onRemove(id)} tone="danger" />
                 </td>
               </tr>
             );

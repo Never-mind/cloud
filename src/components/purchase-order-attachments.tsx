@@ -10,6 +10,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Download, FileUp, Trash2 } from "lucide-react";
 import { confirmDialog, notify } from "./app-dialog";
 import { formatDisplayValue } from "@/lib/display-format";
+import { IconButton, IconLink } from "./ui";
 
 type Attachment = {
   attachmentId: string;
@@ -104,16 +105,14 @@ export function PurchaseOrderAttachments({ purchaseOrderId, readOnly = false }: 
                 {attachment.uploadedAt ? ` · ${formatDisplayValue(attachment.uploadedAt as never, "datetime")}` : ""}
               </div>
             </div>
-            <a
-              className="inline-flex items-center gap-1 text-primary hover:underline"
+            <IconLink
               href={`/api/common/attachments/purchase-orders/${encodeURIComponent(purchaseOrderId)}/${encodeURIComponent(attachment.attachmentId)}`}
+              label="下载"
             >
-              <Download size={15} />下载
-            </a>
+              <Download size={15} />
+            </IconLink>
             {readOnly ? null : (
-              <button className="inline-flex items-center gap-1 text-danger hover:underline" onClick={() => void remove(attachment)} type="button">
-                <Trash2 size={15} />删除
-              </button>
+              <IconButton icon={<Trash2 size={15} />} label="删除" onClick={() => void remove(attachment)} tone="danger" />
             )}
           </div>
         ))}

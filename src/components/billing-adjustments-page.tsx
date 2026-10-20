@@ -7,7 +7,7 @@ import { CheckCircle2, Plus, RefreshCw, RotateCcw, Search, Trash2 } from "lucide
 import { formatDisplayValue } from "@/lib/display-format";
 import { DEFAULT_PAGE_SIZE } from "@/lib/pagination";
 import { buildDetailRoute, buildListRoute, getCurrentRoute, useListScrollPosition } from "@/lib/client-list-navigation";
-import { Button, Input, Panel } from "./ui";
+import { Button, IconButton, Input, Panel } from "./ui";
 import { confirmDialog, notify } from "./app-dialog";
 import { PaginationBar } from "./pagination-bar";
 import { StickyTable } from "./sticky-table";
@@ -230,10 +230,7 @@ export function BillingAdjustmentsPage() {
                           <RotateCcw size={15} />
                           退回草稿
                         </Button>
-                        <Button disabled={confirmed} tone="danger" onClick={() => void deleteDraft(adjustmentNo)}>
-                          <Trash2 size={15} />
-                          删除
-                        </Button>
+                        <IconButton disabled={confirmed} icon={<Trash2 size={15} />} label="删除" onClick={() => void deleteDraft(adjustmentNo)} tone="danger" />
                       </div>
                     </td>
                   </tr>

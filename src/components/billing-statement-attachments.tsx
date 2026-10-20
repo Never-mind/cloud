@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Download, FileUp, Trash2 } from "lucide-react";
-import { Button } from "./ui";
+import { Button, IconButton, IconLink } from "./ui";
 import { Modal } from "./modal";
 import { EmptyState, LoadingBlock } from "./table-state";
 import { confirmDialog, notify } from "./app-dialog";
@@ -136,20 +136,13 @@ export function BillingStatementAttachments({ onClose, snapshotNo }: { onClose: 
                   </td>
                   <td className="whitespace-nowrap border-b border-line-soft px-3 py-2">
                     <div className="flex items-center gap-2">
-                      <a
-                        className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                      <IconLink
                         href={`/api/billing-statements/${encodeURIComponent(snapshotNo)}/attachments/${encodeURIComponent(row.id)}/download`}
+                        label="下载"
                       >
-                        <Download size={12} />下载
-                      </a>
-                      <button
-                        className="inline-flex items-center gap-1 text-xs text-danger hover:underline disabled:opacity-50"
-                        disabled={busy}
-                        onClick={() => void remove(row)}
-                        type="button"
-                      >
-                        <Trash2 size={12} />删除
-                      </button>
+                        <Download size={14} />
+                      </IconLink>
+                      <IconButton disabled={busy} icon={<Trash2 size={14} />} label="删除" onClick={() => void remove(row)} tone="danger" />
                     </div>
                   </td>
                 </tr>

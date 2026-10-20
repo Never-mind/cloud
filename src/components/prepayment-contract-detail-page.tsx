@@ -9,7 +9,7 @@ import { getPrepaymentContractEditState } from "@/lib/prepayment-contract-ui";
 import { fetchAllEntityRows } from "@/lib/client-entity-fetch";
 import { buildDetailRoute, getReturnTo } from "@/lib/client-list-navigation";
 import { postWorkspaceMessage } from "@/lib/tab-workspace";
-import { Button, Input, Panel, Select, Textarea } from "./ui";
+import { Button, IconButton, Input, Panel, Select, Textarea } from "./ui";
 import { NumberInput } from "./number-input";
 import { confirmDialog, notify } from "./app-dialog";
 import { EmptyState, LoadingBlock } from "./table-state";
@@ -623,10 +623,7 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
                     <Input className="w-40 min-w-0" disabled={!canEdit} type="date" value={formatDateInputValue(line.writeOffStartMonth)} onChange={(event) => updateLine(line.id, { writeOffStartMonth: event.target.value })} />
                   </td>
                   <td className="border-b border-line-soft px-3 py-3">
-                    <Button disabled={!canEdit} tone="danger" onClick={() => removeLine(line.id)}>
-                      <Trash2 size={15} />
-                      删除
-                    </Button>
+                    <IconButton disabled={!canEdit} icon={<Trash2 size={15} />} label="删除" onClick={() => removeLine(line.id)} tone="danger" />
                   </td>
                 </tr>
               ))}

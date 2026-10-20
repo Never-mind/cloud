@@ -1,8 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Download, FileUp, Plus, RefreshCw, Search, Trash2, XCircle } from "lucide-react";
-import { Button, Input, Panel, Select } from "./ui";
+import { Download, ExternalLink, Eye, FileCode2, FileUp, Plus, RefreshCw, Search, Trash2, XCircle } from "lucide-react";
+import { Button, IconButton, IconLink, Input, Panel, Select } from "./ui";
 import { Modal } from "./modal";
 import { PaginationBar } from "./pagination-bar";
 import { EmptyState, LoadingBlock } from "./table-state";
@@ -194,44 +194,17 @@ export function InvoicesPage() {
                     </td>
                     <td className="whitespace-nowrap border-b border-line-soft px-3 py-2">
                       <div className="flex items-center gap-1">
-                        <button className="rounded px-1.5 py-0.5 text-xs text-primary hover:bg-canvas" onClick={() => void openDetail(text(row.id))} type="button">查看</button>
-                        <a
-                          className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-primary hover:bg-canvas"
-                          href={`/api/invoices/${encodeURIComponent(text(row.id))}/file?inline=1`}
-                          rel="noreferrer"
-                          target="_blank"
-                          title="在新标签直接打开票面 PDF"
-                        >
-                          打开
-                        </a>
-                        <a
-                          className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-ink-3 hover:bg-canvas"
-                          href={`/api/invoices/${encodeURIComponent(text(row.id))}/file?format=html`}
-                          rel="noreferrer"
-                          title="下载 HTML 版票面（需要按 Excel 版式打印时用）"
-                        >
-                          HTML
-                        </a>
-                        <a
-                          className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-primary hover:bg-canvas"
-                          download={text(row.fileName) || undefined}
-                          href={`/api/invoices/${encodeURIComponent(text(row.id))}/file`}
-                          onClick={() => notify(`正在下载 ${text(row.fileName) || "票面"}…`, "info")}
-                          title="下载票面 PDF"
-                        >
-                          <Download size={12} />下载
-                        </a>
+                        <IconButton icon={<Eye size={15} />} label="查看" onClick={() => void openDetail(text(row.id))} />
+                        <IconLink href={`/api/invoices/${encodeURIComponent(text(row.id))}/file?inline=1`} label="在新标签打开票面 PDF" rel="noreferrer" target="_blank"><ExternalLink size={15} /></IconLink>
+                        <IconLink href={`/api/invoices/${encodeURIComponent(text(row.id))}/file?format=html`} label="下载 HTML 版票面" rel="noreferrer"><FileCode2 size={15} /></IconLink>
+                        <IconLink download={text(row.fileName) || undefined} href={`/api/invoices/${encodeURIComponent(text(row.id))}/file`} label="下载票面 PDF" onClick={() => notify(`正在下载 ${text(row.fileName) || "票面"}…`, "info")}><Download size={15} /></IconLink>
                         {text(row.source) === "generated" && text(row.status) !== "void" ? (
-                          <button className="rounded px-1.5 py-0.5 text-xs text-ink-2 hover:bg-canvas" onClick={() => void regenerate(row)} type="button">重生成</button>
+                          <IconButton icon={<RefreshCw size={15} />} label="重新生成票面" onClick={() => void regenerate(row)} />
                         ) : null}
                         {text(row.status) === "issued" ? (
-                          <button className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-danger hover:bg-canvas" onClick={() => void voidOne(row)} type="button">
-                            <XCircle size={12} />作废
-                          </button>
+                          <IconButton icon={<XCircle size={15} />} label="作废" onClick={() => void voidOne(row)} tone="danger" />
                         ) : (
-                          <button className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-danger hover:bg-canvas" onClick={() => void remove(row)} type="button">
-                            <Trash2 size={12} />删除
-                          </button>
+                          <IconButton icon={<Trash2 size={15} />} label="删除" onClick={() => void remove(row)} tone="danger" />
                         )}
                       </div>
                     </td>

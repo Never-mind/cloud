@@ -23,7 +23,7 @@ import { TableColumnMenu, type TableFilterOption, type TableSortOrder } from "./
 import { useRequestGuard } from "@/lib/table-query-client";
 import { readJsonResponse } from "@/lib/client-response";
 import { postWorkspaceMessage } from "@/lib/tab-workspace";
-import { Button, Input, Panel, Select } from "./ui";
+import { Button, IconButton, Input, Panel, Select } from "./ui";
 import { CostPaymentApprovalModal } from "./cost-payment-approval-modal";
 import { confirmDialog, notify } from "./app-dialog";
 import { TableStateContent } from "./table-state";
@@ -688,13 +688,12 @@ export function OrderListPage({
                         {mode === "requests" ? (
                           <div className="flex items-center gap-2">
                             <Link
+                              aria-label="修改"
                               href={buildDetailRoute(getOrderDetailRoute(mode, id), currentRoute)}
                               onClick={(event) => openOrderDetail(id, event)}
+                              title="修改"
                             >
-                              <Button disabled={confirmed}>
-                                <Pencil size={15} />
-                                修改
-                              </Button>
+                              <IconButton disabled={confirmed} icon={<Pencil size={15} />} label="修改" />
                             </Link>
                             <Button
                               disabled={confirmed || confirmingId === id}
@@ -704,10 +703,7 @@ export function OrderListPage({
                               <CheckCircle2 size={15} />
                               {confirmed ? "已确认" : confirmingId === id ? "确认中..." : "确认需求单"}
                             </Button>
-                            <Button disabled={batchDeleting || deletingId === id} tone="danger" onClick={() => void deleteOrder(id)}>
-                              <Trash2 size={15} />
-                              删除
-                            </Button>
+                            <IconButton disabled={batchDeleting || deletingId === id} icon={<Trash2 size={15} />} label="删除" onClick={() => void deleteOrder(id)} tone="danger" />
                           </div>
                         ) : (
                           <div className="flex items-center gap-2">
@@ -719,10 +715,7 @@ export function OrderListPage({
                               <CheckCircle2 size={15} />
                               {confirmed ? "已确认" : confirmingId === id ? "确认中..." : "确认采购"}
                             </Button>
-                            <Button disabled={deletingId === id} tone="danger" onClick={() => void deleteOrder(id, !confirmed)}>
-                              <Trash2 size={15} />
-                              {confirmed ? "删除" : "退回明细"}
-                            </Button>
+                            <IconButton disabled={deletingId === id} icon={<Trash2 size={15} />} label={confirmed ? "删除" : "退回明细"} onClick={() => void deleteOrder(id, !confirmed)} tone="danger" />
                           </div>
                         )}
                       </td>

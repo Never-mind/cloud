@@ -13,7 +13,7 @@ import { buildImportMessage, type ImportReport } from "@/lib/entity-import";
 import { PURCHASE_CURRENCY_OPTIONS } from "@/lib/purchase-order-form";
 import { fetchAllEntityRows } from "@/lib/client-entity-fetch";
 import { buildDetailRoute, getReturnTo } from "@/lib/client-list-navigation";
-import { Button, Input, Panel, Select } from "./ui";
+import { Button, IconButton, Input, Panel, Select } from "./ui";
 import { SearchSelect } from "./search-select";
 import { EmptyState } from "./table-state";
 import { AutoGrowTextarea } from "./auto-grow-textarea";
@@ -364,10 +364,7 @@ export function BillingAdjustmentDetailPage({ adjustmentNo: routeAdjustmentNo }:
                   ))}
                   {canEdit ? (
                     <td className="sticky right-0 whitespace-nowrap border-b border-line-soft bg-white px-3 py-3">
-                      <Button disabled={items.length <= 1} tone="danger" onClick={() => removeItem(index)}>
-                        <Trash2 size={15} />
-                        删除
-                      </Button>
+                      <IconButton disabled={items.length <= 1} icon={<Trash2 size={15} />} label="删除" onClick={() => removeItem(index)} tone="danger" />
                     </td>
                   ) : null}
                 </tr>

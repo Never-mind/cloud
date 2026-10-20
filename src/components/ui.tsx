@@ -45,6 +45,136 @@ export function Button({
   );
 }
 
+type IconActionTone = "default" | "primary" | "success" | "danger";
+
+const iconActionTones: Record<IconActionTone, string> = {
+  default: "border border-line bg-white text-ink-2 hover:border-primary hover:text-primary",
+  primary: "border border-primary bg-primary text-white hover:border-primary-dark hover:bg-primary-dark",
+  success: "border border-success bg-white text-success hover:border-success hover:bg-success-soft",
+  danger: "border border-danger-border-strong bg-white text-danger hover:border-danger hover:bg-danger-soft",
+};
+
+const iconActionSizes = {
+  default: "h-9 w-9",
+  sm: "h-8 w-8",
+} as const;
+
+/**
+ * 表格行内的统一图标操作按钮（修改 / 删除 / 上传 / 下载等）。
+ *
+ * 全系统共用一套 32px 方形描边按钮；`label` 同时作为无障碍名称和鼠标悬停提示，
+ * 不再在行内写「图标 + 修改」「图标 + 删除」这类长短不一的文本按钮。
+ */
+export function IconButton({
+  icon,
+  label,
+  tone = "default",
+  size = "sm",
+  className,
+  ...props
+}: Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, "children" | "title"> & {
+  icon: React.ReactNode;
+  label: string;
+  tone?: IconActionTone;
+  size?: "default" | "sm";
+}) {
+  return (
+    <button
+      {...props}
+      aria-label={props["aria-label"] ?? label}
+      className={clsx(
+        "inline-flex shrink-0 items-center justify-center rounded outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary/35 focus-visible:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-50",
+        iconActionSizes[size],
+        iconActionTones[tone],
+        className,
+      )}
+      title={label}
+      type={props.type ?? "button"}
+    >
+      {icon}
+    </button>
+  );
+}
+
+/** 图标链接，样式与 IconButton 保持一致（下载 / 查看等跳转操作）。 */
+export function IconLink({
+  children,
+  label,
+  tone = "default",
+  size = "sm",
+  className,
+  ...props
+}: Omit<React.AnchorHTMLAttributes<HTMLAnchorElement>, "children" | "title"> & {
+  children: React.ReactNode;
+  label: string;
+  tone?: IconActionTone;
+  size?: "default" | "sm";
+}) {
+  return (
+    <a
+      {...props}
+      aria-label={props["aria-label"] ?? label}
+      className={clsx(
+        "inline-flex shrink-0 items-center justify-center rounded outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary/35 focus-visible:ring-offset-1",
+        iconActionSizes[size],
+        iconActionTones[tone],
+        className,
+      )}
+      title={label}
+    >
+      {children}
+    </a>
+  );
+}
+
+/** 文件选择按钮：外观与 IconButton 完全一致，内部包一个隐藏的 file input。 */
+export function UploadIconButton({
+  label,
+  onFile,
+  accept,
+  disabled,
+  multiple,
+  tone = "default",
+  size = "sm",
+  className,
+  icon,
+}: {
+  label: string;
+  onFile: (event: React.ChangeEvent<HTMLInputElement>) => void;
+  accept?: string;
+  disabled?: boolean;
+  multiple?: boolean;
+  tone?: IconActionTone;
+  size?: "default" | "sm";
+  className?: string;
+  icon: React.ReactNode;
+}) {
+  return (
+    <label
+      aria-disabled={disabled}
+      className={clsx(
+        "inline-flex shrink-0 items-center justify-center rounded transition-colors focus-within:ring-2 focus-within:ring-primary/35",
+        disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer",
+        iconActionSizes[size],
+        iconActionTones[tone],
+        className,
+      )}
+      title={label}
+    >
+      {icon}
+      <input
+        accept={accept}
+        aria-label={label}
+        className="hidden"
+        disabled={disabled}
+        multiple={multiple}
+        onChange={onFile}
+        type="file"
+      />
+    </label>
+  );
+}
+
 export const Input = forwardRef<HTMLInputElement, React.InputHTMLAttributes<HTMLInputElement>>(function Input(props, ref) {
   return (
     <input

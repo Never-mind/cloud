@@ -1,8 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { BellRing, Play, Plus, RefreshCw, Send, Trash2 } from "lucide-react";
-import { Button, Input, Panel } from "./ui";
+import { BellRing, Pencil, Play, Plus, RefreshCw, Send, Trash2 } from "lucide-react";
+import { Button, IconButton, Input, Panel } from "./ui";
 import { Modal } from "./modal";
 import { confirmDialog, notify } from "./app-dialog";
 import { PaginationBar } from "./pagination-bar";
@@ -238,8 +238,8 @@ export function NotificationSettingsPage() {
                   <td className="whitespace-nowrap border-b border-line-soft px-3 py-3">
                     {canConfigure ? (
                       <div className="flex gap-2">
-                        <Button onClick={() => startEdit(rule)}>编辑</Button>
-                        <Button tone="danger" onClick={() => void removeRule(rule)}><Trash2 size={14} />删除</Button>
+                        <IconButton icon={<Pencil size={14} />} label="编辑" onClick={() => startEdit(rule)} />
+                        <IconButton icon={<Trash2 size={14} />} label="删除" onClick={() => void removeRule(rule)} tone="danger" />
                       </div>
                     ) : <span className="text-xs text-ink-3">仅管理员可配置</span>}
                   </td>

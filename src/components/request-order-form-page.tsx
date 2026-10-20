@@ -13,7 +13,7 @@ import { fetchAllEntityRows } from "@/lib/client-entity-fetch";
 import { buildDetailRoute, getReturnTo } from "@/lib/client-list-navigation";
 import { exportRowsToXlsx } from "@/lib/client-xlsx-export";
 import { getPartyReferenceLabel, resolvePartyReference } from "@/lib/party-reference";
-import { AuditInfoBar, Button, Input, Panel, Select } from "./ui";
+import { AuditInfoBar, Button, IconButton, Input, Panel, Select } from "./ui";
 import { SearchSelect } from "./search-select";
 import { NumberInput as NumberField } from "./number-input";
 import { confirmDialog, notify } from "./app-dialog";
@@ -639,16 +639,7 @@ export function RequestOrderFormPage({ requestNo }: { requestNo?: string }) {
                       />
                     </td>
                     <td className="border-b border-line-soft px-3 py-3">
-                      <button
-                        aria-label="删除该明细"
-                        className="inline-flex h-8 w-8 items-center justify-center rounded border border-transparent text-danger hover:border-danger-border-strong hover:bg-danger-soft disabled:cursor-not-allowed disabled:opacity-40"
-                        disabled={!canEdit}
-                        onClick={() => void removeDetail(index)}
-                        title="删除该明细"
-                        type="button"
-                      >
-                        <Trash2 size={15} />
-                      </button>
+                      <IconButton disabled={!canEdit} icon={<Trash2 size={15} />} label="删除该明细" onClick={() => void removeDetail(index)} tone="danger" />
                     </td>
                   </tr>
                 );

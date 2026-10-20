@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Pencil, Plus, RotateCcw, Save, Trash2, X } from "lucide-react";
-import { Button, Input, Select } from "./ui";
+import { Button, IconButton, Input, Select } from "./ui";
 import { NumberInput } from "./number-input";
 import { Modal } from "./modal";
 import { formatMoneyValue } from "@/lib/display-format";
@@ -209,8 +209,8 @@ export function SettlementChangeModal({ open, projectId, items, summary, readOnl
                         </> : <>
                           {cancelled ? <Button disabled={busy} onClick={() => void run(`${base}/restore/${encodeURIComponent(item.id)}`, "POST")}><RotateCcw size={13} />撤销取消</Button> : null}
                           {!cancelled && isChange && !item.ordered ? <>
-                            <Button disabled={busy} onClick={() => { setEditingId(item.id); setEditDraft({ productName: item.productName, plannedQty: String(item.plannedQty), currency: item.currency, quotedSalesRevenueUsd: String(item.quotedSalesRevenueUsd), quotedWarehouseCostUsd: String(item.quotedWarehouseCostUsd), changeNote: item.changeNote ?? "" }); }}><Pencil size={13} />编辑</Button>
-                            <Button className="ml-2" tone="danger" disabled={busy} onClick={() => void run(`${base}/change/${encodeURIComponent(item.id)}`, "DELETE")}><Trash2 size={13} />移除</Button>
+                            <IconButton disabled={busy} icon={<Pencil size={13} />} label="编辑" onClick={() => { setEditingId(item.id); setEditDraft({ productName: item.productName, plannedQty: String(item.plannedQty), currency: item.currency, quotedSalesRevenueUsd: String(item.quotedSalesRevenueUsd), quotedWarehouseCostUsd: String(item.quotedWarehouseCostUsd), changeNote: item.changeNote ?? "" }); }} />
+                            <IconButton className="ml-2" disabled={busy} icon={<Trash2 size={13} />} label="移除" onClick={() => void run(`${base}/change/${encodeURIComponent(item.id)}`, "DELETE")} tone="danger" />
                           </> : null}
                           {!cancelled ? <Button className="ml-2" tone="danger" disabled={busy} onClick={() => void run(`${base}/cancel/${encodeURIComponent(item.id)}`, "POST", { reason: "客户取消" })}>标记客户取消</Button> : null}
                         </>}

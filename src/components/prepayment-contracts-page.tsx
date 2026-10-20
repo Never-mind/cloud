@@ -7,7 +7,7 @@ import { FileDown, Plus, RefreshCw, RotateCcw, Search, Trash2, X } from "lucide-
 import { formatDisplayValue } from "@/lib/display-format";
 import { DEFAULT_PAGE_SIZE } from "@/lib/pagination";
 import { buildDetailRoute, buildListRoute, getCurrentRoute, useListScrollPosition } from "@/lib/client-list-navigation";
-import { Button, Input, Panel, Select } from "./ui";
+import { Button, IconButton, Input, Panel, Select } from "./ui";
 import { Modal } from "./modal";
 import { confirmDialog, notify } from "./app-dialog";
 import { PaginationBar } from "./pagination-bar";
@@ -429,10 +429,7 @@ export function PrepaymentContractsPage() {
                         <Link href={buildDetailRoute(`/finance/prepayment-contracts/${encodeURIComponent(contractNo)}`, currentRoute)}>
                           <Button>{confirmed ? "查看" : "编辑"}</Button>
                         </Link>
-                        <Button disabled={confirmed} tone="danger" onClick={() => void deleteDraft(contractNo)}>
-                          <Trash2 size={15} />
-                          删除草稿
-                        </Button>
+                        <IconButton disabled={confirmed} icon={<Trash2 size={15} />} label="删除草稿" onClick={() => void deleteDraft(contractNo)} tone="danger" />
                         <Button disabled={!confirmed} tone="warning" onClick={() => void rollbackContract(contractNo)}>
                           <RotateCcw size={15} />
                           退回草稿
