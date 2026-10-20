@@ -197,8 +197,8 @@ export function PurchaseOrderInvoicePanel({ purchaseOrderId, readOnly = false }:
             <label className="space-y-1 text-sm text-ink-2"><span>预计付款日期</span><Input className="w-full" type="date" value={invoiceDraft.expectedPaymentDate} onChange={(event) => setInvoiceDraft({ ...invoiceDraft, expectedPaymentDate: event.target.value })} onBlur={(event) => setInvoiceDraft({ ...invoiceDraft, expectedPaymentDate: event.target.value })} /></label>
             <label className="space-y-1 text-sm text-ink-2"><span>实际付款日期</span><Input className="w-full" disabled={!invoiceDraft.paid} type="date" value={invoiceDraft.actualPaymentDate} onChange={(event) => setInvoiceDraft({ ...invoiceDraft, actualPaymentDate: event.target.value })} onBlur={(event) => setInvoiceDraft({ ...invoiceDraft, actualPaymentDate: event.target.value })} /></label>
             <div className="flex flex-wrap items-center gap-5 text-sm text-ink-2">
-              <label className="flex items-center gap-2"><input checked={invoiceDraft.invoiced} type="checkbox" onChange={(event) => setInvoiceDraft({ ...invoiceDraft, invoiced: event.target.checked })} />已开票</label>
-              <label className="flex items-center gap-2"><input checked={invoiceDraft.paid} type="checkbox" onChange={(event) => setInvoiceDraft({ ...invoiceDraft, paid: event.target.checked, actualPaymentDate: event.target.checked ? invoiceDraft.actualPaymentDate || todayValue() : "" })} />已付款</label>
+              <SlideSwitch checked={invoiceDraft.invoiced} onChange={(checked) => setInvoiceDraft({ ...invoiceDraft, invoiced: checked })} onLabel="已开票" offLabel="未开票" />
+              <SlideSwitch checked={invoiceDraft.paid} onChange={(checked) => setInvoiceDraft({ ...invoiceDraft, paid: checked, actualPaymentDate: checked ? invoiceDraft.actualPaymentDate || todayValue() : "" })} onLabel="已付款" offLabel="未付款" />
             </div>
             <label className="space-y-1 text-sm text-ink-2 sm:col-span-2"><span>备注</span><Textarea className="w-full" rows={3} value={invoiceDraft.invoiceRemark} onChange={(event) => setInvoiceDraft({ ...invoiceDraft, invoiceRemark: event.target.value })} /></label>
           </div>
@@ -206,5 +206,29 @@ export function PurchaseOrderInvoicePanel({ purchaseOrderId, readOnly = false }:
         </Modal>
       ) : null}
     </section>
+  );
+}
+
+function SlideSwitch({ checked, onChange, onLabel, offLabel, disabled = false }: {
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  onLabel: string;
+  offLabel: string;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      aria-checked={checked}
+      className="inline-flex items-center gap-2 text-sm text-ink-2 disabled:cursor-not-allowed disabled:opacity-50"
+      disabled={disabled}
+      onClick={() => onChange(!checked)}
+      role="switch"
+      type="button"
+    >
+      <span className={`relative inline-flex h-5 w-9 rounded-full transition-colors ${checked ? "bg-success" : "bg-ink-4"}`}>
+        <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${checked ? "translate-x-[18px]" : "translate-x-0.5"}`} />
+      </span>
+      <span>{checked ? onLabel : offLabel}</span>
+    </button>
   );
 }
