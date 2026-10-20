@@ -39,6 +39,19 @@ const CLOUD_ROW_ACCOUNT_MAPPING_ID_SQL = `(SELECT a.mappingId FROM merge_cloud_m
   ) > 0
   ORDER BY a.updatedAt DESC LIMIT 1)`;
 
+/** 客户实收折合 USD；非 USD 且没有汇率时返回 NULL，不能按原币当 USD。 */
+const CLOUD_COLLECTION_USD_SQL = `(CASE
+  WHEN COALESCE(NULLIF(collectionCurrency, ''), 'USD') = 'USD' THEN COALESCE(collectionTotalAmount, 0)
+  WHEN collectionExchangeRate > 0 THEN COALESCE(collectionTotalAmount, 0) / collectionExchangeRate
+  ELSE NULL END)`;
+
+/** 已收清：显式勾了已收款，或折合 USD 已覆盖客户应收。 */
+export const CLOUD_COLLECTION_PAID_SQL = `(collected = 1 OR (
+  ${CLOUD_COLLECTION_USD_SQL} IS NOT NULL
+  AND COALESCE(customerReceivableTotalAmount, customerReceivable, 0) > 0
+  AND ${CLOUD_COLLECTION_USD_SQL} >= COALESCE(customerReceivableTotalAmount, customerReceivable, 0) - 0.01
+))`;
+
 /**
  * 对账行"客户名称 / 供应商名称"的展示口径（按 ID / 服务映射回查档案当前名称）。
  *
@@ -489,6 +502,9 @@ function cloudBaseWhere(params: URLSearchParams) {
         : key === "confirmed" || key === "collected" ? (value === "true" || value === "1" ? 1 : 0) : value;
     }
   }
+  if (text(params.get("collectionStatus")) === "open") {
+    conditions.push(`NOT ${CLOUD_COLLECTION_PAID_SQL}`);
+  }
   return { conditions, values };
 }
 
@@ -737,6 +753,7 @@ export async function listCloudRows(params: URLSearchParams) {
   // 收款视图切到「全部」时不带 collected 过滤；这两个计数始终按当前搜索/账期条件统计全部行。
   const collectionCountParams = new URLSearchParams(params);
   collectionCountParams.delete("collected");
+  collectionCountParams.delete("collectionStatus");
   const { where: collectionWhere, values: collectionValues } = cloudWhere(collectionCountParams);
   const requestedSort = getTableSort(params, Object.fromEntries(Object.keys(CLOUD_ROW_FILTER_EXPRESSIONS).map((field) => [field, cloudRowFilterExpression(field)])));
   const [count, rows, periodRows, collectionCountRows, collectionGroupRows] = await Promise.all([
@@ -749,8 +766,8 @@ export async function listCloudRows(params: URLSearchParams) {
     ),
     queryRowsRaw<{ total: number; openCount: number; paidCount: number }>(
       `SELECT COUNT(*) AS total,
-              SUM(CASE WHEN collected = 0 THEN 1 ELSE 0 END) AS openCount,
-              SUM(CASE WHEN collected = 1 THEN 1 ELSE 0 END) AS paidCount
+              SUM(CASE WHEN NOT ${CLOUD_COLLECTION_PAID_SQL} THEN 1 ELSE 0 END) AS openCount,
+              SUM(CASE WHEN ${CLOUD_COLLECTION_PAID_SQL} THEN 1 ELSE 0 END) AS paidCount
          FROM merge_cloud_rows ${collectionWhere}`,
       collectionValues,
     ),

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import * as XLSX from "xlsx";
 import { queryRowsRaw } from "@/lib/db";
-import { resolveCloudRowsDisplayNames } from "@/lib/cloud-service";
+import { CLOUD_COLLECTION_PAID_SQL, resolveCloudRowsDisplayNames } from "@/lib/cloud-service";
 import { collectionAmount, collectionCurrency, collectionStatus, collectionUsdAmount } from "@/lib/cloud-collection";
 
 function collectionExportRow(row: Record<string, unknown>) {
@@ -32,6 +32,7 @@ export async function GET(request: NextRequest) {
   const keyword = params.get("keyword")?.trim() ?? "";
   const period = params.get("period")?.trim() ?? "";
   const collected = params.get("collected")?.trim() ?? "";
+  const collectionStatusParam = params.get("collectionStatus")?.trim() ?? "";
   const collectionView = params.get("view")?.trim() === "collection";
   const conditions: string[] = [];
   const values: Record<string, unknown> = {};
@@ -39,6 +40,9 @@ export async function GET(request: NextRequest) {
   if (collected === "0" || collected === "1") {
     conditions.push("collected = :collected");
     values.collected = Number(collected);
+  }
+  if (collectionStatusParam === "open") {
+    conditions.push(`NOT ${CLOUD_COLLECTION_PAID_SQL}`);
   }
   /**
    * 客户 / 供应商名称可能与列表口径不一致：列表是按账号映射 + 档案 ID 现算的，

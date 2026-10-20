@@ -154,7 +154,7 @@ export function CloudReconciliationPage() {
         setPayments(data.items); setTotal(data.total);
       } else {
         const params = new URLSearchParams({ keyword, period, page: String(targetPage), pageSize: String(pageSize) });
-        if (targetTab === "reconciliation" && ledgerView === "collection" && collectionFilter === "open") params.set("collected", "0");
+        if (targetTab === "reconciliation" && ledgerView === "collection" && collectionFilter === "open") params.set("collectionStatus", "open");
         appendQueryParams(params, targetQuery);
         const data = await requestJson<{
           items: Row[];
@@ -412,7 +412,7 @@ export function CloudReconciliationPage() {
           ) : null}
           <span className="ml-auto text-xs text-ink-3">收款管理已合并到这里；收款视图默认只看未收款 / 部分收款</span>
           {ledgerView === "collection" ? (
-            <Button onClick={() => window.open(`/api/cloud/rows/export?keyword=${encodeURIComponent(keyword)}&period=${encodeURIComponent(period)}&view=collection${collectionFilter === "open" ? "&collected=0" : ""}`, "_blank")} title="按当前筛选导出收款清单">
+            <Button onClick={() => window.open(`/api/cloud/rows/export?keyword=${encodeURIComponent(keyword)}&period=${encodeURIComponent(period)}&view=collection${collectionFilter === "open" ? "&collectionStatus=open" : ""}`, "_blank")} title="按当前筛选导出收款清单">
               <Download size={15} />导出收款清单
             </Button>
           ) : null}
