@@ -9,8 +9,9 @@ type RouteContext = { params: Promise<{ purchaseOrderId: string }> };
 async function loadInvoiceInfo(purchaseOrderId: string) {
   const rows = await queryRows<Row>(
     `SELECT purchaseOrderId, poNo, currency AS orderCurrency,
-            invoiceNo, invoiceDate, invoiceAmount, invoiceCurrency,
-            paymentDate AS expectedPaymentDate, invoiceRemark
+            invoiceNo, invoiceDate, invoiceAmount, invoiceCurrency, invoiceStatus,
+            paymentDate AS expectedPaymentDate, invoiceRemark,
+            paymentStatus, paidAt AS actualPaymentDate
        FROM merge_power_purchaseorders
       WHERE purchaseOrderId = :purchaseOrderId
       LIMIT 1`,
@@ -38,6 +39,29 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     const invoiceAmount = amountText ? Number(amountText) : null;
     if (invoiceAmount !== null && !Number.isFinite(invoiceAmount)) throw new Error("发票金额格式不正确");
 
+    const current = await loadInvoiceInfo(purchaseOrderId);
+    if (!current) return NextResponse.json({ error: "采购订单不存在" }, { status: 404 });
+    const currentPaymentStatus = String(current.paymentStatus ?? "").trim();
+    const paid = body.paid === true;
+    const unpaid = body.paid === false;
+    const nextPaymentStatus = paid
+      ? "已付款"
+      : unpaid && currentPaymentStatus !== "审批中"
+        ? "未付款"
+        : currentPaymentStatus || null;
+    const actualPaymentDate = normalizeDateOnlyValue(body.actualPaymentDate);
+    const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Shanghai" });
+    const nextPaidAt = paid
+      ? actualPaymentDate ?? normalizeDateOnlyValue(current.actualPaymentDate) ?? today
+      : unpaid && currentPaymentStatus !== "审批中"
+        ? null
+        : current.actualPaymentDate ?? null;
+    const invoiceStatus = body.invoiced === true
+      ? "issued"
+      : body.invoiced === false
+        ? "not_issued"
+        : current.invoiceStatus ?? null;
+
     const actor = await getOperationActor(request);
     await execute(
       `UPDATE merge_power_purchaseorders
@@ -45,7 +69,10 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
               invoiceDate = :invoiceDate,
               invoiceAmount = :invoiceAmount,
               invoiceCurrency = :invoiceCurrency,
+              invoiceStatus = :invoiceStatus,
               paymentDate = :expectedPaymentDate,
+              paymentStatus = :paymentStatus,
+              paidAt = :paidAt,
               invoiceRemark = :invoiceRemark,
               updatedAt = CURRENT_TIMESTAMP,
               updatedByUserId = :updatedByUserId,
@@ -57,7 +84,10 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
         invoiceDate: normalizeDateOnlyValue(body.invoiceDate),
         invoiceAmount,
         invoiceCurrency: text(body.invoiceCurrency).toUpperCase().slice(0, 16) || null,
+        invoiceStatus,
         expectedPaymentDate: normalizeDateOnlyValue(body.expectedPaymentDate),
+        paymentStatus: nextPaymentStatus,
+        paidAt: nextPaidAt,
         invoiceRemark: text(body.invoiceRemark).slice(0, 500) || null,
         updatedByUserId: actor?.userId ?? null,
         updatedByName: actor?.displayName ?? null,

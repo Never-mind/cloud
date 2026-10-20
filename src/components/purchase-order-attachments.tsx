@@ -29,7 +29,10 @@ type InvoiceInfo = {
   invoiceDate: string | null;
   invoiceAmount: number | null;
   invoiceCurrency: string | null;
+  invoiceStatus: string | null;
   expectedPaymentDate: string | null;
+  paymentStatus: string | null;
+  actualPaymentDate: string | null;
   invoiceRemark: string | null;
 };
 
@@ -38,7 +41,10 @@ type InvoiceDraft = {
   invoiceDate: string;
   invoiceAmount: string;
   invoiceCurrency: string;
+  invoiced: boolean;
   expectedPaymentDate: string;
+  paid: boolean;
+  actualPaymentDate: string;
   invoiceRemark: string;
 };
 
@@ -46,6 +52,11 @@ const INVOICE_CURRENCIES = ["USD", "CNY", "MXN", "CLP", "BRL", "SGD", "HKD", "EU
 
 function dateValue(value: unknown) {
   return normalizeDateOnlyValue(value) ?? "";
+}
+
+function todayValue() {
+  const date = new Date();
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
 export function PurchaseOrderAttachments({ purchaseOrderId, readOnly = false }: { purchaseOrderId: string; readOnly?: boolean }) {
@@ -59,7 +70,10 @@ export function PurchaseOrderAttachments({ purchaseOrderId, readOnly = false }: 
     invoiceDate: "",
     invoiceAmount: "",
     invoiceCurrency: "USD",
+    invoiced: false,
     expectedPaymentDate: "",
+    paid: false,
+    actualPaymentDate: "",
     invoiceRemark: "",
   });
   const [savingInvoice, setSavingInvoice] = useState(false);
@@ -140,7 +154,10 @@ export function PurchaseOrderAttachments({ purchaseOrderId, readOnly = false }: 
       invoiceDate: dateValue(invoiceInfo?.invoiceDate),
       invoiceAmount: invoiceInfo?.invoiceAmount == null ? "" : String(invoiceInfo.invoiceAmount),
       invoiceCurrency: String(invoiceInfo?.invoiceCurrency || invoiceInfo?.orderCurrency || "USD"),
+      invoiced: invoiceInfo?.invoiceStatus === "issued" || (!invoiceInfo?.invoiceStatus && Boolean(invoiceInfo?.invoiceNo || invoiceInfo?.invoiceDate)),
       expectedPaymentDate: dateValue(invoiceInfo?.expectedPaymentDate),
+      paid: invoiceInfo?.paymentStatus === "已付款",
+      actualPaymentDate: dateValue(invoiceInfo?.actualPaymentDate),
       invoiceRemark: String(invoiceInfo?.invoiceRemark ?? ""),
     });
     setInvoiceOpen(true);
@@ -166,7 +183,7 @@ export function PurchaseOrderAttachments({ purchaseOrderId, readOnly = false }: 
     }
   }
 
-  const hasInvoiceInfo = Boolean(invoiceInfo && (invoiceInfo.invoiceNo || invoiceInfo.invoiceDate || invoiceInfo.expectedPaymentDate || invoiceInfo.invoiceAmount !== null));
+  const hasInvoiceInfo = Boolean(invoiceInfo && (invoiceInfo.invoiceNo || invoiceInfo.invoiceDate || invoiceInfo.expectedPaymentDate || invoiceInfo.invoiceAmount !== null || invoiceInfo.invoiceStatus || invoiceInfo.paymentStatus || invoiceInfo.actualPaymentDate));
 
   return (
     <section className="rounded border border-line-soft bg-white">
@@ -195,8 +212,11 @@ export function PurchaseOrderAttachments({ purchaseOrderId, readOnly = false }: 
           <div className="mt-2 grid gap-x-6 gap-y-1 text-xs text-ink-2 sm:grid-cols-2 lg:grid-cols-4">
             <div>发票号：<span className="text-ink">{invoiceInfo.invoiceNo || "-"}</span></div>
             <div>开票日期：<span className="text-ink">{dateValue(invoiceInfo.invoiceDate) || "-"}</span></div>
-            <div>预计付款日期：<span className="text-ink">{dateValue(invoiceInfo.expectedPaymentDate) || "-"}</span></div>
+            <div>开票状态：<span className={invoiceInfo.invoiceStatus === "issued" ? "text-success" : "text-ink"}>{invoiceInfo.invoiceStatus === "issued" ? "已开票" : "未开票"}</span></div>
             <div>发票金额：<span className="text-ink">{invoiceInfo.invoiceAmount == null ? "-" : `${invoiceInfo.invoiceCurrency || ""} ${formatDisplayValue(invoiceInfo.invoiceAmount, "money")}`}</span></div>
+            <div>预计付款日期：<span className="text-ink">{dateValue(invoiceInfo.expectedPaymentDate) || "-"}</span></div>
+            <div>付款状态：<span className={invoiceInfo.paymentStatus === "已付款" ? "text-success" : invoiceInfo.paymentStatus === "审批中" ? "text-warning-ink" : "text-ink"}>{invoiceInfo.paymentStatus || "未付款"}</span></div>
+            <div>实际付款日期：<span className="text-ink">{dateValue(invoiceInfo.actualPaymentDate) || "-"}</span></div>
             {invoiceInfo.invoiceRemark ? <div className="sm:col-span-2 lg:col-span-4">备注：<span className="text-ink">{invoiceInfo.invoiceRemark}</span></div> : null}
           </div>
         ) : <div className="mt-1 text-xs text-ink-3">上传发票后可登记开票日期、预计付款日期和发票金额。</div>}
@@ -240,6 +260,11 @@ export function PurchaseOrderAttachments({ purchaseOrderId, readOnly = false }: 
             <label className="space-y-1 text-sm text-ink-2"><span>发票金额</span><Input className="w-full" step="0.0001" type="number" value={invoiceDraft.invoiceAmount} onChange={(event) => setInvoiceDraft({ ...invoiceDraft, invoiceAmount: event.target.value })} /></label>
             <label className="space-y-1 text-sm text-ink-2"><span>发票币种</span><Select className="w-full" value={invoiceDraft.invoiceCurrency} onChange={(event) => setInvoiceDraft({ ...invoiceDraft, invoiceCurrency: event.target.value })}>{INVOICE_CURRENCIES.map((currency) => <option key={currency}>{currency}</option>)}</Select></label>
             <label className="space-y-1 text-sm text-ink-2"><span>预计付款日期</span><Input className="w-full" type="date" value={invoiceDraft.expectedPaymentDate} onChange={(event) => setInvoiceDraft({ ...invoiceDraft, expectedPaymentDate: event.target.value })} onBlur={(event) => setInvoiceDraft({ ...invoiceDraft, expectedPaymentDate: event.target.value })} /></label>
+            <label className="space-y-1 text-sm text-ink-2"><span>实际付款日期</span><Input className="w-full" disabled={!invoiceDraft.paid} type="date" value={invoiceDraft.actualPaymentDate} onChange={(event) => setInvoiceDraft({ ...invoiceDraft, actualPaymentDate: event.target.value })} onBlur={(event) => setInvoiceDraft({ ...invoiceDraft, actualPaymentDate: event.target.value })} /></label>
+            <div className="flex flex-wrap items-center gap-5 text-sm text-ink-2">
+              <label className="flex items-center gap-2"><input checked={invoiceDraft.invoiced} type="checkbox" onChange={(event) => setInvoiceDraft({ ...invoiceDraft, invoiced: event.target.checked })} />已开票</label>
+              <label className="flex items-center gap-2"><input checked={invoiceDraft.paid} type="checkbox" onChange={(event) => setInvoiceDraft({ ...invoiceDraft, paid: event.target.checked, actualPaymentDate: event.target.checked ? invoiceDraft.actualPaymentDate || todayValue() : "" })} />已付款</label>
+            </div>
             <label className="space-y-1 text-sm text-ink-2 sm:col-span-2"><span>备注</span><Textarea className="w-full" rows={3} value={invoiceDraft.invoiceRemark} onChange={(event) => setInvoiceDraft({ ...invoiceDraft, invoiceRemark: event.target.value })} /></label>
           </div>
         </Modal>
