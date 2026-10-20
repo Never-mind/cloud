@@ -94,17 +94,21 @@ export function PurchaseOrderInvoicePanel({ purchaseOrderId, readOnly = false }:
     setInvoiceOpen(true);
   }
 
+  async function persistInvoiceDraft(draft: InvoiceDraft) {
+    const response = await fetch(`/api/procurement/purchase-orders/${encodeURIComponent(purchaseOrderId)}/invoice-info`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(draft),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error ?? "发票信息保存失败");
+    setInvoiceInfo(data.invoiceInfo ?? null);
+  }
+
   async function saveInvoiceInfo() {
     setSavingInvoice(true);
     try {
-      const response = await fetch(`/api/procurement/purchase-orders/${encodeURIComponent(purchaseOrderId)}/invoice-info`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(invoiceDraft),
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.error ?? "发票信息保存失败");
-      setInvoiceInfo(data.invoiceInfo ?? null);
+      await persistInvoiceDraft(invoiceDraft);
       setInvoiceOpen(false);
       notify("发票信息已保存", "success");
     } catch (error) {
@@ -130,7 +134,7 @@ export function PurchaseOrderInvoicePanel({ purchaseOrderId, readOnly = false }:
       if (!recognizeResponse.ok) throw new Error(recognizeData.error ?? "发票识别失败");
       const form = recognizeData.recognition?.form ?? {};
       const base = draftFromInfo(invoiceInfo);
-      setInvoiceDraft({
+      const recognizedDraft: InvoiceDraft = {
         ...base,
         invoiceNo: String(form.invoiceNo || base.invoiceNo),
         invoiceDate: String(form.invoiceDate || base.invoiceDate),
@@ -138,9 +142,22 @@ export function PurchaseOrderInvoicePanel({ purchaseOrderId, readOnly = false }:
         invoiceCurrency: String(form.currency || base.invoiceCurrency),
         invoiced: true,
         expectedPaymentDate: String(form.receivableDate || base.expectedPaymentDate),
-      });
+      };
+      setInvoiceDraft(recognizedDraft);
+      let saved = false;
+      try {
+        await persistInvoiceDraft(recognizedDraft);
+        saved = true;
+      } catch (error) {
+        notify(error instanceof Error ? error.message : "识别结果自动登记失败", "info");
+      }
       setInvoiceOpen(true);
-      notify(`发票已上传并识别${recognizeData.recognition?.source ? `：${recognizeData.recognition.source}` : ""}，请确认开票信息`, "success");
+      notify(
+        saved
+          ? `发票已上传、识别并登记${recognizeData.recognition?.source ? `：${recognizeData.recognition.source}` : ""}`
+          : "发票已识别，请核对后点击保存",
+        saved ? "success" : "info",
+      );
     } catch (error) {
       notify(error instanceof Error ? error.message : "发票上传或识别失败", "info");
     } finally {

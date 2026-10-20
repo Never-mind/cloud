@@ -83,6 +83,7 @@ export function PurchaseOrderAttachments({ purchaseOrderId, readOnly = false }: 
       <div className="flex items-center gap-2 border-b border-line-soft px-4 py-3">
         <FileUp className="text-primary" size={17} />
         <h2 className="text-sm font-medium text-ink">附件</h2>
+        <span className="text-xs text-ink-3">发票请在上方主单「发票与付款」上传并识别</span>
         <label
           className={`ml-auto inline-flex h-8 items-center gap-1 rounded border border-line px-3 text-sm ${
             readOnly || uploading ? "cursor-not-allowed text-ink-4" : "cursor-pointer text-ink-2 hover:border-primary hover:text-primary"
