@@ -33,6 +33,7 @@ type PreviewRow = {
   period: string;
   supplierId: string;
   supplierName: string;
+  supplierFullName: string;
   undertakingUnitCode: string;
   undertakingUnitName: string;
   amount: number;
@@ -47,6 +48,12 @@ type PreviewRow = {
   sources: Array<{ customer: string; account: string; amount: number }>;
   orderNo: string;
   batchNo: string;
+  projectNo: string;
+  projectName: string;
+  countryCode: string;
+  countryName: string;
+  quantity: number;
+  requestNos: string[];
   paid: boolean;
   bankAccounts: BankAccount[];
 };
@@ -500,11 +507,51 @@ function matchCustomerOption(options: Option[], customerName: string) {
   return "";
 }
 
-function defaultReason(branch: Branch, rows: DraftRow[]) {
-  const first = rows[0];
-  if (branch === "huawei") return `支付华为云 ${first?.period ?? ""} 账期供应商货款`;
-  if (branch === "other") return `支付项目成本发票货款${first?.ownerNo ? `（发票 ${first.ownerNo}）` : ""}`;
-  return `支付算力采购订单货款（${rows.length} 张）`;
+/** 金额统一用两位小数的科学计数法，例如 85000 → 8.50E+4。 */
+export function formatApprovalAmount(value: unknown) {
+  const amount = Number(value);
+  return (Number.isFinite(amount) ? amount : 0).toExponential(2).toUpperCase();
+}
+
+type ReasonRow = Pick<
+  DraftRow,
+  | "period"
+  | "supplierName"
+  | "supplierFullName"
+  | "amount"
+  | "currency"
+  | "projectNo"
+  | "projectName"
+  | "ownerNo"
+  | "countryCode"
+  | "countryName"
+  | "batchNo"
+  | "quantity"
+  | "requestNos"
+>;
+
+/** 三个入口的付款事由默认文案；多条明细用中文分号连接。 */
+export function defaultReason(branch: Branch, rows: ReasonRow[]) {
+  return rows.map((row) => {
+    const amount = `${formatApprovalAmount(row.amount)}${row.currency || ""}`;
+    if (branch === "huawei") {
+      const supplier = row.supplierFullName || row.supplierName || "-";
+      return `支付华为云 ${row.period || "-"} 账期（${supplier}）货款金额：${amount}`;
+    }
+    if (branch === "other") {
+      const project = row.projectName || row.projectNo || row.ownerNo || "-";
+      return `支付集采项目${project}成本货款金额：${amount}`;
+    }
+    const country = row.countryName || row.countryCode || "";
+    const batch = row.batchNo || "";
+    const quantity = Number.isFinite(Number(row.quantity)) ? Math.round(Number(row.quantity)) : 0;
+    const requestNos = row.requestNos.filter(Boolean);
+    const requestText = requestNos.length
+      ? `需求单号${requestNos[0]}${requestNos.slice(1).map((no) => `、(${no})`).join("")}`
+      : "";
+    const supplier = row.supplierFullName || row.supplierName || "-";
+    return `${country}${batch}的${quantity}PCS，${requestText}支付${supplier}设备款，金额为${amount}`;
+  }).join("；");
 }
 
 function readAsDataUrl(file: File) {

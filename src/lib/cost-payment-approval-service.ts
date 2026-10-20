@@ -665,6 +665,7 @@ export type CostPaymentPreviewRow = {
   period: string;
   supplierId: string;
   supplierName: string;
+  supplierFullName: string;
   undertakingUnitCode: string;
   undertakingUnitName: string;
   amount: number;
@@ -680,6 +681,12 @@ export type CostPaymentPreviewRow = {
   sources: Array<{ customer: string; account: string; amount: number }>;
   orderNo: string;
   batchNo: string;
+  projectNo: string;
+  projectName: string;
+  countryCode: string;
+  countryName: string;
+  quantity: number;
+  requestNos: string[];
   paid: boolean;
   bankAccounts: Array<{ accountId: string; accountName: string; bankName: string; bankAccount: string; swiftCode: string; currency: string; isDefault: boolean }>;
 };
@@ -695,6 +702,7 @@ export async function loadCostPaymentPreview(branch: CostPaymentBranch, ownerIds
   const sourceRows = branch === "huawei"
     ? await queryRows<Row>(
         `SELECT CONCAT(p.period, '::', p.supplierId) AS ownerId, p.id AS physicalId, p.period AS ownerNo, p.period, p.supplierId, p.supplierName,
+                COALESCE(NULLIF(s.nameCn, ''), NULLIF(s.nameEn, ''), p.supplierName) AS supplierFullName,
                 -- 金额优先取已登记的付款总额，没登记就按账单汇总（供应商应付含税）
                 COALESCE(
                   NULLIF(p.paymentTotalAmount, 0),
@@ -716,17 +724,23 @@ export async function loadCostPaymentPreview(branch: CostPaymentBranch, ownerIds
                 (SELECT MAX(m.customerName) FROM merge_cloud_mappings m
                   WHERE m.supplierId = p.supplierId AND m.undertakingUnitId = p.payerUnitId LIMIT 1) AS customerName
            FROM merge_cloud_supplier_payments p
+           LEFT JOIN merge_common_suppliers s ON s.supplierId = p.supplierId OR s.supplierCode = p.supplierId
           WHERE CONCAT(p.period, '::', p.supplierId) IN (:ids) OR p.id IN (:ids)`,
         { ids },
       )
     : branch === "other"
       ? await queryRows<Row>(
           `SELECT i.id AS ownerId, i.invoiceNo AS ownerNo, i.accountPeriod AS period, i.invoiceEntityId AS supplierId,
-                  i.invoiceEntity AS supplierName, COALESCE(i.invoiceTotal, 0) AS amount, COALESCE(NULLIF(i.currency, ''), 'CNY') AS currency,
+                  i.invoiceEntity AS supplierName,
+                  COALESCE(NULLIF(sup.nameCn, ''), NULLIF(sup.nameEn, ''), i.invoiceEntity) AS supplierFullName,
+                  i.projectId, p.projectNo, p.projectName,
+                  COALESCE(i.invoiceTotal, 0) AS amount, COALESCE(NULLIF(i.currency, ''), 'CNY') AS currency,
                   COALESCE(i.receivableDate, i.accountingDate, i.invoiceDate) AS paymentDate, i.isPaid AS paid, i.isInvoiced,
                   u.undertakingUnitCode, COALESCE(NULLIF(u.shortName, ''), u.entityName, i.companyEntity) AS undertakingUnitName,
                   NULL AS customerName
              FROM merge_po_settlement_invoices i
+             LEFT JOIN merge_po_settlement_projects p ON p.id = i.projectId
+             LEFT JOIN merge_common_suppliers sup ON sup.supplierId = i.invoiceEntityId OR sup.supplierCode = i.invoiceEntityId
              LEFT JOIN merge_common_undertaking_units u ON u.undertakingUnitId = i.companyEntityId
             WHERE i.id IN (:ids) AND i.type = 'cost'`,
           { ids },
@@ -734,14 +748,19 @@ export async function loadCostPaymentPreview(branch: CostPaymentBranch, ownerIds
       : await queryRows<Row>(
           `SELECT po.purchaseOrderId AS ownerId, po.poNo AS ownerNo, DATE_FORMAT(MIN(ri.requestedAt), '%Y-%m-%d') AS period,
                   MIN(ri.supplierId) AS supplierId, MIN(s.shortName) AS supplierName,
+                  MIN(COALESCE(NULLIF(s.nameCn, ''), NULLIF(s.nameEn, ''), s.shortName)) AS supplierFullName,
                   ROUND(SUM(ri.quantity * poi.unitPrice), 2) AS amount, COALESCE(MIN(po.currency), 'USD') AS currency,
                   po.paymentDate AS paymentDate, po.paymentStatus AS paid,
                   MIN(u.undertakingUnitCode) AS undertakingUnitCode, MIN(COALESCE(NULLIF(u.shortName, ''), u.entityName)) AS undertakingUnitName,
-                  GROUP_CONCAT(DISTINCT COALESCE(NULLIF(ri.batchName, ''), NULLIF(req.batchName, '')) ORDER BY ri.batchName SEPARATOR '、') AS batchNo
+                  GROUP_CONCAT(DISTINCT COALESCE(NULLIF(ri.batchName, ''), NULLIF(req.batchName, '')) ORDER BY ri.batchName SEPARATOR '、') AS batchNo,
+                  MIN(req.countryCode) AS countryCode, MIN(c.nameZh) AS countryName,
+                  SUM(ri.quantity) AS quantity,
+                  GROUP_CONCAT(DISTINCT ri.requestNo ORDER BY ri.requestNo SEPARATOR ',') AS requestNos
              FROM merge_power_purchaseorders po
              LEFT JOIN merge_power_purchaseorderitems poi ON poi.purchaseOrderId = po.purchaseOrderId
              LEFT JOIN merge_power_requestitems ri ON ri.id = poi.requestItemId
              LEFT JOIN merge_power_requests req ON req.requestNo = ri.requestNo
+             LEFT JOIN merge_power_countries c ON c.code = req.countryCode
              LEFT JOIN merge_common_suppliers s ON s.supplierId = ri.supplierId
              LEFT JOIN merge_common_undertaking_units u ON u.undertakingUnitId = ri.undertakingUnitId
             WHERE po.purchaseOrderId IN (:ids)
@@ -820,7 +839,8 @@ export async function loadCostPaymentPreview(branch: CostPaymentBranch, ownerIds
       ownerNo: String(row.ownerNo ?? ""),
       period: String(row.period ?? ""),
       supplierId,
-      supplierName: String(row.supplierName ?? ""),
+      supplierName: String(row.supplierName ?? "").trim(),
+      supplierFullName: String(row.supplierFullName ?? row.supplierName ?? "").trim(),
       undertakingUnitCode: String(row.undertakingUnitCode ?? ""),
       undertakingUnitName: String(row.undertakingUnitName ?? ""),
       amount: Number(row.amount ?? 0),
@@ -835,6 +855,12 @@ export async function loadCostPaymentPreview(branch: CostPaymentBranch, ownerIds
       sources: branch === "huawei" ? sourcesByKey.get(`${String(row.period ?? "")}::${String(row.supplierId ?? "")}`) ?? [] : [],
       orderNo: String(row.ownerNo ?? ""),
       batchNo: String(row.batchNo ?? ""),
+      projectNo: String(row.projectNo ?? "").trim(),
+      projectName: String(row.projectName ?? "").trim(),
+      countryCode: String(row.countryCode ?? "").trim(),
+      countryName: String(row.countryName ?? "").trim(),
+      quantity: Number(row.quantity ?? 0),
+      requestNos: String(row.requestNos ?? "").split(",").map((value) => value.trim()).filter(Boolean),
       paid,
       bankAccounts,
     };
