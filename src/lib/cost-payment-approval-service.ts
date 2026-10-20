@@ -33,6 +33,17 @@ export function isCostPaymentBranch(value: unknown): value is CostPaymentBranch 
   return (COST_PAYMENT_BRANCHES as readonly string[]).includes(String(value ?? ""));
 }
 
+/**
+ * 飞书日期控件要求 RFC3339（带时区），传纯 `YYYY-MM-DD` 会报
+ * 「控件值不合法或者为空」。这里统一补齐为东八区零点。
+ */
+export function formatApprovalPaymentDate(value: unknown) {
+  const text = String(value ?? "").trim();
+  const match = text.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!match) throw new Error("请填写需求付款日期（格式 YYYY-MM-DD）");
+  return `${match[1]}-${match[2]}-${match[3]}T00:00:00+08:00`;
+}
+
 /** 发起人要按本人身份提交，这里取当前登录账号绑定的飞书 open_id。 */
 export async function loadUserFeishuOpenId(userId: string) {
   const rows = await queryRows<{ feishuOpenId: string | null }>(
@@ -235,7 +246,7 @@ export function buildCostPaymentForm(
       { id: columns.bankName, type: "input", value: entry.bankName },
       { id: columns.swiftCode, type: "input", value: entry.swiftCode },
       { id: columns.fee, type: "radioV2", value: entry.feeOptionValue || FEE_WIDGET_KEY[branch][entry.feeKey] },
-      { id: columns.paymentDate, type: "date", value: entry.paymentDate },
+      { id: columns.paymentDate, type: "date", value: formatApprovalPaymentDate(entry.paymentDate) },
       { id: columns.invoice, type: "radioV2", value: entry.invoiceOptionValue || (entry.invoiceIssued ? INVOICE_WIDGET_KEY[branch].issued : INVOICE_WIDGET_KEY[branch].notIssued) },
       { id: columns.attachment, type: "attachmentV2", value: entry.attachmentTokens },
     );

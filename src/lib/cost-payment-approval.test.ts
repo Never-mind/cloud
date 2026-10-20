@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildCostPaymentForm,
+  formatApprovalPaymentDate,
   resolveCostPaymentCompanyKey,
   resolveCostPaymentCustomerKey,
   validateCostPaymentEntries,
@@ -81,6 +82,8 @@ describe("成本款付款申请", () => {
     expect(columns.widget17688927593880001.value).toBe(799474.81);
     expect(columns.widget17688927593880001.currency).toBe("USD");
     expect(columns.widget17688930544840001.value).toEqual(["file-token-1"]);
+    // 飞书日期控件必须是 RFC3339，纯 YYYY-MM-DD 会被判为「控件值不合法或者为空」
+    expect(columns.widget17688929678340001.value).toBe("2026-11-15T00:00:00+08:00");
     // 算力分支没有客户名称控件
     expect(rows[0].some((item) => item.id === "widget17688981032310001")).toBe(false);
   });
@@ -109,6 +112,31 @@ describe("成本款付款申请", () => {
       entries: [{ ...entry, customerKey: undefined }],
     })[4].value as Array<Array<{ id: string }>>;
     expect(otherRows[0].some((item) => item.id === "widget17688981032310001")).toBe(false);
+  });
+
+  it("需求付款日期按 RFC3339 补齐时区", () => {
+    expect(formatApprovalPaymentDate("2026-11-15")).toBe("2026-11-15T00:00:00+08:00");
+    expect(formatApprovalPaymentDate("2026-11-15 08:30:00")).toBe("2026-11-15T00:00:00+08:00");
+    expect(() => formatApprovalPaymentDate("")).toThrow("请填写需求付款日期");
+    expect(() => formatApprovalPaymentDate("2026/11/15")).toThrow("请填写需求付款日期");
+
+    const entry = {
+      amount: 100,
+      currency: "MXN",
+      payee: "HUAWEI",
+      bankAccount: "1",
+      bankName: "bank",
+      swiftCode: "SWIFT",
+      feeKey: "none" as const,
+      paymentDate: "2026-11-15",
+      invoiceIssued: false,
+      customerKey: "mkmc9br3-u2m28i1ldp-0",
+      attachmentTokens: [],
+    };
+    const huaweiRows = buildCostPaymentForm("huawei", { reason: "r", companyKey: "c", entries: [entry] })[4]
+      .value as Array<Array<{ id: string; value: unknown }>>;
+    const huaweiColumns = Object.fromEntries(huaweiRows[0].map((item) => [item.id, item]));
+    expect(huaweiColumns.widget17688936318320001.value).toBe("2026-11-15T00:00:00+08:00");
   });
 
   it("校验：金额、银行账户、附件、承接单位一致性", () => {
