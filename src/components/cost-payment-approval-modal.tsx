@@ -507,10 +507,13 @@ function matchCustomerOption(options: Option[], customerName: string) {
   return "";
 }
 
-/** 金额统一用两位小数的科学计数法，例如 85000 → 8.50E+4。 */
+/** 金额统一用千分位并保留两位小数，例如 85000 → 85,000.00。 */
 export function formatApprovalAmount(value: unknown) {
   const amount = Number(value);
-  return (Number.isFinite(amount) ? amount : 0).toExponential(2).toUpperCase();
+  return new Intl.NumberFormat("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(Number.isFinite(amount) ? amount : 0);
 }
 
 type ReasonRow = Pick<
