@@ -33,11 +33,11 @@ describe("统一图标操作按钮", () => {
 
   it("图标链接与图标按钮共用尺寸和提示", () => {
     const html = renderToStaticMarkup(
-      createElement(
-        IconLink,
-        { href: "/download", label: "下载" },
-        createElement("span", null, "D"),
-      ),
+      createElement(IconLink, {
+        children: createElement("span", null, "D"),
+        href: "/download",
+        label: "下载",
+      }),
     );
     expect(html).toContain('href="/download"');
     expect(html).toContain('aria-label="下载"');

@@ -734,8 +734,12 @@ export async function listCloudRows(params: URLSearchParams) {
   if (params.get("field")) return listCloudRowFilterOptions(params);
   const { page, pageSize, offset } = pageParams(params);
   const { where, values } = cloudWhere(params);
+  // 收款视图切到「全部」时不带 collected 过滤；这两个计数始终按当前搜索/账期条件统计全部行。
+  const collectionCountParams = new URLSearchParams(params);
+  collectionCountParams.delete("collected");
+  const { where: collectionWhere, values: collectionValues } = cloudWhere(collectionCountParams);
   const requestedSort = getTableSort(params, Object.fromEntries(Object.keys(CLOUD_ROW_FILTER_EXPRESSIONS).map((field) => [field, cloudRowFilterExpression(field)])));
-  const [count, rows, periodRows] = await Promise.all([
+  const [count, rows, periodRows, collectionCountRows] = await Promise.all([
     queryRowsRaw<{ total: number }>(`SELECT COUNT(*) AS total FROM merge_cloud_rows ${where}`, values),
     queryRowsRaw<Row>(`SELECT * FROM merge_cloud_rows ${where} ${requestedSort || "ORDER BY period DESC, updatedAt DESC"} LIMIT :limit OFFSET :offset`, { ...values, limit: pageSize, offset }),
       queryRowsRaw<{ period: string; rowCount: number; receivable: number; collected: number }>(
@@ -743,14 +747,22 @@ export async function listCloudRows(params: URLSearchParams) {
                COALESCE(SUM(CASE WHEN collected = 1 THEN COALESCE(customerReceivableTotalAmount, customerReceivable) ELSE 0 END), 0) AS collected
          FROM merge_cloud_rows GROUP BY ${CLOUD_PERIOD_SQL("period")} ORDER BY ${CLOUD_PERIOD_SQL("period")} DESC LIMIT 24`,
     ),
+    queryRowsRaw<{ total: number; openCount: number; paidCount: number }>(
+      `SELECT COUNT(*) AS total,
+              SUM(CASE WHEN collected = 0 THEN 1 ELSE 0 END) AS openCount,
+              SUM(CASE WHEN collected = 1 THEN 1 ELSE 0 END) AS paidCount
+         FROM merge_cloud_rows ${collectionWhere}`,
+      collectionValues,
+    ),
   ]);
   const summaryRows = await queryRowsRaw<{ receivable: number; collected: number; outstanding: number; overdueCount: number }>(
     `SELECT COALESCE(SUM(COALESCE(customerReceivableTotalAmount, customerReceivable)), 0) AS receivable,
-            COALESCE(SUM(CASE WHEN collected = 1 THEN COALESCE(customerReceivableTotalAmount, customerReceivable) ELSE 0 END), 0) AS collected,
-            COALESCE(SUM(CASE WHEN collected = 0 THEN COALESCE(customerReceivableTotalAmount, customerReceivable) ELSE 0 END), 0) AS outstanding,
-            SUM(CASE WHEN collected = 0 AND paymentDate IS NOT NULL AND paymentDate < CURRENT_DATE THEN 1 ELSE 0 END) AS overdueCount
-       FROM merge_cloud_rows ${where}`,
-    values,
+            COALESCE(SUM(COALESCE(collectionTotalAmount, CASE WHEN collected = 1 THEN COALESCE(customerReceivableTotalAmount, customerReceivable) ELSE 0 END)), 0) AS collected,
+            COALESCE(SUM(GREATEST(COALESCE(customerReceivableTotalAmount, customerReceivable, 0)
+              - COALESCE(collectionTotalAmount, CASE WHEN collected = 1 THEN COALESCE(customerReceivableTotalAmount, customerReceivable) ELSE 0 END), 0)), 0) AS outstanding,
+            SUM(CASE WHEN collected = 0 AND COALESCE(receivableDate, paymentDate) IS NOT NULL AND COALESCE(receivableDate, paymentDate) < CURRENT_DATE THEN 1 ELSE 0 END) AS overdueCount
+       FROM merge_cloud_rows ${collectionWhere}`,
+    collectionValues,
   );
   /**
    * 表尾合计：**按每一列自己的币种**分组，不能按行取币种。
@@ -811,6 +823,11 @@ export async function listCloudRows(params: URLSearchParams) {
     page,
     pageSize,
     summary: summaryRows[0] ?? { receivable: 0, collected: 0, outstanding: 0, overdueCount: 0 },
+    collectionCounts: {
+      total: Number(collectionCountRows[0]?.total ?? 0),
+      open: Number(collectionCountRows[0]?.openCount ?? 0),
+      paid: Number(collectionCountRows[0]?.paidCount ?? 0),
+    },
     currencyTotals: mergedCurrencyTotals,
     periods: periodRows,
   };

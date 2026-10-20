@@ -24,12 +24,13 @@ import { CrmInvoicePicker } from "./crm-invoice-picker";
 import { CrmInvoiceAllocationModal } from "./crm-invoice-allocation-modal";
 import { InvoiceDraftModal, type InvoiceDraftMode } from "./invoice-draft-modal";
 
-type Tab = "reconciliation" | "crm-invoices" | "mapping" | "collections" | "supplier-payments";
+type Tab = "reconciliation" | "crm-invoices" | "mapping" | "supplier-payments";
+type LedgerView = "ledger" | "collection";
 type Row = Record<string, unknown> & { id?: string };
 type Master = { id: string; code?: string; name: string; shortName?: string };
 type MasterSet = { suppliers: Master[]; undertakingUnits: Master[]; customers: Master[] };
 
-const tabs: Array<[Tab, string]> = [["reconciliation", "跨月对账台账"], ["crm-invoices", "账期发票（CRM）"], ["mapping", "服务映射"], ["collections", "收款管理"], ["supplier-payments", "供应商付款"]];
+const tabs: Array<[Tab, string]> = [["reconciliation", "跨月对账台账"], ["crm-invoices", "账期发票（CRM）"], ["mapping", "服务映射"], ["supplier-payments", "供应商付款"]];
 const columns: Array<[string, string]> = [
   ["period", "账期"], ["customer", "客户名称"], ["account", "华为ID"], ["cloudReconciler", "华为对账人"],
   ["catalogAmount", "目录价（USD）"], ["partnerAmount", "伙伴结算金额（USD）"], ["voucherCustomerAmount", "代金券-客户（USD）"],
@@ -66,6 +67,10 @@ function display(value: unknown) {
 
 export function CloudReconciliationPage() {
   const [tab, setTab] = useState<Tab>("reconciliation");
+  const [ledgerView, setLedgerView] = useState<LedgerView>("ledger");
+  const [collectionFilter, setCollectionFilter] = useState<"open" | "all">("open");
+  const [collectionSummary, setCollectionSummary] = useState({ receivable: 0, collected: 0, outstanding: 0, overdueCount: 0 });
+  const [collectionCounts, setCollectionCounts] = useState({ total: 0, open: 0, paid: 0 });
   const [rows, setRows] = useState<Row[]>([]);
   const [mappings, setMappings] = useState<Row[]>([]);
   const [payments, setPayments] = useState<Row[]>([]);
@@ -115,7 +120,7 @@ export function CloudReconciliationPage() {
   const [paymentApprovalOwnerIds, setPaymentApprovalOwnerIds] = useState<string[] | null>(null);
   const [allocationTarget, setAllocationTarget] = useState<{ crmInvoiceId: number | string; rowId?: string } | null>(null);
   const [queries, setQueries] = useState<Record<Tab, QueryState>>({
-    reconciliation: emptyQuery(), "crm-invoices": emptyQuery(), mapping: emptyQuery(), collections: emptyQuery(), "supplier-payments": emptyQuery(),
+    reconciliation: emptyQuery(), "crm-invoices": emptyQuery(), mapping: emptyQuery(), "supplier-payments": emptyQuery(),
   });
 
   const activeQuery = queries[tab];
@@ -140,15 +145,24 @@ export function CloudReconciliationPage() {
         setPayments(data.items); setTotal(data.total);
       } else {
         const params = new URLSearchParams({ keyword, period, page: String(targetPage), pageSize: String(pageSize) });
+        if (targetTab === "reconciliation" && ledgerView === "collection" && collectionFilter === "open") params.set("collected", "0");
         appendQueryParams(params, targetQuery);
-        const data = await requestJson<{ items: Row[]; total: number; currencyTotals?: Row[] }>(`/api/cloud/rows?${params}`);
+        const data = await requestJson<{
+          items: Row[];
+          total: number;
+          currencyTotals?: Row[];
+          summary?: { receivable: number; collected: number; outstanding: number; overdueCount: number };
+          collectionCounts?: { total: number; open: number; paid: number };
+        }>(`/api/cloud/rows?${params}`);
         setRows(data.items); setTotal(data.total); setCurrencyTotals(Array.isArray(data.currencyTotals) ? data.currencyTotals : []);
+        setCollectionSummary(data.summary ?? { receivable: 0, collected: 0, outstanding: 0, overdueCount: 0 });
+        setCollectionCounts(data.collectionCounts ?? { total: data.total, open: 0, paid: 0 });
       }
     } catch (error) { setNotice(error instanceof Error ? error.message : "加载失败"); }
     finally { setBusy(false); }
   }
 
-  useEffect(() => { void load(); }, [tab, page, pageSize, period, queries]);
+  useEffect(() => { void load(); }, [tab, page, pageSize, period, queries, ledgerView, collectionFilter]);
 
   /**
    * 基础资料（供应商 / 承接单位 / 客户）是弹层下拉的选项来源。
@@ -333,14 +347,69 @@ export function CloudReconciliationPage() {
   return <div className="flex h-[calc(100vh-40px)] flex-col gap-4">
     <header className="flex flex-wrap items-start justify-between gap-3">
       <div><div className="flex items-center gap-2"><Cloud size={22} className="text-primary" /><h1 className="text-2xl font-medium text-ink">华为云业务</h1></div><p className="mt-2 text-sm text-ink-3">月度账单、服务映射、跨月收款和供应商付款</p></div>
-      {tab === "crm-invoices" ? null : <div className="flex flex-wrap gap-2">{tab === "reconciliation" ? <Button tone="primary" onClick={() => setRowForm({ period: period || new Date().toISOString().slice(0, 7).replace("-", ""), batchCode: "", customer: "", account: "", cloudReconciler: "", catalogAmount: "", partnerAmount: "", voucherCustomerAmount: "", voucherSupplierAmount: "", supplierPayablePayer: "", supplierPayablePayee: "", supplierPayableNetAmount: "", supplierTaxRate: "0.16", supplierTaxAmount: "", supplierPayableTotalAmount: "", customerReceivablePayer: "", customerReceivablePayee: "", customerReceivableNetAmount: "", customerTaxRate: "", customerReceivableTaxAmount: "", customerReceivableTotalAmount: "", theoreticalGrossProfit: "", settlementGrossProfit: "", customerDiscount: "", remark: "" })}><Plus size={15} />手动新增</Button> : null}<label className="inline-flex h-9 cursor-pointer items-center gap-1 rounded border border-line bg-white px-3 text-sm text-ink-2"><FileUp size={15} />导入账单<input className="hidden" type="file" accept=".xlsx,.xls" onChange={(event) => setImportFile(event.target.files?.[0] ?? null)} /></label><a href="/api/cloud/template"><Button type="button"><Download size={15} />下载导入模板</Button></a>{importFile ? <Button tone="primary" disabled={busy} onClick={() => void importWorkbook()}>确认导入</Button> : null}<Button onClick={() => window.open(`/api/cloud/rows/export?keyword=${encodeURIComponent(keyword)}&period=${encodeURIComponent(period)}`, "_blank")}><Download size={15} />导出数据</Button><Button disabled={busy} onClick={() => void syncApprovalStatus()}><RefreshCw size={15} />同步审批状态</Button></div>}
+      {tab === "crm-invoices" ? null : <div className="flex flex-wrap gap-2">{tab === "reconciliation" && ledgerView === "ledger" ? <Button tone="primary" onClick={() => setRowForm({ period: period || new Date().toISOString().slice(0, 7).replace("-", ""), batchCode: "", customer: "", account: "", cloudReconciler: "", catalogAmount: "", partnerAmount: "", voucherCustomerAmount: "", voucherSupplierAmount: "", supplierPayablePayer: "", supplierPayablePayee: "", supplierPayableNetAmount: "", supplierTaxRate: "0.16", supplierTaxAmount: "", supplierPayableTotalAmount: "", customerReceivablePayer: "", customerReceivablePayee: "", customerReceivableNetAmount: "", customerTaxRate: "", customerReceivableTaxAmount: "", customerReceivableTotalAmount: "", theoreticalGrossProfit: "", settlementGrossProfit: "", customerDiscount: "", remark: "" })}><Plus size={15} />手动新增</Button> : null}<label className="inline-flex h-9 cursor-pointer items-center gap-1 rounded border border-line bg-white px-3 text-sm text-ink-2"><FileUp size={15} />导入账单<input className="hidden" type="file" accept=".xlsx,.xls" onChange={(event) => setImportFile(event.target.files?.[0] ?? null)} /></label><a href="/api/cloud/template"><Button type="button"><Download size={15} />下载导入模板</Button></a>{importFile ? <Button tone="primary" disabled={busy} onClick={() => void importWorkbook()}>确认导入</Button> : null}<Button onClick={() => window.open(`/api/cloud/rows/export?keyword=${encodeURIComponent(keyword)}&period=${encodeURIComponent(period)}`, "_blank")}><Download size={15} />导出数据</Button><Button disabled={busy} onClick={() => void syncApprovalStatus()}><RefreshCw size={15} />同步审批状态</Button></div>}
     </header>
     {notice ? <div className="flex items-center justify-between border border-info-border bg-info-soft px-3 py-2 text-sm text-primary">{notice}<button type="button" title="关闭提示" onClick={() => setNotice("")}><X size={15} /></button></div> : null}
     <Panel className="flex min-h-0 flex-1 flex-col">
-      <div className="flex flex-wrap items-center gap-2 border-b border-line-soft p-3">{tabs.map(([key, label]) => <button className={`border-b-2 px-3 py-2 text-sm ${tab === key ? "border-primary text-primary" : "border-transparent text-ink-2"}`} key={key} type="button" onClick={() => { setTab(key); setPage(1); }}>{label}</button>)}{/* items-end：这一排里「默认付款单位」是标签在上+输入框在下两行高，底部对齐才不会显得错位 */}
+      <div className="flex flex-wrap items-center gap-2 border-b border-line-soft p-3">{tabs.map(([key, label]) => <button className={`border-b-2 px-3 py-2 text-sm ${tab === key ? "border-primary text-primary" : "border-transparent text-ink-2"}`} key={key} type="button" onClick={() => { setTab(key); setPage(1); }}>{label}{key === "reconciliation" ? <span className="ml-1 rounded bg-info-soft px-1.5 py-0.5 text-[10px] font-normal text-primary">含收款</span> : null}</button>)}{/* items-end：这一排里「默认付款单位」是标签在上+输入框在下两行高，底部对齐才不会显得错位 */}
         {tab === "crm-invoices" ? null : <div className="ml-auto flex flex-wrap items-end gap-2">{tab === "supplier-payments" ? <div className="w-[260px]"><PartnerSelect kind="undertakingUnits" label="默认付款单位" idValue={defaultPayerUnit?.id} nameValue={defaultPayerUnit?.name} masters={masters} onChange={(selected) => void saveDefaultPayerUnit(selected.id)} /></div> : null}<Input placeholder="搜索客户、账号、批次或供应商" value={keyword} onChange={(event) => setKeyword(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { setPage(1); void load({ targetPage: 1 }); } }} /><Input className="min-w-[130px]" placeholder="账期 YYYY-MM" value={period} onChange={(event) => setPeriod(event.target.value)} /><Button tone="secondary" onClick={() => { setPage(1); void load({ targetPage: 1 }); }}><Search size={15} />查询</Button>{tab === "mapping" ? <Button tone="primary" onClick={() => setMappingForm({ accounts: "", calculationLogic: "catalog" })}><Plus size={15} />新增服务映射</Button> : null}</div>}</div>
+      {tab === "reconciliation" ? (
+        <div className="flex flex-wrap items-center gap-2 border-b border-line-soft bg-surface-2 px-3 py-2">
+          <div className="inline-flex rounded border border-line bg-white p-0.5">
+            <button
+              className={`h-7 rounded px-2.5 text-xs ${ledgerView === "ledger" ? "bg-white font-medium text-primary shadow-sm" : "text-ink-2 hover:text-primary"}`}
+              onClick={() => { setLedgerView("ledger"); setPage(1); }}
+              type="button"
+            >
+              对账视图
+            </button>
+            <button
+              className={`h-7 rounded px-2.5 text-xs ${ledgerView === "collection" ? "bg-white font-medium text-primary shadow-sm" : "text-ink-2 hover:text-primary"}`}
+              onClick={() => { setLedgerView("collection"); setPage(1); }}
+              type="button"
+            >
+              收款视图
+              <span className="ml-1 rounded bg-info-soft px-1.5 py-0.5 text-[10px]">{collectionCounts.open}</span>
+            </button>
+          </div>
+          {ledgerView === "collection" ? (
+            <div className="flex items-center gap-1.5">
+              <button
+                className={`h-7 rounded-full border px-2.5 text-xs ${collectionFilter === "open" ? "border-info-border bg-info-soft text-primary" : "border-line bg-white text-ink-2"}`}
+                onClick={() => { setCollectionFilter("open"); setPage(1); }}
+                type="button"
+              >
+                未收/部分收 <b>{collectionCounts.open}</b>
+              </button>
+              <button
+                className={`h-7 rounded-full border px-2.5 text-xs ${collectionFilter === "all" ? "border-info-border bg-info-soft text-primary" : "border-line bg-white text-ink-2"}`}
+                onClick={() => { setCollectionFilter("all"); setPage(1); }}
+                type="button"
+              >
+                全部 <b>{collectionCounts.total}</b>
+              </button>
+            </div>
+          ) : null}
+          <span className="ml-auto text-xs text-ink-3">收款管理已合并到这里；收款视图默认只看未收款 / 部分收款</span>
+        </div>
+      ) : null}
       {tab === "crm-invoices" ? <CloudCrmInvoicesPanel /> : <>
-        <div className="grid min-h-0 flex-1 grid-rows-1">{tab === "mapping" ? <MappingTable rows={mappings} onEdit={setMappingForm} query={activeQuery} onQueryChange={updateQuery} loadOptions={(field, optionKeyword) => columnOptions("/api/cloud/mappings", field, optionKeyword)} /> : tab === "supplier-payments" ? <PaymentTable attachmentVersion={attachmentVersion} rows={payments} onAttach={attachSupplierPaymentInvoice} onPay={(row) => setPaymentApprovalOwnerIds([String(row.id ?? "")])} onUpdate={(row) => setSupplierPaymentForm(row)} onTogglePaid={(row) => void updatePayment(row, { paid: row.paid ? 0 : 1 })} onToggleInvoice={(row) => void updatePayment(row, { invoiceStatus: row.invoiceStatus === "issued" ? "not_issued" : "issued" })} query={activeQuery} onQueryChange={updateQuery} loadOptions={(field, optionKeyword) => columnOptions("/api/cloud/supplier-payments", field, optionKeyword)} /> : <RowTable attachmentVersion={attachmentVersion} currencyTotals={currencyTotals} rows={rows} onAttach={attachRow} onConfirm={confirmRow} onDelete={deleteRow} onToggleCollection={toggleCollection} onToggleInvoice={toggleInvoice} onEditRow={setRowForm} onEditCollection={(row) => setCollectionForm(amountFormDefaults(row, "collection"))} onEditInvoice={(row) => setInvoiceForm(amountFormDefaults(row, "invoice"))} onIssueInvoice={(row) => setInvoiceModal({ mode: "generated", sourceId: String(row.id ?? "") })} onUploadInvoice={(row) => setInvoiceModal({ mode: "external", sourceId: String(row.id ?? "") })} onMergeInvoice={(row) => setInvoiceModal({ mode: "generated", sourceId: String(row.id ?? ""), merge: true })} query={activeQuery} onQueryChange={updateQuery} loadOptions={(field, optionKeyword) => columnOptions("/api/cloud/rows", field, optionKeyword)} />}</div>
+        {tab === "reconciliation" && ledgerView === "collection" ? (
+          <>
+            <CollectionSummary counts={collectionCounts} summary={collectionSummary} />
+            <div className="grid min-h-0 flex-1 grid-rows-1">
+              <CollectionTable
+                onEditCollection={(row) => setCollectionForm(amountFormDefaults(row, "collection"))}
+                onEditInvoice={(row) => setInvoiceForm(amountFormDefaults(row, "invoice"))}
+                onIssueInvoice={(row) => setInvoiceModal({ mode: "generated", sourceId: String(row.id ?? "") })}
+                onUploadInvoice={(row) => setInvoiceModal({ mode: "external", sourceId: String(row.id ?? "") })}
+                rows={rows}
+              />
+            </div>
+          </>
+        ) : (
+          <div className="grid min-h-0 flex-1 grid-rows-1">{tab === "mapping" ? <MappingTable rows={mappings} onEdit={setMappingForm} query={activeQuery} onQueryChange={updateQuery} loadOptions={(field, optionKeyword) => columnOptions("/api/cloud/mappings", field, optionKeyword)} /> : tab === "supplier-payments" ? <PaymentTable attachmentVersion={attachmentVersion} rows={payments} onAttach={attachSupplierPaymentInvoice} onPay={(row) => setPaymentApprovalOwnerIds([String(row.id ?? "")])} onUpdate={(row) => setSupplierPaymentForm(row)} onTogglePaid={(row) => void updatePayment(row, { paid: row.paid ? 0 : 1 })} onToggleInvoice={(row) => void updatePayment(row, { invoiceStatus: row.invoiceStatus === "issued" ? "not_issued" : "issued" })} query={activeQuery} onQueryChange={updateQuery} loadOptions={(field, optionKeyword) => columnOptions("/api/cloud/supplier-payments", field, optionKeyword)} /> : <RowTable attachmentVersion={attachmentVersion} currencyTotals={currencyTotals} rows={rows} onAttach={attachRow} onConfirm={confirmRow} onDelete={deleteRow} onToggleCollection={toggleCollection} onToggleInvoice={toggleInvoice} onEditRow={setRowForm} onEditCollection={(row) => setCollectionForm(amountFormDefaults(row, "collection"))} onEditInvoice={(row) => setInvoiceForm(amountFormDefaults(row, "invoice"))} onIssueInvoice={(row) => setInvoiceModal({ mode: "generated", sourceId: String(row.id ?? "") })} onUploadInvoice={(row) => setInvoiceModal({ mode: "external", sourceId: String(row.id ?? "") })} onMergeInvoice={(row) => setInvoiceModal({ mode: "generated", sourceId: String(row.id ?? ""), merge: true })} query={activeQuery} onQueryChange={updateQuery} loadOptions={(field, optionKeyword) => columnOptions("/api/cloud/rows", field, optionKeyword)} />}</div>
+        )}
         <PaginationBar page={page} pageSize={pageSize} total={total} onPageChange={setPage} onPageSizeChange={(next) => { setPageSize(next); setPage(1); }} />
       </>}
     </Panel>
@@ -450,6 +519,97 @@ function flow(row: Row, payerKey: string, payeeKey: string, payerFallback: strin
 
 function CloudAmountCell({ row, payerKey, payeeKey, payerFallback, payeeFallback, currencyKey, netKey, taxRateKey, taxKey, totalKey, exchangeRateKey, dateKey, parties, action }: { row: Row; payerKey: string; payeeKey: string; payerFallback: string; payeeFallback: string; currencyKey: string; netKey: string; taxRateKey: string; taxKey: string; totalKey: string; exchangeRateKey?: string; dateKey?: string; parties?: Array<[string, string]>; action?: React.ReactNode }) {
   return <div className="min-w-[210px] space-y-0.5 py-1 text-xs leading-5"><div className="truncate text-ink-3" title={flow(row, payerKey, payeeKey, payerFallback, payeeFallback)}>{flow(row, payerKey, payeeKey, payerFallback, payeeFallback)}</div>{parties?.map(([label, key]) => row[key] ? <div className="truncate text-ink-3" key={key}>{label}：{String(row[key])}</div> : null)}{dateKey && row[dateKey] ? <div className="text-ink-3">应收日期 <span className="text-ink-2">{dateOnlyText(row[dateKey])}</span></div> : null}<div className="font-medium text-ink">{money(row[currencyKey] || "USD", "")}</div>{exchangeRateKey && row[exchangeRateKey] ? <div className="text-ink-3">汇率 <span className="text-ink-2">{exchangeRateText(row[exchangeRateKey])}</span></div> : null}<div className="text-ink-3">未税 <span className="text-ink-2">{money(row[netKey], "")}</span></div><div className="text-ink-3">{rateText(row[taxRateKey])}</div><div className="text-ink-3">税金 <span className="text-ink-2">{money(row[taxKey], "")}</span></div><div className="text-ink-2">含税 <span className="font-medium text-ink">{money(row[totalKey], "")}</span></div>{action ? <div className="mt-1 flex items-center gap-1 border-t border-canvas-deep pt-1">{action}</div> : null}</div>;
+}
+
+type CollectionSummaryData = { receivable: number; collected: number; outstanding: number; overdueCount: number };
+
+function CollectionSummary({ summary, counts }: { summary: CollectionSummaryData; counts: { total: number; open: number; paid: number } }) {
+  const rate = summary.receivable > 0 ? (summary.collected / summary.receivable) * 100 : 0;
+  const amount = (value: number) => formatMoneyValue(value);
+  return <div className="grid gap-2 border-b border-line-soft bg-surface-2 p-3 sm:grid-cols-2 xl:grid-cols-4">
+    <div className="rounded border border-line-soft border-l-[3px] border-l-primary bg-white p-3">
+      <div className="text-xs text-ink-3">客户应收合计</div>
+      <div className="mt-1 truncate text-xl font-medium tabular-nums text-ink">{amount(summary.receivable)}<span className="ml-1 text-xs font-normal text-ink-3">USD</span></div>
+      <div className="mt-1 text-xs text-ink-3">全部 {counts.total} 笔对账</div>
+    </div>
+    <div className="rounded border border-line-soft border-l-[3px] border-l-success bg-white p-3">
+      <div className="text-xs text-ink-3">客户实收合计</div>
+      <div className="mt-1 truncate text-xl font-medium tabular-nums text-ink">{amount(summary.collected)}<span className="ml-1 text-xs font-normal text-ink-3">USD</span></div>
+      <div className="mt-1 text-xs text-ink-3">已收清 {counts.paid} 笔 · 待收 {counts.open} 笔</div>
+    </div>
+    <div className="rounded border border-line-soft border-l-[3px] border-l-danger bg-white p-3">
+      <div className="text-xs text-ink-3">未收余额</div>
+      <div className="mt-1 truncate text-xl font-medium tabular-nums text-danger">{amount(summary.outstanding)}<span className="ml-1 text-xs font-normal text-ink-3">USD</span></div>
+      <div className="mt-1 text-xs text-ink-3">待收 {counts.open} 笔{summary.overdueCount ? ` · 逾期 ${summary.overdueCount} 笔` : ""}</div>
+    </div>
+    <div className="rounded border border-line-soft border-l-[3px] border-l-warning bg-white p-3">
+      <div className="text-xs text-ink-3">收款完成率</div>
+      <div className="mt-1 text-xl font-medium tabular-nums text-ink">{rate.toFixed(1)}<span className="ml-0.5 text-xs font-normal text-ink-3">%</span></div>
+      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-canvas"><div className="h-full rounded-full bg-success" style={{ width: `${Math.min(100, Math.max(0, rate))}%` }} /></div>
+    </div>
+  </div>;
+}
+
+function collectionState(row: Row) {
+  const receivable = Number(row.customerReceivableTotalAmount ?? row.customerReceivable ?? 0) || 0;
+  const collected = Number(row.collectionTotalAmount ?? 0) || 0;
+  if (Number(row.collected) === 1 || (receivable > 0 && collected >= receivable - 0.01)) {
+    return { key: "paid", label: "已收款", className: "border-success-border bg-success-soft text-success" };
+  }
+  if (collected > 0) return { key: "partial", label: "部分收款", className: "border-info-border bg-info-soft text-primary" };
+  return { key: "open", label: "未收款", className: "border-warning-border-soft bg-warning-soft text-warning-ink" };
+}
+
+function CollectionTable({ rows, onEditCollection, onEditInvoice, onIssueInvoice, onUploadInvoice }: {
+  rows: Row[];
+  onEditCollection: (row: Row) => void;
+  onEditInvoice: (row: Row) => void;
+  onIssueInvoice: (row: Row) => void;
+  onUploadInvoice: (row: Row) => void;
+}) {
+  return <StickyTable className="table-scroll h-full w-full overflow-auto" tableKey="cloud-collections">
+    <table className="w-full min-w-[1500px] border-collapse text-sm">
+      <thead className="bg-canvas">
+        <tr>
+          {["账期", "客户", "华为ID", "客户应收（含税 USD）", "客户实收（USD）", "未收余额（USD）", "收款状态", "应收日期", "实收日期", "开票状态", "发票号", "操作"].map((label) => (
+            <th className={`whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium ${label.includes("USD") ? "text-right" : ""}`} key={label}>{label}</th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((row) => {
+          const receivable = Number(row.customerReceivableTotalAmount ?? row.customerReceivable ?? 0) || 0;
+          const collected = Number(row.collectionTotalAmount ?? 0) || 0;
+          const outstanding = Math.max(receivable - collected, 0);
+          const state = collectionState(row);
+          const invoiced = String(row.collectionInvoice ?? "") === "issued";
+          return <tr className="hover:bg-surface-2" key={String(row.id)}>
+            <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3">{periodText(row.period)}</td>
+            <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 font-medium text-ink">{display(row.customer)}</td>
+            <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 font-mono text-xs text-ink-3">{display(row.account)}</td>
+            <td className="numeric-cell whitespace-nowrap border-b border-r border-line-soft px-3 py-3">{money(receivable, "")}</td>
+            <td className="numeric-cell whitespace-nowrap border-b border-r border-line-soft px-3 py-3">{money(collected, "")}</td>
+            <td className={`numeric-cell whitespace-nowrap border-b border-r border-line-soft px-3 py-3 ${outstanding > 0 ? "font-medium text-danger" : "text-success"}`}>{money(outstanding, "")}</td>
+            <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3"><span className={`inline-flex h-6 items-center rounded-full border px-2 text-xs ${state.className}`}>{state.label}</span></td>
+            <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3">{dateOnlyText(row.receivableDate)}</td>
+            <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3">{dateOnlyText(row.collectionDate)}</td>
+            <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3"><span className={`inline-flex h-6 items-center rounded-full border px-2 text-xs ${invoiced ? "border-success-border bg-success-soft text-success" : "border-line-soft bg-canvas text-ink-3"}`}>{invoiced ? "已开票" : "未开票"}</span></td>
+            <td className="max-w-[160px] truncate whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-xs" title={display(row.invoiceNo)}>{display(row.invoiceNo)}</td>
+            <td className="whitespace-nowrap border-b border-line-soft px-3 py-3">
+              <div className="flex items-center gap-1">
+                <button className="inline-flex h-7 items-center rounded px-1.5 text-xs text-primary hover:bg-canvas" onClick={() => onEditCollection(row)} type="button">{state.key === "paid" ? "调整收款" : "登记收款"}</button>
+                {invoiced
+                  ? <button className="inline-flex h-7 items-center rounded px-1.5 text-xs text-primary hover:bg-canvas" onClick={() => onEditInvoice(row)} type="button">查看发票</button>
+                  : <button className="inline-flex h-7 items-center rounded px-1.5 text-xs text-primary hover:bg-canvas" onClick={() => onIssueInvoice(row)} type="button">开票</button>}
+                <IconButton icon={<FileUp size={14} />} label="上传发票" onClick={() => onUploadInvoice(row)} />
+              </div>
+            </td>
+          </tr>;
+        })}
+        {!rows.length ? <tr><td className="py-12 text-center text-ink-3" colSpan={12}><EmptyState title="暂无待收明细" /></td></tr> : null}
+      </tbody>
+    </table>
+  </StickyTable>;
 }
 
 function RowTable({ attachmentVersion, currencyTotals, rows, onAttach, onConfirm, onDelete, onToggleCollection, onToggleInvoice, onEditRow, onEditCollection, onEditInvoice, onIssueInvoice, onUploadInvoice, onMergeInvoice, query, onQueryChange, loadOptions }: { rows: Row[]; onAttach: (row: Row, file: File) => void; onConfirm: (row: Row) => void; onDelete: (row: Row) => void; onToggleCollection: (row: Row) => void; onToggleInvoice: (row: Row) => void; onEditRow: (row: Row) => void; onEditCollection: (row: Row) => void; onEditInvoice: (row: Row) => void; onIssueInvoice: (row: Row) => void; onUploadInvoice: (row: Row) => void; onMergeInvoice: (row: Row) => void; query: QueryState; onQueryChange: (patch: Partial<QueryState>) => void; loadOptions: (field: string, keyword: string) => Promise<TableFilterOption[]>; currencyTotals?: Row[]; attachmentVersion?: number }) {
