@@ -86,6 +86,22 @@ describe("CFDI PDF 解析", () => {
     expect(invoice.fullNumber).toBe("F200");
   });
 
+  it("票面印的是 H-6645 时保留连字符，并识别 Tipo de Cambio", () => {
+    const invoice = parseCfdiInvoiceText(`Fecha: 01/09/2026
+Serie: H
+Folio: 6645
+FOLIO: H-6645
+Moneda: MXN
+Tipo de Cambio: 16.956
+Emisor
+Nombre : DEMO SUPPLIER SA RFC : CCC030303CCC
+Receptor
+Nombre : DEMO BUYER SA RFC : DDD040404DDD`);
+    expect(invoice.fullNumber).toBe("H-6645");
+    expect(invoice.currency).toBe("MXN");
+    expect(invoice.exchangeRate).toBe("16.956");
+  });
+
   it("不是 CFDI 的文件直接报错", () => {
     expect(() => parseCfdiInvoiceText("一张普通的表格")).toThrow(/CFDI/);
   });

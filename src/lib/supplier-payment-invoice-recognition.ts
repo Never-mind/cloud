@@ -1,3 +1,5 @@
+import { addDaysToDateOnly } from "./date-only";
+
 /**
  * 发票识别结果 → 华为云供应商付款「供应商开票」字段。
  *
@@ -32,6 +34,7 @@ export function buildSupplierPaymentInvoicePatch(
   assign("invoiceTaxRate", form.taxRate);
   assign("invoiceTaxAmount", form.taxAmount);
   assign("invoiceTotalAmount", form.invoiceTotal);
+  if (patch.invoiceDate) patch.receivableDate = addDaysToDateOnly(patch.invoiceDate, 30);
   if (Object.keys(patch).length) patch.invoiceStatus = "issued";
 
   const warnings: string[] = [];
@@ -42,3 +45,4 @@ export function buildSupplierPaymentInvoicePatch(
   }
   return { patch, warnings };
 }
+

@@ -18,6 +18,16 @@ export function normalizeDateOnlyValue(value: unknown): string | null {
   return formatDateParts(Number(dateParts[1]), Number(dateParts[2]), Number(dateParts[3]));
 }
 
+/** 日期加减天数，返回 YYYY-MM-DD；输入不是合法日期时返回空串。 */
+export function addDaysToDateOnly(value: unknown, days: number) {
+  const normalized = normalizeDateOnlyValue(value);
+  if (!normalized || !/^\d{4}-\d{2}-\d{2}$/.test(normalized)) return "";
+  const date = new Date(`${normalized}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return "";
+  date.setDate(date.getDate() + days);
+  return formatDateParts(date.getFullYear(), date.getMonth() + 1, date.getDate());
+}
+
 function formatDateInTimeZone(value: Date, timeZone: string) {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone,

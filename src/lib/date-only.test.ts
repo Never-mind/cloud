@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { normalizeDateOnlyValue } from "./date-only";
+import { addDaysToDateOnly, normalizeDateOnlyValue } from "./date-only";
 
 describe("date-only normalization", () => {
   it("keeps local date strings unchanged", () => {
@@ -13,5 +13,11 @@ describe("date-only normalization", () => {
 
   it("turns an empty optional date into null", () => {
     expect(normalizeDateOnlyValue("")).toBeNull();
+  });
+
+  it("adds days across month boundaries", () => {
+    expect(addDaysToDateOnly("2026-08-17", 30)).toBe("2026-09-16");
+    expect(addDaysToDateOnly("2026-12-20", 30)).toBe("2027-01-19");
+    expect(addDaysToDateOnly("", 30)).toBe("");
   });
 });

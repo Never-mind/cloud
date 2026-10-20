@@ -50,9 +50,13 @@ function isoFromDmy(day: string, month: string, year: string) {
   return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
 }
 
-function buildFullNumber(serie: string, folio: string) {
+function buildFullNumber(serie: string, folio: string, content = "") {
   if (!folio) return serie;
-  return serie && !folio.toUpperCase().startsWith(serie.toUpperCase()) ? `${serie}${folio}` : folio;
+  if (!serie || folio.toUpperCase().startsWith(serie.toUpperCase())) return folio;
+  // 票面如果明确印了 H-6645 这种带连字符的票号，优先按票面格式返回。
+  const hyphenated = `${serie}-${folio}`;
+  if (content.toUpperCase().includes(hyphenated.toUpperCase())) return hyphenated;
+  return `${serie}${folio}`;
 }
 
 /** 票面的"原串"会被 PDF 换行切断（长抬头名称尤其明显），先取整段再把换行还原成空格。 */
@@ -71,7 +75,7 @@ export function parseCfdiInvoiceText(source: string): CfdiPdfInvoice {
   const uuid = /UUID\s*[:：]\s*([0-9A-Fa-f-]{36})/.exec(content)?.[1]
     ?? /Folio Fiscal\s*\n\s*([0-9a-fA-F-]{36})/.exec(content)?.[1]
     ?? "";
-  const currency = /Moneda\s*[:：]\s*([A-Z]{3})/.exec(content)?.[1] ?? "";
+  const currency = (/Moneda\s*[:：]\s*([A-Z]{3})/i.exec(content)?.[1] ?? "").toUpperCase();
 
   if (parts) {
     // 原串位置（CFDI 4.0）：2=版本 3=Serie 4=Folio 5=开票时间 8=小计 9=币种 10=汇率 11=总额 16/17=开票方 19/20=收票方
@@ -81,7 +85,7 @@ export function parseCfdiInvoiceText(source: string): CfdiPdfInvoice {
       version,
       serie,
       folio,
-      fullNumber: buildFullNumber(serie, folio),
+      fullNumber: buildFullNumber(serie, folio, content),
       uuid,
       invoiceDate: text(issuedAt).slice(0, 10),
       issuerName: cleanupName(issuerName),
@@ -103,16 +107,20 @@ export function parseCfdiInvoiceText(source: string): CfdiPdfInvoice {
   const issuer = new RegExp(`Emisor[\\s\\S]{0,40}?Nombre\\s*[:：]\\s*(.+?)\\s+RFC\\s*[:：]\\s*(${RFC_PATTERN})`).exec(content);
   const receiver = new RegExp(`Receptor[\\s\\S]{0,40}?Nombre\\s*[:：]\\s*(.+?)\\s+RFC\\s*[:：]\\s*(${RFC_PATTERN})`).exec(content);
   const totals = /SubTotal\s*\$\s*([\d,]+\.\d{2})[\s\S]{0,240}?IVA\((\d+(?:\.\d+)?)%\)[^0-9]{0,40}([\d,]+\.\d{2})[\s\S]{0,80}?Total Comprobante\s*\$\s*([\d,]+\.\d{2})/.exec(content);
-  const serie = /Serie\s*[:：]\s*\n\s*([A-Z0-9]{1,10})/.exec(content)?.[1] ?? /FOLIO\s*[:：]\s*([A-Za-z]*)/.exec(content)?.[1] ?? "";
-  const folio = /Tipo de Comprobante[^\n]*?\b\d\.\d\s+([0-9]{1,15})/.exec(content)?.[1]
-    ?? /FOLIO\s*[:：]\s*([A-Za-z0-9-]{1,15})/.exec(content)?.[1]
+  const serie = /Serie\s*[:：]\s*([A-Z0-9]{1,10})/i.exec(content)?.[1]
+    ?? /Serie\s*\n\s*([A-Z0-9]{1,10})/i.exec(content)?.[1]
+    ?? /FOLIO\s*[:：]\s*([A-Za-z]+)(?=\s*-|\s*$)/i.exec(content)?.[1]
+    ?? "";
+  const folio = /Tipo de Comprobante[^\n]*?\b\d\.\d\s+([0-9]{1,15})/i.exec(content)?.[1]
+    ?? /(?:^|\n)\s*Folio\s*[:：]\s*([A-Za-z0-9-]{1,20})/i.exec(content)?.[1]
+    ?? /FOLIO\s*[:：]\s*([A-Za-z0-9-]{1,20})/i.exec(content)?.[1]
     ?? "";
   if (!totals && !dateMatch && !issuer) throw new Error("不是可识别的 CFDI 发票");
   return {
     version: /Comprobante\s*[:：]?[^\n]*?\b(\d\.\d)\b/.exec(content)?.[1] ?? "4.0",
     serie: /^FOLIO/.test(serie) ? "" : serie,
     folio,
-    fullNumber: buildFullNumber(serie, folio),
+    fullNumber: buildFullNumber(serie, folio, content),
     uuid,
     invoiceDate: dateMatch ? isoFromDmy(dateMatch[1], dateMatch[2], dateMatch[3]) : "",
     issuerName: cleanupName(issuer?.[1] ?? ""),
@@ -120,7 +128,7 @@ export function parseCfdiInvoiceText(source: string): CfdiPdfInvoice {
     receiverName: cleanupName(receiver?.[1] ?? ""),
     receiverTaxNumber: receiver?.[2] ?? "",
     currency,
-    exchangeRate: /Tipo\s*(?:de\s*)?[Cc]ambio\s*[:：]\s*([\d.]+)/.exec(content)?.[1] ?? "",
+    exchangeRate: (/(?:Tipo\s*(?:de\s*)?[Cc]ambio|TipoCambio)\s*[:：]?\s*([\d.,]+)/i.exec(content)?.[1] ?? "").replace(/,/g, ""),
     amountExcludingTax: totals ? number(totals[1]) : null,
     taxAmount: totals ? number(totals[3]) : null,
     totalIncludingTax: totals ? number(totals[4]) : null,

@@ -24,6 +24,7 @@ describe("华为云供应商付款发票识别回填", () => {
       invoiceTaxRate: "1",
       invoiceTaxAmount: "7.43",
       invoiceTotalAmount: "750",
+      receivableDate: "2026-09-16",
       invoiceStatus: "issued",
     });
     expect(warnings).toEqual([]);
