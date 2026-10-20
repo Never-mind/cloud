@@ -391,6 +391,11 @@ export function CloudReconciliationPage() {
             </div>
           ) : null}
           <span className="ml-auto text-xs text-ink-3">收款管理已合并到这里；收款视图默认只看未收款 / 部分收款</span>
+          {ledgerView === "collection" ? (
+            <Button onClick={() => window.open(`/api/cloud/rows/export?keyword=${encodeURIComponent(keyword)}&period=${encodeURIComponent(period)}&view=collection${collectionFilter === "open" ? "&collected=0" : ""}`, "_blank")} title="按当前筛选导出收款清单">
+              <Download size={15} />导出收款清单
+            </Button>
+          ) : null}
         </div>
       ) : null}
       {tab === "crm-invoices" ? <CloudCrmInvoicesPanel /> : <>

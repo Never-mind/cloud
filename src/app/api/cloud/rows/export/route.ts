@@ -7,9 +7,15 @@ export async function GET(request: NextRequest) {
   const params = request.nextUrl.searchParams;
   const keyword = params.get("keyword")?.trim() ?? "";
   const period = params.get("period")?.trim() ?? "";
+  const collected = params.get("collected")?.trim() ?? "";
+  const collectionView = params.get("view")?.trim() === "collection";
   const conditions: string[] = [];
   const values: Record<string, unknown> = {};
   if (period) { conditions.push("period = :period"); values.period = period; }
+  if (collected === "0" || collected === "1") {
+    conditions.push("collected = :collected");
+    values.collected = Number(collected);
+  }
   /**
    * 客户 / 供应商名称可能与列表口径不一致：列表是按账号映射 + 档案 ID 现算的，
    * 表里存的只是当时的文本。这里走同一套解析，导出结果才与页面一致；
@@ -22,7 +28,24 @@ export async function GET(request: NextRequest) {
     ? resolvedRows.filter((row) => ["customer", "account", "batchCode", "supplierName"]
       .some((field) => String(row[field] ?? "").toLowerCase().includes(keyword.toLowerCase())))
     : resolvedRows;
-  const worksheet = XLSX.utils.json_to_sheet(rows.map((row) => ({
+  const worksheet = XLSX.utils.json_to_sheet(rows.map((row) => collectionView ? {
+    "账期": row.period,
+    "客户": row.customer,
+    "华为ID": row.account,
+    "客户应收（含税 USD）": Number(row.customerReceivableTotalAmount ?? row.customerReceivable ?? 0),
+    "客户实收（USD）": Number(row.collectionTotalAmount ?? (row.collected ? row.customerReceivableTotalAmount ?? row.customerReceivable ?? 0 : 0)),
+    "未收余额（USD）": Math.max(
+      Number(row.customerReceivableTotalAmount ?? row.customerReceivable ?? 0)
+        - Number(row.collectionTotalAmount ?? (row.collected ? row.customerReceivableTotalAmount ?? row.customerReceivable ?? 0 : 0)),
+      0,
+    ),
+    "收款状态": row.collected ? "已收款" : Number(row.collectionTotalAmount ?? 0) > 0 ? "部分收款" : "未收款",
+    "应收日期": row.receivableDate,
+    "实收日期": row.collectionDate,
+    "开票状态": row.collectionInvoice === "issued" ? "已开票" : "未开票",
+    "发票号": row.invoiceNo,
+    "备注": row.remark,
+  } : {
     "账期": row.period, "客户名称": row.customer, "华为ID": row.account, "华为对账人": row.cloudReconciler,
     "目录价（USD）": row.catalogAmount, "伙伴结算金额（USD）": row.partnerAmount, "代金券-客户（USD）": row.voucherCustomerAmount, "代金券-供应商（USD）": row.voucherSupplierAmount,
     "承接单位→供应商": `${row.supplierPayablePayer ?? "承接单位"} → ${row.supplierPayablePayee ?? "供应商"}`,
@@ -37,7 +60,7 @@ export async function GET(request: NextRequest) {
     "客户开票号": row.invoiceNo, "客户开票币种": row.invoiceCurrency, "客户开票-付款单位": row.invoicePayer, "客户开票-收款单位": row.invoicePayee,
     "客户开票未税金额": row.invoiceNetAmount, "客户开票税率": row.invoiceTaxRate, "客户开票税金": row.invoiceTaxAmount, "客户开票含税金额": row.invoiceTotalAmount, "客户开票汇率": row.invoiceExchangeRate,
     "客户开票日期": row.invoiceDate, "客户开票状态": row.collectionInvoice === "issued" ? "已开票" : "未开票", "已收款": row.collected ? "是" : "否", "已确认": row.confirmed ? "是" : "否", "备注": row.remark,
-  })));
+  }));
   const workbook = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(workbook, worksheet, "华为云对账");
   return new NextResponse(XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }), { headers: { "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "Content-Disposition": "attachment; filename=cloud-reconciliation.xlsx" } });
 }
