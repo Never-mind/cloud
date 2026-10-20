@@ -739,7 +739,7 @@ export async function listCloudRows(params: URLSearchParams) {
   collectionCountParams.delete("collected");
   const { where: collectionWhere, values: collectionValues } = cloudWhere(collectionCountParams);
   const requestedSort = getTableSort(params, Object.fromEntries(Object.keys(CLOUD_ROW_FILTER_EXPRESSIONS).map((field) => [field, cloudRowFilterExpression(field)])));
-  const [count, rows, periodRows, collectionCountRows] = await Promise.all([
+  const [count, rows, periodRows, collectionCountRows, collectionGroupRows] = await Promise.all([
     queryRowsRaw<{ total: number }>(`SELECT COUNT(*) AS total FROM merge_cloud_rows ${where}`, values),
     queryRowsRaw<Row>(`SELECT * FROM merge_cloud_rows ${where} ${requestedSort || "ORDER BY period DESC, updatedAt DESC"} LIMIT :limit OFFSET :offset`, { ...values, limit: pageSize, offset }),
       queryRowsRaw<{ period: string; rowCount: number; receivable: number; collected: number }>(
@@ -754,16 +754,38 @@ export async function listCloudRows(params: URLSearchParams) {
          FROM merge_cloud_rows ${collectionWhere}`,
       collectionValues,
     ),
+    queryRowsRaw<{ currency: string; amount: number; usdAmount: number; missingRateCount: number }>(
+      `SELECT COALESCE(NULLIF(collectionCurrency, ''), 'USD') AS currency,
+              COALESCE(SUM(COALESCE(collectionTotalAmount, CASE WHEN collected = 1 THEN COALESCE(customerReceivableTotalAmount, customerReceivable) ELSE 0 END)), 0) AS amount,
+              COALESCE(SUM(CASE
+                WHEN COALESCE(NULLIF(collectionCurrency, ''), 'USD') = 'USD'
+                  THEN COALESCE(collectionTotalAmount, CASE WHEN collected = 1 THEN COALESCE(customerReceivableTotalAmount, customerReceivable) ELSE 0 END)
+                WHEN collectionExchangeRate > 0
+                  THEN COALESCE(collectionTotalAmount, CASE WHEN collected = 1 THEN COALESCE(customerReceivableTotalAmount, customerReceivable) ELSE 0 END) / collectionExchangeRate
+                ELSE 0 END), 0) AS usdAmount,
+              SUM(CASE WHEN COALESCE(NULLIF(collectionCurrency, ''), 'USD') <> 'USD'
+                AND collectionTotalAmount IS NOT NULL AND (collectionExchangeRate IS NULL OR collectionExchangeRate <= 0) THEN 1 ELSE 0 END) AS missingRateCount
+         FROM merge_cloud_rows ${collectionWhere}
+        GROUP BY currency
+        ORDER BY currency`,
+      collectionValues,
+    ),
   ]);
-  const summaryRows = await queryRowsRaw<{ receivable: number; collected: number; outstanding: number; overdueCount: number }>(
+  const summaryRows = await queryRowsRaw<{ receivable: number; overdueCount: number }>(
     `SELECT COALESCE(SUM(COALESCE(customerReceivableTotalAmount, customerReceivable)), 0) AS receivable,
-            COALESCE(SUM(COALESCE(collectionTotalAmount, CASE WHEN collected = 1 THEN COALESCE(customerReceivableTotalAmount, customerReceivable) ELSE 0 END)), 0) AS collected,
-            COALESCE(SUM(GREATEST(COALESCE(customerReceivableTotalAmount, customerReceivable, 0)
-              - COALESCE(collectionTotalAmount, CASE WHEN collected = 1 THEN COALESCE(customerReceivableTotalAmount, customerReceivable) ELSE 0 END), 0)), 0) AS outstanding,
             SUM(CASE WHEN collected = 0 AND COALESCE(receivableDate, paymentDate) IS NOT NULL AND COALESCE(receivableDate, paymentDate) < CURRENT_DATE THEN 1 ELSE 0 END) AS overdueCount
        FROM merge_cloud_rows ${collectionWhere}`,
     collectionValues,
   );
+  const collectionByCurrency = collectionGroupRows.map((row) => ({
+    currency: String(row.currency ?? "USD"),
+    amount: Number(row.amount ?? 0),
+    usdAmount: Number(row.usdAmount ?? 0),
+    missingRateCount: Number(row.missingRateCount ?? 0),
+  }));
+  const receivable = Number(summaryRows[0]?.receivable ?? 0);
+  const collected = collectionByCurrency.reduce((sum, row) => sum + row.usdAmount, 0);
+  const missingRateCount = collectionByCurrency.reduce((sum, row) => sum + row.missingRateCount, 0);
   /**
    * 表尾合计：**按每一列自己的币种**分组，不能按行取币种。
    *
@@ -822,7 +844,14 @@ export async function listCloudRows(params: URLSearchParams) {
     total: Number(count[0]?.total ?? 0),
     page,
     pageSize,
-    summary: summaryRows[0] ?? { receivable: 0, collected: 0, outstanding: 0, overdueCount: 0 },
+    summary: {
+      receivable,
+      collected,
+      outstanding: Math.max(receivable - collected, 0),
+      overdueCount: Number(summaryRows[0]?.overdueCount ?? 0),
+      collectionByCurrency,
+      missingRateCount,
+    },
     collectionCounts: {
       total: Number(collectionCountRows[0]?.total ?? 0),
       open: Number(collectionCountRows[0]?.openCount ?? 0),

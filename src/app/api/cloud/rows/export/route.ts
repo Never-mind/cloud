@@ -2,6 +2,30 @@ import { NextRequest, NextResponse } from "next/server";
 import * as XLSX from "xlsx";
 import { queryRowsRaw } from "@/lib/db";
 import { resolveCloudRowsDisplayNames } from "@/lib/cloud-service";
+import { collectionAmount, collectionCurrency, collectionStatus, collectionUsdAmount } from "@/lib/cloud-collection";
+
+function collectionExportRow(row: Record<string, unknown>) {
+  const receivable = Number(row.customerReceivableTotalAmount ?? row.customerReceivable ?? 0) || 0;
+  const collectedUsd = collectionUsdAmount(row);
+  const status = collectionStatus(row);
+  return {
+    "账期": row.period,
+    "客户": row.customer,
+    "华为ID": row.account,
+    "客户应收（含税 USD）": receivable,
+    "客户实收币种": collectionCurrency(row),
+    "客户实收金额（原币）": collectionAmount(row),
+    "客户实收汇率": row.collectionExchangeRate,
+    "客户实收（折合 USD）": collectedUsd ?? "",
+    "未收余额（USD）": collectedUsd === null ? "" : Math.max(receivable - collectedUsd, 0),
+    "收款状态": status === "paid" ? "已收款" : status === "partial" ? "部分收款" : "未收款",
+    "应收日期": row.receivableDate,
+    "实收日期": row.collectionDate,
+    "开票状态": row.collectionInvoice === "issued" ? "已开票" : "未开票",
+    "发票号": row.invoiceNo,
+    "备注": row.remark,
+  };
+}
 
 export async function GET(request: NextRequest) {
   const params = request.nextUrl.searchParams;
@@ -28,24 +52,7 @@ export async function GET(request: NextRequest) {
     ? resolvedRows.filter((row) => ["customer", "account", "batchCode", "supplierName"]
       .some((field) => String(row[field] ?? "").toLowerCase().includes(keyword.toLowerCase())))
     : resolvedRows;
-  const worksheet = XLSX.utils.json_to_sheet(rows.map((row) => collectionView ? {
-    "账期": row.period,
-    "客户": row.customer,
-    "华为ID": row.account,
-    "客户应收（含税 USD）": Number(row.customerReceivableTotalAmount ?? row.customerReceivable ?? 0),
-    "客户实收（USD）": Number(row.collectionTotalAmount ?? (row.collected ? row.customerReceivableTotalAmount ?? row.customerReceivable ?? 0 : 0)),
-    "未收余额（USD）": Math.max(
-      Number(row.customerReceivableTotalAmount ?? row.customerReceivable ?? 0)
-        - Number(row.collectionTotalAmount ?? (row.collected ? row.customerReceivableTotalAmount ?? row.customerReceivable ?? 0 : 0)),
-      0,
-    ),
-    "收款状态": row.collected ? "已收款" : Number(row.collectionTotalAmount ?? 0) > 0 ? "部分收款" : "未收款",
-    "应收日期": row.receivableDate,
-    "实收日期": row.collectionDate,
-    "开票状态": row.collectionInvoice === "issued" ? "已开票" : "未开票",
-    "发票号": row.invoiceNo,
-    "备注": row.remark,
-  } : {
+  const worksheet = XLSX.utils.json_to_sheet(rows.map((row) => collectionView ? collectionExportRow(row) : {
     "账期": row.period, "客户名称": row.customer, "华为ID": row.account, "华为对账人": row.cloudReconciler,
     "目录价（USD）": row.catalogAmount, "伙伴结算金额（USD）": row.partnerAmount, "代金券-客户（USD）": row.voucherCustomerAmount, "代金券-供应商（USD）": row.voucherSupplierAmount,
     "承接单位→供应商": `${row.supplierPayablePayer ?? "承接单位"} → ${row.supplierPayablePayee ?? "供应商"}`,

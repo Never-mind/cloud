@@ -11,6 +11,7 @@ import { SearchSelect } from "./search-select";
 import { NumberInput } from "./number-input";
 import { computeCloudSettlementGrossProfit } from "@/lib/cloud-gross-profit";
 import { buildSupplierPaymentInvoicePatch } from "@/lib/supplier-payment-invoice-recognition";
+import { collectionAmount, collectionCurrency, collectionStatus, collectionUsdAmount } from "@/lib/cloud-collection";
 import { confirmDialog } from "./app-dialog";
 import { CloudAttachments } from "./cloud-attachments";
 import { StickyTable } from "./sticky-table";
@@ -70,7 +71,14 @@ export function CloudReconciliationPage() {
   const [tab, setTab] = useState<Tab>("reconciliation");
   const [ledgerView, setLedgerView] = useState<LedgerView>("ledger");
   const [collectionFilter, setCollectionFilter] = useState<"open" | "all">("open");
-  const [collectionSummary, setCollectionSummary] = useState({ receivable: 0, collected: 0, outstanding: 0, overdueCount: 0 });
+  const [collectionSummary, setCollectionSummary] = useState({
+    receivable: 0,
+    collected: 0,
+    outstanding: 0,
+    overdueCount: 0,
+    collectionByCurrency: [] as Array<{ currency: string; amount: number; usdAmount: number; missingRateCount: number }>,
+    missingRateCount: 0,
+  });
   const [collectionCounts, setCollectionCounts] = useState({ total: 0, open: 0, paid: 0 });
   const [rows, setRows] = useState<Row[]>([]);
   const [mappings, setMappings] = useState<Row[]>([]);
@@ -152,11 +160,22 @@ export function CloudReconciliationPage() {
           items: Row[];
           total: number;
           currencyTotals?: Row[];
-          summary?: { receivable: number; collected: number; outstanding: number; overdueCount: number };
+          summary?: {
+            receivable: number;
+            collected: number;
+            outstanding: number;
+            overdueCount: number;
+            collectionByCurrency?: Array<{ currency: string; amount: number; usdAmount: number; missingRateCount: number }>;
+            missingRateCount?: number;
+          };
           collectionCounts?: { total: number; open: number; paid: number };
         }>(`/api/cloud/rows?${params}`);
         setRows(data.items); setTotal(data.total); setCurrencyTotals(Array.isArray(data.currencyTotals) ? data.currencyTotals : []);
-        setCollectionSummary(data.summary ?? { receivable: 0, collected: 0, outstanding: 0, overdueCount: 0 });
+        setCollectionSummary(data.summary ? {
+          ...data.summary,
+          collectionByCurrency: data.summary.collectionByCurrency ?? [],
+          missingRateCount: data.summary.missingRateCount ?? 0,
+        } : { receivable: 0, collected: 0, outstanding: 0, overdueCount: 0, collectionByCurrency: [], missingRateCount: 0 });
         setCollectionCounts(data.collectionCounts ?? { total: data.total, open: 0, paid: 0 });
       }
     } catch (error) { setNotice(error instanceof Error ? error.message : "加载失败"); }
@@ -527,11 +546,27 @@ function CloudAmountCell({ row, payerKey, payeeKey, payerFallback, payeeFallback
   return <div className="min-w-[210px] space-y-0.5 py-1 text-xs leading-5"><div className="truncate text-ink-3" title={flow(row, payerKey, payeeKey, payerFallback, payeeFallback)}>{flow(row, payerKey, payeeKey, payerFallback, payeeFallback)}</div>{parties?.map(([label, key]) => row[key] ? <div className="truncate text-ink-3" key={key}>{label}：{String(row[key])}</div> : null)}{dateKey && row[dateKey] ? <div className="text-ink-3">应收日期 <span className="text-ink-2">{dateOnlyText(row[dateKey])}</span></div> : null}<div className="font-medium text-ink">{money(row[currencyKey] || "USD", "")}</div>{exchangeRateKey && row[exchangeRateKey] ? <div className="text-ink-3">汇率 <span className="text-ink-2">{exchangeRateText(row[exchangeRateKey])}</span></div> : null}<div className="text-ink-3">未税 <span className="text-ink-2">{money(row[netKey], "")}</span></div><div className="text-ink-3">{rateText(row[taxRateKey])}</div><div className="text-ink-3">税金 <span className="text-ink-2">{money(row[taxKey], "")}</span></div><div className="text-ink-2">含税 <span className="font-medium text-ink">{money(row[totalKey], "")}</span></div>{action ? <div className="mt-1 flex items-center gap-1 border-t border-canvas-deep pt-1">{action}</div> : null}</div>;
 }
 
-type CollectionSummaryData = { receivable: number; collected: number; outstanding: number; overdueCount: number };
+type CollectionSummaryData = {
+  receivable: number;
+  collected: number;
+  outstanding: number;
+  overdueCount: number;
+  collectionByCurrency: Array<{ currency: string; amount: number; usdAmount: number; missingRateCount: number }>;
+  missingRateCount: number;
+};
 
 function CollectionSummary({ summary, counts }: { summary: CollectionSummaryData; counts: { total: number; open: number; paid: number } }) {
   const rate = summary.receivable > 0 ? (summary.collected / summary.receivable) * 100 : 0;
   const amount = (value: number) => formatMoneyValue(value);
+  const collectionGroups = summary.collectionByCurrency.filter((row) => row.amount !== 0 || row.usdAmount !== 0);
+  const collectionMain = collectionGroups.length === 1
+    ? `${collectionGroups[0].currency} ${amount(collectionGroups[0].amount)}`
+    : collectionGroups.length > 1
+      ? `${collectionGroups.length} 个币种`
+      : "0.00";
+  const collectionDetail = collectionGroups.length
+    ? collectionGroups.map((row) => `${row.currency} ${amount(row.amount)}`).join(" / ")
+    : "暂无收款";
   return <div className="grid gap-2 border-b border-line-soft bg-surface-2 p-3 sm:grid-cols-2 xl:grid-cols-4">
     <div className="rounded border border-line-soft border-l-[3px] border-l-primary bg-white p-3">
       <div className="text-xs text-ink-3">客户应收合计</div>
@@ -540,13 +575,16 @@ function CollectionSummary({ summary, counts }: { summary: CollectionSummaryData
     </div>
     <div className="rounded border border-line-soft border-l-[3px] border-l-success bg-white p-3">
       <div className="text-xs text-ink-3">客户实收合计</div>
-      <div className="mt-1 truncate text-xl font-medium tabular-nums text-ink">{amount(summary.collected)}<span className="ml-1 text-xs font-normal text-ink-3">USD</span></div>
-      <div className="mt-1 text-xs text-ink-3">已收清 {counts.paid} 笔 · 待收 {counts.open} 笔</div>
+      <div className="mt-1 truncate text-xl font-medium tabular-nums text-ink" title={collectionDetail}>{collectionMain}</div>
+      <div className="mt-1 truncate text-xs text-ink-3" title={collectionDetail}>
+        {collectionGroups.length > 1 ? collectionDetail : `折合 USD ${amount(summary.collected)}`}
+        {summary.missingRateCount ? ` · ${summary.missingRateCount} 笔缺汇率` : ""}
+      </div>
     </div>
     <div className="rounded border border-line-soft border-l-[3px] border-l-danger bg-white p-3">
       <div className="text-xs text-ink-3">未收余额</div>
       <div className="mt-1 truncate text-xl font-medium tabular-nums text-danger">{amount(summary.outstanding)}<span className="ml-1 text-xs font-normal text-ink-3">USD</span></div>
-      <div className="mt-1 text-xs text-ink-3">待收 {counts.open} 笔{summary.overdueCount ? ` · 逾期 ${summary.overdueCount} 笔` : ""}</div>
+      <div className="mt-1 text-xs text-ink-3">待收 {counts.open} 笔{summary.overdueCount ? ` · 逾期 ${summary.overdueCount} 笔` : ""}{summary.missingRateCount ? ` · ${summary.missingRateCount} 笔缺汇率` : ""}</div>
     </div>
     <div className="rounded border border-line-soft border-l-[3px] border-l-warning bg-white p-3">
       <div className="text-xs text-ink-3">收款完成率</div>
@@ -557,12 +595,9 @@ function CollectionSummary({ summary, counts }: { summary: CollectionSummaryData
 }
 
 function collectionState(row: Row) {
-  const receivable = Number(row.customerReceivableTotalAmount ?? row.customerReceivable ?? 0) || 0;
-  const collected = Number(row.collectionTotalAmount ?? 0) || 0;
-  if (Number(row.collected) === 1 || (receivable > 0 && collected >= receivable - 0.01)) {
-    return { key: "paid", label: "已收款", className: "border-success-border bg-success-soft text-success" };
-  }
-  if (collected > 0) return { key: "partial", label: "部分收款", className: "border-info-border bg-info-soft text-primary" };
+  const key = collectionStatus(row);
+  if (key === "paid") return { key, label: "已收款", className: "border-success-border bg-success-soft text-success" };
+  if (key === "partial") return { key, label: "部分收款", className: "border-info-border bg-info-soft text-primary" };
   return { key: "open", label: "未收款", className: "border-warning-border-soft bg-warning-soft text-warning-ink" };
 }
 
@@ -577,7 +612,7 @@ function CollectionTable({ rows, onEditCollection, onEditInvoice, onIssueInvoice
     <table className="w-full min-w-[1500px] border-collapse text-sm">
       <thead className="bg-canvas">
         <tr>
-          {["账期", "客户", "华为ID", "客户应收（含税 USD）", "客户实收（USD）", "未收余额（USD）", "收款状态", "应收日期", "实收日期", "开票状态", "发票号", "操作"].map((label) => (
+          {["账期", "客户", "华为ID", "客户应收（含税 USD）", "客户实收（原币）", "未收余额（USD）", "收款状态", "应收日期", "实收日期", "开票状态", "发票号", "操作"].map((label) => (
             <th className={`whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium ${label.includes("USD") ? "text-right" : ""}`} key={label}>{label}</th>
           ))}
         </tr>
@@ -585,8 +620,10 @@ function CollectionTable({ rows, onEditCollection, onEditInvoice, onIssueInvoice
       <tbody>
         {rows.map((row) => {
           const receivable = Number(row.customerReceivableTotalAmount ?? row.customerReceivable ?? 0) || 0;
-          const collected = Number(row.collectionTotalAmount ?? 0) || 0;
-          const outstanding = Math.max(receivable - collected, 0);
+          const currency = collectionCurrency(row);
+          const collected = collectionAmount(row);
+          const collectedUsd = collectionUsdAmount(row);
+          const outstanding = collectedUsd === null ? null : Math.max(receivable - collectedUsd, 0);
           const state = collectionState(row);
           const invoiced = String(row.collectionInvoice ?? "") === "issued";
           return <tr className="hover:bg-surface-2" key={String(row.id)}>
@@ -594,8 +631,11 @@ function CollectionTable({ rows, onEditCollection, onEditInvoice, onIssueInvoice
             <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 font-medium text-ink">{display(row.customer)}</td>
             <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 font-mono text-xs text-ink-3">{display(row.account)}</td>
             <td className="numeric-cell whitespace-nowrap border-b border-r border-line-soft px-3 py-3">{money(receivable, "")}</td>
-            <td className="numeric-cell whitespace-nowrap border-b border-r border-line-soft px-3 py-3">{money(collected, "")}</td>
-            <td className={`numeric-cell whitespace-nowrap border-b border-r border-line-soft px-3 py-3 ${outstanding > 0 ? "font-medium text-danger" : "text-success"}`}>{money(outstanding, "")}</td>
+            <td className="numeric-cell whitespace-nowrap border-b border-r border-line-soft px-3 py-3">
+              <div>{money(collected, currency)}</div>
+              {currency !== "USD" ? <div className={`text-[11px] ${collectedUsd === null ? "text-warning-ink" : "text-ink-3"}`}>{collectedUsd === null ? "缺收款汇率" : `≈ USD ${money(collectedUsd, "")}`}</div> : null}
+            </td>
+            <td className={`numeric-cell whitespace-nowrap border-b border-r border-line-soft px-3 py-3 ${outstanding !== null && outstanding > 0 ? "font-medium text-danger" : outstanding === null ? "text-warning-ink" : "text-success"}`} title={outstanding === null ? "缺少收款汇率，无法折算 USD" : undefined}>{outstanding === null ? "-" : money(outstanding, "")}</td>
             <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3"><span className={`inline-flex h-6 items-center rounded-full border px-2 text-xs ${state.className}`}>{state.label}</span></td>
             <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3">{dateOnlyText(row.receivableDate)}</td>
             <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3">{dateOnlyText(row.collectionDate)}</td>
