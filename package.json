@@ -37,6 +37,7 @@
     "invoices:refresh": "tsx scripts/refresh-invoice-files.ts",
     "schema:obs-storage": "tsx scripts/migrate-obs-storage.ts",
     "schema:requestitem-batch": "tsx scripts/migrate-requestitem-batch.ts",
+    "schema:purchase-invoice-info": "tsx scripts/migrate-purchase-order-invoice-info.ts",
     "schema:exchange-rates": "tsx scripts/migrate-exchange-rates.ts",
     "schema:cost-payment-approval": "tsx scripts/migrate-cost-payment-approval.ts",
     "schema:settlement-invoice-uuid": "tsx scripts/migrate-settlement-invoice-uuid.ts",
