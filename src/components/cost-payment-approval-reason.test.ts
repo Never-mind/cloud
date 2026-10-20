@@ -23,7 +23,7 @@ describe("成本款付款申请默认付款事由", () => {
       batchNo: "",
       quantity: 0,
       requestNos: [],
-    }])).toBe("支付华为云 202607 账期（HUAWEI TECHNOLOGIES DE MEXICO）货款金额：12,345.60USD");
+    }])).toBe("向HUAWEI TECHNOLOGIES DE MEXICO支付华为云202607货款金额：12,345.60USD");
   });
 
   it("集采按项目名称生成", () => {
@@ -60,7 +60,7 @@ describe("成本款付款申请默认付款事由", () => {
       quantity: 16,
       requestNos: ["eSHWC26070111fm", "eSHWC26070112fm"],
     }])).toBe(
-      "墨西哥MX-49的16PCS，需求单号eSHWC26070111fm、(eSHWC26070112fm)支付HUAWEI TECHNOLOGIES DE MEXICO设备款，金额为799,474.81USD",
+      "墨西哥MX-49的16PCS，需求单号eSHWC26070111fm、eSHWC26070112fm支付HUAWEI TECHNOLOGIES DE MEXICO设备款，金额为799,474.81USD",
     );
   });
 
@@ -81,7 +81,7 @@ describe("成本款付款申请默认付款事由", () => {
       requestNos: [],
     };
     expect(defaultReason("huawei", [row, row])).toBe(
-      "支付华为云 202607 账期（A LIMITED）货款金额：100.00USD；支付华为云 202607 账期（A LIMITED）货款金额：100.00USD",
+      "向A LIMITED支付华为云202607货款金额：100.00USD；向A LIMITED支付华为云202607货款金额：100.00USD",
     );
   });
 });

@@ -539,7 +539,7 @@ export function defaultReason(branch: Branch, rows: ReasonRow[]) {
     const amount = `${formatApprovalAmount(row.amount)}${row.currency || ""}`;
     if (branch === "huawei") {
       const supplier = row.supplierFullName || row.supplierName || "-";
-      return `支付华为云 ${row.period || "-"} 账期（${supplier}）货款金额：${amount}`;
+      return `向${supplier}支付华为云${row.period || "-"}货款金额：${amount}`;
     }
     if (branch === "other") {
       const project = row.projectName || row.projectNo || row.ownerNo || "-";
@@ -550,7 +550,7 @@ export function defaultReason(branch: Branch, rows: ReasonRow[]) {
     const quantity = Number.isFinite(Number(row.quantity)) ? Math.round(Number(row.quantity)) : 0;
     const requestNos = row.requestNos.filter(Boolean);
     const requestText = requestNos.length
-      ? `需求单号${requestNos[0]}${requestNos.slice(1).map((no) => `、(${no})`).join("")}`
+      ? `需求单号${requestNos.join("、")}`
       : "";
     const supplier = row.supplierFullName || row.supplierName || "-";
     return `${country}${batch}的${quantity}PCS，${requestText}支付${supplier}设备款，金额为${amount}`;
