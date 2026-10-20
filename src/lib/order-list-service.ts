@@ -229,6 +229,12 @@ async function listPurchaseOrders(options: {
           SEPARATOR ',') AS batchName,
         purchase.status,
         purchase.currency,
+        purchase.invoiceNo,
+        DATE_FORMAT(purchase.invoiceDate, '%Y-%m-%d') AS invoiceDate,
+        purchase.invoiceStatus,
+        DATE_FORMAT(purchase.paymentDate, '%Y-%m-%d') AS paymentDate,
+        purchase.paymentStatus,
+        DATE_FORMAT(purchase.paidAt, '%Y-%m-%d') AS paidAt,
         purchase.createdByName,
         purchase.updatedByName,
         purchase.confirmedByName,
@@ -244,6 +250,7 @@ async function listPurchaseOrders(options: {
         ON requestMaster.requestNo = COALESCE(NULLIF(item.requestNo, ''), requestItem.requestNo)
       ${baseWhere ? `WHERE ${baseWhere}` : ""}
       GROUP BY purchase.purchaseOrderId, purchase.poNo, purchase.requestNo, purchase.status, purchase.currency,
+        purchase.invoiceNo, purchase.invoiceDate, purchase.invoiceStatus, purchase.paymentDate, purchase.paymentStatus, purchase.paidAt,
         purchase.createdByName, purchase.updatedByName, purchase.confirmedByName,
         purchase.createdAt, purchase.updatedAt
       ORDER BY ${getPurchaseOrderBy(options.sortField, options.sortOrder)}
@@ -274,6 +281,12 @@ export async function listOrderFilterOptions(searchParams: URLSearchParams) {
         batchName: "COALESCE(requestMaster.batchName, '')",
         status: "purchase.status",
         currency: "purchase.currency",
+        invoiceNo: "purchase.invoiceNo",
+        invoiceDate: formatTableDateExpression("purchase.invoiceDate"),
+        invoiceStatus: "purchase.invoiceStatus",
+        paymentDate: formatTableDateExpression("purchase.paymentDate"),
+        paymentStatus: "purchase.paymentStatus",
+        paidAt: formatTableDateExpression("purchase.paidAt"),
         totalQuantity: "COALESCE((SELECT SUM(quantity) FROM requestitems quantityItem INNER JOIN purchaseorderitems quantityPurchaseItem ON quantityPurchaseItem.requestItemId = quantityItem.id WHERE quantityPurchaseItem.poNo = purchase.poNo), 0)",
         purchaseTotalAmount: "COALESCE((SELECT SUM(quantityAmountItem.quantity * COALESCE(amountPurchaseItem.unitPrice, COALESCE(amountPurchaseItem.taxExcludedUnitPrice, 0) + COALESCE(amountPurchaseItem.taxSurcharge, 0))) FROM purchaseorderitems amountPurchaseItem LEFT JOIN requestitems quantityAmountItem ON quantityAmountItem.id = amountPurchaseItem.requestItemId WHERE amountPurchaseItem.poNo = purchase.poNo), 0)",
         createdAt: formatTableDateExpression("purchase.createdAt"),
@@ -506,6 +519,12 @@ function getPurchaseOrderBy(sortField: string, sortOrder: "ASC" | "DESC") {
     batchName: "batchName",
     status: "purchase.status",
     currency: "purchase.currency",
+    invoiceNo: "purchase.invoiceNo",
+    invoiceDate: formatTableDateExpression("purchase.invoiceDate"),
+    invoiceStatus: "purchase.invoiceStatus",
+    paymentDate: formatTableDateExpression("purchase.paymentDate"),
+    paymentStatus: "purchase.paymentStatus",
+    paidAt: formatTableDateExpression("purchase.paidAt"),
     totalQuantity: "totalQuantity",
     purchaseTotalAmount: "purchaseTotalAmount",
     createdAt: "purchase.createdAt",
@@ -566,6 +585,9 @@ function buildPurchaseColumnFilters(searchParams: URLSearchParams, params: Row) 
   if (countryCodes.length) filters.push(buildPurchaseCountryWhere(countryCodes, params, "column_countryCode"));
   for (const [field, expression] of [
     ["poNo", "purchase.poNo"], ["status", "purchase.status"], ["currency", "purchase.currency"],
+    ["invoiceNo", "purchase.invoiceNo"], ["invoiceDate", formatTableDateExpression("purchase.invoiceDate")],
+    ["invoiceStatus", "purchase.invoiceStatus"], ["paymentDate", formatTableDateExpression("purchase.paymentDate")],
+    ["paymentStatus", "purchase.paymentStatus"], ["paidAt", formatTableDateExpression("purchase.paidAt")],
     ["totalQuantity", "COALESCE((SELECT SUM(quantity) FROM requestitems quantityItem INNER JOIN purchaseorderitems quantityPurchaseItem ON quantityPurchaseItem.requestItemId = quantityItem.id WHERE quantityPurchaseItem.poNo = purchase.poNo), 0)"],
     ["purchaseTotalAmount", "COALESCE((SELECT SUM(quantityAmountItem.quantity * COALESCE(amountPurchaseItem.unitPrice, COALESCE(amountPurchaseItem.taxExcludedUnitPrice, 0) + COALESCE(amountPurchaseItem.taxSurcharge, 0))) FROM purchaseorderitems amountPurchaseItem LEFT JOIN requestitems quantityAmountItem ON quantityAmountItem.id = amountPurchaseItem.requestItemId WHERE amountPurchaseItem.poNo = purchase.poNo), 0)"],
     ["createdAt", formatTableDateExpression("purchase.createdAt")], ["updatedAt", formatTableDateExpression("purchase.updatedAt")],
