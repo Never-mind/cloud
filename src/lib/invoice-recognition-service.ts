@@ -3,6 +3,7 @@ import { extractPdfPages } from "./pdf-text-extract";
 import { parseChinaVatInvoice, cleanupInvoiceName } from "./china-vat-invoice-parser";
 import { parseCfdiInvoiceText } from "./cfdi-pdf-parser";
 import { parseCfdiInvoice } from "./cfdi-invoice-parser";
+import { isSingaporeInvoiceText, parseSingaporeInvoiceText } from "./sg-invoice-parser";
 import { extractOfdPages } from "./ofd-text-extract";
 import { parseChinaEinvoiceXml } from "./china-einvoice-xml-parser";
 import type { ChinaVatInvoice } from "./china-vat-invoice-parser";
@@ -210,8 +211,29 @@ export async function recognizeInvoiceFile(params: {
   } else {
     const content = (await extractPdfPages(params.bytes)).join("\n");
     if (!content.trim()) throw new Error("这个 PDF 没有文字层（可能是扫描件），本期识别不了");
+    const isSingapore = isSingaporeInvoiceText(content);
     const isCfdi = /CFDI|FACTURA|Comprobante|Folio Fiscal/.test(content) && !/发票号码/.test(content);
-    if (isCfdi) {
+    if (isSingapore) {
+      const sg = parseSingaporeInvoiceText(content);
+      source = "新加坡商业发票";
+      kind = `GST ${sg.gstRate ?? 0}%`;
+      exact = true;
+      parsed = {
+        fullNumber: sg.invoiceNo,
+        uuid: "",
+        invoiceDate: sg.invoiceDate,
+        issuerName: sg.supplierName,
+        issuerTaxNumber: sg.supplierGstRegNo,
+        receiverName: sg.customerName,
+        receiverTaxNumber: "",
+        currency: sg.currency,
+        exchangeRate: sg.currency === "USD" ? "1" : "",
+        amountExcludingTax: sg.subtotal,
+        taxAmount: sg.gstAmount,
+        totalIncludingTax: sg.total,
+        taxRate: sg.gstRate,
+      };
+    } else if (isCfdi) {
       const cfdi = parseCfdiInvoiceText(content);
       source = "墨西哥 CFDI PDF";
       kind = `CFDI ${cfdi.version}`;
