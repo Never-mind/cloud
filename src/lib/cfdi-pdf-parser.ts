@@ -8,6 +8,7 @@
  *
  * 能拿到 XML 时优先用 XML（`parseCfdiInvoice`，属性解析、零误差），PDF 这条路是给"只有 PDF"的情况用的。
  */
+import { buildCfdiInvoiceNumber } from "./cfdi-invoice-parser";
 
 export type CfdiPdfInvoice = {
   version: string;
@@ -50,15 +51,6 @@ function isoFromDmy(day: string, month: string, year: string) {
   return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
 }
 
-function buildFullNumber(serie: string, folio: string, content = "") {
-  if (!folio) return serie;
-  if (!serie || folio.toUpperCase().startsWith(serie.toUpperCase())) return folio;
-  // 票面如果明确印了 H-6645 这种带连字符的票号，优先按票面格式返回。
-  const hyphenated = `${serie}-${folio}`;
-  if (content.toUpperCase().includes(hyphenated.toUpperCase())) return hyphenated;
-  return `${serie}${folio}`;
-}
-
 /** 票面的"原串"会被 PDF 换行切断（长抬头名称尤其明显），先取整段再把换行还原成空格。 */
 function readCadenaParts(source: string) {
   const start = source.indexOf("||4.0|");
@@ -85,7 +77,7 @@ export function parseCfdiInvoiceText(source: string): CfdiPdfInvoice {
       version,
       serie,
       folio,
-      fullNumber: buildFullNumber(serie, folio, content),
+      fullNumber: buildCfdiInvoiceNumber(serie, folio),
       uuid,
       invoiceDate: text(issuedAt).slice(0, 10),
       issuerName: cleanupName(issuerName),
@@ -111,16 +103,16 @@ export function parseCfdiInvoiceText(source: string): CfdiPdfInvoice {
     ?? /Serie\s*\n\s*([A-Z0-9]{1,10})/i.exec(content)?.[1]
     ?? /FOLIO\s*[:：]\s*([A-Za-z]+)(?=\s*-|\s*$)/i.exec(content)?.[1]
     ?? "";
-  const folio = /Tipo de Comprobante[^\n]*?\b\d\.\d\s+([0-9]{1,15})/i.exec(content)?.[1]
-    ?? /(?:^|\n)\s*Folio\s*[:：]\s*([A-Za-z0-9-]{1,20})/i.exec(content)?.[1]
-    ?? /FOLIO\s*[:：]\s*([A-Za-z0-9-]{1,20})/i.exec(content)?.[1]
+  const folio = /Tipo de Comprobante[^\n]*?\bV?\d\.\d\s+([0-9]{1,15})/i.exec(content)?.[1]
+    ?? /(?:^|\n)\s*Folio\s*[:：]\s*\n?\s*([0-9]{1,20})\b/i.exec(content)?.[1]
+    ?? /FOLIO\s*[:：][ \t]*([A-Za-z0-9-]{1,20})/i.exec(content)?.[1]
     ?? "";
   if (!totals && !dateMatch && !issuer) throw new Error("不是可识别的 CFDI 发票");
   return {
     version: /Comprobante\s*[:：]?[^\n]*?\b(\d\.\d)\b/.exec(content)?.[1] ?? "4.0",
     serie: /^FOLIO/.test(serie) ? "" : serie,
     folio,
-    fullNumber: buildFullNumber(serie, folio, content),
+    fullNumber: buildCfdiInvoiceNumber(serie, folio),
     uuid,
     invoiceDate: dateMatch ? isoFromDmy(dateMatch[1], dateMatch[2], dateMatch[3]) : "",
     issuerName: cleanupName(issuer?.[1] ?? ""),
@@ -128,7 +120,12 @@ export function parseCfdiInvoiceText(source: string): CfdiPdfInvoice {
     receiverName: cleanupName(receiver?.[1] ?? ""),
     receiverTaxNumber: receiver?.[2] ?? "",
     currency,
-    exchangeRate: (/(?:Tipo\s*(?:de\s*)?[Cc]ambio|TipoCambio)\s*[:：]?\s*([\d.,]+)/i.exec(content)?.[1] ?? "").replace(/,/g, ""),
+    exchangeRate: (
+      /exchange[\s\S]{0,160}?rate\s*[=:]\s*([\d.]+)/i.exec(content)?.[1]
+      ?? /\brate\s*=\s*([\d.]+)/i.exec(content)?.[1]
+      ?? /(?:Tipo\s*(?:de\s*)?[Cc]ambio|TipoCambio)\s*[:：]?\s*([\d.,]+)/i.exec(content)?.[1]
+      ?? ""
+    ).replace(/,/g, ""),
     amountExcludingTax: totals ? number(totals[1]) : null,
     taxAmount: totals ? number(totals[3]) : null,
     totalIncludingTax: totals ? number(totals[4]) : null,

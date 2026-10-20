@@ -68,7 +68,7 @@ describe("CFDI PDF 解析", () => {
   it("没有原串的模板按标签读，Serie+Folio 组成票号、UUID 单独读", () => {
     const invoice = parseCfdiInvoiceText(LABEL_TEMPLATE);
     expect(invoice.exact).toBe(false);
-    expect(invoice.fullNumber).toBe("B122917");
+    expect(invoice.fullNumber).toBe("B-122917");
     expect(invoice.uuid).toBe("535f813b-0eb0-4771-a11b-3a2c6102c56c");
     expect(invoice.invoiceDate).toBe("2026-09-01");
     expect(invoice.issuerName).toBe("DEMO SUPPLIER SA");
@@ -81,22 +81,26 @@ describe("CFDI PDF 解析", () => {
     expect(invoice.taxRate).toBe(16);
   });
 
-  it("Folio 自带 Serie 前缀时不再重复拼", () => {
+  it("Serie 和 Folio 分开时用连字符拼接", () => {
     const invoice = parseCfdiInvoiceText(CADENA_TEMPLATE.replace("|F|F200|", "|F|200|"));
-    expect(invoice.fullNumber).toBe("F200");
+    expect(invoice.fullNumber).toBe("F-200");
   });
 
-  it("票面印的是 H-6645 时保留连字符，并识别 Tipo de Cambio", () => {
-    const invoice = parseCfdiInvoiceText(`Fecha: 01/09/2026
-Serie: H
-Folio: 6645
-FOLIO: H-6645
-Moneda: MXN
-Tipo de Cambio: 16.956
+  it("华为云 CFDI：Serie H + Folio 6645 识别为 H-6645，汇率取 exchange rate", () => {
+    const invoice = parseCfdiInvoiceText(`Fecha: 11/09/2026 04:12:27 Serie:
+H
+Lugar de Expedicion: 05348
+Folio:
+Tipo de Comprobante: I - Ingreso V4.0 6645
 Emisor
 Nombre : DEMO SUPPLIER SA RFC : CCC030303CCC
 Receptor
-Nombre : DEMO BUYER SA RFC : DDD040404DDD`);
+Nombre : DEMO BUYER SA RFC : DDD040404DDD
+Moneda : MXN
+Tipo cambio : 1.0000
+Cloud service 2026-08,
+USD 153400.46(with Tax),exchange servicio VENTAS
+rate=16.956`);
     expect(invoice.fullNumber).toBe("H-6645");
     expect(invoice.currency).toBe("MXN");
     expect(invoice.exchangeRate).toBe("16.956");

@@ -67,6 +67,19 @@ function normalizeDateTime(value: string) {
   return value.replace("T", " ").slice(0, 19);
 }
 
+/**
+ * CFDI 票号：Serie + Folio。
+ * Folio 已自带 Serie 前缀（如 F + F200）时不重复；否则用 H-6645 这种连字符格式。
+ * PDF 和 XML 必须共用这一套，否则同一个发票在不同入口会识别成两个号。
+ */
+export function buildCfdiInvoiceNumber(serie: string, folio: string) {
+  const s = String(serie ?? "").trim();
+  const f = String(folio ?? "").trim();
+  if (!s) return f;
+  if (!f) return s;
+  return f.toUpperCase().startsWith(s.toUpperCase()) ? f : `${s}-${f}`;
+}
+
 export function parseCfdiInvoice(xml: string): CfdiInvoice {
   const source = String(xml ?? "").trim();
   if (!source.includes("cfdi:Comprobante")) throw new Error("不是有效的 CFDI 发票 XML");
@@ -99,7 +112,7 @@ export function parseCfdiInvoice(xml: string): CfdiInvoice {
     type: attribute("TipoDeComprobante"),
     serie,
     folio,
-    fullNumber: [serie, folio].filter(Boolean).join("-"),
+    fullNumber: buildCfdiInvoiceNumber(serie, folio),
     issuedAt: normalizeDateTime(attribute("Fecha")),
     currency: attribute("Moneda"),
     exchangeRate: numberOf(attribute("TipoCambio")),

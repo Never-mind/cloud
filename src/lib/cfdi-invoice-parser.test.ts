@@ -11,7 +11,7 @@ describe("CFDI 发票 XML 解析", () => {
     expect(invoice.type).toBe("I");
     expect(invoice.serie).toBe("F");
     expect(invoice.folio).toBe("F205");
-    expect(invoice.fullNumber).toBe("F-F205");
+    expect(invoice.fullNumber).toBe("F205");
     expect(invoice.issuedAt).toBe("2026-10-08 18:48:56");
     expect(invoice.currency).toBe("USD");
     expect(invoice.exchangeRate).toBe(17.967);
