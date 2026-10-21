@@ -106,6 +106,23 @@ export function OrderDetailPage({
     () => calculatePurchaseTotalAmount(purchaseProductLines),
     [purchaseProductLines],
   );
+  const derivedPurchaseInfo = useMemo(() => {
+    if (mode !== "purchase") return { countryCode: "", requestType: "", batchNo: "" };
+    const itemsById = new Map(requestItems.map((item) => [String(item.id), item]));
+    const sourceItems = details
+      .map((detail) => itemsById.get(String(detail.requestItemId ?? "")))
+      .filter(Boolean) as Row[];
+    const batchNames = Array.from(new Set(
+      sourceItems
+        .map((item) => String(item.batchName ?? "").trim())
+        .filter(Boolean),
+    ));
+    return {
+      countryCode: String(sourceItems[0]?.countryCode ?? master?.countryCode ?? ""),
+      requestType: String(sourceItems[0]?.requestType ?? master?.requestType ?? ""),
+      batchNo: batchNames.join("、"),
+    };
+  }, [details, master, mode, requestItems]);
   const masterFormFields = useMemo(
     () =>
       mode === "purchase"
@@ -119,6 +136,14 @@ export function OrderDetailPage({
         ? masterConfig.listFields.filter((field) => !hiddenPurchaseMasterFieldKeys.has(field.key))
         : masterConfig.listFields,
     [masterConfig.listFields, mode],
+  );
+  const purchaseBasicFields = useMemo(
+    () => masterListFields.filter((field) => ["poNo", "requestNo", "countryCode", "requestType", "status", "currency"].includes(field.key)),
+    [masterListFields],
+  );
+  const purchaseDeliveryFields = useMemo(
+    () => masterListFields.filter((field) => field.key === "releasedAt"),
+    [masterListFields],
   );
 
   const detailColumns =
@@ -410,23 +435,41 @@ export function OrderDetailPage({
             {mode === "purchase" ? <Info label="采购总金额" value={purchaseTotalAmount} type="money" /> : null}
             <Info label="明细数量" value={details.length} />
           </div>
+        ) : mode === "purchase" ? (
+          <>
+            <div className="border-b border-line-soft bg-canvas/60 px-4 py-2 text-xs font-medium text-ink-3">采购基本信息</div>
+            <div className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-2 lg:grid-cols-3">
+              {purchaseBasicFields.map((field) => (
+                <Info
+                  key={field.key}
+                  label={field.label}
+                  value={
+                    field.key === "countryCode" && !master[field.key]
+                      ? derivedPurchaseInfo.countryCode
+                      : field.key === "requestType" && !master[field.key]
+                        ? derivedPurchaseInfo.requestType
+                        : master[field.key]
+                  }
+                />
+              ))}
+            </div>
+            <div className="border-y border-line-soft bg-canvas/60 px-4 py-2 text-xs font-medium text-ink-3">金额与交付</div>
+            <div className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-2 lg:grid-cols-3">
+              {purchaseDeliveryFields.map((field) => <Info key={field.key} label={field.label} value={master[field.key]} type={field.type} />)}
+              <Info label="批次号" value={derivedPurchaseInfo.batchNo} />
+              <Info label="整机价转合同汇率（CNY → USD）" value={master.usdRate} type="number" />
+              <Info label="总数量" value={totalQuantity} />
+              <Info label="采购总金额" value={purchaseTotalAmount} type="money" />
+              <Info label="明细数量" value={details.length} />
+            </div>
+          </>
         ) : (
           <div className="grid grid-cols-4 gap-3 p-4">
             {masterListFields.map((field) => (
               <Info key={field.key} label={field.label} value={master[field.key]} />
             ))}
-            {mode === "purchase" ? (
-              <>
-                <Info label="发票号" value={master.invoiceNo} />
-                <Info label="开票状态" value={master.invoiceStatus || "未开票"} />
-                <Info label="付款状态" value={master.paymentStatus || "未付款"} />
-                <Info label="预计付款日期" value={master.paymentDate} type="date" />
-                <Info label="实际付款日期" value={master.paidAt} type="date" />
-              </>
-            ) : null}
             <Info label="整机价转合同汇率（CNY → USD）" value={master.usdRate} type="number" />
             <Info label="总数量" value={totalQuantity} />
-            {mode === "purchase" ? <Info label="采购总金额" value={purchaseTotalAmount} type="money" /> : null}
             <Info label="明细数量" value={details.length} />
           </div>
         )}

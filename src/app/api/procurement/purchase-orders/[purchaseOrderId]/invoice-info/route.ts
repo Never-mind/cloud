@@ -3,17 +3,24 @@ import { getAuthenticatedUserEmail } from "@/lib/auth";
 import { execute, queryRows, type Row } from "@/lib/db";
 import { normalizeDateOnlyValue } from "@/lib/date-only";
 import { getOperationActor } from "@/lib/operation-actor";
+import { deriveInvoiceTaxAmounts, validateInvoiceTaxAmounts } from "@/lib/invoice-tax";
 
 type RouteContext = { params: Promise<{ purchaseOrderId: string }> };
 
 async function loadInvoiceInfo(purchaseOrderId: string) {
   const rows = await queryRows<Row>(
-    `SELECT purchaseOrderId, poNo, currency AS orderCurrency,
-            invoiceNo, invoiceDate, invoiceAmount, invoiceCurrency, invoiceStatus,
-            paymentDate AS expectedPaymentDate, invoiceRemark,
-            paymentStatus, paidAt AS actualPaymentDate
-       FROM merge_power_purchaseorders
-      WHERE purchaseOrderId = :purchaseOrderId
+    `SELECT po.purchaseOrderId, po.poNo, po.currency AS orderCurrency,
+            po.invoiceNo, po.invoiceDate, po.invoiceAmount, po.invoiceNetAmount, po.invoiceTaxRate, po.invoiceTaxAmount,
+            po.invoiceCurrency, po.invoiceStatus,
+            po.paymentDate AS expectedPaymentDate, po.invoiceRemark,
+            po.paymentStatus, po.paidAt AS actualPaymentDate,
+            po.paymentApprovalId,
+            approval.status AS paymentApprovalStatus,
+            approval.serialNumber AS paymentApprovalNo,
+            approval.paymentConfirmedAt
+       FROM merge_power_purchaseorders po
+       LEFT JOIN merge_common_feishu_approvals approval ON approval.id = po.paymentApprovalId
+      WHERE po.purchaseOrderId = :purchaseOrderId
       LIMIT 1`,
     { purchaseOrderId },
   );
@@ -35,12 +42,36 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     const purchaseOrderId = decodeURIComponent((await context.params).purchaseOrderId);
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
     const text = (value: unknown) => String(value ?? "").trim();
-    const amountText = text(body.invoiceAmount).replace(/,/g, "");
-    const invoiceAmount = amountText ? Number(amountText) : null;
-    if (invoiceAmount !== null && !Number.isFinite(invoiceAmount)) throw new Error("发票金额格式不正确");
-
     const current = await loadInvoiceInfo(purchaseOrderId);
     if (!current) return NextResponse.json({ error: "采购订单不存在" }, { status: 404 });
+    const hasField = (key: string) => Object.prototype.hasOwnProperty.call(body, key);
+    const amountOrNull = (value: unknown, label: string) => {
+      const amountText = text(value).replace(/,/g, "");
+      if (!amountText) return null;
+      const amount = Number(amountText);
+      if (!Number.isFinite(amount)) throw new Error(`${label}格式不正确`);
+      return amount;
+    };
+    const invoiceAmount = hasField("invoiceAmount")
+      ? amountOrNull(body.invoiceAmount, "含税金额")
+      : amountOrNull(current.invoiceAmount, "含税金额");
+    const invoiceNetAmount = hasField("invoiceNetAmount")
+      ? amountOrNull(body.invoiceNetAmount, "未税金额")
+      : amountOrNull(current.invoiceNetAmount, "未税金额");
+    const invoiceTaxRate = hasField("invoiceTaxRate")
+      ? amountOrNull(body.invoiceTaxRate, "税率")
+      : amountOrNull(current.invoiceTaxRate, "税率");
+    const invoiceTaxAmount = hasField("invoiceTaxAmount")
+      ? amountOrNull(body.invoiceTaxAmount, "税金")
+      : amountOrNull(current.invoiceTaxAmount, "税金");
+    const invoiceTax = deriveInvoiceTaxAmounts({
+      netAmount: invoiceNetAmount,
+      taxRate: invoiceTaxRate,
+      taxAmount: invoiceTaxAmount,
+      grossAmount: invoiceAmount,
+    });
+    const invoiceTaxError = validateInvoiceTaxAmounts(invoiceTax);
+    if (invoiceTaxError) throw new Error(invoiceTaxError);
     const currentPaymentStatus = String(current.paymentStatus ?? "").trim();
     const paid = body.paid === true;
     const unpaid = body.paid === false;
@@ -68,6 +99,9 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
           SET invoiceNo = :invoiceNo,
               invoiceDate = :invoiceDate,
               invoiceAmount = :invoiceAmount,
+              invoiceNetAmount = :invoiceNetAmount,
+              invoiceTaxRate = :invoiceTaxRate,
+              invoiceTaxAmount = :invoiceTaxAmount,
               invoiceCurrency = :invoiceCurrency,
               invoiceStatus = :invoiceStatus,
               paymentDate = :expectedPaymentDate,
@@ -82,7 +116,10 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
         purchaseOrderId,
         invoiceNo: text(body.invoiceNo).slice(0, 100) || null,
         invoiceDate: normalizeDateOnlyValue(body.invoiceDate),
-        invoiceAmount,
+        invoiceAmount: invoiceTax.grossAmount,
+        invoiceNetAmount: invoiceTax.netAmount,
+        invoiceTaxRate: invoiceTax.taxRate,
+        invoiceTaxAmount: invoiceTax.taxAmount,
         invoiceCurrency: text(body.invoiceCurrency).toUpperCase().slice(0, 16) || null,
         invoiceStatus,
         expectedPaymentDate: normalizeDateOnlyValue(body.expectedPaymentDate),

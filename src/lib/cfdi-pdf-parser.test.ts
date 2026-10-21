@@ -46,6 +46,28 @@ DATOS DE CFDI
 Folio Fiscal
 535f813b-0eb0-4771-a11b-3a2c6102c56c`;
 
+const XFUSION_TEMPLATE = `Folio:F-898
+Fecha comprobante:2026-08-25T12:23:48
+Fecha de certificación del CFDI:2026-08-25T12:19:30
+Receptor:
+LNE181206664
+XXLL-mexico NO.117 20PCS PO20260724
+LUZ NEWMEDIA
+Domicilio: MARIANO ESCOBEDO N° Ext.510
+Emisor: Forma de pago:99 - Por definir
+Uso CFDI: G01 - Adquisición de mercancías.
+XDM211209IR9
+Régimen fiscal: 601 - General de Ley Personas Morales
+XFUSION DIGITECH DE MEXICO
+Folio fiscal:36A957FE-EF34-457F-8F67-BB90F13CFFB4
+Domicilio: Lago Zurich 219
+Tipo de cambio : 16.9018
+Subtotal 962,941.15
+Descuento
+IVA (16) % 154,070.58
+Total 1,117,011.73
+UN MILLON CIENTO DIECISIETE MIL ONCE DOLARES 73/100 USD.`;
+
 describe("CFDI PDF 解析", () => {
   it("有票面原串时按位置精确取值（换行也能还原）", () => {
     const invoice = parseCfdiInvoiceText(CADENA_TEMPLATE);
@@ -104,6 +126,24 @@ rate=16.956`);
     expect(invoice.fullNumber).toBe("H-6645");
     expect(invoice.currency).toBe("MXN");
     expect(invoice.exchangeRate).toBe("16.956");
+  });
+
+  it("XFUSION CFDI PDF：识别 F-898、双方、USD、16% 与金额", () => {
+    const invoice = parseCfdiInvoiceText(XFUSION_TEMPLATE);
+    expect(invoice.exact).toBe(false);
+    expect(invoice.fullNumber).toBe("F-898");
+    expect(invoice.uuid).toBe("36A957FE-EF34-457F-8F67-BB90F13CFFB4");
+    expect(invoice.invoiceDate).toBe("2026-08-25");
+    expect(invoice.issuerName).toBe("XFUSION DIGITECH DE MEXICO");
+    expect(invoice.issuerTaxNumber).toBe("XDM211209IR9");
+    expect(invoice.receiverName).toBe("LUZ NEWMEDIA");
+    expect(invoice.receiverTaxNumber).toBe("LNE181206664");
+    expect(invoice.currency).toBe("USD");
+    expect(invoice.exchangeRate).toBe("16.9018");
+    expect(invoice.amountExcludingTax).toBe(962941.15);
+    expect(invoice.taxAmount).toBe(154070.58);
+    expect(invoice.totalIncludingTax).toBe(1117011.73);
+    expect(invoice.taxRate).toBe(16);
   });
 
   it("不是 CFDI 的文件直接报错", () => {

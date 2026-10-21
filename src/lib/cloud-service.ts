@@ -177,6 +177,7 @@ const CLOUD_PAYMENT_FILTER_EXPRESSIONS: Record<string, string> = {
   paymentTaxRate: "paymentTaxRate",
   paymentTaxAmount: "paymentTaxAmount",
   paymentTotalAmount: "paymentTotalAmount",
+  paymentApprovalStatus: "paymentApprovalStatus",
   receivableDate: formatTableDateExpression("receivableDate"),
   invoiceNo: "invoiceNo",
   invoiceCurrency: "invoiceCurrency",
@@ -297,11 +298,15 @@ const CLOUD_SUPPLIER_PAYMENT_FROM_V2 = `(SELECT
     p.invoiceNo, p.invoiceCurrency, p.invoiceExchangeRate, p.invoiceNetAmount, p.invoiceTaxRate,
     p.invoiceTaxAmount, p.invoiceTotalAmount, p.invoiceDate, COALESCE(p.invoiceStatus, 'not_issued') AS invoiceStatus,
     COALESCE(p.paid, 0) AS paid,
+    p.paymentApprovalId, paymentApproval.status AS paymentApprovalStatus,
+    paymentApproval.serialNumber AS paymentApprovalNo,
+    paymentApproval.paymentConfirmedAt,
     p.updatedAt AS paymentUpdatedAt
   FROM ${CLOUD_SUPPLIER_PAYMENT_GROUPS} g
   LEFT JOIN merge_cloud_supplier_payments p ON ${CLOUD_PERIOD_SQL("p.period")} = g.period
     AND ((g.supplierId IS NOT NULL AND p.supplierId = g.supplierId)
-      OR (g.supplierId IS NULL AND p.supplierId IS NULL AND p.supplierName = g.supplierName))) AS cloudSupplierPaymentRows`;
+      OR (g.supplierId IS NULL AND p.supplierId IS NULL AND p.supplierName = g.supplierName))
+  LEFT JOIN merge_common_feishu_approvals paymentApproval ON paymentApproval.id = p.paymentApprovalId) AS cloudSupplierPaymentRows`;
 
 export const CLOUD_IMPORT_HEADERS: Record<string, string> = {
   "期间": "period", "账期": "period", period: "period",

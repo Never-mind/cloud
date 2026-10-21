@@ -454,28 +454,87 @@ export async function createInvoiceApprovalInstance(input: {
   return { instanceCode };
 }
 
-export type FeishuApprovalInstanceStatus = "pending" | "approved" | "rejected" | "canceled";
+export type FeishuApprovalInstanceStatus = "pending" | "returned" | "approved" | "rejected" | "canceled";
+
+export type FeishuApprovalTaskNode = {
+  nodeName: string;
+  status: string;
+  startTime: Date | null;
+  endTime: Date | null;
+  taskId: string;
+  openId: string;
+  userId: string;
+};
+
+export function getPaymentConfirmedNodeName() {
+  return (process.env.FEISHU_PAYMENT_CONFIRM_NODE_NAME ?? "").trim() || "确认是否到账";
+}
+
+export function resolveFeishuApprovalStatus(
+  remoteStatus: unknown,
+  timeline: Array<Record<string, unknown>> | undefined,
+): FeishuApprovalInstanceStatus {
+  const status = String(remoteStatus ?? "").toUpperCase();
+  if (status === "APPROVED") return "approved";
+  if (status === "REJECTED") return "rejected";
+  if (["CANCELED", "CANCELLED", "DELETED"].includes(status)) return "canceled";
+  const latest = [...(timeline ?? [])]
+    .sort((left, right) => Number(left.create_time ?? 0) - Number(right.create_time ?? 0))
+    .at(-1);
+  const latestType = String(latest?.type ?? "").toUpperCase();
+  if (["ROLLBACK_SELECTED", "ROLLBACK", "RETURNED"].includes(latestType)) return "returned";
+  return "pending";
+}
+
+/**
+ * 审批 task_list → 节点时间。
+ * “确认是否到账”只认状态 APPROVED 且 end_time > 0；同名节点取最晚一次通过。
+ */
+export function parseFeishuApprovalTaskNodes(taskList: Array<Record<string, unknown>> | undefined, targetNodeName = getPaymentConfirmedNodeName()) {
+  const target = String(targetNodeName ?? "").trim();
+  const nodes: FeishuApprovalTaskNode[] = (taskList ?? []).map((entry) => ({
+    nodeName: String(entry.node_name ?? "").trim(),
+    status: String(entry.status ?? "").trim().toUpperCase(),
+    startTime: Number(entry.start_time ?? 0) > 0 ? new Date(Number(entry.start_time)) : null,
+    endTime: Number(entry.end_time ?? 0) > 0 ? new Date(Number(entry.end_time)) : null,
+    taskId: String(entry.id ?? ""),
+    openId: String(entry.open_id ?? ""),
+    userId: String(entry.user_id ?? ""),
+  }));
+  const candidates = nodes
+    .filter((node) => target && (node.nodeName === target || node.nodeName.includes(target)))
+    .filter((node) => node.status === "APPROVED" && node.endTime !== null);
+  const confirmed = candidates.sort((left, right) => (right.endTime?.getTime() ?? 0) - (left.endTime?.getTime() ?? 0))[0] ?? null;
+  return {
+    nodes,
+    paymentConfirmedAt: confirmed?.endTime ?? null,
+    paymentConfirmedNode: confirmed?.nodeName ?? "",
+  };
+}
 
 /** 查审批实例：状态 + 单号 + 驳回原因。 */
 export async function fetchInvoiceApprovalInstance(instanceCode: string) {
   const data = await callFeishu<{
     status?: string;
+    approval_code?: string;
     serial_number?: string;
     end_time?: string;
+    start_time?: string;
+    form?: string;
+    approval_name?: string;
+    open_id?: string;
+    user_id?: string;
     task_list?: Array<Record<string, unknown>>;
     timeline?: Array<Record<string, unknown>>;
   }>(`/open-apis/approval/v4/instances/${encodeURIComponent(instanceCode)}`, {}, "查询飞书审批");
 
   const remoteStatus = String(data?.status ?? "").toUpperCase();
-  const status: FeishuApprovalInstanceStatus = remoteStatus === "APPROVED" ? "approved"
-    : remoteStatus === "REJECTED" ? "rejected"
-      : remoteStatus === "CANCELED" || remoteStatus === "CANCELLED" || remoteStatus === "DELETED" ? "canceled"
-        : "pending";
+  const status = resolveFeishuApprovalStatus(remoteStatus, data?.timeline);
 
   let rejectReason = "";
   for (const entry of [...(data?.task_list ?? []), ...(data?.timeline ?? [])]) {
     const type = String(entry.type ?? "").toUpperCase();
-    if (!["REJECT", "RECALL", "CANCEL"].includes(type)) continue;
+    if (!["REJECT", "RECALL", "CANCEL", "ROLLBACK_SELECTED", "ROLLBACK", "RETURNED"].includes(type)) continue;
     const comment = String((entry as { comment?: string }).comment ?? "").trim();
     const ext = String((entry as { ext?: string }).ext ?? "").trim();
     let extComment = "";
@@ -486,12 +545,22 @@ export async function fetchInvoiceApprovalInstance(instanceCode: string) {
   }
 
   const endTime = Number(data?.end_time ?? 0);
+  const taskNodes = parseFeishuApprovalTaskNodes(data?.task_list);
   return {
     status,
     remoteStatus,
     serialNumber: String(data?.serial_number ?? "").trim(),
     finishedAt: endTime > 0 ? new Date(endTime) : null,
+    startedAt: Number(data?.start_time ?? 0) > 0 ? new Date(Number(data?.start_time)) : null,
     rejectReason: rejectReason.slice(0, 500),
+    formJson: String(data?.form ?? ""),
+    approvalCode: String(data?.approval_code ?? ""),
+    approvalName: String(data?.approval_name ?? ""),
+    starterOpenId: String(data?.open_id ?? ""),
+    starterUserId: String(data?.user_id ?? ""),
+    nodes: taskNodes.nodes,
+    paymentConfirmedAt: taskNodes.paymentConfirmedAt,
+    paymentConfirmedNode: taskNodes.paymentConfirmedNode,
   };
 }
 
@@ -653,7 +722,7 @@ export async function findActiveInvoiceApproval(sourceType: string, sourceId: st
   const rows = await queryRows<{ instanceCode: string; status: string; serialNumber: string; rejectReason: string; submittedAt: string; invoiceId: string }>(
     `SELECT instanceCode, status, serialNumber, rejectReason, invoiceId, DATE_FORMAT(submittedAt, '%Y-%m-%d %H:%i') AS submittedAt
        FROM merge_common_feishu_approvals
-      WHERE ownerType = :ownerType AND ownerId = :ownerId AND status IN ('pending', 'approved')
+      WHERE ownerType = :ownerType AND ownerId = :ownerId AND status IN ('pending', 'returned', 'approved')
       ORDER BY submittedAt DESC LIMIT 1`,
     { ownerType, ownerId: sourceId },
   );
@@ -671,7 +740,7 @@ export async function loadInvoiceApprovalMap(sourceIds: string[]) {
   const rows = await queryRows<{ ownerId: string; status: string; serialNumber: string; instanceCode: string; submittedAt: string; rejectReason: string }>(
     `SELECT ownerId, status, serialNumber, instanceCode, rejectReason, DATE_FORMAT(submittedAt, '%Y-%m-%d %H:%i') AS submittedAt
        FROM merge_common_feishu_approvals
-      WHERE ownerType = 'cloud_row' AND ownerId IN (:ids) AND status IN ('pending', 'approved')
+      WHERE ownerType = 'cloud_row' AND ownerId IN (:ids) AND status IN ('pending', 'returned', 'approved')
       ORDER BY submittedAt ASC`,
     { ids },
   );
@@ -812,7 +881,7 @@ export async function createInvoiceFromCfdi(input: {
 export async function syncPendingInvoiceApprovals(limit = 50) {
   const rows = await queryRows<{ instanceCode: string }>(
     `SELECT instanceCode FROM merge_common_feishu_approvals
-      WHERE status = 'pending' OR (status = 'approved' AND (invoiceId IS NULL OR invoiceId = ''))
+      WHERE status IN ('pending', 'returned') OR (status = 'approved' AND (invoiceId IS NULL OR invoiceId = ''))
       ORDER BY submittedAt ASC LIMIT :limit`,
     { limit },
   );

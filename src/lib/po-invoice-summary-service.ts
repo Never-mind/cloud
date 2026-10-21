@@ -6,6 +6,7 @@ import {
   getTableFilterOptionsOrderBy,
 } from "./table-query";
 import { customerDisplaySql } from "./customer-display";
+import { paymentApprovalStatusLabel } from "./payment-approval-status";
 
 export type PoInvoiceSummaryRow = {
   id: string;
@@ -37,6 +38,9 @@ export type PoInvoiceSummaryRow = {
   usdAmount: number;
   isPaid: boolean;
   isInvoiced: boolean;
+  paymentApprovalStatus: string;
+  paymentApprovalNo: string;
+  paymentConfirmedAt: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -63,6 +67,7 @@ const invoiceFrom = `
     ON undertaking.undertakingUnitId = p.contractingUnitId
     OR undertaking.undertakingUnitCode = p.contractingUnitId
     OR undertaking.entityCode = p.contractingUnitId
+  LEFT JOIN merge_common_feishu_approvals paymentApproval ON paymentApproval.id = i.paymentApprovalId
 `;
 
 const contractingUnitDisplay = "COALESCE(NULLIF(undertaking.shortName, ''), NULLIF(undertaking.entityName, ''), NULLIF(undertaking.name, ''), NULLIF(p.contractingUnitName, ''), p.contractingUnitId, '')";
@@ -94,6 +99,7 @@ const filterExpressions: Record<string, string> = {
   usdAmount: "i.usdAmount",
   isPaid: "i.isPaid",
   isInvoiced: "i.isInvoiced",
+  paymentApprovalStatus: "paymentApproval.status",
   createdAt: "i.createdAt",
   updatedAt: "i.updatedAt",
 };
@@ -172,7 +178,10 @@ function selectSql(conditions: string[]) {
            ${projectDisplay} AS projectName,
            ${contractingUnitDisplay} AS contractingUnitShortName,
            ${customerDisplay} AS customerShortName,
-           COALESCE(p.status, 'purchasing') AS projectStatus
+           COALESCE(p.status, 'purchasing') AS projectStatus,
+           paymentApproval.status AS paymentApprovalStatus,
+           paymentApproval.serialNumber AS paymentApprovalNo,
+           paymentApproval.paymentConfirmedAt
       FROM ${invoiceFrom}
      WHERE ${conditions.join(" AND ")}
   `;
@@ -207,6 +216,9 @@ function normalizeRow(row: Row): PoInvoiceSummaryRow {
     usdAmount: numeric(row.usdAmount),
     isPaid: numeric(row.isPaid) !== 0,
     isInvoiced: numeric(row.isInvoiced) !== 0,
+    paymentApprovalStatus: text(row.paymentApprovalStatus),
+    paymentApprovalNo: text(row.paymentApprovalNo),
+    paymentConfirmedAt: dateText(row.paymentConfirmedAt, true),
     createdAt: dateText(row.createdAt, true) || "",
     updatedAt: dateText(row.updatedAt, true) || "",
   };
@@ -327,6 +339,7 @@ function exportRow(row: PoInvoiceSummaryRow) {
     发票币种: row.currency,
     发票汇率: money(row.exchangeRate),
     美金金额: money(row.usdAmount),
+    审批状态: paymentApprovalStatusLabel(row.paymentApprovalStatus),
     是否支付: row.isPaid ? "是" : "否",
     是否开票: row.isInvoiced ? "是" : "否",
     创建时间: row.createdAt,

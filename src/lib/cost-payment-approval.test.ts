@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildCostPaymentForm,
+  cloudPaymentAttachmentOwnerIds,
   formatApprovalPaymentDate,
   resolveCostPaymentCompanyKey,
   resolveCostPaymentCustomerKey,
@@ -28,6 +29,19 @@ const baseEntry: CostPaymentEntryInput = {
 };
 
 describe("成本款付款申请", () => {
+  it("供应商付款附件同时识别历史分组键和新列表行 id", () => {
+    expect(cloudPaymentAttachmentOwnerIds({
+      ownerId: "202609::supplier-1",
+      attachmentOwnerId: "supplier-payment:202609:id:supplier-1",
+      period: "202609",
+      supplierId: "supplier-1",
+    })).toEqual([
+      "202609::supplier-1",
+      "supplier-payment:202609:id:supplier-1",
+      "supplier-payment:202609:supplier-1",
+    ]);
+  });
+
   it("承接单位按代码映射到审批公司选项（香港万众取 HK WANZHONG）", () => {
     expect(resolveCostPaymentCompanyKey("MXGS01")).toBe("mkm8pzj4-abuwjgwrngb-0");
     expect(resolveCostPaymentCompanyKey("HKGS01")).toBe("mkm8qka3-oo6hewsdtv-1");
@@ -146,6 +160,7 @@ describe("成本款付款申请", () => {
     expect(validateCostPaymentEntries("compute", [{ ...baseEntry, bankAccount: "" }])).toContain("银行账户");
     expect(validateCostPaymentEntries("compute", [{ ...baseEntry, swiftCode: "" }])).toContain("SWIFT CODE");
     expect(validateCostPaymentEntries("compute", [{ ...baseEntry, orderNo: "" }])).toContain("订单号");
+    expect(validateCostPaymentEntries("compute", [{ ...baseEntry, paymentDate: "2000-01-01" }])).toContain("不能早于今天");
     expect(
       validateCostPaymentEntries("compute", [baseEntry, { ...baseEntry, ownerId: "po-2", undertakingUnitCode: "HKGS01" }]),
     ).toContain("承接单位不一致");

@@ -6,6 +6,7 @@ import { CostPaymentApprovalModal } from "./cost-payment-approval-modal";
 import { Banknote, Download, RefreshCw, Search } from "lucide-react";
 import { postWorkspaceMessage } from "@/lib/tab-workspace";
 import { formatDisplayValue, formatMoneyValue } from "@/lib/display-format";
+import { paymentApprovalStatusClass, paymentApprovalStatusLabel } from "@/lib/payment-approval-status";
 import type { PoInvoiceSummaryResult, PoInvoiceSummaryRow } from "@/lib/po-invoice-summary-service";
 import { PaginationBar } from "./pagination-bar";
 import { StickyTable } from "./sticky-table";
@@ -28,8 +29,9 @@ const columns: Column[] = [
   { key: "accountingDate", label: "财务记账日期", type: "date" },
   { key: "companyEntity", label: "承接单位" },
   { key: "invoiceEntity", label: "供应商/客户" },
-  { key: "receivableDate", label: "应收日期", type: "date" },
-  { key: "actualReceiptDate", label: "实收日期", type: "date" },
+  { key: "receivableDate", label: "预计收/付款日期", type: "date" },
+  { key: "actualReceiptDate", label: "实际收/付款日期", type: "date" },
+  { key: "paymentApprovalStatus", label: "审批状态" },
   { key: "invoiceDate", label: "发票日期", type: "date" },
   { key: "invoiceNo", label: "发票号" },
   { key: "invoiceTotal", label: "发票总额", type: "money" },
@@ -72,6 +74,10 @@ export function PoInvoiceSummaryPage() {
   const [error, setError] = useState("");
   /** 开票弹层：只对收入发票开放（成本发票是供应商开给我们的，不走我们的票面）。 */
   const [invoiceModal, setInvoiceModal] = useState<{ mode: InvoiceDraftMode; sourceId: string } | null>(null);
+
+  useEffect(() => {
+    void fetch("/api/payments/cost-approval/other/sync", { cache: "no-store" }).catch(() => undefined);
+  }, []);
 
   function buildParams(includePaging = true) {
     const params = new URLSearchParams({ keyword: appliedKeyword });
@@ -178,7 +184,7 @@ export function PoInvoiceSummaryPage() {
             <thead className="bg-canvas text-ink"><tr>{columns.map((column) => <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium" key={column.key}><TableColumnMenu column={{ ...column, sortable: true, filterable: true }} filterValues={columnFilters[column.key] ?? []} loadOptions={(optionKeyword) => loadOptions(column.key, optionKeyword)} onFilter={(values) => { setPage(1); setColumnFilters((current) => ({ ...current, [column.key]: values })); }} onSort={(order) => { setPage(1); setSortField(column.key); setSortOrder(order); }} sortOrder={sortField === column.key ? sortOrder : ""} /></th>)}<th className="whitespace-nowrap sticky right-0 border-b border-line-soft bg-canvas px-3 py-3 text-left font-medium">操作</th></tr></thead>
             <tbody>
               {loading ? <tr><td className="px-4 py-12 text-center text-ink-3" colSpan={columns.length + 1}><TableSkeleton /></td></tr> : null}
-              {!loading && result.items.map((row) => <tr className="hover:bg-surface-2" key={row.id}>{columns.map((column, index) => <td className="max-w-[260px] truncate whitespace-nowrap border-b border-r border-line-soft px-3 py-3" key={column.key}>{index === 0 ? <button className="text-primary hover:underline" type="button" onClick={() => openProject(row)}>{row.projectNo || "-"}</button> : column.key === "projectStatus" ? <StatusTag status={row.projectStatus} label={statusLabel(row.projectStatus)} /> : formatValue(row[column.key as keyof PoInvoiceSummaryRow], column.type)}</td>)}<td className="sticky right-0 whitespace-nowrap border-b border-line-soft bg-white px-3 py-3"><button className="text-primary hover:underline" type="button" onClick={() => openProject(row)}>查看项目</button>{row.type === "cost" ? <Button aria-label="发起成本款付款申请" className="ml-2 h-8 px-2.5 text-xs" onClick={() => setPaymentApprovalOwnerIds([String(row.id)])} size="sm" title="以这张成本发票发起飞书付款申请（成本项目=其他）" tone="secondary"><Banknote size={13} />发起付款</Button> : null}{row.type === "income" ? <><button aria-label="开票（按本项目发票生成票面）" className="ml-2 text-warning-ink hover:underline" title="按本条收入发票生成票面并标记已开票" type="button" onClick={() => setInvoiceModal({ mode: "generated", sourceId: String(row.id) })}>开票</button><button aria-label="上传外部发票" className="ml-2 text-ink-2 hover:underline" title="外部已开好票：上传文件并登记" type="button" onClick={() => setInvoiceModal({ mode: "external", sourceId: String(row.id) })}>上传发票</button></> : null}</td></tr>)}
+              {!loading && result.items.map((row) => <tr className="hover:bg-surface-2" key={row.id}>{columns.map((column, index) => <td className="max-w-[260px] truncate whitespace-nowrap border-b border-r border-line-soft px-3 py-3" key={column.key}>{index === 0 ? <button className="text-primary hover:underline" type="button" onClick={() => openProject(row)}>{row.projectNo || "-"}</button> : column.key === "projectStatus" ? <StatusTag status={row.projectStatus} label={statusLabel(row.projectStatus)} /> : column.key === "paymentApprovalStatus" ? <PaymentApprovalBadge row={row} /> : formatValue(row[column.key as keyof PoInvoiceSummaryRow], column.type)}</td>)}<td className="sticky right-0 whitespace-nowrap border-b border-line-soft bg-white px-3 py-3"><button className="text-primary hover:underline" type="button" onClick={() => openProject(row)}>查看项目</button>{row.type === "cost" ? <Button aria-label="发起成本款付款申请" className="ml-2 h-8 px-2.5 text-xs" onClick={() => setPaymentApprovalOwnerIds([String(row.id)])} size="sm" title="以这张成本发票发起飞书付款申请（成本项目=其他）" tone="secondary"><Banknote size={13} />发起付款</Button> : null}{row.type === "income" ? <><button aria-label="开票（按本项目发票生成票面）" className="ml-2 text-warning-ink hover:underline" title="按本条收入发票生成票面并标记已开票" type="button" onClick={() => setInvoiceModal({ mode: "generated", sourceId: String(row.id) })}>开票</button><button aria-label="上传外部发票" className="ml-2 text-ink-2 hover:underline" title="外部已开好票：上传文件并登记" type="button" onClick={() => setInvoiceModal({ mode: "external", sourceId: String(row.id) })}>上传发票</button></> : null}</td></tr>)}
               {!loading && !result.items.length ? <tr><td className="px-4 py-12 text-center text-ink-3" colSpan={columns.length + 1}>暂无发票明细</td></tr> : null}
             </tbody>
           </table>
@@ -208,6 +214,17 @@ export function PoInvoiceSummaryPage() {
 function Metric({ label, value, tone }: { label: string; value: number; tone: "success" | "warning" | "primary" }) {
   const border = tone === "success" ? "border-success-border" : tone === "warning" ? "border-warning-border-soft" : "border-info-border";
   return <div className={`min-h-[84px] rounded border bg-white px-4 py-3 shadow-sm ${border}`}><div className="text-xs text-ink-3">{label}</div><div className="mt-2 text-xl font-semibold text-ink">{money(value)}</div></div>;
+}
+
+function PaymentApprovalBadge({ row }: { row: PoInvoiceSummaryRow }) {
+  const label = paymentApprovalStatusLabel(row.paymentApprovalStatus);
+  if (!label) return <span className="text-ink-3">-</span>;
+  const title = [
+    `审批状态：${label}`,
+    row.paymentApprovalNo ? `单号：${row.paymentApprovalNo}` : "",
+    row.paymentConfirmedAt ? `确认到账：${formatDisplayValue(row.paymentConfirmedAt as never, "datetime")}` : "",
+  ].filter(Boolean).join(" · ");
+  return <span className={`inline-flex rounded border px-2 py-0.5 text-xs ${paymentApprovalStatusClass(row.paymentApprovalStatus)}`} title={title}>{label}</span>;
 }
 
 function formatValue(value: unknown, type?: Column["type"]) {

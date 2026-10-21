@@ -5,6 +5,7 @@ import { ArrowLeft, Banknote, Check, Download, FilePlus2, FileUp, Paperclip, Pen
 import { useParams } from "next/navigation";
 import { postWorkspaceMessage } from "@/lib/tab-workspace";
 import { formatDisplayValue, formatMoneyValue } from "@/lib/display-format";
+import { paymentApprovalStatusClass, paymentApprovalStatusLabel } from "@/lib/payment-approval-status";
 import { calculateSettlementPurchaseAmounts, summarizeSettlementPurchases } from "@/lib/settlement-purchase-summary";
 import { calculateSettlementEntryAmounts, summarizeSettlementEntries } from "@/lib/settlement-entry-summary";
 import { AuditInfoBar, Button, IconButton, IconLink, Input, Panel, Select, UploadIconButton } from "./ui";
@@ -34,7 +35,7 @@ type Item = {
 type Expense = { id: string; type: string; description: string | null; amount: number; currency: string; priceType: string; taxRate: number; costUsd: number; invoiceNo: string | null; createdAt: string; updatedAt: string };
 type Sale = { id: string; description: string | null; amount: number; currency: string; priceType: string; taxRate: number; receivedRevenueTaxIncludedUsd: number; receivedRevenueUsd: number; invoiceNo: string | null; receivedAt: string | null; createdAt: string; updatedAt: string };
 type Attachment = { id: string; projectId: string; invoiceId: string | null; fileName: string; fileType: string | null; fileSize: number; description: string | null; uploadedByName: string | null; uploadedAt: string; createdAt: string; updatedAt: string };
-type Invoice = { id: string; type: string; accountPeriod: string | null; accountingDate: string | null; companyEntity: string | null; invoiceEntity: string | null; companyEntityId: string | null; invoiceEntityId: string | null; invoiceEntityType: "supplier" | "customer" | null; invoiceDate: string | null; invoiceNo: string | null; taxUuid: string | null; invoiceTotal: number; invoiceTaxExcludedTotal: number; taxRate: number; invoiceTaxAmount: number; currency: string; exchangeRate: number; usdAmount: number; receivableDate: string | null; actualReceiptDate: string | null; isPaid: boolean; isInvoiced: boolean; attachments?: Attachment[]; createdAt: string; updatedAt: string };
+type Invoice = { id: string; type: string; accountPeriod: string | null; accountingDate: string | null; companyEntity: string | null; invoiceEntity: string | null; companyEntityId: string | null; invoiceEntityId: string | null; invoiceEntityType: "supplier" | "customer" | null; invoiceDate: string | null; invoiceNo: string | null; taxUuid: string | null; invoiceTotal: number; invoiceTaxExcludedTotal: number; taxRate: number; invoiceTaxAmount: number; currency: string; exchangeRate: number; usdAmount: number; receivableDate: string | null; actualReceiptDate: string | null; isPaid: boolean; isInvoiced: boolean; paymentApprovalStatus?: string | null; paymentApprovalNo?: string | null; paymentConfirmedAt?: string | null; attachments?: Attachment[]; createdAt: string; updatedAt: string };
 type Project = { id: string; projectNo: string; quotationId: string; quotationNo: string; projectName: string | null; customerName: string | null; contractingUnitName: string | null; remark: string | null; exchangeRateUsd: number; exchangeRateMxn: number; quotedPurchaseCostUsd: number; purchasedCostUsd: number; quotedSalesRevenueUsd: number; receivedRevenueTaxIncludedUsd: number; receivedRevenueUsd: number; grossProfitUsd: number; status: string; createdByName: string | null; updatedByName: string | null; confirmedByName: string | null; createdAt: string; updatedAt: string; confirmedAt: string | null; procurementCompletedAt: string | null; acceptanceStartedAt: string | null; acceptanceCompletedAt: string | null; closedAt: string | null };
 type Detail = { project: Project; items: Item[]; summary: SettlementChangeSummary; unpurchasedItems: Item[]; purchasedItems: Item[]; expenses: Expense[]; sales: Sale[]; invoices: Invoice[]; attachments: Attachment[] };
 type TableRow = Record<string, unknown>;
@@ -75,8 +76,8 @@ const columns: Record<TableKey, Column[]> = {
     { key: "taxRate", label: "税率(%)", type: "money", sortable: true, filterable: true }, { key: "invoiceNo", label: "发票号", sortable: true, filterable: true }, { key: "receivedAt", label: "收款日期", type: "date", sortable: true, filterable: true }, { key: "createdAt", label: "创建时间", type: "datetime", sortable: true, filterable: true }, { key: "updatedAt", label: "更新时间", type: "datetime", sortable: true, filterable: true },
   ],
   invoices: [
-    { key: "type", label: "类型", sortable: true, filterable: true }, { key: "accountPeriod", label: "账期", type: "date", sortable: true, filterable: true }, { key: "accountingDate", label: "财务记账日期", type: "date", sortable: true, filterable: true }, { key: "companyEntity", label: "承接单位", sortable: true, filterable: true }, { key: "invoiceEntity", label: "供应商/客户", sortable: true, filterable: true }, { key: "invoiceDate", label: "发票日期", type: "date", sortable: true, filterable: true }, { key: "receivableDate", label: "应收日期", type: "date", sortable: true, filterable: true }, { key: "actualReceiptDate", label: "实收日期", type: "date", sortable: true, filterable: true }, { key: "invoiceNo", label: "发票号", sortable: true, filterable: true },
-    { key: "currency", label: "发票币种", sortable: true, filterable: true }, { key: "isPaid", label: "是否支付", sortable: true, filterable: true }, { key: "isInvoiced", label: "是否开票", sortable: true, filterable: true }, { key: "createdAt", label: "创建时间", type: "datetime", sortable: true, filterable: true }, { key: "updatedAt", label: "更新时间", type: "datetime", sortable: true, filterable: true },
+    { key: "type", label: "类型", sortable: true, filterable: true }, { key: "accountPeriod", label: "账期", type: "date", sortable: true, filterable: true }, { key: "accountingDate", label: "财务记账日期", type: "date", sortable: true, filterable: true }, { key: "companyEntity", label: "承接单位", sortable: true, filterable: true }, { key: "invoiceEntity", label: "供应商/客户", sortable: true, filterable: true }, { key: "invoiceDate", label: "发票日期", type: "date", sortable: true, filterable: true }, { key: "receivableDate", label: "预计收/付款日期", type: "date", sortable: true, filterable: true }, { key: "actualReceiptDate", label: "实际收/付款日期", type: "date", sortable: true, filterable: true }, { key: "invoiceNo", label: "发票号", sortable: true, filterable: true },
+    { key: "currency", label: "发票币种", sortable: true, filterable: true }, { key: "paymentApprovalStatus", label: "审批状态" }, { key: "isPaid", label: "是否支付", sortable: true, filterable: true }, { key: "isInvoiced", label: "是否开票", sortable: true, filterable: true }, { key: "createdAt", label: "创建时间", type: "datetime", sortable: true, filterable: true }, { key: "updatedAt", label: "更新时间", type: "datetime", sortable: true, filterable: true },
   ],
   attachments: [
     { key: "fileName", label: "文件名", sortable: true, filterable: true }, { key: "fileType", label: "类型", sortable: true, filterable: true }, { key: "fileSize", label: "大小", type: "fileSize", sortable: true, filterable: true }, { key: "description", label: "说明", sortable: true, filterable: true }, { key: "uploadedByName", label: "上传人", sortable: true, filterable: true }, { key: "uploadedAt", label: "上传时间", type: "datetime", sortable: true, filterable: true },
@@ -94,8 +95,8 @@ const invoiceDataColumns: Column[] = [
   { key: "companyEntity", label: "承接单位", sortable: true, filterable: true },
   { key: "invoiceEntity", label: "供应商/客户", sortable: true, filterable: true },
   { key: "invoiceDate", label: "发票日期", type: "date", sortable: true, filterable: true },
-  { key: "receivableDate", label: "应收日期", type: "date", sortable: true, filterable: true },
-  { key: "actualReceiptDate", label: "实收日期", type: "date", sortable: true, filterable: true },
+  { key: "receivableDate", label: "预计收/付款日期", type: "date", sortable: true, filterable: true },
+  { key: "actualReceiptDate", label: "实际收/付款日期", type: "date", sortable: true, filterable: true },
   { key: "invoiceNo", label: "发票号", sortable: true, filterable: true },
   { key: "invoiceTotal", label: "发票总额", type: "money", sortable: true, filterable: true },
   { key: "invoiceTaxExcludedTotal", label: "发票不含税总额", type: "money", sortable: true, filterable: true },
@@ -103,6 +104,7 @@ const invoiceDataColumns: Column[] = [
   { key: "invoiceTaxAmount", label: "发票税金", type: "money", sortable: true, filterable: true },
   { key: "currency", label: "发票币种", sortable: true, filterable: true },
   { key: "exchangeRate", label: "发票汇率", type: "money", sortable: true, filterable: true },
+  { key: "paymentApprovalStatus", label: "审批状态" },
   { key: "isPaid", label: "是否支付", sortable: true, filterable: true },
   { key: "isInvoiced", label: "是否开票", sortable: true, filterable: true },
   { key: "usdAmount", label: "USD金额", type: "money", sortable: true, filterable: true },
@@ -196,6 +198,9 @@ export function SettlementProjectDetailWorkspace() {
   ]).then(([suppliers, customers, undertakingUnits]) => setInvoicePartners({ suppliers, customers, undertakingUnits })).catch(() => undefined), []);
 
   useEffect(() => { void load(); void loadInvoicePartners(); }, [projectId, loadInvoicePartners]);
+  useEffect(() => {
+    void fetch("/api/payments/cost-approval/other/sync", { cache: "no-store" }).catch(() => undefined);
+  }, []);
   useWorkspaceDataRefresh(() => { void loadInvoicePartners(); });
 
   async function write(url: string, method: string, body?: unknown) {
@@ -532,7 +537,7 @@ function InvoiceSection({ invoices, allInvoices, draft, editing, partners, busy,
                 const fieldValue = invoiceColumnValue(column.key, invoice, preview);
                 const toggleField = isInvoiceToggleField(column.key);
                 return <td className="max-w-[210px] truncate whitespace-nowrap border-b border-r border-line-soft px-3 py-3" key={column.key}>
-                  {isEditing && editableInvoiceField(column.key) && !toggleField ? <InvoiceInput invoice={invoice} value={value} field={column.key} partners={partners} onChange={(next, patch) => onInvoiceChange(column.key, next, patch)} /> : toggleField ? <Toggle checked={Boolean(isEditing ? value[column.key] : invoice[column.key as "isPaid" | "isInvoiced"])} disabled={readOnly || busy} onChange={(checked) => isEditing ? onInvoiceChange(column.key, checked) : onToggle(invoice.id, column.key as "isPaid" | "isInvoiced", checked)} label={column.key === "isPaid" ? "支付" : "开票"} /> : formatColumnValue(column.key, fieldValue, column.type)}
+                  {isEditing && editableInvoiceField(column.key) && !toggleField ? <InvoiceInput invoice={invoice} value={value} field={column.key} partners={partners} onChange={(next, patch) => onInvoiceChange(column.key, next, patch)} /> : column.key === "paymentApprovalStatus" ? <PaymentApprovalBadge invoice={invoice} /> : toggleField ? <Toggle checked={Boolean(isEditing ? value[column.key] : invoice[column.key as "isPaid" | "isInvoiced"])} disabled={readOnly || busy} onChange={(checked) => isEditing ? onInvoiceChange(column.key, checked) : onToggle(invoice.id, column.key as "isPaid" | "isInvoiced", checked)} label={column.key === "isPaid" ? "支付" : "开票"} /> : formatColumnValue(column.key, fieldValue, column.type)}
                 </td>;
               })}
               <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3"><div className="space-y-2">{attachments.map((attachment) => <div className="flex max-w-[280px] items-center gap-2" key={attachment.id}><span className="min-w-0 flex-1 truncate" title={attachment.fileName}>{attachment.fileName}</span><IconLink href={`/api/po/settlement-projects/${attachment.projectId}/invoices/${invoice.id}/attachments/${attachment.id}/download`} label="下载附件"><Download size={15} /></IconLink>{true ? <IconButton icon={<Trash2 size={15} />} label="删除附件" onClick={() => onDeleteAttachment(attachment.id)} tone="danger" /> : null}</div>)}{!attachments.length ? <div className="flex items-center gap-2"><Input className="min-w-[150px]" placeholder="附件说明" value={attachmentDescriptions[invoice.id] ?? ""} onChange={(event) => onAttachmentDescriptionChange(invoice.id, event.target.value)} /><UploadIconButton icon={<Paperclip size={15} />} label="上传发票附件" onFile={(event) => void onUpload(invoice.id, event)} /></div> : null}{null}</div></td>
@@ -574,8 +579,8 @@ function InvoiceFormFields({ draft, partners, onChange }: { draft: Record<string
       <Field label="承接单位"><PartnerLookup options={partners.undertakingUnits} selectedId={draft.companyEntityId} selectedName={draft.companyEntity} onChange={(selected) => { onChange("companyEntityId", selected.id); onChange("companyEntity", selected.name); }} /></Field>
       <Field label="供应商/客户"><PartnerLookup options={invoicePartners} selectedId={draft.invoiceEntityId} selectedName={draft.invoiceEntity} onChange={(selected) => { onChange("invoiceEntityId", selected.id); onChange("invoiceEntity", selected.name); onChange("invoiceEntityType", selected.partnerType || ""); }} /></Field>
       <Field label="发票日期"><Input className="w-full" type="date" value={dateInputValue(draft.invoiceDate)} onChange={(event) => onChange("invoiceDate", event.target.value)} /></Field>
-      <Field label="应收日期"><Input className="w-full" type="date" value={dateInputValue(draft.receivableDate)} onChange={(event) => onChange("receivableDate", event.target.value)} /></Field>
-      <Field label="实收日期"><Input className="w-full" type="date" value={dateInputValue(draft.actualReceiptDate)} onChange={(event) => onChange("actualReceiptDate", event.target.value)} /></Field>
+      <Field label={draft.type === "cost" ? "预计付款日期" : "应收日期"}><Input className="w-full" type="date" value={dateInputValue(draft.receivableDate)} onChange={(event) => onChange("receivableDate", event.target.value)} /></Field>
+      <Field label={draft.type === "cost" ? "实际付款日期" : "实际收款日期"}><Input className="w-full" type="date" value={dateInputValue(draft.actualReceiptDate)} onChange={(event) => onChange("actualReceiptDate", event.target.value)} /></Field>
       <Field label="发票号"><Input className="w-full" value={String(draft.invoiceNo)} onChange={(event) => onChange("invoiceNo", event.target.value)} /></Field>
       <Field label="发票总额"><NumberInput className="w-full" value={String(draft.invoiceTotal)} onChange={(text) => onChange("invoiceTotal", text)} /></Field>
       <Field label="不含税总额"><Input className="w-full" readOnly value={money(excluded)} /></Field>
@@ -627,6 +632,16 @@ function editablePurchaseField(key: string) { return ["purchaseQty", "purchaseUn
 function editableEntryField(key: string) { return ["type", "description", "amount", "currency", "priceType", "taxRate", "invoiceNo", "receivedAt"].includes(key); }
 function editableInvoiceField(key: string) { return ["type", "accountPeriod", "accountingDate", "companyEntity", "invoiceEntity", "invoiceDate", "receivableDate", "actualReceiptDate", "invoiceNo", "currency", "isPaid", "isInvoiced", "invoiceTotal", "taxRate", "exchangeRate"].includes(key); }
 function isInvoiceToggleField(key: string): key is "isPaid" | "isInvoiced" { return key === "isPaid" || key === "isInvoiced"; }
+function PaymentApprovalBadge({ invoice }: { invoice: Invoice }) {
+  const label = paymentApprovalStatusLabel(invoice.paymentApprovalStatus);
+  if (!label) return <span className="text-ink-3">-</span>;
+  const title = [
+    `审批状态：${label}`,
+    invoice.paymentApprovalNo ? `单号：${invoice.paymentApprovalNo}` : "",
+    invoice.paymentConfirmedAt ? `确认到账：${formatDisplayValue(invoice.paymentConfirmedAt as never, "datetime")}` : "",
+  ].filter(Boolean).join(" · ");
+  return <span className={`inline-flex rounded border px-2 py-0.5 text-xs ${paymentApprovalStatusClass(invoice.paymentApprovalStatus)}`} title={title}>{label}</span>;
+}
 function legacyFormatColumnValue(key: string, value: unknown, type?: string): string { if (value === null || value === undefined || value === "") return "-"; if (key === "source") return String(value) === "customer_change" ? "客户变更" : "报价"; if (key === "type") return String(value) === "income" ? "收入" : String(value) === "cost" ? "成本" : ["first_mile_freight", "customs_fee", "labor_fee", "equipment_service_fee", "other"].includes(String(value)) ? expenseLabel(String(value)) : String(value); if (key === "priceType") return String(value) === "tax_included" ? "含税价" : "未税价"; if (key === "isPaid") return value ? "已支付" : "未支付"; if (key === "isInvoiced") return value ? "已开票" : "未开票"; if (type === "money" || key === "amount" || key === "taxRate") return money(Number(value)); if (type === "number") return Number(value).toLocaleString("en-US"); if (type === "fileSize") return formatFileSize(Number(value)); if (type === "datetime" || key.endsWith("At")) return formatDisplayValue(value as never, "datetime"); if (type === "date" || key.endsWith("Date")) return formatDisplayValue(value as never, "date"); return String(value); }
 const invoiceDateOnlyFields = new Set(["accountPeriod", "accountingDate", "invoiceDate", "receivableDate", "actualReceiptDate"]);
 function formatColumnValue(key: string, value: unknown, type?: string): string { if (value === null || value === undefined || value === "") return "-"; if (invoiceDateOnlyFields.has(key)) return dateInputValue(value) || "-"; return legacyFormatColumnValue(key, value, type); }

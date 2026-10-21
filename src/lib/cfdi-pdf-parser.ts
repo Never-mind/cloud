@@ -60,6 +60,52 @@ function readCadenaParts(source: string) {
   return parts.length > 23 && parts[2] === "4.0" ? parts : null;
 }
 
+/**
+ * XFUSION 的 CFDI PDF 版式：没有 Moneda / Serie 标签，字段分成左右两列。
+ * 关键行固定为 Folio、Fecha de certificación del CFDI、Receptor、Emisor、
+ * Subtotal、IVA(%)、Total，按这些标签直接取值。
+ */
+function parseXfusionCfdiTemplate(content: string): CfdiPdfInvoice | null {
+  if (!/XFUSION DIGITECH DE MEXICO/i.test(content) || !/Folio\s*:\s*[A-Za-z]/i.test(content)) return null;
+
+  const folioMatch = /Folio\s*:\s*([A-Za-z]+)[-\s]*(\d+)/i.exec(content);
+  const serie = folioMatch?.[1] ?? "";
+  const folio = folioMatch?.[2] ?? "";
+  const date = /Fecha de certificación del CFDI\s*:\s*(\d{4}-\d{2}-\d{2})/i.exec(content)
+    ?? /Fecha comprobante\s*:\s*(\d{4}-\d{2}-\d{2})/i.exec(content);
+  const subtotal = /^\s*Subtotal\s+([\d,]+\.\d{2})\s*$/mi.exec(content)?.[1] ?? "";
+  const taxLine = /^\s*IVA\s*\(\s*(\d+(?:\.\d+)?)\s*\)\s*%\s+([\d,]+\.\d{2})\s*$/mi.exec(content);
+  const total = /^\s*Total\s+([\d,]+\.\d{2})\s*$/mi.exec(content)?.[1] ?? "";
+  if (!subtotal || !total) throw new Error("XFUSION CFDI 模板里没读到 Subtotal 或 Total");
+
+  const issuerTaxNumber = /\b(XDM[0-9A-Z]{9,12})\b/i.exec(content)?.[1] ?? "";
+  const issuerName = /XDM[0-9A-Z]{9,12}\s*\nRégimen fiscal:[^\n]*\n([^\n]+)\nFolio fiscal:/i.exec(content)?.[1]
+    ?? "XFUSION DIGITECH DE MEXICO";
+  const receiverTaxNumber = /Receptor\s*:\s*\n\s*([A-Z0-9]{12,13})\b/i.exec(content)?.[1] ?? "";
+  const receiverName = /Receptor\s*:\s*\n[^\n]+\n[^\n]+\n([^\n]+)\nDomicilio:/i.exec(content)?.[1] ?? "";
+  const currency = /^\s*UN\s+[^\n]*\b(USD|MXN|EUR)\.\s*$/mi.exec(content)?.[1] ?? "USD";
+
+  return {
+    version: "4.0",
+    serie,
+    folio,
+    fullNumber: buildCfdiInvoiceNumber(serie, folio),
+    uuid: /Folio fiscal\s*:\s*([0-9a-fA-F-]{36})/i.exec(content)?.[1] ?? "",
+    invoiceDate: date?.[1] ?? "",
+    issuerName: cleanupName(issuerName),
+    issuerTaxNumber,
+    receiverName: cleanupName(receiverName),
+    receiverTaxNumber,
+    currency: currency.toUpperCase(),
+    exchangeRate: /Tipo de cambio\s*:\s*([\d.]+)/i.exec(content)?.[1] ?? "",
+    amountExcludingTax: number(subtotal),
+    taxAmount: taxLine ? number(taxLine[2]) : null,
+    totalIncludingTax: number(total),
+    taxRate: taxLine ? number(taxLine[1]) : resolveTaxRate(content, null, null),
+    exact: false,
+  };
+}
+
 export function parseCfdiInvoiceText(source: string): CfdiPdfInvoice {
   const content = text(source);
   if (!content) throw new Error("发票文件没有文字层，无法识别");
@@ -93,6 +139,9 @@ export function parseCfdiInvoiceText(source: string): CfdiPdfInvoice {
       exact: true,
     };
   }
+
+  const xfusion = parseXfusionCfdiTemplate(content);
+  if (xfusion) return xfusion;
 
   // 没有原串的模板：按标签兜底
   const dateMatch = /Fecha\s*[:：]\s*(\d{1,2})\/(\d{1,2})\/(\d{4})/.exec(content);

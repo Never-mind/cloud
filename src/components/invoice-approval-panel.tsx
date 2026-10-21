@@ -13,6 +13,7 @@ import { useCallback, useEffect, useState } from "react";
 import { AlertCircle, CheckCircle2, FileText, Info } from "lucide-react";
 import { Input, Select, Textarea } from "./ui";
 import { notify } from "./app-dialog";
+import { paymentApprovalStatusLabel } from "@/lib/payment-approval-status";
 
 type Option = { key: string; value: string; label: string };
 
@@ -245,7 +246,7 @@ export function InvoiceApprovalPanel({
     <div className="space-y-4">
       {prefill.existingApproval ? (
         <Notice tone="info">
-          该账单已有一条审批：{prefill.existingApproval.status === "pending" ? "审批中" : prefill.existingApproval.status === "approved" ? "已通过（待出票）" : prefill.existingApproval.status}
+          该账单已有一条审批：{prefill.existingApproval.status === "approved" ? "已通过（待出票）" : paymentApprovalStatusLabel(prefill.existingApproval.status) || prefill.existingApproval.status}
           ，单号 {prefill.existingApproval.serialNumber || prefill.existingApproval.instanceCode}，提交于 {prefill.existingApproval.submittedAt}。
           不需要重复发起 —— 审批通过后系统会自动出票；如果被驳回，可以在这里重新提交。
         </Notice>

@@ -3,6 +3,7 @@ import { extractPdfPages } from "./pdf-text-extract";
 import { parseChinaVatInvoice, cleanupInvoiceName } from "./china-vat-invoice-parser";
 import { parseCfdiInvoiceText } from "./cfdi-pdf-parser";
 import { parseCfdiInvoice } from "./cfdi-invoice-parser";
+import { isDazhuangCommercialInvoiceText, parseDazhuangCommercialInvoiceText } from "./commercial-invoice-parser";
 import { isSingaporeInvoiceText, parseSingaporeInvoiceText } from "./sg-invoice-parser";
 import { extractOfdPages } from "./ofd-text-extract";
 import { parseChinaEinvoiceXml } from "./china-einvoice-xml-parser";
@@ -16,7 +17,8 @@ import type { ChinaVatInvoice } from "./china-vat-invoice-parser";
  *   - 往来方优先按税号匹配档案，匹配不到退到名称，再匹配不到就把票面文本带出来并提示补档案；
  *   - 票面里没有的字段（记账日期、实收日期）留空，不猜值。
  *
- * 支持：中国增值税电子发票 PDF（文字层）、墨西哥 CFDI（XML 精确解析 / PDF 文字层兜底）。
+ * 支持：中国增值税电子发票、数电票 XML、墨西哥 CFDI（XML / PDF）、
+ * 新加坡 GST 商业发票、达创普通商业发票（票面未列明税额时留空提示）。
  * 扫描件、拍照件没有文字层，本期不处理（后续接 OCR）。
  */
 
@@ -212,6 +214,7 @@ export async function recognizeInvoiceFile(params: {
     const content = (await extractPdfPages(params.bytes)).join("\n");
     if (!content.trim()) throw new Error("这个 PDF 没有文字层（可能是扫描件），本期识别不了");
     const isSingapore = isSingaporeInvoiceText(content);
+    const isDazhuangCommercial = isDazhuangCommercialInvoiceText(content);
     const isCfdi = /CFDI|FACTURA|Comprobante|Folio Fiscal/.test(content) && !/发票号码/.test(content);
     if (isSingapore) {
       const sg = parseSingaporeInvoiceText(content);
@@ -233,6 +236,27 @@ export async function recognizeInvoiceFile(params: {
         totalIncludingTax: sg.total,
         taxRate: sg.gstRate,
       };
+    } else if (isDazhuangCommercial) {
+      const commercial = parseDazhuangCommercialInvoiceText(content);
+      source = "达创普通商业发票";
+      kind = "商业发票（票面未列明税额）";
+      exact = true;
+      parsed = {
+        fullNumber: commercial.invoiceNo,
+        uuid: "",
+        invoiceDate: commercial.invoiceDate,
+        issuerName: commercial.issuerName,
+        issuerTaxNumber: "",
+        receiverName: commercial.receiverName,
+        receiverTaxNumber: "",
+        currency: commercial.currency,
+        exchangeRate: "",
+        amountExcludingTax: commercial.amountExcludingTax,
+        taxAmount: commercial.taxAmount,
+        totalIncludingTax: commercial.totalIncludingTax,
+        taxRate: commercial.taxRate,
+      };
+      warnings.push("该商业发票票面未列明未税金额、税率和税金，请人工确认后补充");
     } else if (isCfdi) {
       const cfdi = parseCfdiInvoiceText(content);
       source = "墨西哥 CFDI PDF";

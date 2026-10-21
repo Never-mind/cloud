@@ -1,10 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { parseCfdiInvoice, verifyInvoiceAgainstExpectation } from "./cfdi-invoice-parser";
+import { buildCfdiInvoiceNumber, parseCfdiInvoice, verifyInvoiceAgainstExpectation } from "./cfdi-invoice-parser";
 
 /** 真实发票（Xtransfer F205）的 XML：只保留与解析相关的属性，结构一致。 */
 const FIXTURE = `<?xml version="1.0" encoding="UTF-8"?><cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4" Exportacion="01" Fecha="2026-10-08T18:48:56" Folio="F205" FormaPago="99" LugarExpedicion="11529" MetodoPago="PPD" Moneda="USD" NoCertificado="00001000000727948258" Serie="F" SubTotal="11424.00" TipoCambio="17.967" TipoDeComprobante="I" Total="13251.84" Version="4.0"><cfdi:Emisor Nombre="LUZ NEWMEDIA" RegimenFiscal="601" Rfc="LNE181206664"/><cfdi:Receptor DomicilioFiscalReceptor="64780" Nombre="XTRANSFER MEXICO" RegimenFiscalReceptor="601" Rfc="XME2412037R1" UsoCFDI="G03"/><cfdi:Conceptos><cfdi:Concepto Cantidad="1.0" ClaveProdServ="81111809" ClaveUnidad="XUN" Descripcion="Equipment procurement and installation" Importe="11424.00" NoIdentificacion="Equipment" ObjetoImp="02" ValorUnitario="11424.00"><cfdi:Impuestos><cfdi:Traslados><cfdi:Traslado Base="11424.00" Importe="1827.84" Impuesto="002" TasaOCuota="0.160000" TipoFactor="Tasa"/></cfdi:Traslados></cfdi:Impuestos></cfdi:Concepto></cfdi:Conceptos><cfdi:Impuestos TotalImpuestosTrasladados="1827.84"><cfdi:Traslados><cfdi:Traslado Base="11424.00" Importe="1827.84" Impuesto="002" TasaOCuota="0.160000" TipoFactor="Tasa"/></cfdi:Traslados></cfdi:Impuestos><cfdi:Complemento><tfd:TimbreFiscalDigital xmlns:tfd="http://www.sat.gob.mx/TimbreFiscalDigital" FechaTimbrado="2026-10-08T18:50:43" RfcProvCertif="PPD101129EA3" UUID="D4752475-4E30-4EE8-AD15-F081095D5DB3" Version="1.1"/></cfdi:Complemento></cfdi:Comprobante>`;
 
 describe("CFDI 发票 XML 解析", () => {
+  it("Serie 自带末尾横杠时不会拼出双横杠票号", () => {
+    expect(buildCfdiInvoiceNumber("F-", "898")).toBe("F-898");
+    expect(buildCfdiInvoiceNumber("F-", "F-898")).toBe("F-898");
+  });
+
   it("解析票号、开票时间、金额、税金与 UUID", () => {
     const invoice = parseCfdiInvoice(FIXTURE);
     expect(invoice.version).toBe("4.0");

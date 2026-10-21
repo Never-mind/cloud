@@ -491,7 +491,7 @@ export const entityConfigs: EntityConfig[] = [
       { key: "keyword", label: "采购订单", placeholder: "请输入PO订单号或币种" },
       { key: "requestType", label: "类型", type: "select", options: REQUEST_TYPE_OPTIONS },
       { key: "invoiceStatus", label: "开票状态", type: "select", options: [{ label: "已开票", value: "已开票" }, { label: "未开票", value: "未开票" }] },
-      { key: "paymentStatus", label: "付款状态", type: "select", options: [{ label: "未付款", value: "未付款" }, { label: "审批中", value: "审批中" }, { label: "已付款", value: "已付款" }, { label: "已驳回", value: "已驳回" }] },
+      { key: "paymentStatus", label: "付款状态", type: "select", options: [{ label: "未付款", value: "未付款" }, { label: "审批中", value: "审批中" }, { label: "已退回", value: "已退回" }, { label: "已驳回", value: "已驳回" }, { label: "已撤回", value: "已撤回" }, { label: "已付款", value: "已付款" }] },
     ],
     listFields: [
       { key: "poNo", label: "PO订单号" },
@@ -514,7 +514,7 @@ export const entityConfigs: EntityConfig[] = [
       { key: "invoiceDate", label: "开票日期", type: "date", hidden: true },
       { key: "invoiceStatus", label: "开票状态", type: "select", hidden: true, options: [{ label: "已开票", value: "已开票" }, { label: "未开票", value: "未开票" }] },
       { key: "paymentDate", label: "预计付款日期", type: "date", hidden: true },
-      { key: "paymentStatus", label: "付款状态", type: "select", hidden: true, options: [{ label: "未付款", value: "未付款" }, { label: "审批中", value: "审批中" }, { label: "已付款", value: "已付款" }, { label: "已驳回", value: "已驳回" }] },
+      { key: "paymentStatus", label: "付款状态", type: "select", hidden: true, options: [{ label: "未付款", value: "未付款" }, { label: "审批中", value: "审批中" }, { label: "已退回", value: "已退回" }, { label: "已驳回", value: "已驳回" }, { label: "已撤回", value: "已撤回" }, { label: "已付款", value: "已付款" }] },
       { key: "paidAt", label: "实际付款日期", type: "date", hidden: true },
       { key: "createdByUserId", label: "创建人ID", hidden: true },
       { key: "createdByName", label: "创建人", hidden: true },

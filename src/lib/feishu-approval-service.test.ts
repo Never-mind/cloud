@@ -8,6 +8,8 @@ import {
   PAYMENT_METHOD_OPTIONS,
   buildInvoiceApprovalForm,
   getInvoiceApprovalCode,
+  parseFeishuApprovalTaskNodes,
+  resolveFeishuApprovalStatus,
   resolveApprovalAmountCurrency,
   resolveInvoiceApprovalParty,
   toApprovalDateValue,
@@ -41,6 +43,50 @@ function mexicoForm(): InvoiceApprovalFormInput {
 }
 
 describe("飞书审批开票 · 表单组装", () => {
+  it("审批状态区分审批中、已退回、已撤回和已驳回", () => {
+    expect(resolveFeishuApprovalStatus("PENDING", [{ type: "START", create_time: "1" }])).toBe("pending");
+    expect(resolveFeishuApprovalStatus("PENDING", [
+      { type: "START", create_time: "1" },
+      { type: "ROLLBACK_SELECTED", create_time: "2" },
+    ])).toBe("returned");
+    expect(resolveFeishuApprovalStatus("PENDING", [
+      { type: "ROLLBACK_SELECTED", create_time: "2" },
+      { type: "PASS", create_time: "3" },
+    ])).toBe("pending");
+    expect(resolveFeishuApprovalStatus("CANCELED", [])).toBe("canceled");
+    expect(resolveFeishuApprovalStatus("REJECTED", [])).toBe("rejected");
+    expect(resolveFeishuApprovalStatus("APPROVED", [])).toBe("approved");
+  });
+
+  it("按节点名称取「确认是否到账」的通过时间", () => {
+    const parsed = parseFeishuApprovalTaskNodes([
+      {
+        id: "task-1",
+        node_name: "付款操作",
+        status: "APPROVED",
+        start_time: "1770263140385",
+        end_time: "1770274163182",
+      },
+      {
+        id: "task-2",
+        node_name: "确认是否到账",
+        status: "APPROVED",
+        start_time: "1770342263308",
+        end_time: "1770792047345",
+      },
+      {
+        id: "task-3",
+        node_name: "确认是否到账",
+        status: "PENDING",
+        start_time: "1770793000000",
+        end_time: "0",
+      },
+    ], "确认是否到账");
+    expect(parsed.paymentConfirmedNode).toBe("确认是否到账");
+    expect(parsed.paymentConfirmedAt?.toISOString()).toBe("2026-02-11T06:40:47.345Z");
+    expect(parsed.nodes).toHaveLength(3);
+  });
+
   it("墨西哥分支带客户信息、开票金额和 CSF 附件", () => {
     const fields = buildInvoiceApprovalForm(mexicoForm());
     const ids = fields.map((field) => field.id);

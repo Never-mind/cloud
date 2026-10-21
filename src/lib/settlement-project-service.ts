@@ -139,6 +139,9 @@ type SettlementInvoice = {
   actualReceiptDate: string | null;
   isPaid: boolean;
   isInvoiced: boolean;
+  paymentApprovalStatus: string | null;
+  paymentApprovalNo: string | null;
+  paymentConfirmedAt: string | null;
   attachments?: SettlementAttachment[];
   createdAt: string;
   updatedAt: string;
@@ -555,7 +558,18 @@ async function detailRows(projectId: string) {
     queryRows<SettlementItem>("SELECT * FROM merge_po_settlement_items WHERE projectId = :projectId ORDER BY createdAt, id", { projectId }),
     queryRows<SettlementExpense>("SELECT * FROM merge_po_settlement_expenses WHERE projectId = :projectId ORDER BY createdAt, id", { projectId }),
     queryRows<SettlementSale>("SELECT * FROM merge_po_settlement_sales WHERE projectId = :projectId ORDER BY receivedAt, createdAt, id", { projectId }),
-    queryRows<SettlementInvoice>("SELECT * FROM merge_po_settlement_invoices WHERE projectId = :projectId ORDER BY invoiceDate, createdAt, id", { projectId }),
+    queryRows<SettlementInvoice>(
+      `SELECT invoice.*,
+              paymentApproval.status AS paymentApprovalStatus,
+              paymentApproval.serialNumber AS paymentApprovalNo,
+              paymentApproval.paymentConfirmedAt
+         FROM merge_po_settlement_invoices invoice
+         LEFT JOIN merge_common_feishu_approvals paymentApproval
+           ON paymentApproval.id = invoice.paymentApprovalId
+        WHERE invoice.projectId = :projectId
+        ORDER BY invoice.invoiceDate, invoice.createdAt, invoice.id`,
+      { projectId },
+    ),
     queryRows<SettlementAttachment>("SELECT id, projectId, invoiceId, fileName, fileType, fileSize, description, uploadedByUserId, uploadedByName, uploadedAt, createdAt, updatedAt FROM merge_po_settlement_attachments WHERE projectId = :projectId ORDER BY uploadedAt DESC, id DESC", { projectId }),
   ]);
   const normalizedAttachments = attachments.map(normalizeAttachment);

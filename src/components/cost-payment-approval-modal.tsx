@@ -8,11 +8,12 @@
  * 审批后台加了新选项，这里会自动出现；读不到时回落到内置列表。
  */
 import { useEffect, useMemo, useState } from "react";
-import { Banknote, Building2, ChevronDown, Paperclip, Upload } from "lucide-react";
+import { Banknote, Building2, ChevronDown, Link2, Paperclip, Upload } from "lucide-react";
 import { Button, Input, Select, Textarea } from "./ui";
 import { Modal } from "./modal";
 import { notify } from "./app-dialog";
 import { formatDisplayValue } from "@/lib/display-format";
+import { paymentApprovalStatusLabel } from "@/lib/payment-approval-status";
 
 type Branch = "huawei" | "other" | "compute";
 type Option = { value: string; text: string };
@@ -26,6 +27,19 @@ type BankAccount = {
   currency: string;
   isDefault: boolean;
 };
+
+type AttachmentSource = "purchase_order" | "settlement_invoice" | "settlement_project" | "cloud_supplier_payment" | "cloud_invoice";
+export type AttachmentOption = {
+  id: string;
+  source: AttachmentSource;
+  sourceLabel: string;
+  fileName: string;
+  fileSize: number;
+  fileType: string;
+  uploadedAt: string | null;
+  description?: string;
+};
+export type AttachmentRef = { source: AttachmentSource; attachmentId: string };
 
 type PreviewRow = {
   ownerId: string;
@@ -48,12 +62,15 @@ type PreviewRow = {
   sources: Array<{ customer: string; account: string; amount: number }>;
   orderNo: string;
   batchNo: string;
+  projectId: string;
   projectNo: string;
   projectName: string;
   countryCode: string;
   countryName: string;
   quantity: number;
   requestNos: string[];
+  attachmentOwnerId: string;
+  attachmentOptions: AttachmentOption[];
   paid: boolean;
   bankAccounts: BankAccount[];
 };
@@ -64,10 +81,16 @@ type DraftRow = PreviewRow & {
   customerOptionKey: string;
   accountId: string;
   attachments: Array<{ fileName: string; dataUrl: string }>;
+  attachmentRefs: AttachmentRef[];
 };
 
 type CompanyOption = { code: string; name: string; companyKey: string };
 type BranchOptions = { company: Option[]; customer: Option[]; fee: Option[]; invoice: Option[]; currencies: string[] };
+
+function todayValue() {
+  const date = new Date();
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
 
 const BRANCH_TITLE: Record<Branch, string> = {
   huawei: "华为云业务 · 供应商付款",
@@ -82,6 +105,25 @@ const OWNER_TYPE: Record<Branch, "cloud_supplier_payment" | "settlement_invoice_
   other: "settlement_invoice_payment",
   compute: "purchase_order_payment",
 };
+
+/** 默认只勾选发票：集采发票附件、华为云供应商付款发票、算力文件名含发票的附件。 */
+export function defaultAttachmentRefs(branch: Branch, options: AttachmentOption[]): AttachmentRef[] {
+  const selected = branch === "other"
+    ? options.filter((option) => option.source === "settlement_invoice")
+    : branch === "huawei"
+      ? options.filter((option) => option.source === "cloud_supplier_payment")
+      : options.filter((option) => option.source === "purchase_order" && /发票|invoice|factura|^inv[-_]?|^sg\d|^[a-z]-?\d{3,}/i.test(option.fileName));
+  const seen = new Set<string>();
+  return selected
+    .filter((option) => {
+      // 同一张发票重复上传时，附件名只差存储后缀（__a1b2c3），默认只带最新的一份。
+      const key = option.fileName.replace(/__[a-z0-9]{6}(?=\.[^.]+$)/i, "").toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .map((option) => ({ source: option.source, attachmentId: option.id }));
+}
 
 export function CostPaymentApprovalModal({
   branch,
@@ -103,6 +145,13 @@ export function CostPaymentApprovalModal({
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [pickerRow, setPickerRow] = useState<DraftRow | null>(null);
+  const [pickerSelected, setPickerSelected] = useState<Set<string>>(new Set());
+  const [pickerKeyword, setPickerKeyword] = useState("");
+  const [bindOpen, setBindOpen] = useState(false);
+  const [bindCode, setBindCode] = useState("");
+  const [binding, setBinding] = useState(false);
+  const [bindError, setBindError] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -127,6 +176,7 @@ export function CostPaymentApprovalModal({
           customerOptionKey: matchCustomerOption(branchOptions.customer, row.customerName),
           accountId: row.bankAccounts.find((account) => account.isDefault)?.accountId ?? row.bankAccounts[0]?.accountId ?? "",
           attachments: [],
+          attachmentRefs: defaultAttachmentRefs(branch, row.attachmentOptions ?? []),
         }));
         setOptions(branchOptions);
         setCompanies(nextCompanies);
@@ -174,6 +224,23 @@ export function CostPaymentApprovalModal({
     });
   }
 
+  function openAttachmentPicker(row: DraftRow) {
+    setPickerRow(row);
+    setPickerSelected(new Set(row.attachmentRefs.map((ref) => `${ref.source}:${ref.attachmentId}`)));
+    setPickerKeyword("");
+  }
+
+  function confirmAttachmentPicker() {
+    if (!pickerRow) return;
+    const refs: AttachmentRef[] = [];
+    for (const key of pickerSelected) {
+      const [source, attachmentId] = key.split(":");
+      if (source && attachmentId) refs.push({ source: source as AttachmentSource, attachmentId });
+    }
+    patchRow(pickerRow.ownerId, { attachmentRefs: refs });
+    setPickerRow(null);
+  }
+
   async function readFiles(row: DraftRow, files: FileList | null) {
     if (!files?.length) return;
     const next: Array<{ fileName: string; dataUrl: string }> = [];
@@ -196,6 +263,7 @@ export function CostPaymentApprovalModal({
             ownerId: row.ownerId,
             ownerNo: row.ownerNo,
             period: row.period,
+            supplierId: row.supplierId,
             undertakingUnitCode: row.undertakingUnitCode,
             companyKey,
             amount: Number(row.amount),
@@ -212,6 +280,9 @@ export function CostPaymentApprovalModal({
             customerOptionKey: row.customerOptionKey,
             orderNo: row.orderNo,
             batchNo: row.batchNo,
+            projectId: row.projectId,
+            attachmentOwnerId: row.attachmentOwnerId,
+            attachmentRefs: row.attachmentRefs,
             attachments: row.attachments,
           })),
         }),
@@ -228,7 +299,43 @@ export function CostPaymentApprovalModal({
     }
   }
 
+  async function bindExistingApproval() {
+    if (binding || !rows.length) return;
+    setBinding(true);
+    setBindError("");
+    try {
+      const response = await fetch(`/api/payments/cost-approval/${branch}/bind`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ownerIds: rows.map((row) => row.ownerId),
+          instanceCode: bindCode.trim(),
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error ?? "绑定审批失败");
+      const confirmedAt = data.paymentConfirmedAt
+        ? formatDisplayValue(data.paymentConfirmedAt as never, "datetime")
+        : "";
+      const statusLabel = paymentApprovalStatusLabel(data.status) || String(data.status ?? "");
+      notify(
+        confirmedAt
+          ? `已绑定审批 ${data.serialNumber || data.instanceCode}，确认到账时间 ${confirmedAt}`
+          : `已绑定审批 ${data.serialNumber || data.instanceCode}，当前状态：${statusLabel || "审批中"}`,
+        confirmedAt ? "success" : "info",
+      );
+      setBindOpen(false);
+      onSubmitted?.();
+      onClose();
+    } catch (error) {
+      setBindError(error instanceof Error ? error.message : "绑定审批失败");
+    } finally {
+      setBinding(false);
+    }
+  }
+
   return (
+    <>
     <Modal
       description={`${BRANCH_TITLE[branch]} · 以你的飞书身份提交，审批通过后自动回写已付款`}
       footer={
@@ -239,6 +346,10 @@ export function CostPaymentApprovalModal({
           </div>
           <div className="flex shrink-0 gap-2">
             <Button onClick={onClose} disabled={submitting}>取消</Button>
+            <Button disabled={loading || submitting || binding || !rows.length} onClick={() => setBindOpen(true)}>
+              <Link2 size={15} />
+              绑定已有审批
+            </Button>
             <Button disabled={loading || submitting || !rows.length} onClick={() => void submit()} tone="primary">
               <Banknote size={15} />
               {submitting ? "发起中…" : "确认并发起审批"}
@@ -342,9 +453,10 @@ export function CostPaymentApprovalModal({
                   {(options?.fee ?? []).map((option) => <option key={option.value} value={option.value}>{option.text}</option>)}
                 </Select>
               </FormRow>
-              <FormRow label="需求付款日期">
+              <FormRow label="预计付款日期">
                 <Input
                   className="w-full"
+                  min={todayValue()}
                   type="date"
                   value={row.paymentDate ? row.paymentDate.slice(0, 10) : ""}
                   onChange={(event) => patchRow(row.ownerId, { paymentDate: event.target.value })}
@@ -410,15 +522,48 @@ export function CostPaymentApprovalModal({
                 <Paperclip className="text-ink-3" size={14} />
                 <span className="text-xs text-ink-2">附件<span className="text-danger">*</span></span>
                 <span className="text-[11px] text-ink-3">
-                  {branch === "other" ? "发票上已传的附件会自动带上，可再补充" : "付款申请必须带附件（发票 / 合同）"}
+                  {branch === "other"
+                    ? "默认带入发票附件，可补充项目附件或外部上传"
+                    : branch === "huawei"
+                      ? "默认带入供应商付款发票，可补充客户开票附件或外部上传"
+                      : "默认带入发票，可补充其他单据附件或外部上传"}
                 </span>
-                <label className="ml-auto inline-flex h-8 cursor-pointer items-center gap-1 rounded border border-line bg-white px-3 text-xs text-ink-2 transition-colors hover:border-primary hover:text-primary">
-                  <Upload size={13} />选择文件
-                  <input className="hidden" multiple type="file" onChange={(event) => { void readFiles(row, event.target.files); event.target.value = ""; }} />
-                </label>
+                <div className="ml-auto flex flex-wrap gap-2">
+                  <button
+                    className="inline-flex h-8 items-center gap-1 rounded border border-primary bg-white px-3 text-xs text-primary transition-colors hover:bg-info-soft disabled:cursor-not-allowed disabled:border-line disabled:text-ink-4 disabled:hover:bg-white"
+                    disabled={!row.attachmentOptions.length}
+                    onClick={() => openAttachmentPicker(row)}
+                    title={row.attachmentOptions.length ? "从当前单据已上传的附件中选择" : "当前单据还没有已上传的附件"}
+                    type="button"
+                  >
+                    <Paperclip size={13} />从单据选择
+                  </button>
+                  <label className="inline-flex h-8 cursor-pointer items-center gap-1 rounded border border-line bg-white px-3 text-xs text-ink-2 transition-colors hover:border-primary hover:text-primary">
+                    <Upload size={13} />选择文件
+                    <input className="hidden" multiple type="file" onChange={(event) => { void readFiles(row, event.target.files); event.target.value = ""; }} />
+                  </label>
+                </div>
               </div>
-              {row.attachments.length ? (
+              {row.attachmentRefs.length || row.attachments.length ? (
                 <div className="mt-2 flex flex-wrap gap-2">
+                  {row.attachmentRefs.map((ref) => {
+                    const option = row.attachmentOptions.find((item) => item.id === ref.attachmentId && item.source === ref.source);
+                    if (!option) return null;
+                    return (
+                      <span className="inline-flex max-w-[320px] items-center gap-2 rounded bg-info-soft px-2 py-1 text-xs text-ink-2" key={`${ref.source}:${ref.attachmentId}`}>
+                        <span className="shrink-0 rounded bg-white px-1.5 py-0.5 text-[10px] text-primary">{option.sourceLabel}</span>
+                        <Paperclip className="shrink-0 text-ink-3" size={12} />
+                        <span className="truncate" title={option.fileName}>{option.fileName}</span>
+                        <button
+                          className="shrink-0 text-danger hover:underline"
+                          onClick={() => patchRow(row.ownerId, { attachmentRefs: row.attachmentRefs.filter((item) => !(item.source === ref.source && item.attachmentId === ref.attachmentId)) })}
+                          type="button"
+                        >
+                          移除
+                        </button>
+                      </span>
+                    );
+                  })}
                   {row.attachments.map((attachment) => (
                     <span className="inline-flex max-w-[280px] items-center gap-2 rounded bg-canvas px-2 py-1 text-xs text-ink-2" key={attachment.fileName}>
                       <Paperclip className="shrink-0 text-ink-3" size={12} />
@@ -439,7 +584,185 @@ export function CostPaymentApprovalModal({
         ))}
       </div>
     </Modal>
+    {pickerRow ? (
+      <AttachmentPickerModal
+        keyword={pickerKeyword}
+        onCancel={() => setPickerRow(null)}
+        onConfirm={confirmAttachmentPicker}
+        onKeywordChange={setPickerKeyword}
+        onToggle={(option) => {
+          const key = `${option.source}:${option.id}`;
+          setPickerSelected((current) => {
+            const next = new Set(current);
+            if (next.has(key)) next.delete(key);
+            else next.add(key);
+            return next;
+          });
+        }}
+        onToggleGroup={(options, checked) => {
+          setPickerSelected((current) => {
+            const next = new Set(current);
+            for (const option of options) {
+              const key = `${option.source}:${option.id}`;
+              if (checked) next.add(key);
+              else next.delete(key);
+            }
+            return next;
+          });
+        }}
+        options={pickerRow.attachmentOptions}
+        selected={pickerSelected}
+      />
+    ) : null}
+    {bindOpen ? (
+      <Modal
+        description="用于已在飞书发起、但不是从本系统发起的成本款付款申请。绑定后会同步“确认是否到账”节点时间。"
+        footer={(
+          <div className="flex w-full items-center justify-between gap-3">
+            <span className="text-xs text-ink-3">支持审批单号或 v4 instance_code</span>
+            <div className="flex gap-2">
+              <Button disabled={binding} onClick={() => setBindOpen(false)}>取消</Button>
+              <Button disabled={binding || !bindCode.trim()} onClick={() => void bindExistingApproval()} tone="primary">
+                {binding ? "绑定中…" : "绑定并同步"}
+              </Button>
+            </div>
+          </div>
+        )}
+        onClose={() => { if (!binding) setBindOpen(false); }}
+        title="绑定已有飞书审批"
+        widthClass="max-w-xl"
+        zClass="z-[106]"
+      >
+        <label className="block space-y-1 text-sm text-ink-2">
+          <span>审批单号 / instance_code</span>
+          <Input
+            autoFocus
+            className="w-full"
+            placeholder="例如 202610160016 或 C2BD8C65-C974-4DCB-A262-0F101C73E67A"
+            value={bindCode}
+            onChange={(event) => setBindCode(event.target.value)}
+          />
+        </label>
+        <p className="mt-2 text-xs text-ink-3">
+          飞书分享短链不能直接绑定，请在审批详情里复制审批单号，或填写 v4 instance_code。
+        </p>
+        {bindError ? <div className="mt-3 rounded border border-danger-border-strong bg-danger-soft px-3 py-2 text-sm text-danger">{bindError}</div> : null}
+      </Modal>
+    ) : null}
+    </>
   );
+}
+
+function AttachmentPickerModal({
+  options,
+  selected,
+  keyword,
+  onKeywordChange,
+  onToggle,
+  onToggleGroup,
+  onCancel,
+  onConfirm,
+}: {
+  options: AttachmentOption[];
+  selected: Set<string>;
+  keyword: string;
+  onKeywordChange: (value: string) => void;
+  onToggle: (option: AttachmentOption) => void;
+  onToggleGroup: (options: AttachmentOption[], checked: boolean) => void;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const keywordText = keyword.trim().toLowerCase();
+  const filtered = options.filter((option) =>
+    !keywordText
+    || option.fileName.toLowerCase().includes(keywordText)
+    || option.sourceLabel.toLowerCase().includes(keywordText),
+  );
+  const groups = new Map<string, AttachmentOption[]>();
+  for (const option of filtered) {
+    const list = groups.get(option.sourceLabel) ?? [];
+    list.push(option);
+    groups.set(option.sourceLabel, list);
+  }
+
+  return (
+    <Modal
+      description="从当前付款单据已上传的附件中选择；提交时会读取原文件上传到飞书审批。"
+      footer={(
+        <div className="flex w-full items-center justify-between gap-3">
+          <span className="text-xs text-ink-3">已选 {selected.size} 个附件</span>
+          <div className="flex gap-2">
+            <Button onClick={onCancel}>取消</Button>
+            <Button onClick={onConfirm} tone="primary">确定选择</Button>
+          </div>
+        </div>
+      )}
+      onClose={onCancel}
+      title="从单据选择附件"
+      widthClass="max-w-3xl"
+      zClass="z-[105]"
+    >
+      <Input
+        autoFocus
+        className="w-full"
+        placeholder="搜索文件名或来源"
+        value={keyword}
+        onChange={(event) => onKeywordChange(event.target.value)}
+      />
+      <div className="mt-3 max-h-[55vh] space-y-4 overflow-auto pr-1">
+        {[...groups.entries()].map(([label, files]) => {
+          const allChecked = files.every((file) => selected.has(`${file.source}:${file.id}`));
+          return (
+            <section key={label}>
+              <div className="mb-2 flex items-center gap-2 text-xs">
+                <span className="font-medium text-ink">{label}</span>
+                <span className="text-ink-3">{files.length} 个</span>
+                <button
+                  className="ml-auto text-primary hover:underline"
+                  onClick={() => onToggleGroup(files, !allChecked)}
+                  type="button"
+                >
+                  {allChecked ? "取消全选" : "全选本组"}
+                </button>
+              </div>
+              <div className="space-y-2">
+                {files.map((file) => {
+                  const key = `${file.source}:${file.id}`;
+                  return (
+                    <label className="flex cursor-pointer items-center gap-3 rounded border border-line-soft px-3 py-2.5 hover:border-info-border hover:bg-info-soft/30" key={key}>
+                      <input
+                        checked={selected.has(key)}
+                        className="h-4 w-4 shrink-0 accent-primary"
+                        onChange={() => onToggle(file)}
+                        type="checkbox"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-sm text-ink" title={file.fileName}>{file.fileName}</div>
+                        <div className="mt-0.5 text-[11px] text-ink-3">
+                          {formatAttachmentSize(file.fileSize)}
+                          {file.uploadedAt ? ` · ${formatDisplayValue(file.uploadedAt as never, "datetime")}` : ""}
+                          {file.description ? ` · ${file.description}` : ""}
+                        </div>
+                      </div>
+                      <span className="shrink-0 rounded bg-info-soft px-1.5 py-0.5 text-[10px] text-primary">{file.sourceLabel}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </section>
+          );
+        })}
+        {!groups.size ? <div className="py-12 text-center text-sm text-ink-3">{options.length ? "没有匹配的附件" : "当前单据还没有可选择的附件"}</div> : null}
+      </div>
+    </Modal>
+  );
+}
+
+function formatAttachmentSize(bytes: number) {
+  if (!bytes) return "0 B";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
 }
 
 function SummaryCell({ label, value }: { label: string; value: string }) {

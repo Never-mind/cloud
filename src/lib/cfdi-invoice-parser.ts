@@ -73,11 +73,16 @@ function normalizeDateTime(value: string) {
  * PDF 和 XML 必须共用这一套，否则同一个发票在不同入口会识别成两个号。
  */
 export function buildCfdiInvoiceNumber(serie: string, folio: string) {
-  const s = String(serie ?? "").trim();
+  const rawSerie = String(serie ?? "").trim();
+  // 有些开票系统把分隔符写进 Serie（例如 Serie="F-"、Folio="898"），
+  // 不先去掉末尾横杠会拼成 F--898。
+  const s = rawSerie.replace(/[-–—\s]+$/g, "");
   const f = String(folio ?? "").trim();
   if (!s) return f;
   if (!f) return s;
-  return f.toUpperCase().startsWith(s.toUpperCase()) ? f : `${s}-${f}`;
+  return f.toUpperCase().startsWith(rawSerie.toUpperCase()) || f.toUpperCase().startsWith(s.toUpperCase())
+    ? f
+    : `${s}-${f}`;
 }
 
 export function parseCfdiInvoice(xml: string): CfdiInvoice {

@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Banknote, CheckCircle2, FileDown, Pencil, Plus, RefreshCw, Search, Trash2 } from "lucide-react";
 import { formatDisplayValue } from "@/lib/display-format";
+import { paymentApprovalStatusClass, paymentApprovalStatusLabel } from "@/lib/payment-approval-status";
 import type { EntityConfig } from "@/lib/modules";
 import { isConfirmedOrderStatus, type OrderStatusTab } from "@/lib/order-status";
 import { formatRequestRemoteStatus } from "@/lib/request-remote-status";
@@ -95,6 +96,11 @@ export function OrderListPage({
   const beginRequest = useRequestGuard();
 
   useListScrollPosition(currentRoute, !loading);
+
+  useEffect(() => {
+    if (mode !== "purchase") return;
+    void fetch("/api/payments/cost-approval/compute/sync", { cache: "no-store" }).catch(() => undefined);
+  }, [mode]);
 
   useEffect(() => {
     const params = new URLSearchParams(searchParams.toString());
@@ -346,12 +352,12 @@ export function OrderListPage({
         : [
             ["poNo", "PO订单号"], ["requestNo", "来源需求单"], ["countryCode", "国家"], ["batchName", "批次号"], ["status", "状态"],
             ["currency", "币种"], ["totalQuantity", "总数量"], ["purchaseTotalAmount", "采购总金额", "money"],
-            ["invoiceStatus", "开票状态"], ["paymentStatus", "付款状态"], ["paymentDate", "预计付款日期", "date"], ["paidAt", "实际付款日期", "date"],
+            ["invoiceStatus", "开票状态"], ["paymentApprovalStatus", "审批状态"], ["paymentStatus", "付款状态"], ["paymentDate", "预计付款日期", "date"], ["paidAt", "实际付款日期", "date"],
             ["createdAt", "创建时间", "datetime"], ["updatedAt", "更新时间", "datetime"],
           ];
     const worksheet = XLSX.utils.aoa_to_sheet([
       columns.map(([, label]) => label),
-      ...exportRows.map((row) => columns.map(([key, , type]) => formatValue(row[key], type))),
+      ...exportRows.map((row) => columns.map(([key, , type]) => key === "paymentApprovalStatus" ? paymentApprovalStatusLabel(row[key]) : formatValue(row[key], type))),
     ]);
     worksheet["!cols"] = columns.map(([, label]) => ({ wch: Math.max(12, label.length * 2 + 4) }));
     const workbook = XLSX.utils.book_new();
@@ -383,7 +389,7 @@ export function OrderListPage({
     + (mode === "purchase" ? 1 : 0) // 币种
     + 1 // 总数量
     + (mode === "purchase" ? 1 : 0) // 采购总金额
-    + (mode === "purchase" ? 4 : 0) // 开票/付款状态、预计/实际付款日期
+    + (mode === "purchase" ? 5 : 0) // 开票/审批/付款状态、预计/实际付款日期
     + (mode === "requests" ? 1 : 0) // 计划交付日期
     + 2 // 创建时间 / 更新时间
     + 1; // 操作
@@ -573,6 +579,7 @@ export function OrderListPage({
                 {mode === "purchase" ? (
                   <>
                     <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">{renderHeader("invoiceStatus", "开票状态")}</th>
+                    <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">{renderHeader("paymentApprovalStatus", "审批状态")}</th>
                     <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">{renderHeader("paymentStatus", "付款状态")}</th>
                     <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">{renderHeader("paymentDate", "预计付款日期")}</th>
                     <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">{renderHeader("paidAt", "实际付款日期")}</th>
@@ -685,6 +692,7 @@ export function OrderListPage({
                     {mode === "purchase" ? (
                       <>
                         <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3"><InvoiceStatusBadge value={String(row.invoiceStatus ?? "")} /></td>
+                        <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3"><PaymentApprovalBadge row={row} /></td>
                         <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3"><PaymentStatusBadge value={String(row.paymentStatus ?? "")} /></td>
                         <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3">{formatValue(row.paymentDate, "date")}</td>
                         <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3">{formatValue(row.paidAt, "date")}</td>
@@ -834,10 +842,25 @@ function PaymentStatusBadge({ value }: { value: string }) {
     ? "border-success bg-success-soft text-success-dark"
     : text === "审批中"
       ? "border-warning bg-warning-soft text-warning-ink"
+      : text === "已退回"
+        ? "border-warning bg-warning-soft text-warning-ink"
       : text === "已驳回"
         ? "border-danger-border-strong bg-danger-soft text-danger"
+        : text === "已撤回"
+          ? "border-line bg-canvas text-ink-2"
         : "border-line bg-white text-ink-3";
   return <span className={`inline-flex rounded border px-2 py-0.5 text-xs ${tone}`}>{text}</span>;
+}
+
+function PaymentApprovalBadge({ row }: { row: Row }) {
+  const label = paymentApprovalStatusLabel(row.paymentApprovalStatus);
+  if (!label) return <span className="text-ink-3">-</span>;
+  const title = [
+    `审批状态：${label}`,
+    row.paymentApprovalNo ? `单号：${String(row.paymentApprovalNo)}` : "",
+    row.paymentConfirmedAt ? `确认到账：${formatDisplayValue(row.paymentConfirmedAt as never, "datetime")}` : "",
+  ].filter(Boolean).join(" · ");
+  return <span className={`inline-flex rounded border px-2 py-0.5 text-xs ${paymentApprovalStatusClass(row.paymentApprovalStatus)}`} title={title}>{label}</span>;
 }
 
 function formatValue(value: unknown, type?: string) {

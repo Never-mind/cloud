@@ -19,6 +19,7 @@ import { StickyTable } from "./sticky-table";
 import { TableColumnMenu, type TableFilterOption, type TableSortOrder } from "./table-column-menu";
 import { calculateCloudTaxGroup, CLOUD_TAX_GROUPS, type CloudTaxField, type CloudTaxGroup } from "@/lib/cloud-tax";
 import { formatDisplayValue, formatMoneyValue } from "@/lib/display-format";
+import { paymentApprovalStatusClass, paymentApprovalStatusLabel } from "@/lib/payment-approval-status";
 import { DEFAULT_PAGE_SIZE } from "@/lib/pagination";
 import { fetchTableFilterOptions } from "@/lib/table-query-client";
 import { useWorkspaceDataRefresh } from "@/lib/workspace-events";
@@ -49,8 +50,8 @@ const paymentColumns: Array<[string, string]> = [
   ["supplierTaxRate", "应付税率"], ["supplierTaxAmount", "应付税金"], ["supplierPayableTotalAmount", "应付含税金额"],
   ["paymentNetAmount", "实付未税金额"], ["paymentExchangeRate", "实付汇率"], ["paymentTaxRate", "实付税率"], ["paymentTaxAmount", "实付税金"], ["paymentTotalAmount", "实付含税金额"], ["invoiceCurrency", "开票币种"], ["invoiceNetAmount", "开票未税金额"],
   ["invoiceExchangeRate", "开票汇率"], ["invoiceTaxRate", "开票税率"], ["invoiceTaxAmount", "开票税金"], ["invoiceTotalAmount", "开票含税金额"],
-  ["paymentDate", "付款日期"], ["receivableDate", "应收日期"],
-  ["paid", "付款状态"], ["invoiceStatus", "开票状态"], ["updatedAt", "更新时间"],
+  ["paymentDate", "实际付款日期"], ["receivableDate", "预计付款日期"],
+  ["paymentApprovalStatus", "审批状态"], ["paid", "付款状态"], ["invoiceStatus", "开票状态"], ["updatedAt", "更新时间"],
 ];
 type QueryState = { sortField: string; sortOrder: TableSortOrder; filters: Record<string, string[]> };
 const emptyQuery = (): QueryState => ({ sortField: "", sortOrder: "", filters: {} });
@@ -107,6 +108,9 @@ export function CloudReconciliationPage() {
   }
 
   useEffect(() => { void loadDefaultPayerUnit(); }, []);
+  useEffect(() => {
+    void fetch("/api/payments/cost-approval/huawei/sync", { cache: "no-store" }).catch(() => undefined);
+  }, []);
   const [masters, setMasters] = useState<MasterSet>({ suppliers: [], undertakingUnits: [], customers: [] });
   const [keyword, setKeyword] = useState("");
   const [period, setPeriod] = useState("");
@@ -683,7 +687,7 @@ function RowTable({ attachmentVersion, currencyTotals, rows, onAttach, onConfirm
     if (key === "supplierPayableTotalAmount") return <CloudAmountCell row={cellRow} payerKey="supplierPayablePayer" payeeKey="supplierPayablePayee" payerFallback="承接单位" payeeFallback="供应商" currencyKey="supplierCurrency" netKey="supplierPayableNetAmount" taxRateKey="supplierTaxRate" taxKey="supplierTaxAmount" totalKey="supplierPayableTotalAmount" />;
     if (key === "customerReceivableTotalAmount") return <CloudAmountCell row={cellRow} payerKey="customerReceivablePayer" payeeKey="customerReceivablePayee" payerFallback={display(row.customer) === "-" ? "客户" : display(row.customer)} payeeFallback="承接单位" currencyKey="customerCurrency" netKey="customerReceivableNetAmount" taxRateKey="customerTaxRate" taxKey="customerReceivableTaxAmount" totalKey="customerReceivableTotalAmount" />;
     if (key === "collectionTotalAmount") return <CloudAmountCell row={cellRow} payerKey="collectionPayer" payeeKey="collectionPayee" payerFallback={display(row.customer) === "-" ? "客户" : display(row.customer)} payeeFallback="承接单位" currencyKey="collectionCurrency" exchangeRateKey="collectionExchangeRate" netKey="collectionNetAmount" taxRateKey="collectionTaxRate" taxKey="collectionTaxAmount" totalKey="collectionTotalAmount" action={<><button aria-checked={Boolean(row.collected)} aria-label={`客户实收状态：${row.collected ? "已收款" : "未收款"}`} className="inline-flex h-6 items-center gap-1 rounded text-xs text-ink-2 disabled:cursor-not-allowed disabled:opacity-50" disabled={Boolean(row.confirmed)} role="switch" title={`点击切换为${row.collected ? "未收款" : "已收款"}`} type="button" onClick={() => onToggleCollection(row)}><span className={`relative inline-flex h-4 w-7 rounded-full ${row.collected ? "bg-success" : "bg-ink-4"}`}><span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white shadow ${row.collected ? "translate-x-[15px]" : "translate-x-0.5"}`} /></span><span>{row.collected ? "已收款" : "未收款"}</span></button>{!row.confirmed ? <button aria-label="编辑客户实收" className="ml-auto inline-flex h-6 w-6 items-center justify-center rounded text-ink-3 hover:bg-canvas hover:text-primary" title="编辑客户实收" type="button" onClick={() => onEditCollection(row)}><Pencil size={13} /></button> : null}</>} />;
-    if (key === "invoiceTotalAmount") return <CloudAmountCell row={cellRow} payerKey="invoicePayer" payeeKey="invoicePayee" payerFallback={display(row.customer) === "-" ? "客户" : display(row.customer)} payeeFallback="承接单位" currencyKey="invoiceCurrency" exchangeRateKey="invoiceExchangeRate" dateKey="receivableDate" netKey="invoiceNetAmount" taxRateKey="invoiceTaxRate" taxKey="invoiceTaxAmount" totalKey="invoiceTotalAmount" action={<>{row.invoiceApprovalStatus ? <span className={`inline-flex h-6 items-center rounded px-1.5 text-xs ${row.invoiceApprovalStatus === "approved" ? "bg-success-soft text-success" : "bg-warning-soft text-warning"}`} title={`飞书开票审批：${row.invoiceApprovalStatus === "approved" ? "已通过（待出票）" : "审批中"} · 单号 ${String(row.invoiceApprovalNo ?? "")} · 提交于 ${String(row.invoiceApprovalAt ?? "")}`}>{row.invoiceApprovalStatus === "approved" ? "审批通过待出票" : "审批中"}</span> : null}<button aria-checked={row.collectionInvoice === "issued"} aria-label={`客户开票状态：${row.collectionInvoice === "issued" ? "已开票" : "未开票"}`} className="inline-flex h-6 items-center gap-1 rounded text-xs text-ink-2 disabled:cursor-not-allowed disabled:opacity-50" disabled={Boolean(row.confirmed)} role="switch" title={`点击切换为${row.collectionInvoice === "issued" ? "未开票" : "已开票"}`} type="button" onClick={() => onToggleInvoice(row)}><span className={`relative inline-flex h-4 w-7 rounded-full ${row.collectionInvoice === "issued" ? "bg-success" : "bg-ink-4"}`}><span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white shadow ${row.collectionInvoice === "issued" ? "translate-x-[15px]" : "translate-x-0.5"}`} /></span><span>{row.collectionInvoice === "issued" ? "已开票" : "未开票"}</span></button>{!row.confirmed ? <IconButton icon={<Pencil size={13} />} label="编辑客户开票" onClick={() => onEditInvoice(row)} /> : null}<button aria-label="开票（按本行生成票面）" className="inline-flex h-6 items-center rounded px-1.5 text-xs text-primary hover:bg-canvas" title="按本行生成票面并标记已开票" type="button" onClick={() => onIssueInvoice(row)}>开票</button><button aria-label="上传外部发票" className="inline-flex h-6 items-center rounded px-1.5 text-xs text-ink-2 hover:bg-canvas" title="外部已开好票：上传文件并登记" type="button" onClick={() => onUploadInvoice(row)}>上传发票</button><button aria-label="合并多账期开一张票" className="inline-flex h-6 items-center rounded px-1.5 text-xs text-info-ink hover:bg-canvas" title="勾选多个账期，开在同一张票上" type="button" onClick={() => onMergeInvoice(row)}>合并多账期</button><UploadIconButton icon={<FileUp size={13} />} label="上传客户发票附件" onFile={(event) => { const file = event.target.files?.[0]; if (file) onAttach(row, file); event.target.value = ""; }} /><CloudAttachments ownerId={String(row.id ?? "")} ownerType="invoice" refreshToken={attachmentVersion} /></>} />;
+    if (key === "invoiceTotalAmount") return <CloudAmountCell row={cellRow} payerKey="invoicePayer" payeeKey="invoicePayee" payerFallback={display(row.customer) === "-" ? "客户" : display(row.customer)} payeeFallback="承接单位" currencyKey="invoiceCurrency" exchangeRateKey="invoiceExchangeRate" dateKey="receivableDate" netKey="invoiceNetAmount" taxRateKey="invoiceTaxRate" taxKey="invoiceTaxAmount" totalKey="invoiceTotalAmount" action={<><InvoiceApprovalBadge row={row} /><button aria-checked={row.collectionInvoice === "issued"} aria-label={`客户开票状态：${row.collectionInvoice === "issued" ? "已开票" : "未开票"}`} className="inline-flex h-6 items-center gap-1 rounded text-xs text-ink-2 disabled:cursor-not-allowed disabled:opacity-50" disabled={Boolean(row.confirmed)} role="switch" title={`点击切换为${row.collectionInvoice === "issued" ? "未开票" : "已开票"}`} type="button" onClick={() => onToggleInvoice(row)}><span className={`relative inline-flex h-4 w-7 rounded-full ${row.collectionInvoice === "issued" ? "bg-success" : "bg-ink-4"}`}><span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white shadow ${row.collectionInvoice === "issued" ? "translate-x-[15px]" : "translate-x-0.5"}`} /></span><span>{row.collectionInvoice === "issued" ? "已开票" : "未开票"}</span></button>{!row.confirmed ? <IconButton icon={<Pencil size={13} />} label="编辑客户开票" onClick={() => onEditInvoice(row)} /> : null}<button aria-label="开票（按本行生成票面）" className="inline-flex h-6 items-center rounded px-1.5 text-xs text-primary hover:bg-canvas" title="按本行生成票面并标记已开票" type="button" onClick={() => onIssueInvoice(row)}>开票</button><button aria-label="上传外部发票" className="inline-flex h-6 items-center rounded px-1.5 text-xs text-ink-2 hover:bg-canvas" title="外部已开好票：上传文件并登记" type="button" onClick={() => onUploadInvoice(row)}>上传发票</button><button aria-label="合并多账期开一张票" className="inline-flex h-6 items-center rounded px-1.5 text-xs text-info-ink hover:bg-canvas" title="勾选多个账期，开在同一张票上" type="button" onClick={() => onMergeInvoice(row)}>合并多账期</button><UploadIconButton icon={<FileUp size={13} />} label="上传客户发票附件" onFile={(event) => { const file = event.target.files?.[0]; if (file) onAttach(row, file); event.target.value = ""; }} /><CloudAttachments ownerId={String(row.id ?? "")} ownerType="invoice" refreshToken={attachmentVersion} /></>} />;
     if (key === "createdAt" || key === "updatedAt" || key === "confirmedAt") return formatDisplayValue(cellRow[key] as never, "datetime");
     if (key === "catalogAmount" || key === "partnerAmount" || key === "voucherCustomerAmount" || key === "voucherSupplierAmount" || key === "theoreticalGrossProfit" || key === "settlementGrossProfit") return money(cellRow[key]);
     return display(cellRow[key]);
@@ -713,6 +717,16 @@ function PaymentTable({ attachmentVersion, rows, onAttach, onPay, onUpdate, onTo
     if (key === "invoiceCurrency") return display(row[key]);
     if (key === "invoiceExchangeRate") return exchangeRateText(row[key]);
     if (key === "accountCount") return integerText(row[key]);
+    if (key === "paymentApprovalStatus") {
+      const label = paymentApprovalStatusLabel(row[key]);
+      if (!label) return "-";
+      const title = [
+        `审批状态：${label}`,
+        row.paymentApprovalNo ? `单号：${String(row.paymentApprovalNo)}` : "",
+        row.paymentConfirmedAt ? `确认到账：${formatDisplayValue(row.paymentConfirmedAt as never, "datetime")}` : "",
+      ].filter(Boolean).join(" · ");
+      return <span className={`inline-flex rounded border px-2 py-0.5 text-xs ${paymentApprovalStatusClass(row[key])}`} title={title}>{label}</span>;
+    }
     if (key === "paid") return <StatusSwitch checked={Boolean(row.paid)} onClick={() => onTogglePaid(row)} onLabel="已付款" offLabel="未付款" title="点击切换付款状态" />;
     if (key === "invoiceStatus") return <StatusSwitch checked={row.invoiceStatus === "issued"} onClick={() => onToggleInvoice(row)} onLabel="已开票" offLabel="未开票" title="点击切换开票状态" />;
      if (key === "updatedAt") return formatDisplayValue(row[key] as never, "datetime");
@@ -724,6 +738,25 @@ function PaymentTable({ attachmentVersion, rows, onAttach, onPay, onUpdate, onTo
 
 function StatusSwitch({ checked, onClick, onLabel, offLabel, title }: { checked: boolean; onClick: () => void; onLabel: string; offLabel: string; title: string }) {
   return <button aria-checked={checked} className="inline-flex items-center gap-1 text-xs text-ink-2" role="switch" title={title} type="button" onClick={onClick}><span className={`relative inline-flex h-4 w-7 rounded-full ${checked ? "bg-success" : "bg-ink-4"}`}><span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white shadow transition-transform ${checked ? "translate-x-[15px]" : "translate-x-0.5"}`} /></span><span>{checked ? onLabel : offLabel}</span></button>;
+}
+
+function InvoiceApprovalBadge({ row }: { row: Row }) {
+  const status = String(row.invoiceApprovalStatus ?? "").trim();
+  if (!status) return null;
+  const label = status === "approved" ? "审批通过待出票" : paymentApprovalStatusLabel(status) || status;
+  const tone = status === "approved"
+    ? "border-success bg-success-soft text-success"
+    : status === "rejected"
+      ? "border-danger-border-strong bg-danger-soft text-danger"
+      : status === "canceled" || status === "cancelled"
+        ? "border-line bg-canvas text-ink-2"
+        : "border-warning bg-warning-soft text-warning";
+  const title = [
+    `飞书开票审批：${label}`,
+    row.invoiceApprovalNo ? `单号：${String(row.invoiceApprovalNo)}` : "",
+    row.invoiceApprovalAt ? `提交于：${String(row.invoiceApprovalAt)}` : "",
+  ].filter(Boolean).join(" · ");
+  return <span className={`inline-flex h-6 items-center rounded border px-1.5 text-xs ${tone}`} title={title}>{label}</span>;
 }
 
 function CloudRowForm({ value, masters, onChange, onCancel, onSave }: { value: Row; masters: MasterSet; onChange: (value: Row) => void; onCancel: () => void; onSave: () => void }) {
@@ -772,11 +805,11 @@ function SupplierPaymentForm({ value, masters, onChange, onCancel, onSave, onRec
 }) {
   const paymentFields: Array<[string, string, string?]> = [
     ["currency", "实付币种"], ["paymentExchangeRate", "实付汇率", "number"], ["paymentNetAmount", "实付未税金额", "number"],
-    ["paymentTaxRate", "实付税率", "number"], ["paymentTaxAmount", "实付税金", "number"], ["paymentTotalAmount", "实付含税金额", "number"], ["paymentDate", "实付日期", "date"],
+    ["paymentTaxRate", "实付税率", "number"], ["paymentTaxAmount", "实付税金", "number"], ["paymentTotalAmount", "实付含税金额", "number"], ["paymentDate", "实际付款日期", "date"],
   ];
   const invoiceFields: Array<[string, string, string?]> = [
     ["invoiceNo", "发票号"], ["invoiceCurrency", "发票币种"], ["invoiceExchangeRate", "发票汇率", "number"], ["invoiceNetAmount", "发票未税金额", "number"],
-    ["invoiceTaxRate", "发票税率", "number"], ["invoiceTaxAmount", "发票税金", "number"], ["invoiceTotalAmount", "发票含税金额", "number"], ["invoiceDate", "开票日期", "date"], ["receivableDate", "应收日期", "date"],
+    ["invoiceTaxRate", "发票税率", "number"], ["invoiceTaxAmount", "发票税金", "number"], ["invoiceTotalAmount", "发票含税金额", "number"], ["invoiceDate", "开票日期", "date"], ["receivableDate", "预计付款日期", "date"],
   ];
   const changeField = (key: string, type: string | undefined, input: string) => {
     if (key === "invoiceDate") {
