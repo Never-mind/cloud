@@ -898,18 +898,6 @@ export function EntityPage({
               导出 Excel
             </Button>
           </a>
-          {config.key === "shipments" ? (
-            <>
-              <Button onClick={() => void syncConfirmedPurchaseOrderShipments()}>
-                <RefreshCw size={15} />
-                同步已确认采购订单
-              </Button>
-              <Button disabled={fillingPendingShipments} tone="success" onClick={() => void fillPendingShipmentLogistics()}>
-                <RefreshCw size={15} />
-                {fillingPendingShipments ? "刷新中..." : "批量刷新远端物流"}
-              </Button>
-            </>
-          ) : null}
           {config.key === "instance-models" ? (
             <>
               <Button disabled={materialSyncing} onClick={() => void syncRemoteMaterials(false)}>
@@ -922,7 +910,7 @@ export function EntityPage({
               </Button>
             </>
           ) : null}
-          {config.key === "shipments" || enableFieldSettings ? (
+          {config.key !== "shipments" && enableFieldSettings ? (
             <Button className="ml-auto" onClick={() => setShowFieldSettings(true)}>
               <Columns3 size={15} />
               字段设置
@@ -954,6 +942,25 @@ export function EntityPage({
             />
           ) : null}
         </div>
+
+        {config.key === "shipments" ? (
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line-soft bg-surface-2 px-4 py-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <Button onClick={() => void syncConfirmedPurchaseOrderShipments()}>
+                <RefreshCw size={15} />
+                同步已确认采购订单
+              </Button>
+              <Button disabled={fillingPendingShipments} tone="success" onClick={() => void fillPendingShipmentLogistics()}>
+                <RefreshCw size={15} />
+                {fillingPendingShipments ? "刷新中..." : "批量刷新远端物流"}
+              </Button>
+            </div>
+            <Button onClick={() => setShowFieldSettings(true)}>
+              <Columns3 size={15} />
+              字段设置
+            </Button>
+          </div>
+        ) : null}
 
         {config.key === "instance-models" && latestMaterialSync ? (
           <div className="border-b border-line-soft bg-surface-2 px-4 py-2 text-xs text-ink-3">

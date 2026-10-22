@@ -127,10 +127,12 @@ export async function listCloudDrive(options: { keyword?: string; prefix?: strin
     });
   }
 
-  if (canView("huawei-cloud")) {
+  if (canView("huawei-cloud") || canView("service-fee-snapshots")) {
     for (const row of cloudRows) {
       const ownerType = String(row.ownerType ?? "");
       const ownerId = String(row.ownerId ?? "");
+      const serviceFeeInvoice = ownerType === "service_fee_invoice";
+      if (serviceFeeInvoice ? !canView("service-fee-snapshots") : !canView("huawei-cloud")) continue;
       const context = await resolveCloudAttachmentContext(ownerType, ownerId);
       const prefix = buildStoragePrefix(context);
       push({
@@ -144,9 +146,11 @@ export async function listCloudDrive(options: { keyword?: string; prefix?: strin
         provider: String(row.storageProvider ?? "db") === "obs" ? "obs" : "db",
         storageKey: String(row.storageKey ?? "") || null,
         source: "cloud",
-        sourceLabel: "华为云业务",
-        ownerLabel: String(context.customer ?? "") + (context.period ? ` / ${context.period}` : ""),
-        jumpHref: "/cloud/reconciliation",
+        sourceLabel: serviceFeeInvoice ? "算力业务" : "华为云业务",
+        ownerLabel: serviceFeeInvoice
+          ? ownerId
+          : String(context.customer ?? "") + (context.period ? ` / ${context.period}` : ""),
+        jumpHref: serviceFeeInvoice ? "/finance/service-fee-snapshots" : "/cloud/reconciliation",
         downloadHref: `/api/cloud/attachments/${encodeURIComponent(String(row.id))}`,
       });
     }

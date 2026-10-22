@@ -1782,7 +1782,7 @@ export async function storeCloudAttachment(
     fileName: file.fileName,
     fileType: file.fileType,
     bytes: file.bytes,
-    isInvoice: ["invoice", "crm_invoice", "supplier_payment"].includes(ownerType) || /发票|invoice/i.test(file.fileName),
+    isInvoice: ["invoice", "crm_invoice", "supplier_payment", "service_fee_invoice"].includes(ownerType) || /发票|invoice/i.test(file.fileName),
   });
   return addCloudAttachmentRecord(
     ownerType,

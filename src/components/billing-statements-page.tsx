@@ -205,8 +205,8 @@ export function BillingStatementsPage() {
       </div>
 
       <Panel>
-        <div className="grid gap-4 border-b border-line-soft p-4 md:grid-cols-6">
-          <label>
+        <div className="flex flex-wrap items-end gap-2 border-b border-line-soft p-3">
+          <label className="w-[92px]">
             <span className="mb-1 block text-sm font-medium text-ink-2">国家</span>
             <Select className="w-full" value={countryCode} onChange={(event) => setCountryCode(event.target.value)}>
               <option value="BR">BR</option>
@@ -214,7 +214,7 @@ export function BillingStatementsPage() {
               <option value="MX">MX</option>
             </Select>
           </label>
-          <label>
+          <label className="w-[110px]">
             <span className="mb-1 block text-sm font-medium text-ink-2">币种</span>
             <Select className="w-full" value={currency} onChange={(event) => setCurrency(event.target.value)}>
               <option value="">全部</option>
@@ -225,31 +225,31 @@ export function BillingStatementsPage() {
               <option value="BRL">BRL</option>
             </Select>
           </label>
-          <label>
+          <label className="w-[142px]">
             <span className="mb-1 block text-sm font-medium text-ink-2">起始日期</span>
             <Input className="w-full" type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} />
           </label>
-          <label>
+          <label className="w-[142px]">
             <span className="mb-1 block text-sm font-medium text-ink-2">终止日期</span>
             <Input className="w-full" type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} />
           </label>
-          <label className="md:col-span-2">
+          <label className="w-[190px]">
             <span className="mb-1 block text-sm font-medium text-ink-2">对账单号</span>
             <Input className="w-full" placeholder="不填自动生成" value={snapshotNo} onChange={(event) => setSnapshotNo(event.target.value)} />
           </label>
-        </div>
-        <div className="flex flex-wrap items-center gap-2 border-b border-line-soft p-4">
           <Button onClick={() => void preview()}>
             <Search size={15} />
             预览
           </Button>
           <Button disabled={creating} tone="success" onClick={() => void createSnapshot()}>
             <CheckCircle2 size={15} />
-            {creating ? "生成中" : "生成对账单草稿"}
+            {creating ? "生成中" : "生成对账单"}
           </Button>
-          <span className="text-sm text-ink-3">
-            预览 {previewRows.length} 条，数量 {formatValue(previewSummary.totalQuantity, "number")}，金额 {formatValue(previewSummary.totalAmount, "number")}
-          </span>
+          <div className="flex flex-wrap items-center gap-2 pb-1 text-xs text-ink-3">
+            <span>预览 {previewRows.length} 条</span>
+            <span>数量 {formatValue(previewSummary.totalQuantity, "number")}</span>
+            <span>金额 {formatValue(previewSummary.totalAmount, "number")}</span>
+          </div>
         </div>
         <div className="table-scroll max-h-[360px] overflow-auto">
           <table className="min-w-full border-collapse text-sm">

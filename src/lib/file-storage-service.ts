@@ -259,6 +259,17 @@ export async function resolveCloudAttachmentContext(ownerType: string, ownerId: 
       period: String(row?.belongMonth ?? "").replace(/[^0-9]/g, ""),
     };
   }
+  if (ownerType === "service_fee_invoice") {
+    const rows = await queryRowsRaw<Row>(
+      "SELECT countryCode FROM merge_power_servicefeesnapshots WHERE snapshotNo = :ownerId LIMIT 1",
+      { ownerId },
+    );
+    return {
+      system: "power",
+      country: String(rows[0]?.countryCode ?? "").trim() || "未分类",
+      requestNo: ownerId,
+    };
+  }
   if (CLOUD_ROW_OWNER_TYPES.has(ownerType)) {
     const rows = await queryRowsRaw<Row>(
       "SELECT period, customer, customerId FROM merge_cloud_rows WHERE id = :ownerId LIMIT 1",

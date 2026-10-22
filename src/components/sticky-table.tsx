@@ -293,6 +293,17 @@ export function StickyTable({ children, className, tableKey, topOffset = 0 }: St
         if (hasCallerHeightControl(Array.from(element.classList))) return;
 
         /**
+         * 只有同一面板下带分页条的列表才需要把表格收口到一屏。
+         * 需求单详情等无分页表格应保持自然高度，由页面负责纵向滚动；
+         * 否则上方主单信息会占掉大部分可用空间，表格只剩一两行。
+         */
+        const layoutPanel = element.closest(".sticky-table-region")?.parentElement;
+        if (!layoutPanel?.querySelector(":scope > [data-pagination-bar]")) {
+          if (element.style.maxHeight !== "none") element.style.maxHeight = "none";
+          return;
+        }
+
+        /**
          * 一页多表（项目结算详情）时不做整页收口：让每张表按内容自然展开、走页面滚动。
          * 否则每张表都按整页溢出量收口，会一起被压到 MIN_TABLE_VIEWPORT_HEIGHT（约 3 行）。
          */
@@ -405,6 +416,7 @@ export function StickyTable({ children, className, tableKey, topOffset = 0 }: St
   const childNodes = Children.toArray(children);
   const tableIndex = childNodes.findIndex((child) => isValidElement<TableElementProps>(child) && child.type === "table");
   const table = tableIndex >= 0 ? childNodes[tableIndex] as ReactElement<TableElementProps> : null;
+  const fillsParent = String(className ?? "").split(/\s+/).includes("h-full");
 
   if (!table) {
     return <div ref={bodyRef} className={className}>{children}</div>;
@@ -427,7 +439,7 @@ export function StickyTable({ children, className, tableKey, topOffset = 0 }: St
   const bodyTable = withTableId(table, stableTableKey, table.props.children);
 
   return (
-    <div ref={regionRef} className="sticky-table-region min-w-0 max-w-full">
+    <div ref={regionRef} className={`sticky-table-region min-w-0 max-w-full${fillsParent ? " h-full min-h-0" : ""}`}>
       <div ref={bodyRef} className={className}>
         {bodyTable}
         {extraChildren}

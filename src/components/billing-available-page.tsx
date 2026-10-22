@@ -244,7 +244,7 @@ export function BillingAvailablePage() {
   }
 
   return (
-    <div className="space-y-5 pb-24">
+    <div className={`space-y-5 ${selectedIds.length ? "pb-24" : ""}`}>
       <div>
         <h1 className="text-xl font-medium text-ink">待生成月账单实例</h1>
         <p className="mt-1 text-sm text-ink-3">已确认下单且尚未生成月账单合同的实例会在这里集中确认。</p>

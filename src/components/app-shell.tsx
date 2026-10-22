@@ -13,7 +13,8 @@ import {
   GripVertical,
   Home,
   LogOut,
-  Menu,
+  PanelLeftClose,
+  PanelLeftOpen,
   ReceiptText,
   RotateCcw,
   Search,
@@ -54,6 +55,7 @@ import { AppDialogHost, notify } from "./app-dialog";
 
 const WORKSPACE_STORAGE_KEY = "cloud-power-workspace-tabs";
 const SIDEBAR_OPEN_GROUPS_STORAGE_KEY = "cloud-power-sidebar-open-groups";
+const SIDEBAR_COLLAPSED_STORAGE_KEY = "cloud-power-sidebar-collapsed";
 
 // Restore the client-only workspace before the first browser paint. The server
 // still uses useEffect, so the server and hydration snapshots remain identical.
@@ -96,6 +98,8 @@ export function AppShell({
   const searchParams = useSearchParams();
   const [openGroups, setOpenGroups] = useState<SidebarGroupState>({});
   const [sidebarGroupsReady, setSidebarGroupsReady] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarCollapsedReady, setSidebarCollapsedReady] = useState(false);
   const [moduleSearchOpen, setModuleSearchOpen] = useState(false);
   const [workspace, setWorkspace] = useState<WorkspaceState>(() => createInitialWorkspace());
   const [workspaceReady, setWorkspaceReady] = useState(false);
@@ -256,6 +260,28 @@ export function AppShell({
       window.sessionStorage.setItem(SIDEBAR_OPEN_GROUPS_STORAGE_KEY, JSON.stringify(openGroups));
     }
   }, [isEmbedded, openGroups, sidebarGroupsReady]);
+
+  useIsomorphicLayoutEffect(() => {
+    if (isEmbedded || pathname === "/login") {
+      setSidebarCollapsedReady(true);
+      return;
+    }
+    try {
+      setSidebarCollapsed(window.localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY) === "1");
+    } catch {
+      setSidebarCollapsed(false);
+    }
+    setSidebarCollapsedReady(true);
+  }, [isEmbedded, pathname]);
+
+  useEffect(() => {
+    if (isEmbedded || pathname === "/login" || !sidebarCollapsedReady) return;
+    try {
+      window.localStorage.setItem(SIDEBAR_COLLAPSED_STORAGE_KEY, sidebarCollapsed ? "1" : "0");
+    } catch {
+      // 本地偏好失败不影响目录使用。
+    }
+  }, [isEmbedded, pathname, sidebarCollapsed, sidebarCollapsedReady]);
 
   useEffect(() => {
     if (isEmbedded || pathname === "/login") return;
@@ -420,6 +446,43 @@ export function AppShell({
     };
   }, []);
 
+  /**
+   * 内嵌页面需要在“单表格列表页”和“复合详情页”之间区分滚动策略。
+   * 只用 CSS :has 会把数据导入中心这类含多个表格的复合页面误判成列表页，
+   * 因此这里按可见表格数、分页数及页面顶层区块数写入明确标记。
+   */
+  useEffect(() => {
+    if (!isEmbedded) return;
+    let frame = 0;
+    const isRendered = (node: Element) => {
+      const style = window.getComputedStyle(node);
+      return style.display !== "none" && style.visibility !== "hidden";
+    };
+    const classifyLayout = () => {
+      if (frame) return;
+      frame = window.requestAnimationFrame(() => {
+        frame = 0;
+        const main = document.querySelector<HTMLElement>(".app-embedded-page");
+        const root = main?.firstElementChild;
+        if (!main || !root) return;
+        const tables = Array.from(main.querySelectorAll(".table-scroll")).filter(isRendered);
+        const paginationBars = Array.from(main.querySelectorAll("[data-pagination-bar]")).filter(isRendered);
+        const topLevelBlocks = Array.from(root.children);
+        const singleTableList = tables.length === 1 && paginationBars.length === 1 && topLevelBlocks.length <= 3;
+        main.dataset.tableListLayout = singleTableList ? "true" : "false";
+      });
+    };
+    classifyLayout();
+    window.addEventListener("resize", classifyLayout);
+    const observer = new MutationObserver(classifyLayout);
+    observer.observe(document.body, { childList: true, subtree: true });
+    return () => {
+      window.removeEventListener("resize", classifyLayout);
+      observer.disconnect();
+      if (frame) window.cancelAnimationFrame(frame);
+    };
+  }, [isEmbedded, pathname]);
+
   const currentModuleKey = getModuleFeatureKeyForRoute(pathname);
   if (pathname === "/login") return <>{children}</>;
 
@@ -508,20 +571,32 @@ export function AppShell({
   return (
     <div className="app-shell min-h-screen" data-app-shell="outer">
       <AppDialogHost />
-      <aside className="app-sidebar fixed inset-y-0 left-0 z-20 flex flex-col bg-[var(--color-sidebar)] text-nav-ink">
+      <aside className={`app-sidebar fixed inset-y-0 left-0 z-20 flex flex-col bg-[var(--color-sidebar)] text-nav-ink ${sidebarCollapsed ? "is-hidden" : ""}`}>
         <div className="flex h-[54px] min-w-0 shrink-0 items-center gap-2 px-5 text-white">
           <Boxes className="shrink-0" size={19} />
           <span className="min-w-0 truncate font-medium" title="业务系统">
             业务系统
           </span>
-          <button
-            className="ml-auto shrink-0 text-nav-ink hover:text-white"
-            onClick={resetSidebarOrder}
-            title="恢复默认目录顺序"
-            type="button"
-          >
-            <RotateCcw size={15} />
-          </button>
+          <div className="ml-auto flex shrink-0 items-center gap-2">
+            <button
+              aria-label="隐藏左侧目录"
+              className="shrink-0 text-nav-ink hover:text-white"
+              onClick={() => setSidebarCollapsed(true)}
+              title="隐藏左侧目录"
+              type="button"
+            >
+              <PanelLeftClose size={16} />
+            </button>
+            <button
+              aria-label="恢复默认目录顺序"
+              className="shrink-0 text-nav-ink hover:text-white"
+              onClick={resetSidebarOrder}
+              title="恢复默认目录顺序"
+              type="button"
+            >
+              <RotateCcw size={15} />
+            </button>
+          </div>
         </div>
         <button
           className="mx-3 mb-2 flex h-9 shrink-0 items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 text-left text-nav-ink hover:bg-white/10 hover:text-white"
@@ -625,9 +700,17 @@ export function AppShell({
         }}
         open={moduleSearchOpen}
       />
-      <main className="app-content min-h-screen">
+      <main className={`app-content min-h-screen ${sidebarCollapsed ? "sidebar-hidden" : ""}`}>
         <header className="app-header sticky top-0 z-10 flex h-[50px] min-w-0 items-center gap-2 border-b border-line bg-white px-3 sm:px-4">
-          <Menu size={19} className="shrink-0 text-ink" />
+          <button
+            aria-label={sidebarCollapsed ? "显示左侧目录" : "隐藏左侧目录"}
+            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded border border-line bg-white text-ink-2 hover:border-primary hover:text-primary"
+            onClick={() => setSidebarCollapsed((current) => !current)}
+            title={sidebarCollapsed ? "显示左侧目录" : "隐藏左侧目录"}
+            type="button"
+          >
+            {sidebarCollapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
+          </button>
           <div className="app-breadcrumb flex min-w-0 items-center gap-2">
             <span className="truncate text-ink-3">{currentSectionTitle}</span>
             <span className="shrink-0 text-ink-4">/</span>

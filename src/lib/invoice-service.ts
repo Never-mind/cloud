@@ -1104,6 +1104,42 @@ async function attachInvoiceFileToSource(params: {
     await executeRaw(`UPDATE ${INVOICE_TABLE} SET sourceAttachmentId = :attachmentId WHERE id = :invoiceId`, { attachmentId, invoiceId });
     return attachmentId;
   }
+  if (sourceType === "service_fee") {
+    const existing = await queryRowsRaw<Row>(
+      `SELECT id FROM merge_cloud_attachments
+        WHERE ownerType = 'service_fee_invoice' AND ownerId = :ownerId AND fileName = :fileName LIMIT 1`,
+      { ownerId: sourceId, fileName: params.fileName },
+    );
+    const attachmentId = text(existing[0]?.id) || randomUUID();
+    const common = {
+      id: attachmentId,
+      ownerId: sourceId,
+      fileName: params.fileName,
+      fileType: params.fileType,
+      fileSize: params.fileSize,
+      dataUrl: params.dataUrl,
+      storageProvider: params.provider,
+      storageKey: params.storageKey,
+    };
+    if (existing.length) {
+      await executeRaw(
+        `UPDATE merge_cloud_attachments
+            SET fileType = :fileType, fileSize = :fileSize, dataUrl = :dataUrl,
+                storageProvider = :storageProvider, storageKey = :storageKey, updatedAt = NOW()
+          WHERE id = :id`,
+        common,
+      );
+    } else {
+      await executeRaw(
+        `INSERT INTO merge_cloud_attachments
+           (id, ownerType, ownerId, fileName, fileType, fileSize, dataUrl, storageProvider, storageKey, uploadedByUserId, uploadedByName)
+         VALUES (:id, 'service_fee_invoice', :ownerId, :fileName, :fileType, :fileSize, :dataUrl, :storageProvider, :storageKey, :actorId, :actorName)`,
+        { ...common, actorId: text(params.actor.userId) || null, actorName: text(params.actor.name) || "开票功能" },
+      );
+    }
+    await executeRaw(`UPDATE ${INVOICE_TABLE} SET sourceAttachmentId = :attachmentId WHERE id = :invoiceId`, { attachmentId, invoiceId });
+    return attachmentId;
+  }
   if (sourceType !== "cloud_row") return "";
   const existing = await queryRowsRaw<Row>(
     `SELECT id FROM merge_cloud_attachments
@@ -1139,6 +1175,43 @@ async function attachInvoiceFileToSource(params: {
   }
   await executeRaw(`UPDATE ${INVOICE_TABLE} SET sourceAttachmentId = :attachmentId WHERE id = :invoiceId`, { attachmentId, invoiceId });
   return attachmentId;
+}
+
+/**
+ * 附件栏自愈：来源已有已开票记录、但附件索引缺失时，从发票记录补挂票面。
+ * 覆盖历史本地开票和飞书审批开票留下的缺附件数据。
+ */
+export async function ensureInvoiceAttachmentForSource(sourceType: "cloud_row" | "service_fee", sourceId: string) {
+  if (!sourceId) return "";
+  if (sourceType === "service_fee") {
+    const legacy = (await queryRowsRaw<Row>(
+      "SELECT invoiceOriginalName FROM merge_power_servicefeesnapshots WHERE snapshotNo = :sourceId LIMIT 1",
+      { sourceId },
+    ))[0];
+    if (text(legacy?.invoiceOriginalName)) return "";
+  }
+  const rows = await queryRowsRaw<Row>(
+    `SELECT id, fileName, fileType, fileSize, fileProvider, storageKey, fileContent
+       FROM ${INVOICE_TABLE}
+      WHERE sourceType = :sourceType AND sourceId = :sourceId AND status = 'issued'
+        AND fileName IS NOT NULL AND fileName <> ''
+      ORDER BY createdAt DESC LIMIT 1`,
+    { sourceType, sourceId },
+  );
+  const invoice = rows[0];
+  if (!invoice) return "";
+  return attachInvoiceFileToSource({
+    invoiceId: text(invoice.id),
+    sourceType,
+    sourceId,
+    actor: { name: "开票附件修复" },
+    fileName: text(invoice.fileName),
+    fileType: text(invoice.fileType) || "application/pdf",
+    fileSize: Number(invoice.fileSize ?? 0),
+    provider: text(invoice.fileProvider) || "db",
+    storageKey: text(invoice.storageKey) || null,
+    dataUrl: text(invoice.fileContent) || null,
+  });
 }
 
 /**

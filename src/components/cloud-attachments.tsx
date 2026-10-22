@@ -11,6 +11,17 @@ type CloudAttachment = {
   fileName: string;
   fileSize: number;
   fileType: string;
+  downloadHref?: string;
+  legacyDelete?: () => Promise<void> | void;
+};
+
+type ExtraCloudAttachment = {
+  id: string;
+  fileName: string;
+  fileSize: number;
+  fileType?: string;
+  downloadHref: string;
+  onDelete?: () => Promise<void> | void;
 };
 
 function formatSize(bytes: number) {
@@ -18,6 +29,13 @@ function formatSize(bytes: number) {
   if (size >= 1024 * 1024) return `${(size / 1024 / 1024).toFixed(1)} MB`;
   if (size >= 1024) return `${Math.round(size / 1024)} KB`;
   return `${size} B`;
+}
+
+function attachmentBaseName(fileName: unknown) {
+  return String(fileName ?? "")
+    .trim()
+    .replace(/__[a-z0-9]{6}(?=\.[^.]+$)/i, "")
+    .toLowerCase();
 }
 
 /**
@@ -32,11 +50,15 @@ export function CloudAttachments({
   ownerId,
   refreshToken = 0,
   label = "查看附件",
+  extraAttachments = [],
+  showLabel = false,
 }: {
   ownerType: string;
   ownerId: string;
   refreshToken?: number;
   label?: string;
+  extraAttachments?: ExtraCloudAttachment[];
+  showLabel?: boolean;
 }) {
   const [items, setItems] = useState<CloudAttachment[]>([]);
   const [open, setOpen] = useState(false);
@@ -101,9 +123,13 @@ export function CloudAttachments({
     if (!await confirmDialog(`删除附件「${attachment.fileName}」吗？`)) return;
     setBusy(true);
     try {
-      const response = await fetch(`/api/cloud/attachments/${encodeURIComponent(attachment.id)}`, { method: "DELETE" });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(String(data.error ?? "删除失败"));
+      if (attachment.legacyDelete) {
+        await attachment.legacyDelete();
+      } else {
+        const response = await fetch(`/api/cloud/attachments/${encodeURIComponent(attachment.id)}`, { method: "DELETE" });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(String(data.error ?? "删除失败"));
+      }
       notify("附件已删除", "success");
       await load();
     } catch (error) {
@@ -113,11 +139,21 @@ export function CloudAttachments({
     }
   }
 
+  const storedNames = new Set(items.map((item) => attachmentBaseName(item.fileName)));
+  const allItems: CloudAttachment[] = [
+    ...extraAttachments.filter((item) => !storedNames.has(attachmentBaseName(item.fileName))).map((item) => ({
+      ...item,
+      fileType: item.fileType ?? "application/octet-stream",
+      legacyDelete: item.onDelete,
+    })),
+    ...items,
+  ];
+
   return (
     <>
       <button
         aria-expanded={open}
-        aria-label={label}
+        aria-label={`${label}${allItems.length ? `（${allItems.length}）` : ""}`}
         className="inline-flex h-8 items-center gap-1 rounded border border-line bg-white px-2 text-xs text-ink-2 hover:border-primary hover:text-primary"
         onClick={toggle}
         ref={buttonRef}
@@ -125,7 +161,8 @@ export function CloudAttachments({
         type="button"
       >
         <Paperclip size={13} />
-        {items.length ? items.length : ""}
+        {showLabel ? <span>{label}</span> : null}
+        {allItems.length ? <span className="inline-flex min-w-4 items-center justify-center rounded-full bg-info-soft px-1 text-[10px] text-primary">{allItems.length}</span> : null}
       </button>
       {open && anchor && typeof document !== "undefined"
         ? createPortal(
@@ -134,11 +171,11 @@ export function CloudAttachments({
               ref={panelRef}
               style={{ top: anchor.top, right: anchor.right }}
             >
-              <div className="px-2 pb-1 text-xs text-ink-3">{label}（{items.length}）</div>
-              {!items.length ? (
+              <div className="px-2 pb-1 text-xs text-ink-3">{label}（{allItems.length}）</div>
+              {!allItems.length ? (
                 <div className="px-2 py-4 text-center text-xs text-ink-3">暂无附件</div>
               ) : (
-                items.map((item) => (
+                allItems.map((item) => (
                   <div className="flex items-center gap-2 rounded px-2 py-2 text-xs hover:bg-surface-2" key={item.id}>
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-ink" title={item.fileName}>{item.fileName}</span>
@@ -146,7 +183,7 @@ export function CloudAttachments({
                     </span>
                     <IconLink
                       download={item.fileName || undefined}
-                      href={`/api/cloud/attachments/${encodeURIComponent(item.id)}`}
+                      href={item.downloadHref ?? `/api/cloud/attachments/${encodeURIComponent(item.id)}`}
                       label="下载"
                       onClick={() => notify(`正在下载 ${item.fileName}…`, "info")}
                     >

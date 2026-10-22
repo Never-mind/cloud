@@ -4,7 +4,7 @@
  * 各来源沿用本地开票时的那套落点：
  *   cloud_row          华为云对账行的「客户开票」附件（云附件表）
  *   billing_statement  月账单对账单附件表
- *   service_fee        服务费对账单的「客户开票」附件（表内单附件，只放 PDF）
+ *   service_fee        服务费对账单的多附件（PDF / XML / 其它回传文件）
  *   settlement_invoice 集采项目结算附件
  */
 import { listCloudAttachments, storeCloudAttachment } from "./cloud-service";
@@ -80,25 +80,23 @@ export async function attachApprovalFilesToSource(
   }
 
   if (sourceType === "service_fee") {
-    const { saveServiceFeeInvoice } = await import("./service-fee-service");
-    // 服务费对账单的发票附件是表内单附件（存服务器本地盘），只能放一个：有 PDF 就放 PDF
-    const target = files.find((file) => /\.pdf$/i.test(file.fileName)) ?? files[0];
-    if (target) {
-      await saveServiceFeeInvoice({
-        snapshotNo: ownerId,
-        originalName: target.fileName,
-        mimeType: target.fileType || "application/pdf",
-        bytes: target.bytes,
-        uploadedBy: actorLabel,
-      });
+    const existing = new Set((await listCloudAttachments("service_fee_invoice", ownerId)).map((item) => String(item.fileName ?? "")));
+    for (const file of files) {
+      if (existing.has(file.fileName)) continue;
+      const attachment = await storeCloudAttachment(
+        "service_fee_invoice",
+        ownerId,
+        { fileName: file.fileName, fileType: file.fileType || "application/pdf", bytes: file.bytes },
+        { userId: "", displayName: actorLabel, email: "" },
+      ) as Record<string, unknown>;
       stored.push({
-        fileName: target.fileName,
-        fileType: target.fileType,
-        fileSize: target.bytes.length,
-        storageProvider: "db",
-        storageKey: null,
+        fileName: String(attachment.fileName ?? file.fileName),
+        fileType: String(attachment.fileType ?? file.fileType ?? "application/pdf"),
+        fileSize: Number(attachment.fileSize ?? file.bytes.length),
+        storageProvider: String(attachment.storageProvider ?? "db"),
+        storageKey: attachment.storageKey ? String(attachment.storageKey) : null,
       });
-      attachedNames.push(target.fileName);
+      attachedNames.push(file.fileName);
     }
     return { stored, attachedNames };
   }

@@ -1,5 +1,38 @@
 @import "tailwindcss";
 
+:root {
+  --app-viewport-height: 100vh;
+}
+
+/*
+ * 桌面端默认 90% 展示。用户仍可使用浏览器缩放调整。
+ * 同时补偿 viewport 单位，避免缩放后底部和内容区出现空白。
+ */
+@supports (zoom: 0.9) {
+  @media (min-width: 1024px) {
+    :root {
+      --app-viewport-height: 111.1111vh;
+    }
+
+    html {
+      zoom: 0.9;
+      min-height: 111.1111vh;
+    }
+
+    body {
+      min-height: 111.1111vh;
+    }
+
+    .min-h-screen {
+      min-height: 111.1111vh !important;
+    }
+
+    .app-workspace-content {
+      height: calc(111.1111vh - 88px);
+    }
+  }
+}
+
 /* 设计令牌。放在 @theme 里，Tailwind 会同时生成语义工具类，例如
    text-ink-2、border-line-soft、bg-surface、text-danger，新代码优先用这些，
    不要再写 text-[#606266] 这类硬编码颜色。变量本身也可用 var(--color-*) 引用。 */
@@ -115,6 +148,14 @@ body {
   margin-left: clamp(180px, 17vw, 230px);
 }
 
+.app-sidebar.is-hidden {
+  display: none;
+}
+
+.app-content.sidebar-hidden {
+  margin-left: 0;
+}
+
 .app-header-user-name {
   max-width: min(24vw, 220px);
 }
@@ -155,6 +196,83 @@ html[data-embedded-page="1"] [data-app-shell="inner"] {
   visibility: visible;
 }
 
+/* 标签页外层已经显示名称，内嵌页面不再重复渲染页标题和功能说明。 */
+html[data-embedded-page="1"] [data-app-shell="inner"] h1 {
+  display: none;
+}
+
+html[data-embedded-page="1"] [data-app-shell="inner"] h1 + p {
+  display: none;
+}
+
+html[data-embedded-page="1"] [data-app-shell="inner"] div:has(> h1:first-child):not(:has(button, a, input, select, textarea)) {
+  display: none;
+}
+
+/*
+ * 标签页列表页统一铺满可用高度：
+ * 页面根节点 → 含分页条的列表面板 → 表格滚动区依次使用 flex 剩余空间，
+ * 分页条固定在面板底部。多表详情页只会对含分页条的直属面板生效。
+ */
+html[data-embedded-page="1"] .app-embedded-page {
+  height: var(--app-viewport-height);
+  min-height: var(--app-viewport-height);
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+/*
+ * 只有真正的单表格列表页才启用铺满视口布局。
+ * AppShell 会检查页面内可见表格/分页数量和顶层区块数量后写入该属性；
+ * 数据导入中心、项目结算等复合页面继续走普通页面滚动。
+ */
+html[data-embedded-page="1"] .app-embedded-page[data-table-list-layout="true"] {
+  display: flex;
+  flex-direction: column;
+  overflow-y: hidden;
+}
+
+html[data-embedded-page="1"] .app-embedded-page[data-table-list-layout="true"] > :first-child {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+html[data-embedded-page="1"] .app-embedded-page[data-table-list-layout="true"] > :first-child > :last-child,
+html[data-embedded-page="1"] .app-embedded-page[data-table-list-layout="true"] > :first-child > :last-child > :has([data-pagination-bar]) {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+html[data-embedded-page="1"] .app-embedded-page[data-table-list-layout="true"] > :first-child > :last-child :has(.sticky-table-region) {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+html[data-embedded-page="1"] .app-embedded-page[data-table-list-layout="true"] > :first-child > :last-child .sticky-table-region {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+html[data-embedded-page="1"] .app-embedded-page[data-table-list-layout="true"] > :first-child > :last-child .table-scroll {
+  min-height: 0;
+  flex: 1;
+  height: 0;
+  max-height: none !important;
+}
+
+[data-pagination-bar] {
+  margin-top: auto;
+  flex-shrink: 0;
+}
+
 a {
   color: inherit;
   text-decoration: none;
@@ -171,6 +289,7 @@ textarea {
   min-width: 0;
   max-width: 100%;
   overflow-x: auto;
+  overflow-y: auto;
 }
 
 /*
@@ -186,7 +305,7 @@ textarea {
  */
 .table-viewport {
   max-height: calc(100dvh - 210px);
-  overscroll-behavior: contain;
+  overscroll-behavior: auto;
 }
 
 /* 只对列表容器里的主表生效，嵌套小表（展开行里的表格）不受影响。 */
@@ -250,6 +369,7 @@ textarea {
    there is genuinely insufficient room. */
 .table-scroll > table {
   width: 100%;
+  min-width: max-content;
   table-layout: auto;
 }
 
@@ -288,12 +408,6 @@ textarea {
 
 .sticky-table-region {
   position: relative;
-}
-
-/* The page owns vertical scrolling; the table body only owns horizontal scrolling. */
-.table-scroll {
-  overflow-x: auto;
-  overflow-y: visible;
 }
 
 [data-cloud-power-locked="1"] {

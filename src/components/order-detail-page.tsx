@@ -438,7 +438,7 @@ export function OrderDetailPage({
         ) : mode === "purchase" ? (
           <>
             <div className="border-b border-line-soft bg-canvas/60 px-4 py-2 text-xs font-medium text-ink-3">采购基本信息</div>
-            <div className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="grid grid-cols-6 gap-3 p-4">
               {purchaseBasicFields.map((field) => (
                 <Info
                   key={field.key}
@@ -454,7 +454,7 @@ export function OrderDetailPage({
               ))}
             </div>
             <div className="border-y border-line-soft bg-canvas/60 px-4 py-2 text-xs font-medium text-ink-3">金额与交付</div>
-            <div className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="grid grid-cols-6 gap-3 p-4">
               {purchaseDeliveryFields.map((field) => <Info key={field.key} label={field.label} value={master[field.key]} type={field.type} />)}
               <Info label="批次号" value={derivedPurchaseInfo.batchNo} />
               <Info label="整机价转合同汇率（CNY → USD）" value={master.usdRate} type="number" />
@@ -475,6 +475,13 @@ export function OrderDetailPage({
         )}
         {mode === "purchase" ? <PurchaseOrderInvoicePanel purchaseOrderId={String(master.purchaseOrderId ?? id)} /> : null}
       </Panel>
+
+      {mode === "purchase" ? (
+        <PurchaseOrderDemandPlanTabs
+          poNo={String(master.poNo ?? "")}
+          purchaseOrderId={String(master.purchaseOrderId ?? id)}
+        />
+      ) : null}
 
       <Panel>
         <div className="border-b border-line-soft px-4 py-3 font-medium text-ink">明细列表</div>
@@ -537,12 +544,6 @@ export function OrderDetailPage({
       })() : null}
       {mode === "purchase" ? (
         <PurchaseOrderAttachments purchaseOrderId={String(master.purchaseOrderId ?? id)} />
-      ) : null}
-      {mode === "purchase" ? (
-        <PurchaseOrderDemandPlanTabs
-          poNo={String(master.poNo ?? "")}
-          purchaseOrderId={String(master.purchaseOrderId ?? id)}
-        />
       ) : null}
       <AuditInfoBar
         createdBy={master.createdByName}

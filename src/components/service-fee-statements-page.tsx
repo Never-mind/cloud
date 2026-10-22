@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { InvoiceDraftModal, type InvoiceDraftMode } from "./invoice-draft-modal";
-import { CheckCircle2, FileDown, FileText, Pencil, RefreshCw, Search, Trash2, Upload } from "lucide-react";
+import { CheckCircle2, ChevronDown, ChevronRight, FileDown, RefreshCw, Search, Trash2 } from "lucide-react";
 import { fetchAllEntityRows } from "@/lib/client-entity-fetch";
 import { formatDisplayValue } from "@/lib/display-format";
 import { DEFAULT_PAGE_SIZE } from "@/lib/pagination";
@@ -12,12 +12,19 @@ import { PaginationBar } from "./pagination-bar";
 import { StickyTable } from "./sticky-table";
 import { TableColumnMenu, type TableFilterOption, type TableSortOrder } from "./table-column-menu";
 import { useRequestGuard } from "@/lib/table-query-client";
-import { Button, IconButton, IconLink, Input, Panel, Select } from "./ui";
+import { Button, IconButton, Input, Panel, Select } from "./ui";
 import { NumberInput } from "./number-input";
 import { Modal } from "./modal";
 import { confirmDialog, notify } from "./app-dialog";
 import { TableStateContent } from "./table-state";
 import { useWorkspaceDataRefresh } from "@/lib/workspace-events";
+import { CloudAttachments } from "./cloud-attachments";
+import {
+  StatementFieldSettingsButton,
+  StatementFieldSettingsModal,
+  StatementDetailGrid,
+  usePersistentColumnVisibility,
+} from "./statement-field-settings";
 
 type Row = Record<string, string | number | boolean | null>;
 function partyOptionLabel(row: Row, codeKeys: string[], nameKeys: string[]) {
@@ -53,22 +60,42 @@ type InvoiceDraft = {
   invoiceAmountIncludingTax: string;
   receivableDate: string;
 };
+type ServiceFeeColumn = {
+  key: string;
+  label: string;
+  defaultVisible?: boolean;
+  sortable?: boolean;
+  filterable?: boolean;
+};
 
-const columns: Array<{ key: string; label: string; type?: string }> = [
-  { key: "snapshotNo", label: "对账单号" },
-  { key: "writeOffMonth", label: "核销月份", type: "month" },
-  { key: "countryCode", label: "国家" },
-  { key: "billingTotal", label: "月账单金额", type: "money" },
-  { key: "prepaymentTotal", label: "预付款金额", type: "money" },
-  { key: "customerReceivable", label: "客户应收" },
-  { key: "customerReceived", label: "客户实收" },
-  { key: "customerInvoice", label: "客户开票" },
-  { key: "createdAt", label: "创建时间", type: "datetime" },
-  { key: "updatedAt", label: "更新时间", type: "datetime" },
-  { key: "confirmedAt", label: "确认时间", type: "datetime" },
-  { key: "status", label: "确认状态" },
+const columns: ServiceFeeColumn[] = [
+  { key: "snapshotNo", label: "对账单号", defaultVisible: true, sortable: true, filterable: true },
+  { key: "status", label: "确认状态", defaultVisible: true, sortable: true, filterable: true },
+  { key: "writeOffMonth", label: "核销月份", defaultVisible: true, sortable: true, filterable: true },
+  { key: "countryCode", label: "国家", defaultVisible: true, sortable: true, filterable: true },
+  { key: "billingTotal", label: "月账单金额", defaultVisible: true, sortable: true, filterable: true },
+  { key: "prepaymentTotal", label: "预付款金额", defaultVisible: true, sortable: true, filterable: true },
+  { key: "customerReceivable", label: "客户应收", defaultVisible: true, sortable: true, filterable: true },
+  { key: "serviceFeeCurrency", label: "服务费币种", defaultVisible: false, sortable: false, filterable: false },
+  { key: "serviceFeeTotalExcludingTax", label: "客户应收未税", defaultVisible: false, sortable: true, filterable: true },
+  { key: "vatRate", label: "客户应收税率", defaultVisible: false, sortable: false, filterable: false },
+  { key: "customerReceived", label: "客户实收（含税）", defaultVisible: true, sortable: true, filterable: true },
+  { key: "repaymentStatus", label: "收款状态", defaultVisible: true, sortable: true, filterable: true },
+  { key: "repaymentCurrency", label: "实收币种", defaultVisible: false, sortable: true, filterable: true },
+  { key: "repaymentAmountExcludingTax", label: "客户实收未税", defaultVisible: false, sortable: true, filterable: true },
+  { key: "repaymentVatRate", label: "客户实收税率", defaultVisible: false, sortable: true, filterable: true },
+  { key: "repaymentDate", label: "实收日期", defaultVisible: false, sortable: false, filterable: false },
+  { key: "customerInvoice", label: "客户开票（含税）", defaultVisible: true, sortable: true, filterable: true },
+  { key: "invoiceStatus", label: "开票状态", defaultVisible: true, sortable: true, filterable: true },
+  { key: "invoiceNo", label: "发票号", defaultVisible: false, sortable: true, filterable: true },
+  { key: "invoiceCurrency", label: "开票币种", defaultVisible: false, sortable: true, filterable: true },
+  { key: "invoiceAmountExcludingTax", label: "客户开票未税", defaultVisible: false, sortable: true, filterable: true },
+  { key: "invoiceVatRate", label: "客户开票税率", defaultVisible: false, sortable: true, filterable: true },
+  { key: "receivableDate", label: "应收日期", defaultVisible: false, sortable: true, filterable: true },
+  { key: "createdAt", label: "创建时间", defaultVisible: false, sortable: true, filterable: true },
+  { key: "updatedAt", label: "更新时间", defaultVisible: false, sortable: true, filterable: true },
+  { key: "confirmedAt", label: "确认时间", defaultVisible: false, sortable: true, filterable: true },
 ];
-const tableColumns = columns.map((column) => ({ ...column, sortable: true, filterable: true }));
 
 export function ServiceFeeStatementsPage() {
   const [rows, setRows] = useState<Row[]>([]);
@@ -86,6 +113,9 @@ export function ServiceFeeStatementsPage() {
   const [invoiceModal, setInvoiceModal] = useState<{ mode: InvoiceDraftMode; sourceId: string } | null>(null);
   const [loading, setLoading] = useState(false);
   const [busyNo, setBusyNo] = useState("");
+  const [attachmentVersion, setAttachmentVersion] = useState(0);
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [showFieldSettings, setShowFieldSettings] = useState(false);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [total, setTotal] = useState(0);
@@ -95,8 +125,10 @@ export function ServiceFeeStatementsPage() {
   const pageSizeRef = useRef(pageSize);
   const queryMountedRef = useRef(false);
   const fileRef = useRef<HTMLInputElement>(null);
-  const uploadTargetRef = useRef<{ snapshotNo: string; invoiceStatus: string } | null>(null);
+  const uploadTargetRef = useRef<string | null>(null);
   const beginRequest = useRequestGuard();
+  const fieldState = usePersistentColumnVisibility("service-fee-statements", columns);
+  const visibleColumns = fieldState.visibleColumns;
 
   function buildParams(nextPage = page, nextPageSize = pageSizeRef.current) {
     const params = new URLSearchParams({ page: String(nextPage), pageSize: String(nextPageSize) });
@@ -167,7 +199,7 @@ export function ServiceFeeStatementsPage() {
     return (data.options ?? []) as TableFilterOption[];
   }
 
-  function renderHeader(column: (typeof tableColumns)[number]) {
+  function renderHeader(column: ServiceFeeColumn) {
     return <TableColumnMenu column={column} filterValues={columnFilters[column.key] ?? []} loadOptions={(keyword) => loadColumnOptions(column.key, keyword)} onFilter={(values) => { setColumnFilters((current) => ({ ...current, [column.key]: values })); setPage(1); }} onSort={(order) => { setSortField(order ? column.key : ""); setSortOrder(order); setPage(1); }} sortOrder={sortField === column.key ? sortOrder : ""} />;
   }
 
@@ -359,53 +391,45 @@ export function ServiceFeeStatementsPage() {
   }
 
   async function chooseInvoice(row: Row) {
-    if (row.invoiceOriginalName && !await confirmDialog("该对账单已有发票附件，继续上传将替换原附件。是否继续？")) return;
-    uploadTargetRef.current = {
-      snapshotNo: String(row.snapshotNo ?? ""),
-      invoiceStatus: String(row.invoiceStatus ?? "未开票"),
-    };
+    uploadTargetRef.current = String(row.snapshotNo ?? "");
     fileRef.current?.click();
   }
 
-  async function uploadInvoice(file: File) {
-    const target = uploadTargetRef.current;
+  async function uploadInvoiceAttachments(files: File[]) {
+    const snapshotNo = uploadTargetRef.current ?? "";
     uploadTargetRef.current = null;
-    const snapshotNo = target?.snapshotNo ?? "";
-    if (!snapshotNo) return;
+    if (!snapshotNo || !files.length) return;
     setBusyNo(snapshotNo);
+    let uploaded = 0;
     try {
-      const formData = new FormData();
-      formData.append("file", file);
-      const response = await fetch(`/api/service-fees/snapshots/${encodeURIComponent(snapshotNo)}/invoice`, {
-        method: "POST",
-        body: formData,
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        notify(data.error ?? "发票附件上传失败", "info");
-        return;
+      for (const file of files) {
+        const formData = new FormData();
+        formData.append("file", file);
+        const response = await fetch(`/api/cloud/attachments/service_fee_invoice/${encodeURIComponent(snapshotNo)}`, {
+          method: "POST",
+          body: formData,
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error ?? `“${file.name}”上传失败`);
+        uploaded += 1;
       }
-      setRows((current) => current.map((row) => (
-        String(row.snapshotNo ?? "") === snapshotNo
-          ? { ...row, invoiceOriginalName: data.invoiceOriginalName ?? file.name, invoiceMimeType: data.invoiceMimeType ?? file.type, invoiceFileSize: data.invoiceFileSize ?? file.size }
-          : row
-      )));
+      notify(`已上传 ${uploaded} 个附件`, "success");
+      setAttachmentVersion((current) => current + 1);
+      await loadData();
     } catch (error) {
-      notify(error instanceof Error ? error.message : "发票附件上传失败", "info");
-      return;
+      if (uploaded) {
+        setAttachmentVersion((current) => current + 1);
+        await loadData();
+      }
+      notify(error instanceof Error ? error.message : "附件上传失败", "error");
     } finally {
       setBusyNo("");
     }
-    if (target?.invoiceStatus !== "已开票") {
-      if (await confirmDialog("发票附件已上传，是否将开票状态更新为“已开票”？")) {
-        await setInvoiceState(snapshotNo, "已开票");
-      }
-    }
   }
 
-  async function deleteInvoice(row: Row) {
+  async function deleteInvoice(row: Row, ask = true) {
     const snapshotNo = String(row.snapshotNo ?? "");
-    if (!await confirmDialog("确认删除该发票附件？")) return;
+    if (ask && !await confirmDialog("确认删除该发票附件？")) return;
     setBusyNo(snapshotNo);
     try {
       const response = await fetch(`/api/service-fees/snapshots/${encodeURIComponent(snapshotNo)}/invoice`, { method: "DELETE" });
@@ -419,6 +443,7 @@ export function ServiceFeeStatementsPage() {
           ? { ...currentRow, invoiceOriginalName: null, invoiceMimeType: null, invoiceFileSize: null }
           : currentRow
       )));
+      setAttachmentVersion((current) => current + 1);
     } catch (error) {
       notify(error instanceof Error ? error.message : "发票附件删除失败", "info");
       return;
@@ -430,6 +455,156 @@ export function ServiceFeeStatementsPage() {
         await setInvoiceState(snapshotNo, "未开票");
       }
     }
+  }
+
+  function toggleExpanded(snapshotNo: string) {
+    setExpanded((current) => ({ ...current, [snapshotNo]: !current[snapshotNo] }));
+  }
+
+  function toggleAllExpanded() {
+    const allOpen = rows.length > 0 && rows.every((row) => expanded[String(row.snapshotNo ?? "")]);
+    setExpanded(Object.fromEntries(rows.map((row) => [String(row.snapshotNo ?? ""), !allOpen])));
+  }
+
+  function renderCell(row: Row, key: string): ReactNode {
+    const snapshotNo = String(row.snapshotNo ?? "");
+    const serviceFeeCurrency = firstNonBlankValue(row.serviceFeeCurrency, row.defaultBillingCurrency, row.defaultRepaymentCurrency) || "USD";
+    const confirmed = row.status === "已确认";
+    const issued = row.invoiceStatus === "已开票";
+    if (key === "snapshotNo") return <Link className="font-medium text-primary hover:underline" href={`/finance/service-fee-snapshot-items?snapshotNo=${encodeURIComponent(snapshotNo)}`} onClick={(event) => {
+      event.preventDefault();
+      postWorkspaceMessage({ type: "cloud-power:open-tab", route: `/finance/service-fee-snapshot-items?snapshotNo=${encodeURIComponent(snapshotNo)}`, title: "服务费对账单明细" });
+    }}>{snapshotNo}</Link>;
+    if (key === "status") return <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${confirmed ? "bg-success-soft text-success-strong" : "bg-warning-soft text-warning-deep"}`}>{confirmed ? "已确认" : "未确认"}</span>;
+    if (key === "repaymentStatus") return <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs ${row.repaymentStatus === "已回款" ? "border-success-border bg-success-soft text-success" : "border-warning-border-soft bg-warning-soft text-warning-ink"}`}>{String(row.repaymentStatus ?? "未回款")}</span>;
+    if (key === "invoiceStatus") return <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs ${issued ? "border-success-border bg-success-soft text-success" : "border-line-soft bg-canvas text-ink-3"}`}>{issued ? "已开票" : "未开票"}</span>;
+    if (key === "billingTotal") return formatAmountWithCurrency(row.billingTotal, serviceFeeCurrency);
+    if (key === "prepaymentTotal") return formatAmountWithCurrency(row.prepaymentTotal, serviceFeeCurrency);
+    if (key === "customerReceivable") return formatAmountWithCurrency(row.serviceFeeTotal, serviceFeeCurrency);
+    if (key === "customerReceived") return formatAmountWithCurrency(row.repaymentAmount, row.repaymentCurrency);
+    if (key === "customerInvoice") return formatAmountWithCurrency(row.invoiceAmountIncludingTax, row.invoiceCurrency);
+    if (key === "serviceFeeTotalExcludingTax") return formatAmountWithCurrency(row.serviceFeeTotalExcludingTax, serviceFeeCurrency);
+    if (key === "repaymentAmountExcludingTax") return formatAmountWithCurrency(row.repaymentAmountExcludingTax, row.repaymentCurrency);
+    if (key === "invoiceAmountExcludingTax") return formatAmountWithCurrency(row.invoiceAmountExcludingTax, row.invoiceCurrency);
+    if (key === "vatRate" || key === "repaymentVatRate" || key === "invoiceVatRate") return formatPercent(row[key]);
+    if (key === "writeOffMonth") return formatValue(row[key], "month");
+    if (key === "repaymentDate" || key === "receivableDate") return formatValue(row[key], "date");
+    if (key === "createdAt" || key === "updatedAt" || key === "confirmedAt") return formatValue(row[key], "datetime");
+    return formatValue(row[key]);
+  }
+
+  function renderActions(row: Row) {
+    const snapshotNo = String(row.snapshotNo ?? "");
+    const confirmed = row.status === "已确认";
+    return <div className="flex items-center gap-1">
+      {!confirmed ? <IconButton disabled={busyNo === snapshotNo} icon={<CheckCircle2 size={15} />} label="确认对账单" onClick={() => void postAction(snapshotNo, "confirm")} tone="success" /> : null}
+      {!confirmed ? <IconButton disabled={busyNo === snapshotNo} icon={<Trash2 size={15} />} label="删除未确认对账单" onClick={() => void postAction(snapshotNo, "delete")} tone="danger" /> : null}
+      {confirmed ? <span className="px-2 text-ink-4">-</span> : null}
+    </div>;
+  }
+
+  function renderDetails(row: Row) {
+    const snapshotNo = String(row.snapshotNo ?? "");
+    const confirmed = row.status === "已确认";
+    const hasInvoice = Boolean(row.invoiceOriginalName);
+    const issued = row.invoiceStatus === "已开票";
+    const serviceFeeCurrency = firstNonBlankValue(row.serviceFeeCurrency, row.defaultBillingCurrency, row.defaultRepaymentCurrency) || "USD";
+    const receivableTax = differenceAmount(row.serviceFeeTotal, row.serviceFeeTotalExcludingTax);
+    const repaymentTax = differenceAmount(row.repaymentAmount, row.repaymentAmountExcludingTax);
+    const invoiceTax = differenceAmount(row.invoiceAmountIncludingTax, row.invoiceAmountExcludingTax);
+    const groups: Array<{ title: string; fields: Array<{ label: string; value: ReactNode }>; flow?: { payer: ReactNode; payee: ReactNode } }> = [
+      { title: "基本信息", fields: [
+        { label: "对账单号", value: snapshotNo },
+        { label: "确认状态", value: confirmed ? "已确认" : "未确认" },
+        { label: "国家", value: String(row.countryCode ?? "-") },
+        { label: "核销月份", value: formatValue(row.writeOffMonth, "month") || "-" },
+        { label: "服务费币种", value: serviceFeeCurrency },
+      ] },
+      { title: "金额", fields: [
+        { label: "月账单金额", value: formatAmountWithCurrency(row.billingTotal, serviceFeeCurrency) },
+        { label: "预付款金额", value: formatAmountWithCurrency(row.prepaymentTotal, serviceFeeCurrency) },
+      ] },
+      { title: "客户应收", flow: {
+        payer: String(row.customerName ?? row.payerCustomerCode ?? "客户"),
+        payee: String(row.undertakingUnitName ?? row.receivingUnitCode ?? "承接单位"),
+      }, fields: [
+        { label: "客户应收未税", value: formatAmountWithCurrency(row.serviceFeeTotalExcludingTax, serviceFeeCurrency) },
+        { label: "客户应收税率", value: formatPercent(row.vatRate) },
+        { label: "客户应收税金", value: formatAmountWithCurrency(receivableTax, serviceFeeCurrency) },
+        { label: "客户应收含税", value: formatAmountWithCurrency(row.serviceFeeTotal, serviceFeeCurrency) },
+      ] },
+      { title: "客户实收", flow: {
+        payer: firstNonBlankValue(row.payerCustomerCode, row.customerName) || "客户",
+        payee: firstNonBlankValue(row.receivingUnitCode, row.undertakingUnitName) || "承接单位",
+      }, fields: [
+        { label: "客户实收未税", value: formatAmountWithCurrency(row.repaymentAmountExcludingTax, row.repaymentCurrency) },
+        { label: "客户实收税率", value: formatPercent(row.repaymentVatRate) },
+        { label: "客户实收税金", value: formatAmountWithCurrency(repaymentTax, row.repaymentCurrency) },
+        { label: "客户实收含税", value: formatAmountWithCurrency(row.repaymentAmount, row.repaymentCurrency) },
+      ] },
+      { title: "客户开票", flow: {
+        payer: firstNonBlankValue(row.invoicePayerCustomerCode, row.customerName) || "客户",
+        payee: firstNonBlankValue(row.invoiceReceivingUnitCode, row.undertakingUnitName) || "承接单位",
+      }, fields: [
+        { label: "客户开票未税", value: formatAmountWithCurrency(row.invoiceAmountExcludingTax, row.invoiceCurrency) },
+        { label: "客户开票税率", value: formatPercent(row.invoiceVatRate) },
+        { label: "客户开票税金", value: formatAmountWithCurrency(invoiceTax, row.invoiceCurrency) },
+        { label: "客户开票含税", value: formatAmountWithCurrency(row.invoiceAmountIncludingTax, row.invoiceCurrency) },
+      ] },
+      { title: "收款信息", fields: [
+        { label: "收款状态", value: String(row.repaymentStatus ?? "未回款") },
+        { label: "实收币种", value: String(row.repaymentCurrency ?? "-") },
+        { label: "实收日期", value: formatValue(row.repaymentDate) || "-" },
+      ] },
+      { title: "发票信息", fields: [
+        { label: "发票号", value: String(row.invoiceNo ?? "-") },
+        { label: "开票币种", value: String(row.invoiceCurrency ?? "-") },
+        { label: "应收日期", value: formatValue(row.receivableDate) || "-" },
+        { label: "开票状态", value: issued ? "已开票" : "未开票" },
+      ] },
+      { title: "审计", fields: [
+        { label: "创建时间", value: formatValue(row.createdAt, "datetime") },
+        { label: "更新时间", value: formatValue(row.updatedAt, "datetime") },
+        { label: "确认时间", value: formatValue(row.confirmedAt, "datetime") },
+      ] },
+    ];
+    return <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-2 rounded border border-line-soft bg-surface-2 px-3 py-2">
+        <span className="text-xs font-medium text-ink-2">本行操作</span>
+        <button aria-checked={row.repaymentStatus === "已回款"} className="inline-flex h-7 items-center gap-1 rounded border border-line bg-white px-2 text-xs text-ink-2 disabled:opacity-50" disabled={busyNo === snapshotNo} role="switch" type="button" onClick={() => void setRepaymentState(row, row.repaymentStatus === "已回款" ? "未回款" : "已回款")}>
+          <span className={`relative inline-flex h-4 w-7 rounded-full ${row.repaymentStatus === "已回款" ? "bg-success" : "bg-ink-4"}`}><span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white shadow ${row.repaymentStatus === "已回款" ? "translate-x-[15px]" : "translate-x-0.5"}`} /></span>
+          {row.repaymentStatus === "已回款" ? "已回款" : "未回款"}
+        </button>
+        <Button disabled={busyNo === snapshotNo} size="sm" onClick={() => openRepayment(row)}>编辑实收</Button>
+        <button aria-checked={issued} className="inline-flex h-7 items-center gap-1 rounded border border-line bg-white px-2 text-xs text-ink-2 disabled:opacity-50" disabled={busyNo === snapshotNo} role="switch" type="button" onClick={() => void setInvoiceState(snapshotNo, issued ? "未开票" : "已开票")}>
+          <span className={`relative inline-flex h-4 w-7 rounded-full ${issued ? "bg-success" : "bg-ink-4"}`}><span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white shadow ${issued ? "translate-x-[15px]" : "translate-x-0.5"}`} /></span>
+          {issued ? "已开票" : "未开票"}
+        </button>
+        <Button disabled={busyNo === snapshotNo} size="sm" onClick={() => openInvoiceInfo(row)}>编辑开票</Button>
+        <Button disabled={busyNo === snapshotNo} size="sm" onClick={() => setInvoiceModal({ mode: "generated", sourceId: snapshotNo })}>开票</Button>
+        <Button disabled={busyNo === snapshotNo} size="sm" onClick={() => setInvoiceModal({ mode: "external", sourceId: snapshotNo })}>上传外部发票</Button>
+        <Button disabled={busyNo === snapshotNo} size="sm" onClick={() => chooseInvoice(row)}>上传附件</Button>
+        <CloudAttachments
+          extraAttachments={hasInvoice ? [{
+            id: `legacy-invoice-${snapshotNo}`,
+            fileName: String(row.invoiceOriginalName),
+            fileSize: Number(row.invoiceFileSize ?? 0),
+            fileType: String(row.invoiceMimeType ?? "application/pdf"),
+            downloadHref: `/api/service-fees/snapshots/${encodeURIComponent(snapshotNo)}/invoice`,
+            onDelete: () => deleteInvoice(row, false),
+          }] : []}
+          label="查看附件"
+          ownerId={snapshotNo}
+          ownerType="service_fee_invoice"
+          refreshToken={attachmentVersion}
+          showLabel
+        />
+      </div>
+      {groups.map((group) => <section className="overflow-hidden rounded border border-line-soft" key={group.title}>
+        <div className="border-b border-line-soft bg-canvas px-3 py-2 text-xs font-medium text-ink-2">{group.title}</div>
+        <StatementDetailGrid fields={group.fields} flow={group.flow} singleRow={group.title === "基本信息"} />
+      </section>)}
+    </div>;
   }
 
   const exportParams = buildParams(1, pageSizeRef.current);
@@ -481,190 +656,84 @@ export function ServiceFeeStatementsPage() {
           </div>
           <Button tone="secondary" onClick={() => { setPage(1); void loadData(1); }}><Search size={15} />查询</Button>
           <Button onClick={() => void loadData()}><RefreshCw size={15} />刷新</Button>
-          <a className="ml-auto" href={`/api/entities/service-fee-snapshots/export?${exportParams}`}>
+          <a href={`/api/entities/service-fee-snapshots/export?${exportParams}`}>
             <Button tone="warning"><FileDown size={15} />导出 Excel</Button>
           </a>
+          <div className="ml-auto flex items-center gap-2">
+            <Button disabled={!rows.length} size="sm" onClick={toggleAllExpanded}>{rows.length > 0 && rows.every((row) => expanded[String(row.snapshotNo ?? "")]) ? "收起全部" : "展开全部"}</Button>
+            <StatementFieldSettingsButton onClick={() => setShowFieldSettings(true)} />
+          </div>
           <input
             ref={fileRef}
             className="hidden"
             type="file"
+            multiple
             accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png"
             onChange={(event) => {
-              const file = event.target.files?.[0];
-              if (file) void uploadInvoice(file);
+              const files = Array.from(event.target.files ?? []);
+              if (files.length) void uploadInvoiceAttachments(files);
               event.currentTarget.value = "";
             }}
           />
         </div>
 
-        <StickyTable className="table-scroll table-viewport overflow-auto" tableKey="service-fee-statements">
-          <table className="min-w-full border-collapse text-sm">
-            <thead className="bg-canvas text-ink">
-              <tr>
-                {tableColumns.map((column) => <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium" key={column.key}>{renderHeader(column)}</th>)}
-                <th className="whitespace-nowrap sticky right-0 min-w-[150px] border-b border-line-soft bg-canvas px-3 py-3 text-left font-medium">操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => {
-                const snapshotNo = String(row.snapshotNo ?? "");
-                const confirmed = row.status === "已确认";
-                const hasInvoice = Boolean(row.invoiceOriginalName);
-                const issued = row.invoiceStatus === "已开票";
-                return (
-                  <tr className="hover:bg-surface-2" key={snapshotNo}>
-                    {columns.map((column) => {
-                      const value = row[column.key];
-                      return (
-                        <td className="max-w-[280px] whitespace-nowrap border-b border-r border-line-soft px-3 py-3" key={column.key} title={String(value ?? "")}>
-                          {column.key === "snapshotNo" ? (
-                            <Link
-                              className="font-medium text-primary hover:underline"
-                              href={`/finance/service-fee-snapshot-items?snapshotNo=${encodeURIComponent(snapshotNo)}`}
-                              onClick={(event) => {
-                                event.preventDefault();
-                                postWorkspaceMessage({
-                                  type: "cloud-power:open-tab",
-                                  route: `/finance/service-fee-snapshot-items?snapshotNo=${encodeURIComponent(snapshotNo)}`,
-                                  title: "服务费对账单明细",
-                                });
-                              }}
-                            >
-                              {snapshotNo}
-                            </Link>
-                          ) : column.key === "status" ? (
-                            <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${confirmed ? "bg-success-soft text-success-strong" : "bg-warning-soft text-warning-deep"}`}>
-                              {confirmed ? "已确认" : "未确认"}
-                            </span>
-                          ) : column.key === "billingTotal" || column.key === "prepaymentTotal" ? (
-                            <span className="font-medium text-ink">
-                              {formatAmountWithCurrency(
-                                value,
-                                column.key === "billingTotal" ? row.defaultBillingCurrency : row.defaultRepaymentCurrency,
-                              )}
-                            </span>
-                          ) : column.key === "customerReceivable" ? (
-                            <AmountSummary
-                              currency={row.defaultBillingCurrency}
-                              excludingTax={row.serviceFeeTotalExcludingTax}
-                              vatRate={row.vatRate}
-                              includingTax={row.serviceFeeTotal}
-                              partyFlow={formatPartyFlow(row.customerName, row.undertakingUnitName)}
-                            />
-                          ) : column.key === "customerReceived" ? (
-                            <AmountSummary
-                              currency={row.repaymentCurrency}
-                              excludingTax={row.repaymentAmountExcludingTax}
-                              vatRate={row.repaymentVatRate}
-                              includingTax={row.repaymentAmount}
-                              partyFlow={formatPartyFlow(
-                                firstNonBlankValue(row.payerCustomerCode, row.customerName),
-                                firstNonBlankValue(row.receivingUnitCode, row.undertakingUnitName),
-                              )}
-                              action={<RepaymentStatusAction row={row} busy={busyNo === snapshotNo} onToggle={() => void setRepaymentState(row, row.repaymentStatus === "已回款" ? "未回款" : "已回款")} onEdit={() => openRepayment(row)} />}
-                            />
-                          ) : column.key === "customerInvoice" ? (
-                            <div className="min-w-[165px]">
-                              <AmountSummary
-                                currency={row.invoiceCurrency}
-                                excludingTax={row.invoiceAmountExcludingTax}
-                                vatRate={row.invoiceVatRate}
-                                includingTax={row.invoiceAmountIncludingTax}
-                                receivableDate={row.receivableDate}
-                                partyFlow={formatPartyFlow(
-                                  firstNonBlankValue(row.invoicePayerCustomerCode, row.customerName),
-                                  firstNonBlankValue(row.invoiceReceivingUnitCode, row.undertakingUnitName),
-                                )}
-                              />
-                              <div className="mt-1 flex items-center gap-1 border-t border-canvas-deep pt-1">
-                                <button
-                                  aria-checked={issued}
-                                  aria-label={`开票状态：${issued ? "已开票" : "未开票"}`}
-                                  className="inline-flex h-6 items-center gap-1 rounded-full text-xs text-ink-2 disabled:cursor-not-allowed disabled:opacity-50"
-                                  disabled={busyNo === snapshotNo}
-                                  role="switch"
-                                  title={`点击切换为${issued ? "未开票" : "已开票"}`}
-                                  type="button"
-                                  onClick={() => void setInvoiceState(snapshotNo, issued ? "未开票" : "已开票")}
-                                >
-                                  <span className={`relative inline-flex h-4 w-7 rounded-full transition-colors ${issued ? "bg-success" : "bg-ink-4"}`}>
-                                    <span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white shadow transition-transform ${issued ? "translate-x-[15px]" : "translate-x-0.5"}`} />
-                                  </span>
-                                  <span>{issued ? "已开票" : "未开票"}</span>
-                                </button>
-                                <button
-                                  aria-label="编辑发票信息"
-                                  className="inline-flex h-6 w-6 items-center justify-center rounded text-ink-3 hover:bg-canvas hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
-                                  disabled={busyNo === snapshotNo}
-                                  title="编辑发票信息"
-                                  type="button"
-                                  onClick={() => openInvoiceInfo(row)}
-                                >
-                                  <FileText size={13} />
-                                </button>
-                                <button
-                                  aria-label="开票（按本对账单生成票面）"
-                                  className="inline-flex h-6 items-center rounded px-1.5 text-xs text-primary hover:bg-canvas disabled:cursor-not-allowed disabled:opacity-50"
-                                  disabled={busyNo === snapshotNo}
-                                  title="按本对账单生成票面并标记已开票"
-                                  type="button"
-                                  onClick={() => setInvoiceModal({ mode: "generated", sourceId: snapshotNo })}
-                                >
-                                  开票
-                                </button>
-                                <button
-                                  aria-label="上传外部发票"
-                                  className="inline-flex h-6 items-center rounded px-1.5 text-xs text-ink-2 hover:bg-canvas disabled:cursor-not-allowed disabled:opacity-50"
-                                  disabled={busyNo === snapshotNo}
-                                  title="外部已开好票：上传文件并登记"
-                                  type="button"
-                                  onClick={() => setInvoiceModal({ mode: "external", sourceId: snapshotNo })}
-                                >
-                                  上传发票
-                                </button>
-                                <IconButton
-                                  disabled={busyNo === snapshotNo}
-                                  icon={<Upload size={13} />}
-                                  label={hasInvoice ? "替换发票附件" : "上传发票附件"}
-                                  onClick={() => chooseInvoice(row)}
-                                />
-                                {hasInvoice ? (
-                                  <>
-                                    <IconLink
-                                      href={`/api/service-fees/snapshots/${encodeURIComponent(snapshotNo)}/invoice`}
-                                      label={`下载 ${String(row.invoiceOriginalName)}`}
-                                    >
-                                      <FileDown size={13} />
-                                    </IconLink>
-                                    <IconButton disabled={busyNo === snapshotNo} icon={<Trash2 size={13} />} label="删除发票附件" onClick={() => void deleteInvoice(row)} tone="danger" />
-                                  </>
-                                ) : null}
-                              </div>
-                            </div>
-                          ) : (
-                            <span className="block max-w-[260px] truncate">{formatValue(value, column.type)}</span>
-                          )}
-                        </td>
-                      );
-                    })}
-                    <td className="sticky right-0 whitespace-nowrap border-b border-line-soft bg-white px-3 py-3">
-                      <div className="flex items-center gap-1">
-                        {!confirmed ? (
-                          <IconButton disabled={busyNo === snapshotNo} icon={<CheckCircle2 size={15} />} label="确认对账单" onClick={() => void postAction(snapshotNo, "confirm")} tone="success" />
-                        ) : null}
-                        {!confirmed ? (
-                          <IconButton disabled={busyNo === snapshotNo} icon={<Trash2 size={15} />} label="删除未确认对账单" onClick={() => void postAction(snapshotNo, "delete")} tone="danger" />
-                        ) : null}
-                        {confirmed ? <span className="px-2 text-ink-4">-</span> : null}
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-              {!rows.length ? <tr><td className="py-12 text-center text-ink-3" colSpan={columns.length + 1}><TableStateContent empty="暂无服务费对账单" loading={loading} /></td></tr> : null}
-            </tbody>
-          </table>
-        </StickyTable>
+        <div className="overflow-auto p-3 md:hidden">
+          {rows.length ? rows.map((row) => {
+            const snapshotNo = String(row.snapshotNo ?? "");
+            const open = Boolean(expanded[snapshotNo]);
+            return <article className="mb-3 overflow-hidden rounded border border-line-soft bg-white" key={snapshotNo}>
+              <div className="flex items-start gap-3 border-b border-line-soft p-3">
+                <div className="min-w-0 flex-1">
+                  <div className="truncate font-medium text-primary">{renderCell(row, "snapshotNo")}</div>
+                  <div className="mt-0.5 text-xs text-ink-3">{String(row.countryCode ?? "-")} · {formatValue(row.writeOffMonth, "month") || "-"}</div>
+                </div>
+                {renderCell(row, "status")}
+              </div>
+              <div className="grid grid-cols-2 gap-px bg-line-soft">
+                {visibleColumns.filter((column) => !["snapshotNo", "status"].includes(column.key)).map((column) => <div className="min-w-0 bg-white px-3 py-2" key={column.key}>
+                  <div className="text-[11px] text-ink-3">{column.label}</div>
+                  <div className="mt-0.5 truncate text-xs text-ink">{renderCell(row, column.key)}</div>
+                </div>)}
+              </div>
+              <div className="flex flex-wrap items-center gap-2 border-t border-line-soft bg-surface-2 px-3 py-2">
+                <Button size="sm" onClick={() => toggleExpanded(snapshotNo)}>{open ? "收起" : "展开"}</Button>
+                <div className="ml-auto">{renderActions(row)}</div>
+              </div>
+              {open ? <div className="border-t border-line-soft bg-canvas p-3">{renderDetails(row)}</div> : null}
+            </article>;
+          }) : <TableStateContent empty="暂无服务费对账单" loading={loading} />}
+        </div>
+
+        <div className="hidden w-full min-w-0 max-w-full flex-col md:flex">
+          <div className="min-w-0 max-w-full">
+          <StickyTable className="table-scroll table-viewport overflow-auto" tableKey="service-fee-statements">
+            <table className="w-full border-collapse text-sm" style={{ minWidth: Math.max(1320, visibleColumns.length * 138 + 130) }}>
+              <thead className="bg-canvas text-ink">
+                <tr>
+                  {visibleColumns.map((column) => <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium" key={column.key}>{column.filterable === false ? column.label : renderHeader(column)}</th>)}
+                  <th className="sticky right-0 whitespace-nowrap border-b border-line-soft bg-canvas px-3 py-3 text-left font-medium">操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row) => {
+                  const snapshotNo = String(row.snapshotNo ?? "");
+                  const open = Boolean(expanded[snapshotNo]);
+                  return <Fragment key={snapshotNo}>
+                    <tr className="hover:bg-surface-2">
+                      {visibleColumns.map((column) => <td className="max-w-[280px] whitespace-nowrap border-b border-r border-line-soft px-3 py-3 align-top" key={column.key} title={String(row[column.key] ?? "")}>
+                        {column.key === "snapshotNo" ? <div className="flex items-center gap-2"><button aria-label={open ? "收起明细" : "展开明细"} className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded border border-line bg-white text-ink-2 hover:border-primary hover:text-primary" title={open ? "收起明细" : "展开明细"} type="button" onClick={() => toggleExpanded(snapshotNo)}>{open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</button>{renderCell(row, column.key)}</div> : <span className="block max-w-[260px] truncate">{renderCell(row, column.key)}</span>}
+                      </td>)}
+                      <td className="sticky right-0 whitespace-nowrap border-b border-line-soft bg-white px-3 py-3">{renderActions(row)}</td>
+                    </tr>
+                    {open ? <tr><td className="border-b border-line-soft bg-canvas p-3" colSpan={visibleColumns.length + 1}>{renderDetails(row)}</td></tr> : null}
+                  </Fragment>;
+                })}
+                {!rows.length ? <tr><td className="py-12 text-center text-ink-3" colSpan={visibleColumns.length + 1}><TableStateContent empty="暂无服务费对账单" loading={loading} /></td></tr> : null}
+              </tbody>
+            </table>
+          </StickyTable>
+          </div>
+        </div>
         <PaginationBar
           page={page}
           pageSize={pageSize}
@@ -673,6 +742,14 @@ export function ServiceFeeStatementsPage() {
           onPageSizeChange={(next) => { pageSizeRef.current = next; setPageSize(next); setPage(1); void loadData(1, next); }}
         />
       </Panel>
+      <StatementFieldSettingsModal
+        columns={columns}
+        onClose={() => setShowFieldSettings(false)}
+        onVisibilityChange={fieldState.setVisibility}
+        open={showFieldSettings}
+        title="算力服务费对账单字段设置"
+        visibility={fieldState.visibility}
+      />
       {repaymentDraft ? (
         <Modal
           description={repaymentDraft.snapshotNo}
@@ -789,7 +866,10 @@ export function ServiceFeeStatementsPage() {
       <InvoiceDraftModal
         mode={invoiceModal?.mode ?? "generated"}
         onClose={() => setInvoiceModal(null)}
-        onSaved={() => { void loadData(page, pageSizeRef.current); }}
+        onSaved={() => {
+          setAttachmentVersion((current) => current + 1);
+          void loadData(page, pageSizeRef.current);
+        }}
         open={Boolean(invoiceModal)}
         sourceId={invoiceModal?.sourceId ?? ""}
         sourceType="service_fee"
@@ -808,9 +888,21 @@ function formatValue(value: unknown, type?: string) {
 }
 
 function formatAmountWithCurrency(value: unknown, currency: unknown) {
+  if (value === null || value === undefined || value === "") return "-";
   const amount = formatValue(value, "money");
   const currencyText = String(currency ?? "").trim();
-  return currencyText ? `${currencyText} ${amount}` : amount;
+  return currencyText ? `${currencyText}：${amount}` : amount;
+}
+
+function differenceAmount(includingTax: unknown, excludingTax: unknown) {
+  const total = nullableNumber(includingTax);
+  const net = nullableNumber(excludingTax);
+  return total === null || net === null ? null : total - net;
+}
+
+function formatPercent(value: unknown) {
+  const rate = nullableNumber(value);
+  return rate === null ? "-" : `${(rate * 100).toFixed(2)}%`;
 }
 
 function firstNonBlankValue(...values: unknown[]) {
@@ -870,79 +962,4 @@ function formatRateInput(value: unknown) {
 function parseRateInput(value: unknown) {
   const percent = nullableNumber(value);
   return percent === null ? null : percent / 100;
-}
-
-function AmountSummary({
-  currency,
-  excludingTax,
-  vatRate,
-  includingTax,
-  receivableDate,
-  partyFlow,
-  action,
-}: {
-  currency: unknown;
-  excludingTax: unknown;
-  vatRate: unknown;
-  includingTax: unknown;
-  receivableDate?: unknown;
-  partyFlow?: string;
-  action?: ReactNode;
-}) {
-  const net = nullableNumber(excludingTax);
-  const rate = nullableNumber(vatRate);
-  const gross = nullableNumber(includingTax);
-  const resolvedNet = net ?? (gross !== null && rate !== null ? gross / (1 + rate) : null);
-  const resolvedGross = gross ?? (net !== null && rate !== null ? net * (1 + rate) : null);
-  const tax = resolvedGross !== null && resolvedNet !== null ? resolvedGross - resolvedNet : null;
-  return (
-    <div className="min-w-[135px] space-y-0.5 text-xs leading-4 text-ink-2">
-      {partyFlow ? <div className="max-w-[190px] truncate text-[11px] text-ink-3" title={partyFlow}>{partyFlow}</div> : null}
-      {receivableDate ? <div className="text-ink-3">应收日期 <span className="text-ink-2">{String(receivableDate).slice(0, 10)}</span></div> : null}
-      <div className="font-semibold text-info-ink">{String(currency ?? "").trim() || "-"}</div>
-      <div><span className="text-ink-3">未税 </span>{formatCompactMoney(resolvedNet)}</div>
-      <div><span className="text-ink-3">税率 </span>{formatCompactRate(rate)}</div>
-      <div><span className="text-ink-3">税金 </span>{formatCompactMoney(tax)}</div>
-      <div className="font-semibold text-ink"><span className="font-normal text-ink-3">含税 </span>{formatCompactMoney(resolvedGross)}</div>
-      {action ? <div className="mt-1 flex items-center gap-1 border-t border-canvas-deep pt-1">{action}</div> : null}
-    </div>
-  );
-}
-
-function RepaymentStatusAction({ row, busy, onToggle, onEdit }: { row: Row; busy: boolean; onToggle: () => void; onEdit: () => void }) {
-  const paid = row.repaymentStatus === "已回款";
-  return <>
-    <button
-      aria-checked={paid}
-      aria-label={`回款状态：${paid ? "已回款" : "未回款"}`}
-      className="inline-flex h-6 items-center gap-1 rounded-full text-xs text-ink-2 disabled:cursor-not-allowed disabled:opacity-50"
-      disabled={busy}
-      role="switch"
-      title={`点击切换为${paid ? "未回款" : "已回款"}`}
-      type="button"
-      onClick={onToggle}
-    >
-      <span className={`relative inline-flex h-4 w-7 rounded-full transition-colors ${paid ? "bg-success" : "bg-ink-4"}`}>
-        <span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white shadow transition-transform ${paid ? "translate-x-[15px]" : "translate-x-0.5"}`} />
-      </span>
-      <span>{paid ? "已回款" : "未回款"}</span>
-    </button>
-    <button aria-label="编辑回款信息" className="ml-auto inline-flex h-6 w-6 items-center justify-center rounded text-ink-3 hover:bg-canvas hover:text-primary disabled:cursor-not-allowed disabled:opacity-50" disabled={busy} title="编辑回款信息" type="button" onClick={onEdit}>
-      <Pencil size={13} />
-    </button>
-  </>;
-}
-
-function formatCompactMoney(value: number | null) {
-  return value === null ? "-" : formatDisplayValue(value, "money");
-}
-
-function formatCompactRate(value: number | null) {
-  return value === null ? "-" : `${(value * 100).toFixed(2)}%`;
-}
-
-function formatPartyFlow(payer: unknown, receiver: unknown) {
-  const payerName = String(payer ?? "").trim();
-  const receiverName = String(receiver ?? "").trim();
-  return payerName && receiverName ? `${payerName} → ${receiverName}` : payerName || receiverName;
 }

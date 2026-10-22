@@ -1,16 +1,27 @@
 import { NextRequest, NextResponse } from "next/server";
 import { findCloudAttachment, listCloudAttachments, storeCloudAttachment } from "@/lib/cloud-service";
+import { ensureInvoiceAttachmentForSource } from "@/lib/invoice-service";
 import { getOperationActor } from "@/lib/operation-actor";
 import { cloudAttachmentResponse } from "@/lib/cloud-attachment-response";
 
-// invoice = 客户开票附件；supplier_payment = 供应商付款发票附件；crm_invoice = CRM 同步回来的发票 PDF。
-const OWNER_TYPES = new Set(["reconciliation", "collection", "invoice", "supplier_payment", "crm_invoice"]);
+// invoice = 客户开票附件；supplier_payment = 供应商付款发票附件；
+// crm_invoice = CRM 同步回来的发票 PDF；service_fee_invoice = 服务费对账单的多附件。
+const OWNER_TYPES = new Set(["reconciliation", "collection", "invoice", "supplier_payment", "crm_invoice", "service_fee_invoice"]);
 
 export async function GET(_request: NextRequest, context: { params: Promise<{ ownerType: string; ownerId: string }> }) {
   const { ownerType, ownerId } = await context.params;
   if (!OWNER_TYPES.has(ownerType)) return NextResponse.json({ error: "附件类型无效" }, { status: 400 });
   const ownerReference = decodeURIComponent(ownerId);
   try {
+    if (ownerType === "invoice") {
+      await ensureInvoiceAttachmentForSource("cloud_row", ownerReference).catch((error) => {
+        console.warn("[attachments] 华为云开票附件自愈失败:", error instanceof Error ? error.message : error);
+      });
+    } else if (ownerType === "service_fee_invoice") {
+      await ensureInvoiceAttachmentForSource("service_fee", ownerReference).catch((error) => {
+        console.warn("[attachments] 服务费开票附件自愈失败:", error instanceof Error ? error.message : error);
+      });
+    }
     const items = await listCloudAttachments(ownerType, ownerReference);
     /**
      * 兼容"下载直链写成 /api/cloud/attachments/<ownerType>/<附件ID>"的历史写法：
