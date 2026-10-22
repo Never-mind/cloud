@@ -476,13 +476,6 @@ export function OrderDetailPage({
         {mode === "purchase" ? <PurchaseOrderInvoicePanel purchaseOrderId={String(master.purchaseOrderId ?? id)} /> : null}
       </Panel>
 
-      {mode === "purchase" ? (
-        <PurchaseOrderDemandPlanTabs
-          poNo={String(master.poNo ?? "")}
-          purchaseOrderId={String(master.purchaseOrderId ?? id)}
-        />
-      ) : null}
-
       <Panel>
         <div className="border-b border-line-soft px-4 py-3 font-medium text-ink">明细列表</div>
         <StickyTable className="table-scroll table-viewport overflow-auto" tableKey={`order-detail-${mode}`}>
@@ -553,6 +546,12 @@ export function OrderDetailPage({
         confirmedBy={master.confirmedByName}
         confirmedAt={master.confirmedAt}
       />
+      {mode === "purchase" ? (
+        <PurchaseOrderDemandPlanTabs
+          poNo={String(master.poNo ?? "")}
+          purchaseOrderId={String(master.purchaseOrderId ?? id)}
+        />
+      ) : null}
     </div>
   );
 }

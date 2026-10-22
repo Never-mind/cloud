@@ -12,7 +12,7 @@ export function PurchaseOrderDemandPlanTabs({
   purchaseOrderId: string;
   poNo: string;
 }) {
-  const [activeTab, setActiveTab] = useState<"sn" | "plan">("sn");
+  const [activeTab, setActiveTab] = useState<"sn" | "plan">("plan");
   const fixedFilters = useMemo(() => ({ purchaseOrderId }), [purchaseOrderId]);
   const fixedValues = useMemo(() => ({ purchaseOrderId, poNo }), [poNo, purchaseOrderId]);
   const config = getEntityConfig(activeTab === "sn" ? "purchase-order-sn-items" : "purchase-order-plan-items");
@@ -22,11 +22,11 @@ export function PurchaseOrderDemandPlanTabs({
   return (
     <Panel>
       <div className="flex gap-2 border-b border-line-soft px-4 pt-3">
-        <Button tone={activeTab === "sn" ? "primary" : "default"} onClick={() => setActiveTab("sn")}>
-          要货计划SN码
-        </Button>
         <Button tone={activeTab === "plan" ? "primary" : "default"} onClick={() => setActiveTab("plan")}>
           要货计划子
+        </Button>
+        <Button tone={activeTab === "sn" ? "primary" : "default"} onClick={() => setActiveTab("sn")}>
+          要货计划SN码
         </Button>
       </div>
       <div className="p-4">
@@ -36,7 +36,8 @@ export function PurchaseOrderDemandPlanTabs({
           enableFieldSettings
           fixedFilters={fixedFilters}
           fixedValues={fixedValues}
-          hideCreate hideImportTemplate={false}
+          hideCreate
+          hideImportTemplate={false}
           hideHeading
         />
       </div>
