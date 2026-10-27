@@ -1807,6 +1807,7 @@ async function main() {
   await addColumnIfMissing("servicefeesnapshots", "invoiceVatRate", "`invoiceVatRate` DECIMAL(10, 6) NULL COMMENT 'invoice VAT rate' AFTER `invoiceAmountExcludingTax`");
   await addColumnIfMissing("servicefeesnapshots", "invoiceAmountIncludingTax", "`invoiceAmountIncludingTax` DECIMAL(18, 4) NULL COMMENT 'invoice amount VAT included' AFTER `invoiceVatRate`");
   await addColumnIfMissing("servicefeesnapshots", "receivableDate", "`receivableDate` DATE NULL COMMENT '应收日期' AFTER `invoiceAmountIncludingTax`");
+  await addColumnIfMissing("servicefeesnapshots", "invoiceDate", "`invoiceDate` DATE NULL COMMENT 'Invoice issue date'");
   await addColumnIfMissing("servicefeesnapshots", "serviceFeeTotalExcludingTax", "`serviceFeeTotalExcludingTax` DECIMAL(18, 4) NULL COMMENT 'service fee total VAT excluded' AFTER `serviceFeeTotal`");
   await addColumnIfMissing("servicefeesnapshots", "vatRate", "`vatRate` DECIMAL(10, 6) NULL COMMENT 'VAT rate snapshot' AFTER `serviceFeeTotalExcludingTax`");
   await modifyColumnIfPresent(

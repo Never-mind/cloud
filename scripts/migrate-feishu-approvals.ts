@@ -1,4 +1,5 @@
 import { closeDb, executeRaw, queryRowsRaw } from "../src/lib/db";
+import { readFile } from "node:fs/promises";
 
 /**
  * 飞书审批开票的关联表（幂等，可重复执行）。
@@ -46,6 +47,7 @@ async function tableExists(tableName: string) {
 }
 
 async function main() {
+  await executeRaw(await readFile(new URL("./invoice-approval-returns.sql", import.meta.url), "utf8"));
   await createTableIfMissing(
     "merge_common_feishu_approvals",
     `

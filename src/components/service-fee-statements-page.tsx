@@ -50,6 +50,7 @@ type RepaymentDraft = {
   repaymentDate: string;
 };
 type InvoiceDraft = {
+  invoiceDate: string;
   snapshotNo: string;
   invoiceNo: string;
   invoiceCurrency: string;
@@ -92,6 +93,7 @@ const columns: ServiceFeeColumn[] = [
   { key: "invoiceAmountExcludingTax", label: "客户开票未税", defaultVisible: false, sortable: true, filterable: true },
   { key: "invoiceVatRate", label: "客户开票税率", defaultVisible: false, sortable: true, filterable: true },
   { key: "receivableDate", label: "应收日期", defaultVisible: false, sortable: true, filterable: true },
+  { key: "invoiceDate", label: "开票日期", defaultVisible: false, sortable: true, filterable: true },
   { key: "createdAt", label: "创建时间", defaultVisible: false, sortable: true, filterable: true },
   { key: "updatedAt", label: "更新时间", defaultVisible: false, sortable: true, filterable: true },
   { key: "confirmedAt", label: "确认时间", defaultVisible: false, sortable: true, filterable: true },
@@ -219,6 +221,7 @@ export function ServiceFeeStatementsPage() {
 
   function openInvoiceInfo(row: Row) {
     setInvoiceDraft({
+      invoiceDate: String(row.invoiceDate ?? "").slice(0, 10),
       snapshotNo: String(row.snapshotNo ?? ""),
       invoiceNo: String(row.invoiceNo ?? ""),
       invoiceCurrency: String(row.invoiceCurrency ?? ""),
@@ -488,7 +491,7 @@ export function ServiceFeeStatementsPage() {
     if (key === "invoiceAmountExcludingTax") return formatAmountWithCurrency(row.invoiceAmountExcludingTax, row.invoiceCurrency);
     if (key === "vatRate" || key === "repaymentVatRate" || key === "invoiceVatRate") return formatPercent(row[key]);
     if (key === "writeOffMonth") return formatValue(row[key], "month");
-    if (key === "repaymentDate" || key === "receivableDate") return formatValue(row[key], "date");
+    if (key === "repaymentDate" || key === "receivableDate" || key === "invoiceDate") return formatValue(row[key], "date");
     if (key === "createdAt" || key === "updatedAt" || key === "confirmedAt") return formatValue(row[key], "datetime");
     return formatValue(row[key]);
   }
@@ -582,7 +585,7 @@ export function ServiceFeeStatementsPage() {
         </button>
         <Button disabled={busyNo === snapshotNo} size="sm" onClick={() => openInvoiceInfo(row)}>编辑开票</Button>
         <Button disabled={busyNo === snapshotNo} size="sm" onClick={() => setInvoiceModal({ mode: "generated", sourceId: snapshotNo })}>开票</Button>
-        <Button disabled={busyNo === snapshotNo} size="sm" onClick={() => setInvoiceModal({ mode: "external", sourceId: snapshotNo })}>上传外部发票</Button>
+        <Button disabled={busyNo === snapshotNo} size="sm" onClick={() => setInvoiceModal({ mode: "external", sourceId: snapshotNo })}>上传并识别</Button>
         <Button disabled={busyNo === snapshotNo} size="sm" onClick={() => chooseInvoice(row)}>上传附件</Button>
         <CloudAttachments
           extraAttachments={hasInvoice ? [{
@@ -859,6 +862,12 @@ export function ServiceFeeStatementsPage() {
               </RepaymentField>
               <RepaymentField label="应收日期">
                 <Input className="w-full min-w-0" type="date" value={invoiceDraft.receivableDate} onChange={(event) => setInvoiceDraft((current) => current ? { ...current, receivableDate: event.target.value } : current)} />
+              </RepaymentField>
+              <RepaymentField label="开票日期">
+                <Input className="w-full min-w-0" type="date" value={invoiceDraft.invoiceDate} onChange={(event) => setInvoiceDraft((current) => current ? { ...current, invoiceDate: event.target.value } : current)} />
+              </RepaymentField>
+              <RepaymentField label="发票税金">
+                <Input className="w-full min-w-0" type="number" step="0.01" value={invoiceDraft.invoiceAmountIncludingTax !== "" && invoiceDraft.invoiceAmountExcludingTax !== "" ? String(Math.round((Number(invoiceDraft.invoiceAmountIncludingTax) - Number(invoiceDraft.invoiceAmountExcludingTax)) * 100) / 100) : ""} onChange={event => { const value = event.target.value; setInvoiceDraft(current => current && value !== "" && current.invoiceAmountExcludingTax !== "" ? { ...current, invoiceAmountIncludingTax: String(Math.round((Number(current.invoiceAmountExcludingTax) + Number(value)) * 100) / 100) } : current); }} />
               </RepaymentField>
           </div>
         </Modal>

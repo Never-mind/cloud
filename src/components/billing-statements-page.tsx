@@ -352,10 +352,10 @@ export function BillingStatementsPage() {
                         <button
                           className="inline-flex h-8 items-center rounded border border-line bg-white px-2.5 text-xs text-ink-2 hover:border-primary hover:text-primary"
                           onClick={() => setInvoiceModal({ mode: "external", sourceId: snapshot })}
-                          title="外部已开好票：上传文件并登记"
+                          title="上传并识别外部发票，确认后保存"
                           type="button"
                         >
-                          上传发票
+                          上传并识别
                         </button>
                         {row.invoiceId ? (
                           <IconLink

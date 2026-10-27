@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import * as XLSX from "xlsx";
 import { executeRaw, queryRows, queryRowsRaw, type Row } from "./db";
-import { calculateCloudTaxGroup, CLOUD_TAX_GROUPS, type CloudTaxGroup } from "./cloud-tax";
+import { calculateCloudTaxGroup, confirmedCloudInvoiceAmounts, CLOUD_TAX_GROUPS, type CloudTaxGroup } from "./cloud-tax";
 import {
   buildCloudImportFieldMap,
   normalizeCloudImportHeader,
@@ -1079,7 +1079,7 @@ export async function updateCloudRow(id: string, body: Row, actor: OperationActo
   for (const group of Object.keys(CLOUD_TAX_GROUPS) as CloudTaxGroup[]) {
     const changedFields = changedCloudTaxFields(existing, merged, fields, group);
     if (!changedFields.length) continue;
-    const calculation = calculateCloudTaxGroup(merged, group, changedFields);
+    const calculation = (group === "invoice" ? confirmedCloudInvoiceAmounts(merged, fields) : null) ?? calculateCloudTaxGroup(merged, group, changedFields);
     const keys = CLOUD_TAX_GROUPS[group];
     if (calculation.source === "net-rate") {
       setDerivedValue(keys.taxKey, calculation.tax);
@@ -1270,6 +1270,10 @@ export async function updateCloudSupplierPayment(id: string, body: Row, actor: O
     ))[0] : undefined);
   const values: Row = { id: target?.id ?? randomUUID() };
   const merged = { ...(target ?? {}), ...body };
+  if (text(body.invoiceNo) && text(merged.supplierId)) {
+    const duplicate = await queryRowsRaw("SELECT id FROM merge_cloud_supplier_payments WHERE supplierId = :supplierId AND invoiceNo = :invoiceNo AND id <> :id LIMIT 1", { supplierId: text(merged.supplierId), invoiceNo: text(body.invoiceNo), id: values.id });
+    if (duplicate.length) throw new Error("该供应商发票已在其他账期登记，请核对或分摊，不能重复登记整票金额");
+  }
   const assignmentFields = new Set(fields);
   const assignments = fields.map((key) => `${key} = :${key}`);
   for (const key of fields) values[key] = key === "period" ? normalizeCloudPeriod(merged[key]) : key.endsWith("TaxRate") ? rate(merged[key]) : ["paymentDate", "receivableDate", "invoiceDate"].includes(key) ? dateOnly(merged[key]) : ["paymentExchangeRate", "invoiceExchangeRate", "paymentNetAmount", "paymentTaxAmount", "paymentTotalAmount", "invoiceNetAmount", "invoiceTaxAmount", "invoiceTotalAmount"].includes(key) ? nullableNumber(merged[key]) : ["payerUnitId", "payerUnitName", "currency", "invoiceNo", "invoiceCurrency", "invoiceStatus"].includes(key) ? text(merged[key]) || null : key === "paid" ? (merged[key] ? 1 : 0) : merged[key];
@@ -1280,7 +1284,7 @@ export async function updateCloudSupplierPayment(id: string, body: Row, actor: O
   const taxCalculations = new Map<CloudTaxGroup, ReturnType<typeof calculateCloudTaxGroup>>();
   for (const group of ["payment", "invoice"] as const) {
     const changedFields = changedCloudTaxFields(target ?? {}, merged, fields, group);
-    const calculation = calculateCloudTaxGroup(merged, group, changedFields);
+    const calculation = (group === "invoice" ? confirmedCloudInvoiceAmounts(merged, fields) : null) ?? calculateCloudTaxGroup(merged, group, changedFields);
     taxCalculations.set(group, calculation);
     const keys = CLOUD_TAX_GROUPS[group];
     if (calculation.source === "net-rate") {

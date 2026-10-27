@@ -1,129 +1,98 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { FileUp, ScanLine } from "lucide-react";
-import { Button } from "./ui";
+import { FileUp } from "lucide-react";
+import { Button, Input, Select } from "./ui";
 import { Modal } from "./modal";
+import { SearchSelect } from "./search-select";
+import { usePartnerOptions } from "./invoice-draft-modal";
+import { InvoiceRecognitionReview } from "./invoice-recognition-review";
+import { completeInvoiceReviewAmounts, updateInvoiceReviewAmounts, validateInvoiceReview, type InvoiceReviewAmounts } from "@/lib/invoice-review";
 import type { InvoiceRecognition, RecognizedInvoiceForm } from "@/lib/invoice-recognition-service";
 
-const STATUS_LABEL: Record<InvoiceRecognition["fields"][number]["status"], { text: string; className: string }> = {
-  matched: { text: "税号匹配档案", className: "bg-tag-green text-tag-green-fg" },
-  recognized: { text: "已识别", className: "bg-tag-blue text-tag-blue-fg" },
-  derived: { text: "推导", className: "bg-tag-amber text-tag-amber-fg" },
-  missing: { text: "未识别", className: "bg-canvas text-ink-3" },
-};
+const emptyForm: RecognizedInvoiceForm = { type: "", accountPeriod: "", accountingDate: "", invoiceNo: "", invoiceDate: "", receivableDate: "", currency: "", exchangeRate: "", invoiceTotal: "", taxRate: "", amountExcludingTax: "", taxAmount: "", companyEntityId: "", companyEntity: "", invoiceEntityId: "", invoiceEntity: "", invoiceEntityType: "", taxUuid: "" };
 
-/**
- * 上传发票识别：选票 → 后端解析 → 结果逐字段确认 → 填进新增发票表单。
- * 只解析不入库，用户点「新增发票」保存时才真正落库并把原文件挂到发票附件下。
- */
 export function InvoiceRecognizeModal({ open, projectId, onClose, onSaved }: {
-  open: boolean;
-  projectId: string;
-  onClose: () => void;
-  /** 确认后直接落到下方发票明细（父组件负责调接口），失败时抛错由弹层展示 */
+  open: boolean; projectId: string; onClose: () => void;
   onSaved: (form: RecognizedInvoiceForm, file: File) => Promise<void>;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const lock = useRef(false);
   const [file, setFile] = useState<File | null>(null);
   const [recognition, setRecognition] = useState<InvoiceRecognition | null>(null);
+  const [draft, setDraft] = useState<RecognizedInvoiceForm>({ ...emptyForm });
   const [busy, setBusy] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-
+  const units = usePartnerOptions("undertaking-units", draft.type === "income" ? recognition?.partyMatches?.issuerUnit : recognition?.partyMatches?.receiverUnit);
+  const suppliers = usePartnerOptions("suppliers", recognition?.partyMatches?.issuerSupplier);
+  const customers = usePartnerOptions("customers", recognition?.partyMatches?.receiverCustomer);
+  const partners = draft.type === "income" ? customers : suppliers;
+  const patch = (next: Partial<RecognizedInvoiceForm>) => setDraft(current => ({ ...current, ...next }));
+  const amounts = { ...draft, amountIncludingTax: draft.invoiceTotal };
+  const changeAmount = (key: keyof InvoiceReviewAmounts, value: string) => {
+    const next = updateInvoiceReviewAmounts(amounts, key, value);
+    patch({ amountExcludingTax: next.amountExcludingTax, taxRate: next.taxRate, taxAmount: next.taxAmount, invoiceTotal: next.amountIncludingTax });
+  };
   function close() {
-    setFile(null); setRecognition(null); setError(""); setBusy(false);
-    onClose();
+    if (lock.current) return;
+    setFile(null); setRecognition(null); setDraft({ ...emptyForm }); setError(""); onClose();
   }
-
   async function recognize(next: File) {
-    setFile(next); setRecognition(null); setError(""); setBusy(true);
+    if (lock.current) return;
+    if (next.size > 20 * 1024 * 1024) { setError("文件不能超过 20 MB"); return; }
+    lock.current = true; setBusy(true); setFile(next); setRecognition(null); setDraft({ ...emptyForm }); setError("");
     try {
-      const body = new FormData();
-      body.append("file", next);
+      const body = new FormData(); body.set("file", next);
       const response = await fetch(`/api/po/settlement-projects/${encodeURIComponent(projectId)}/invoices/recognize`, { method: "POST", body });
-      const data = await response.json().catch(() => ({}));
+      const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? "发票识别失败");
-      setRecognition(data.recognition as InvoiceRecognition);
-    } catch (recognizeError) {
-      setError(recognizeError instanceof Error ? recognizeError.message : "发票识别失败");
-    } finally {
-      setBusy(false);
-    }
+      const result = data.recognition as InvoiceRecognition;
+      const values = completeInvoiceReviewAmounts({ ...result.form, amountIncludingTax: result.form.invoiceTotal });
+      setRecognition(result); setDraft({ ...result.form, ...values, invoiceTotal: values.amountIncludingTax });
+    } catch (error) { setError(`${error instanceof Error ? error.message : "识别失败"}，可手工补充后确认`); }
+    finally { lock.current = false; setBusy(false); }
   }
-
   async function save() {
-    if (!file || !recognition) return;
-    setBusy(true); setError("");
+    if (!file || lock.current) return;
+    const validation = validateInvoiceReview(amounts);
+    if (validation) { setError(validation); return; }
+    if (!draft.type || !draft.companyEntityId || !draft.invoiceEntityId) { setError("请选择类型、承接单位及供应商/客户"); return; }
+    if (!["CNY", "USD", "MXN"].includes(draft.currency)) { setError("结算发票币种仅支持 CNY、USD、MXN，请确认后选择"); return; }
+    if (!(Number(draft.exchangeRate) > 0)) { setError("请填写大于 0 的汇率（1 USD 对应原币金额）"); return; }
+    lock.current = true; setSaving(true); setError("");
     try {
-      await onSaved(recognition.form, file);
-      setFile(null); setRecognition(null);
-    } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : "发票保存失败");
-    } finally {
-      setBusy(false);
-    }
+      const values = completeInvoiceReviewAmounts(amounts);
+      await onSaved({ ...draft, ...values, invoiceTotal: values.amountIncludingTax, recognitionFacts: recognition?.facts }, file);
+      setFile(null); setRecognition(null); setDraft({ ...emptyForm });
+    } catch (error) { setError(error instanceof Error ? error.message : "保存失败"); }
+    finally { lock.current = false; setSaving(false); }
   }
-
-  // Modal 组件本身不认 open，弹层由这里控制挂载（否则页面一打开就挡住列表）
   if (!open) return null;
-
-  return (
-    <Modal
-      title="上传发票识别"
-      description="支持中国增值税电子发票（PDF / OFD / 数电票 XML）与墨西哥 CFDI（XML / PDF）；核对识别结果后点确认，直接写进下方发票明细"
-      widthClass="max-w-4xl"
-      onClose={close}
-      footer={<>
-        <Button onClick={close}>取消</Button>
-        <Button disabled={!recognition || !file || busy} tone="primary" onClick={() => void save()}>{busy ? "正在保存…" : "确认并新增到明细"}</Button>
-      </>}
-    >
-      <div className="space-y-4">
-        <div className="rounded border border-dashed border-line bg-surface-2 p-4 text-center">
-          <input
-            ref={inputRef}
-            accept=".pdf,.ofd,.xml,application/pdf,text/xml,application/xml"
-            className="hidden"
-            type="file"
-            onChange={(event) => { const picked = event.target.files?.[0]; event.target.value = ""; if (picked) void recognize(picked); }}
-          />
-          <ScanLine className="mx-auto mb-2 text-primary" size={22} />
-          <p className="text-sm text-ink-2">选择要识别的发票文件（PDF / OFD / XML）</p>
-          <p className="mt-1 text-xs text-ink-3">照片、扫描件没有文字层，本期识别不了</p>
-          <Button className="mt-3" disabled={busy} onClick={() => inputRef.current?.click()}><FileUp size={15} />{file ? "重新选择" : "选择文件"}</Button>
-          {file ? <p className="mt-2 text-xs text-ink-3">已选：{file.name}</p> : null}
-        </div>
-
-        {busy ? <p className="text-sm text-ink-2">正在识别…</p> : null}
-        {error ? <p className="rounded border border-tag-red-border bg-tag-red px-3 py-2 text-sm text-tag-red-fg">{error}</p> : null}
-
-        {recognition ? (
-          <div className="space-y-3">
-            <p className="text-sm text-ink-2">
-              识别来源：<span className="font-medium text-ink">{recognition.source}</span>
-              {recognition.kind ? <span className="ml-2 text-ink-3">{recognition.kind}</span> : null}
-              <span className={`ml-2 rounded px-2 py-0.5 text-xs ${recognition.exact ? "bg-tag-green text-tag-green-fg" : "bg-tag-amber text-tag-amber-fg"}`}>
-                {recognition.exact ? "结构化精确解析" : "按模板读取，请重点核对"}
-              </span>
-            </p>
-            <div className="max-h-[46vh] overflow-auto rounded border border-line-soft">
-              <table className="w-full border-collapse text-sm">
-                <thead className="bg-canvas"><tr><th className="border-b border-r border-line-soft px-3 py-2 text-left font-medium">字段</th><th className="border-b border-r border-line-soft px-3 py-2 text-left font-medium">识别值</th><th className="border-b border-line-soft px-3 py-2 text-left font-medium">状态</th></tr></thead>
-                <tbody>
-                  {recognition.fields.map((field) => <tr key={field.key}>
-                    <td className="border-b border-r border-line-soft px-3 py-2 text-ink-2">{field.label}</td>
-                    <td className="border-b border-r border-line-soft px-3 py-2 text-ink">{field.value || "—"}</td>
-                    <td className="border-b border-line-soft px-3 py-2"><span className={`rounded px-2 py-0.5 text-xs ${STATUS_LABEL[field.status].className}`}>{STATUS_LABEL[field.status].text}</span></td>
-                  </tr>)}
-                </tbody>
-              </table>
-            </div>
-            {recognition.warnings.length ? <ul className="space-y-1 rounded border border-warning-border-soft bg-warning-soft px-3 py-2 text-xs text-warning-ink">
-              {recognition.warnings.map((warning) => <li key={warning}>· {warning}</li>)}
-            </ul> : null}
-          </div>
-        ) : null}
-      </div>
-    </Modal>
-  );
+  return <Modal title="上传并识别" onClose={close} widthClass="max-w-5xl" footer={<>
+    <Button disabled={busy || saving} onClick={close}>取消</Button>
+    <Button disabled={!file || busy || saving} tone="primary" onClick={() => void save()}>{saving ? "保存中…" : "确认并新增到明细"}</Button>
+  </>}>
+    <div className="space-y-4">
+      <input ref={inputRef} className="hidden" type="file" onChange={event => { const next = event.target.files?.[0]; event.target.value = ""; if (next) void recognize(next); }} />
+      <Button disabled={busy || saving} onClick={() => inputRef.current?.click()}><FileUp size={16} />{busy ? "正在识别…" : file ? "重新上传并识别" : "上传并识别"}</Button>
+      {error ? <p role="alert" className="text-sm text-danger">{error}</p> : null}
+      <InvoiceRecognitionReview recognition={recognition} file={file} values={amounts} direction={draft.type} />
+      {file ? <fieldset disabled={busy || saving} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <label className="flex flex-col gap-1 text-sm">类型<Select value={draft.type} onChange={event => {
+          const type = event.target.value as RecognizedInvoiceForm["type"];
+          const companyId = type === "income" ? recognition?.matches?.issuerUnitId : type === "cost" ? recognition?.matches?.receiverUnitId : "";
+          const partnerId = type === "income" ? recognition?.matches?.receiverCustomerId : type === "cost" ? recognition?.matches?.issuerSupplierId : "";
+          patch({ type, invoiceEntityType: type === "income" ? "customer" : "supplier",
+            companyEntityId: companyId || "", invoiceEntityId: partnerId || "",
+            companyEntity: String(units.find(item => item.value === companyId)?.label || ""),
+            invoiceEntity: String((type === "income" ? customers : suppliers).find(item => item.value === partnerId)?.label || "") });
+        }}><option value="">请选择</option><option value="cost">成本</option><option value="income">收入</option></Select></label>
+        <label className="flex flex-col gap-1 text-sm">承接单位<SearchSelect value={draft.companyEntityId} options={units} onChange={id => patch({ companyEntityId: id, companyEntity: String(units.find(item => item.value === id)?.label ?? "") })} /></label>
+        <label className="flex flex-col gap-1 text-sm">{draft.type === "income" ? "客户" : "供应商"}<SearchSelect value={draft.invoiceEntityId} options={partners} onChange={id => patch({ invoiceEntityId: id, invoiceEntity: String(partners.find(item => item.value === id)?.label ?? ""), invoiceEntityType: draft.type === "income" ? "customer" : "supplier" })} /></label>
+        {([ ["invoiceNo", "发票号"], ["invoiceDate", "开票日期"], ["accountPeriod", "账期"], ["accountingDate", "财务记账日期"], ["receivableDate", draft.type === "income" ? "应收日期" : "预计付款日期"], ["currency", "币种"], ["exchangeRate", "汇率（1 USD 对应原币）"], ["taxUuid", "税务 UUID"] ] as const).map(([key, label]) => <label key={key} className="flex flex-col gap-1 text-sm">{label}{key === "currency" ? <Select value={draft.currency} onChange={event => patch({ currency: event.target.value })}><option value="">请选择</option>{draft.currency && !["CNY", "USD", "MXN"].includes(draft.currency) ? <option value={draft.currency}>{draft.currency}（暂不支持）</option> : null}{["CNY", "USD", "MXN"].map(currency => <option key={currency}>{currency}</option>)}</Select> : <Input type={key.endsWith("Date") || key === "accountPeriod" ? "date" : "text"} value={draft[key] ?? ""} onChange={event => patch({ [key]: event.target.value })} />}</label>)}
+        {([["amountExcludingTax", "未税金额"], ["taxRate", "税率（%）"], ["taxAmount", "税金"], ["amountIncludingTax", "含税金额"]] as const).map(([key, label]) => <label key={key} className="flex flex-col gap-1 text-sm">{label}<Input value={amounts[key]} onChange={event => changeAmount(key, event.target.value)} /></label>)}
+      </fieldset> : null}
+    </div>
+  </Modal>;
 }

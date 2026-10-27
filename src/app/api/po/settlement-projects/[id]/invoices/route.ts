@@ -7,7 +7,12 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
   try {
     const projectId = decodeURIComponent((await context.params).id);
     const actor = await getOperationActor(request);
-    const result = await addSettlementInvoice(projectId, await request.json(), actor);
+    const body = await request.json();
+    const result = await addSettlementInvoice(projectId, body, actor);
+    if (body.recognitionFacts) {
+      const { attachment: _attachment, recognitionFacts, ...confirmed } = body;
+      await recordOperationLog({ actor, domainKey: "po", moduleKey: "settlement-projects", action: "confirm_recognition", entityType: "settlement-invoices", entityId: projectId, detail: { recognized: recognitionFacts, confirmed } });
+    }
     await recordOperationLog({ actor, domainKey: "po", moduleKey: "settlement-projects", action: "create", entityType: "settlement-invoices", entityId: projectId, requestId: getOperationRequestId(request), detail: { result: "success" } });
     return NextResponse.json(result);
   } catch (error) {

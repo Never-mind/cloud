@@ -17,8 +17,12 @@ import { deriveInvoiceTaxAmounts, roundInvoiceAmount, roundInvoiceRate } from "@
 import { paymentApprovalStatusClass, paymentApprovalStatusLabel } from "@/lib/payment-approval-status";
 import { Button, Input, Select, Textarea } from "./ui";
 import { Modal } from "./modal";
+import { InvoiceRecognitionReview } from "./invoice-recognition-review";
+import type { InvoiceRecognition } from "@/lib/invoice-recognition-service";
+import { updateInvoiceReviewAmounts, validateInvoiceReview } from "@/lib/invoice-review";
 
 type InvoiceInfo = {
+  supplierId?: string | null;
   invoiceNo: string | null;
   invoiceDate: string | null;
   invoiceAmount: number | null;
@@ -106,25 +110,9 @@ function updateDraftAmount(
   field: "invoiceNetAmount" | "invoiceTaxRate" | "invoiceTaxAmount" | "invoiceAmount",
   value: string,
 ) {
-  const next = { ...draft, [field]: value };
-  const net = draftNumber(next.invoiceNetAmount);
-  const rate = draftNumber(next.invoiceTaxRate);
-  const tax = draftNumber(next.invoiceTaxAmount);
-  const gross = draftNumber(next.invoiceAmount);
-
-  if ((field === "invoiceNetAmount" || field === "invoiceTaxRate") && net !== null && rate !== null) {
-    const nextTax = roundInvoiceAmount(net * rate / 100);
-    next.invoiceTaxAmount = numberText(nextTax);
-    next.invoiceAmount = numberText(roundInvoiceAmount(net + nextTax));
-  } else if (field === "invoiceTaxAmount" && net !== null && tax !== null) {
-    next.invoiceAmount = numberText(roundInvoiceAmount(net + tax));
-    if (net !== 0) next.invoiceTaxRate = rateText(tax / net * 100);
-  } else if (field === "invoiceAmount" && net !== null && gross !== null) {
-    const nextTax = roundInvoiceAmount(gross - net);
-    next.invoiceTaxAmount = numberText(nextTax);
-    if (net !== 0) next.invoiceTaxRate = rateText(nextTax / net * 100);
-  }
-  return next;
+  const fields = { invoiceNetAmount: "amountExcludingTax", invoiceTaxRate: "taxRate", invoiceTaxAmount: "taxAmount", invoiceAmount: "amountIncludingTax" } as const;
+  const next = updateInvoiceReviewAmounts({ amountExcludingTax: draft.invoiceNetAmount, taxRate: draft.invoiceTaxRate, taxAmount: draft.invoiceTaxAmount, amountIncludingTax: draft.invoiceAmount }, fields[field], value);
+  return { ...draft, invoiceNetAmount: next.amountExcludingTax, invoiceTaxRate: next.taxRate, invoiceTaxAmount: next.taxAmount, invoiceAmount: next.amountIncludingTax };
 }
 
 export function PurchaseOrderInvoicePanel({ purchaseOrderId, readOnly = false }: { purchaseOrderId: string; readOnly?: boolean }) {
@@ -134,6 +122,12 @@ export function PurchaseOrderInvoicePanel({ purchaseOrderId, readOnly = false }:
   const [savingInvoice, setSavingInvoice] = useState(false);
   const [recognizing, setRecognizing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [recognition, setRecognition] = useState<InvoiceRecognition | null>(null);
+  const saveLock = useRef(false);
+  const recognizeLock = useRef(false);
+  const reviewValues = { invoiceNo: invoiceDraft.invoiceNo, invoiceDate: invoiceDraft.invoiceDate, currency: invoiceDraft.invoiceCurrency, amountExcludingTax: invoiceDraft.invoiceNetAmount, taxRate: invoiceDraft.invoiceTaxRate, taxAmount: invoiceDraft.invoiceTaxAmount, amountIncludingTax: invoiceDraft.invoiceAmount };
+  function closeInvoiceForm() { if (!saveLock.current && !recognizeLock.current) { setInvoiceOpen(false); setPendingFile(null); setRecognition(null); } }
 
   const loadInvoiceInfo = useCallback(async () => {
     if (!purchaseOrderId) return;
@@ -151,6 +145,8 @@ export function PurchaseOrderInvoicePanel({ purchaseOrderId, readOnly = false }:
   }, [loadInvoiceInfo]);
 
   function openInvoiceForm() {
+    if (recognizeLock.current || saveLock.current) return;
+    setPendingFile(null); setRecognition(null);
     setInvoiceDraft(draftFromInfo(invoiceInfo));
     setInvoiceOpen(true);
   }
@@ -159,7 +155,7 @@ export function PurchaseOrderInvoicePanel({ purchaseOrderId, readOnly = false }:
     const response = await fetch(`/api/procurement/purchase-orders/${encodeURIComponent(purchaseOrderId)}/invoice-info`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(draft),
+      body: JSON.stringify({ ...draft, recognitionFacts: recognition?.facts, paid: draft.paid === (invoiceInfo?.paymentStatus === "已付款") ? undefined : draft.paid }),
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(data.error ?? "发票信息保存失败");
@@ -167,73 +163,80 @@ export function PurchaseOrderInvoicePanel({ purchaseOrderId, readOnly = false }:
   }
 
   async function saveInvoiceInfo() {
+    if (saveLock.current || recognizeLock.current) return;
+    const error = validateInvoiceReview(reviewValues, Boolean(pendingFile));
+    if (error) { notify(error, "error"); return; }
+    saveLock.current = true;
     setSavingInvoice(true);
     try {
       await persistInvoiceDraft(invoiceDraft);
+      if (pendingFile) {
+        try {
+          const uploadBody = new FormData(); uploadBody.set("file", pendingFile);
+          const response = await fetch(`/api/common/attachments/purchase-orders/${encodeURIComponent(purchaseOrderId)}`, { method: "POST", body: uploadBody });
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(data.error ?? "附件上传失败");
+        } catch (error) {
+          throw new Error(`字段已保存，附件上传失败，请重试保存以补传附件：${error instanceof Error ? error.message : "网络异常"}`);
+        }
+      }
+      setPendingFile(null); setRecognition(null);
       setInvoiceOpen(false);
       notify("发票信息已保存", "success");
     } catch (error) {
       notify(error instanceof Error ? error.message : "发票信息保存失败", "info");
     } finally {
+      saveLock.current = false;
       setSavingInvoice(false);
     }
   }
 
   async function uploadAndRecognize(file: File) {
+    if (saveLock.current || recognizeLock.current) return;
+    if (file.size > 20 * 1024 * 1024) { notify("文件不能超过 20 MB", "error"); return; }
+    recognizeLock.current = true;
+    setPendingFile(file); setRecognition(null);
+    setInvoiceDraft({ ...draftFromInfo(invoiceInfo), invoiceNo: "", invoiceDate: "", invoiceNetAmount: "", invoiceTaxRate: "", invoiceTaxAmount: "", invoiceAmount: "" });
+    setInvoiceOpen(true);
     setRecognizing(true);
     try {
-      const uploadBody = new FormData();
-      uploadBody.set("file", file);
-      const uploadResponse = await fetch(`/api/common/attachments/purchase-orders/${encodeURIComponent(purchaseOrderId)}`, { method: "POST", body: uploadBody });
-      const uploadData = await uploadResponse.json().catch(() => ({}));
-      if (!uploadResponse.ok) throw new Error(uploadData.error ?? "发票附件上传失败");
-
       const recognizeBody = new FormData();
       recognizeBody.set("file", file);
       const recognizeResponse = await fetch(`/api/procurement/purchase-orders/${encodeURIComponent(purchaseOrderId)}/invoice-recognize`, { method: "POST", body: recognizeBody });
       const recognizeData = await recognizeResponse.json().catch(() => ({}));
       if (!recognizeResponse.ok) throw new Error(recognizeData.error ?? "发票识别失败");
       const form = recognizeData.recognition?.form ?? {};
+      setRecognition(recognizeData.recognition);
       const recognitionWarnings: string[] = Array.isArray(recognizeData.recognition?.warnings)
         ? recognizeData.recognition.warnings.map((item: unknown) => String(item)).filter(Boolean)
         : [];
       const base = draftFromInfo(invoiceInfo);
       const recognizedTax = deriveInvoiceTaxAmounts({
-        netAmount: draftNumber(String(form.amountExcludingTax || "")) ?? draftNumber(base.invoiceNetAmount),
-        taxRate: draftNumber(String(form.taxRate || "")) ?? draftNumber(base.invoiceTaxRate),
-        taxAmount: draftNumber(String(form.taxAmount || "")) ?? draftNumber(base.invoiceTaxAmount),
-        grossAmount: draftNumber(String(form.invoiceTotal || "")) ?? draftNumber(base.invoiceAmount),
+        netAmount: draftNumber(String(form.amountExcludingTax ?? "")),
+        taxRate: draftNumber(String(form.taxRate ?? "")),
+        taxAmount: draftNumber(String(form.taxAmount ?? "")),
+        grossAmount: draftNumber(String(form.invoiceTotal ?? "")),
       });
       const recognizedDraft: InvoiceDraft = {
         ...base,
-        invoiceNo: String(form.invoiceNo || base.invoiceNo),
-        invoiceDate: String(form.invoiceDate || base.invoiceDate),
+        invoiceNo: String(form.invoiceNo || ""),
+        invoiceDate: String(form.invoiceDate || ""),
         invoiceAmount: numberText(recognizedTax.grossAmount),
         invoiceNetAmount: numberText(recognizedTax.netAmount),
         invoiceTaxRate: rateText(recognizedTax.taxRate),
         invoiceTaxAmount: numberText(recognizedTax.taxAmount),
         invoiceCurrency: String(form.currency || base.invoiceCurrency),
         invoiced: true,
-        expectedPaymentDate: String(form.receivableDate || base.expectedPaymentDate),
+        expectedPaymentDate: String(base.expectedPaymentDate || form.receivableDate || ""),
       };
       setInvoiceDraft(recognizedDraft);
-      let saved = false;
-      try {
-        await persistInvoiceDraft(recognizedDraft);
-        saved = true;
-      } catch (error) {
-        notify(error instanceof Error ? error.message : "识别结果自动登记失败", "info");
-      }
       setInvoiceOpen(true);
-      notify(
-        saved
-          ? `发票已上传、识别并登记${recognizeData.recognition?.source ? `：${recognizeData.recognition.source}` : ""}${recognitionWarnings.length ? `；${recognitionWarnings.join("；")}` : ""}`
-          : `发票已识别，请核对后点击保存${recognitionWarnings.length ? `；${recognitionWarnings.join("；")}` : ""}`,
-        saved && !recognitionWarnings.length ? "success" : "info",
-      );
+      if (recognitionWarnings.length) notify(recognitionWarnings.join("；"), "info");
     } catch (error) {
-      notify(error instanceof Error ? error.message : "发票上传或识别失败", "info");
+      setInvoiceOpen(true);
+      notify(`${error instanceof Error ? error.message : "识别失败"}，可手工填写后确认`, "info");
     } finally {
+      recognizeLock.current = false;
       setRecognizing(false);
     }
   }
@@ -278,7 +281,7 @@ export function PurchaseOrderInvoicePanel({ purchaseOrderId, readOnly = false }:
             </span>
           ) : null}
           <label className={`inline-flex h-8 items-center gap-1 rounded border border-line px-2.5 text-xs ${readOnly || recognizing ? "cursor-not-allowed text-ink-4" : "cursor-pointer text-ink-2 hover:border-primary hover:text-primary"}`}>
-            <FileUp size={14} />{recognizing ? "上传识别中…" : "上传发票并识别"}
+            <FileUp size={14} />{recognizing ? "上传识别中…" : "上传并识别"}
             <input ref={fileInputRef} accept=".pdf,.ofd,.xml" className="hidden" disabled={readOnly || recognizing} type="file" onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; if (file) void uploadAndRecognize(file); }} />
           </label>
           <Button disabled={readOnly || savingInvoice} onClick={openInvoiceForm} size="sm">
@@ -316,12 +319,14 @@ export function PurchaseOrderInvoicePanel({ purchaseOrderId, readOnly = false }:
       {invoiceOpen ? (
         <Modal
           description="上传发票会自动带出识别结果；预计付款日期会同步到付款申请的需求付款日期。"
-          footer={<><Button disabled={savingInvoice} onClick={() => setInvoiceOpen(false)}>取消</Button><Button disabled={savingInvoice} onClick={() => void saveInvoiceInfo()} tone="primary">{savingInvoice ? "保存中…" : "保存"}</Button></>}
-          onClose={() => setInvoiceOpen(false)}
+          footer={<><Button disabled={savingInvoice || recognizing} onClick={closeInvoiceForm}>取消</Button><Button disabled={savingInvoice || recognizing} onClick={() => void saveInvoiceInfo()} tone="primary">{savingInvoice ? "保存中…" : recognizing ? "正在识别…" : "确认保存"}</Button></>}
+          onClose={closeInvoiceForm}
           title={hasInvoiceInfo ? "修改发票信息" : "登记发票信息"}
           widthClass="max-w-3xl"
         >
-          <div className="space-y-5">
+          <InvoiceRecognitionReview recognition={recognition} file={pendingFile} values={reviewValues} />
+          {recognition?.matches?.issuerSupplierId && invoiceInfo?.supplierId && recognition.matches.issuerSupplierId !== invoiceInfo.supplierId ? <p className="text-sm text-danger">票面供应商与采购订单供应商不一致，请核对。采购订单供应商不会自动变更。</p> : null}
+          <fieldset disabled={savingInvoice || recognizing} className="space-y-5">
             <section>
               <div className="mb-2 text-xs font-medium text-ink">发票信息</div>
               <div className="grid gap-3 sm:grid-cols-2">
@@ -342,7 +347,6 @@ export function PurchaseOrderInvoicePanel({ purchaseOrderId, readOnly = false }:
                 <label className="space-y-1 text-sm text-ink-2"><span>税金</span><Input className="w-full" step="0.01" type="number" value={invoiceDraft.invoiceTaxAmount} onChange={(event) => setInvoiceDraft((current) => updateDraftAmount(current, "invoiceTaxAmount", event.target.value))} /></label>
                 <label className="space-y-1 text-sm text-ink-2"><span>含税金额</span><Input className="w-full" step="0.01" type="number" value={invoiceDraft.invoiceAmount} onChange={(event) => setInvoiceDraft((current) => updateDraftAmount(current, "invoiceAmount", event.target.value))} /></label>
               </div>
-              <p className="mt-2 text-[11px] text-ink-3">含税金额 = 未税金额 + 税金。修改未税金额或税率会自动计算税金和含税金额；修改税金或含税金额会反算税率。</p>
             </section>
 
             <section>
@@ -356,7 +360,7 @@ export function PurchaseOrderInvoicePanel({ purchaseOrderId, readOnly = false }:
                 <label className="space-y-1 text-sm text-ink-2 sm:col-span-2"><span>备注</span><Textarea className="w-full" rows={3} value={invoiceDraft.invoiceRemark} onChange={(event) => setInvoiceDraft((current) => ({ ...current, invoiceRemark: event.target.value }))} /></label>
               </div>
             </section>
-          </div>
+          </fieldset>
           {["审批中", "已退回", "已驳回", "已撤回"].includes(invoiceInfo?.paymentStatus ?? "") ? <div className="mt-3 rounded border border-warning-border-soft bg-warning-soft px-3 py-2 text-xs text-warning-ink">
             {invoiceInfo?.paymentStatus === "审批中" ? "付款审批中，保存发票信息不会改变审批状态；审批结果会自动回写付款状态和实际付款日期。" : invoiceInfo?.paymentStatus === "已退回" ? "付款审批已退回，请在飞书修改后重新提交；系统会继续同步审批状态。" : invoiceInfo?.paymentStatus === "已驳回" ? "付款审批已驳回，请核对后在飞书重新发起。" : "付款审批已撤回，请核对后在飞书重新发起。"}
           </div> : null}

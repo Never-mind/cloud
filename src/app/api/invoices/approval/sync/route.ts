@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedUserEmail } from "@/lib/auth";
 import { queryRows } from "@/lib/db";
 import { syncInvoiceApproval } from "@/lib/feishu-approval-service";
+import { hasPermission } from "@/lib/permission-definitions";
+import { getPermissionStateForEmail } from "@/lib/permission-service";
 
 /**
  * 手动同步飞书审批状态。
@@ -12,10 +14,17 @@ import { syncInvoiceApproval } from "@/lib/feishu-approval-service";
 export async function POST(request: NextRequest) {
   if (!getAuthenticatedUserEmail(request)) return NextResponse.json({ error: "未登录" }, { status: 401 });
   try {
+    const email = getAuthenticatedUserEmail(request)!;
+    if (!hasPermission(await getPermissionStateForEmail(email), "invoices", "create")) return NextResponse.json({ error: "没有发票管理的操作权限" }, { status: 403 });
+    const body = await request.json().catch(() => ({}));
+    if (body.instanceCode) {
+      const result = await syncInvoiceApproval(String(body.instanceCode));
+      return NextResponse.json({ checked: 1, updated: Number(result.changed), errors: [] });
+    }
     const rows = await queryRows<{ instanceCode: string }>(
       `SELECT instanceCode FROM merge_common_feishu_approvals
-        WHERE status = 'pending' OR (status = 'approved' AND (invoiceId IS NULL OR invoiceId = ''))
-        ORDER BY submittedAt ASC LIMIT 20`,
+        WHERE status IN ('pending', 'returned', 'approved')
+        ORDER BY COALESCE(lastSyncedAt, submittedAt) ASC LIMIT 20`,
     );
     let updated = 0;
     const errors: string[] = [];

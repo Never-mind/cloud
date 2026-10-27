@@ -1,6 +1,6 @@
 import { queryRows, type Row } from "./db";
 import { extractPdfPages } from "./pdf-text-extract";
-import { parseChinaVatInvoice, cleanupInvoiceName } from "./china-vat-invoice-parser";
+import { parseChinaVatInvoice } from "./china-vat-invoice-parser";
 import { parseCfdiInvoiceText } from "./cfdi-pdf-parser";
 import { parseCfdiInvoice } from "./cfdi-invoice-parser";
 import { isDazhuangCommercialInvoiceText, parseDazhuangCommercialInvoiceText } from "./commercial-invoice-parser";
@@ -8,6 +8,7 @@ import { isSingaporeInvoiceText, parseSingaporeInvoiceText } from "./sg-invoice-
 import { extractOfdPages } from "./ofd-text-extract";
 import { parseChinaEinvoiceXml } from "./china-einvoice-xml-parser";
 import type { ChinaVatInvoice } from "./china-vat-invoice-parser";
+import { defaultInvoicePaymentTermDays } from "./invoice-payment-terms";
 
 /**
  * 上传发票 → 自动识别 → 填进项目结算「发票管理」的新增发票表单。
@@ -25,6 +26,8 @@ import type { ChinaVatInvoice } from "./china-vat-invoice-parser";
 export type RecognizedInvoiceForm = {
   type: "cost" | "income" | "";
   accountPeriod: string;
+  accountingDate?: string;
+  recognitionFacts?: Record<string, string>;
   invoiceNo: string;
   invoiceDate: string;
   /** 约定收款日：按开票日期 + 30 天推导 */
@@ -43,7 +46,23 @@ export type RecognizedInvoiceForm = {
   taxUuid: string;
 };
 
+export type InvoicePartyMatch = {
+  status: "matched" | "ambiguous" | "unmatched" | "tax_conflict";
+  via: "税号" | "名称" | null;
+  id: string;
+  name: string;
+  paymentTermDays?: string;
+  candidates: Array<{ id: string; name: string }>;
+};
+
 export type InvoiceRecognition = {
+  facts?: {
+    issuerName: string; issuerTaxNumber: string; receiverName: string; receiverTaxNumber: string;
+    invoiceNo: string; invoiceDate: string; currency: string; exchangeRate: string;
+    amountExcludingTax: string; taxRate: string; taxAmount: string; amountIncludingTax: string; taxUuid: string;
+  };
+  matches?: { issuerUnitId: string; receiverUnitId: string; issuerSupplierId: string; receiverCustomerId: string };
+  partyMatches?: Record<"issuerUnit" | "receiverUnit" | "issuerSupplier" | "receiverCustomer", InvoicePartyMatch>;
   /** 识别来源：中国增值税电子发票 / 墨西哥 CFDI XML / 墨西哥 CFDI PDF */
   source: string;
   /** 票种说明，用于结果页展示 */
@@ -56,7 +75,7 @@ export type InvoiceRecognition = {
   warnings: string[];
 };
 
-type EntityRow = { id: string; taxNumber: string | null; names: string[] };
+type EntityRow = { id: string; taxNumber: string | null; names: string[]; paymentTermDays?: string };
 
 function text(value: unknown) {
   return String(value ?? "").trim();
@@ -64,7 +83,7 @@ function text(value: unknown) {
 
 /** 比对用归一：去掉空格、标点、大小写差异（"LUZ NEWMEDIA, S.A. DE C.V." ↔ "LUZ NEWMEDIA"）。 */
 function normalizeKey(value: unknown) {
-  return text(value).toUpperCase().replace(/[^0-9A-Z\u4e00-\u9fff]/g, "");
+  return text(value).normalize("NFKC").toUpperCase().replace(/[^\p{L}\p{N}]/gu, "");
 }
 
 function entityNames(row: Row) {
@@ -75,12 +94,14 @@ function entityNames(row: Row) {
 
 async function loadEntities() {
   const [units, suppliers, customers] = await Promise.all([
-    queryRows<Row>("SELECT undertakingUnitId AS id, name, nameCn, nameEn, shortName, entityName, taxNumber FROM merge_common_undertaking_units"),
+    queryRows<Row>("SELECT undertakingUnitId AS id, name, nameCn, nameEn, shortName, entityName, taxNumber, paymentTermDays FROM merge_common_undertaking_units"),
     queryRows<Row>("SELECT supplierId AS id, nameCn AS name, nameEn, shortName, taxNumber FROM merge_common_suppliers"),
-    queryRows<Row>("SELECT customerId AS id, name, nameEn, shortName, taxNumber FROM merge_common_customers"),
+    queryRows<Row>("SELECT customerId AS id, name, nameCn, nameEn, shortName, taxNumber FROM merge_common_customers"),
   ]);
-  const toEntities = (rows: Row[]): EntityRow[] => rows.map((row) => ({ id: text(row.id), taxNumber: text(row.taxNumber) || null, names: entityNames(row) }));
-  return { units: toEntities(units), suppliers: toEntities(suppliers), customers: toEntities(customers) };
+  const toEntities = (rows: Row[], unit = false): EntityRow[] => rows.map((row) => ({ id: text(row.id), taxNumber: text(row.taxNumber) || null, names: entityNames(row),
+    ...(unit ? { paymentTermDays: String(defaultInvoicePaymentTermDays(row.paymentTermDays)) } : {}),
+  }));
+  return { units: toEntities(units, true), suppliers: toEntities(suppliers), customers: toEntities(customers) };
 }
 
 /**
@@ -88,23 +109,42 @@ async function loadEntities() {
  * 名称包含只认长度 ≥4 的串，避免"XX"这种两字简称误命中。
  */
 function matchEntity(list: EntityRow[], taxNumber: string, name: string) {
+  const result = (candidates: EntityRow[], via: InvoicePartyMatch["via"], conflict = false) => ({
+    entity: !conflict && candidates.length === 1 ? candidates[0] : null,
+    via,
+    status: conflict ? "tax_conflict" as const : candidates.length === 1 ? "matched" as const : candidates.length > 1 ? "ambiguous" as const : "unmatched" as const,
+    candidates,
+  });
   const tax = normalizeKey(taxNumber);
   if (tax) {
-    const byTax = list.find((entity) => entity.taxNumber && normalizeKey(entity.taxNumber) === tax);
-    if (byTax) return { entity: byTax, via: "税号" as const };
+    const byTax = list.filter((entity) => entity.taxNumber && normalizeKey(entity.taxNumber) === tax);
+    if (byTax.length) return result(byTax, "税号");
   }
   const target = normalizeKey(name);
-  if (!target) return { entity: null, via: null };
-  const exact = list.find((entity) => entity.names.some((value) => normalizeKey(value) === target));
-  if (exact) return { entity: exact, via: "名称" as const };
+  if (!target) return result([], null);
+  const finishName = (candidates: EntityRow[]) => {
+    const compatible = candidates.filter(entity => !tax || !entity.taxNumber || normalizeKey(entity.taxNumber) === tax);
+    return compatible.length ? result(compatible, "名称") : result(candidates, "名称", true);
+  };
+  const exact = list.filter((entity) => entity.names.some((value) => normalizeKey(value) === target));
+  if (exact.length) return finishName(exact);
   if (target.length >= 4) {
-    const partial = list.find((entity) => entity.names.some((value) => {
+    const partial = list.filter((entity) => entity.names.some((value) => {
       const key = normalizeKey(value);
       return key.length >= 4 && (key.includes(target) || target.includes(key));
     }));
-    if (partial) return { entity: partial, via: "名称" as const };
+    if (partial.length) return finishName(partial);
   }
-  return { entity: null, via: null };
+  return result([], null);
+}
+
+function describeMatch(match: ReturnType<typeof matchEntity>): InvoicePartyMatch {
+  return {
+    status: match.status, via: match.via, id: match.entity?.id ?? "",
+    name: displayName(match.entity, ""),
+    ...(match.entity?.paymentTermDays !== undefined ? { paymentTermDays: match.entity.paymentTermDays } : {}),
+    candidates: match.candidates.map(entity => ({ id: entity.id, name: displayName(entity, entity.id) })),
+  };
 }
 
 function displayName(entity: EntityRow | null, fallback: string) {
@@ -139,10 +179,11 @@ function addDays(dateOnly: string, days: number) {
 }
 
 export async function recognizeInvoiceFile(params: {
-  projectId: string;
+  projectId?: string;
+  direction?: "income" | "cost";
   fileName: string;
   bytes: Buffer;
-  project: { exchangeRateUsd: number; exchangeRateMxn: number };
+  project?: { exchangeRateUsd: number; exchangeRateMxn: number };
 }): Promise<InvoiceRecognition> {
   const fileName = text(params.fileName);
   const head = params.bytes.subarray(0, 5).toString("utf8");
@@ -281,24 +322,32 @@ export async function recognizeInvoiceFile(params: {
     }
   }
 
-    // 开票方是我们 → 收入；收票方是我们 → 成本
+  // 开票方是我们 → 收入；收票方是我们 → 成本
   const issuerMatch = matchEntity(entities.units, parsed.issuerTaxNumber, parsed.issuerName);
   const receiverMatch = matchEntity(entities.units, parsed.receiverTaxNumber, parsed.receiverName);
-  const type = issuerMatch.entity && !receiverMatch.entity ? "income" : "cost";
+  const supplierMatch = matchEntity(entities.suppliers, parsed.issuerTaxNumber, parsed.issuerName);
+  const customerMatch = matchEntity(entities.customers, parsed.receiverTaxNumber, parsed.receiverName);
+  const detectedType = issuerMatch.entity && !receiverMatch.entity ? "income" : receiverMatch.entity && !issuerMatch.entity ? "cost" : "";
+  const type = params.direction ?? detectedType;
+  if (!detectedType) warnings.push("购销双方未能唯一确定我方主体，请选择本地档案并确认发票方向");
+  if (params.direction && detectedType && params.direction !== detectedType) warnings.push("票面购销方向与当前业务不一致，请核对原件和业务单据");
   const ourMatch = type === "income" ? issuerMatch : receiverMatch;
   const counterpartName = type === "income" ? parsed.receiverName : parsed.issuerName;
-  const counterpartTax = type === "income" ? parsed.receiverTaxNumber : parsed.issuerTaxNumber;
-  const counterpartList = type === "income" ? entities.customers : entities.suppliers;
-  const counterpartMatch = matchEntity(counterpartList, counterpartTax, counterpartName);
-  if (!ourMatch.entity) warnings.push(`承接单位没匹配到档案（票面：${type === "income" ? parsed.issuerName : parsed.receiverName}），请手工确认`);
-  else if (ourMatch.via === "名称") warnings.push(`承接单位「${displayName(ourMatch.entity, "")}」是按名称匹配的，建议补税号`);
-  if (!counterpartMatch.entity) warnings.push(`往来方没匹配到档案（票面：${counterpartName}），保存后建议补一条档案`);
+  const counterpartMatch = type === "income" ? customerMatch : supplierMatch;
+  const warnMatch = (label: string, match: ReturnType<typeof matchEntity>, name: string) => {
+    if (match.status === "ambiguous") warnings.push(`${label}匹配到 ${match.candidates.length} 条档案（${match.via}重复，票面：${name}），请手工选择`);
+    else if (match.status === "tax_conflict") warnings.push(`${label}名称匹配但税号与档案不一致（票面：${name}），请核对后手工选择`);
+    else if (!match.entity) warnings.push(`${label}未匹配到档案（票面：${name || "未识别"}），请手工选择或补充档案`);
+  };
+  warnMatch("承接单位", ourMatch, type === "income" ? parsed.issuerName : parsed.receiverName);
+  if (ourMatch.entity && ourMatch.via === "名称") warnings.push(`承接单位「${displayName(ourMatch.entity, "")}」是按名称匹配的，建议补税号`);
+  warnMatch(type === "income" ? "客户" : "供应商", counterpartMatch, counterpartName);
 
   // 同项目里已经录过的票直接提示，避免"传两次多出一行"
-  const existing = await queryRows<Row>(
+  const existing = params.projectId ? await queryRows<Row>(
     "SELECT invoiceNo, taxUuid FROM merge_po_settlement_invoices WHERE projectId = :projectId",
     { projectId: params.projectId },
-  ).catch(() => [] as Row[]);
+  ).catch(() => [] as Row[]) : [];
   if (parsed.uuid && existing.some((row) => text(row.taxUuid) === parsed.uuid)) {
     warnings.push("这张发票已经录过了，保存会被拦下");
   } else if (parsed.fullNumber && existing.some((row) => text(row.invoiceNo) === parsed.fullNumber)) {
@@ -306,7 +355,7 @@ export async function recognizeInvoiceFile(params: {
   }
 
   const currency = parsed.currency || "CNY";
-  const exchangeRate = defaultExchangeRate(currency, parsed.exchangeRate, params.project);
+  const exchangeRate = defaultExchangeRate(currency, parsed.exchangeRate, params.project ?? { exchangeRateUsd: 0, exchangeRateMxn: 0 });
   const form: RecognizedInvoiceForm = {
     type,
     // 按业务口径：账期直接取开票日期
@@ -329,7 +378,7 @@ export async function recognizeInvoiceFile(params: {
   };
 
   const fields: InvoiceRecognition["fields"] = [
-    { key: "type", label: "类型", value: type === "income" ? "收入" : "成本", status: "derived" },
+    { key: "type", label: "类型", value: type === "income" ? "收入" : type === "cost" ? "成本" : "", status: type ? "derived" : "missing" },
     { key: "companyEntity", label: "承接单位", value: form.companyEntity, status: ourMatch.entity ? (ourMatch.via === "税号" ? "matched" : "recognized") : "missing" },
     { key: "invoiceEntity", label: "供应商/客户", value: form.invoiceEntity, status: counterpartMatch.entity ? (counterpartMatch.via === "税号" ? "matched" : "recognized") : "missing" },
     { key: "invoiceNo", label: "发票号", value: form.invoiceNo, status: form.invoiceNo ? "recognized" : "missing" },
@@ -346,5 +395,23 @@ export async function recognizeInvoiceFile(params: {
   if (!form.invoiceNo) warnings.push("没读到发票号，请手工填写");
   if (!form.invoiceTotal) warnings.push("没读到发票总额，请手工填写");
 
-  return { source, kind, exact, fields, form, warnings };
+  return {
+    source, kind, exact, fields, form, warnings,
+    facts: {
+      issuerName: parsed.issuerName, issuerTaxNumber: parsed.issuerTaxNumber,
+      receiverName: parsed.receiverName, receiverTaxNumber: parsed.receiverTaxNumber,
+      invoiceNo: parsed.fullNumber, invoiceDate: parsed.invoiceDate, currency: parsed.currency,
+      exchangeRate: parsed.exchangeRate, amountExcludingTax: money(parsed.amountExcludingTax),
+      taxRate: money(parsed.taxRate), taxAmount: money(parsed.taxAmount), amountIncludingTax: money(parsed.totalIncludingTax), taxUuid: parsed.uuid,
+    },
+    matches: {
+      issuerUnitId: issuerMatch.entity?.id ?? "", receiverUnitId: receiverMatch.entity?.id ?? "",
+      issuerSupplierId: supplierMatch.entity?.id ?? "",
+      receiverCustomerId: customerMatch.entity?.id ?? "",
+    },
+    partyMatches: {
+      issuerUnit: describeMatch(issuerMatch), receiverUnit: describeMatch(receiverMatch),
+      issuerSupplier: describeMatch(supplierMatch), receiverCustomer: describeMatch(customerMatch),
+    },
+  };
 }

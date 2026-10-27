@@ -81,3 +81,16 @@ export function calculateCloudTaxGroup(
   }
   return { net, tax, total, source: null };
 }
+
+/** Full reviewed invoice amounts take precedence over tax-rate estimates. */
+export function confirmedCloudInvoiceAmounts(values: Record<string, unknown>, fields: readonly string[]): CloudTaxCalculation | null {
+  const keys = CLOUD_TAX_GROUPS.invoice;
+  if (![keys.netKey, keys.taxKey, keys.totalKey].every(key => fields.includes(key) && String(values[key] ?? "").trim() !== "")) return null;
+  const net = cloudTaxNumber(values[keys.netKey]);
+  const tax = cloudTaxNumber(values[keys.taxKey]);
+  const total = cloudTaxNumber(values[keys.totalKey]);
+  const rate = cloudTaxRate(values[keys.rateKey]);
+  if (net === null || tax === null || total === null || net < 0 || tax < 0 || total < 0 || (rate !== null && (rate < 0 || rate > 1))) throw new Error("发票金额或税率无效");
+  if (Math.abs(net + tax - total) > 0.011) throw new Error("未税金额 + 税金与含税金额不一致");
+  return { net, tax, total, source: null };
+}

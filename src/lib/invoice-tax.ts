@@ -33,6 +33,10 @@ export function deriveInvoiceTaxAmounts(input: InvoiceTaxAmounts): InvoiceTaxAmo
   let taxRate = finiteOrNull(input.taxRate);
   let taxAmount = finiteOrNull(input.taxAmount);
   let grossAmount = finiteOrNull(input.grossAmount);
+  if (netAmount === null && taxAmount === null && grossAmount !== null && taxRate !== null && taxRate >= 0) {
+    netAmount = roundInvoiceAmount(grossAmount / (1 + taxRate / 100));
+    taxAmount = roundInvoiceAmount(grossAmount - netAmount);
+  }
 
   if (netAmount !== null && taxRate !== null) {
     if (taxAmount === null) taxAmount = roundInvoiceAmount(netAmount * taxRate / 100);

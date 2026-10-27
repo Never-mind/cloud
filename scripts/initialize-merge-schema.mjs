@@ -1155,6 +1155,7 @@ try {
     );
   await connection.query(prefixSchemaTables(powerSchema));
   await ensureColumn("servicefeesnapshots", "receivableDate", "DATE NULL");
+  await ensureColumn("servicefeesnapshots", "invoiceDate", "DATE NULL");
   await ensureDemandPlanColumns();
   for (const tableName of ["power_requests", "power_purchaseorders"]) {
     for (const [columnName, definition] of [
@@ -1169,6 +1170,7 @@ try {
     }
   }
   await connection.query(prefixSchemaTables(commonSchema));
+  await connection.query(await fs.readFile(new URL("./invoice-approval-returns.sql", import.meta.url), "utf8"));
   await ensureColumn("po_customer_pos", "projectName", "VARCHAR(255) NULL AFTER `poNo`");
   await ensureColumn("po_customer_pos", "undertakingUnitId", "VARCHAR(64) NULL AFTER `poNo`");
   if (!(await hasIndex("po_customer_pos", "idx_po_customer_pos_undertaking_unit"))) {

@@ -5,12 +5,15 @@ import type { InvoiceSourceType } from "@/lib/invoice-service";
 import { queryRows } from "@/lib/db";
 import { hasPermission } from "@/lib/permission-definitions";
 import { getPermissionStateForEmail } from "@/lib/permission-service";
+import { submitVatInvoiceApproval } from "@/lib/vat-invoice-approval-service";
+import type { VatDraft } from "@/lib/vat-invoice-approval";
+import { parseInvoiceAttachmentSelection, type InvoiceAttachmentSelection } from "@/lib/invoice-approval-attachments";
 
 /**
  * 发起开票审批。
  *
  * 会用**当前登录人的飞书身份**发起（谁的飞书谁发起），所以要求该账号已绑定飞书。
- * 墨西哥主体必须带一个 CSF 附件（客户档案附件 ID 或已上传的 file_token）。
+ * 材料来自当前单据/客户档案或本次上传；墨西哥主体必须明确标记客户 CSF。
  */
 export async function POST(request: NextRequest) {
   try {
@@ -36,8 +39,21 @@ export async function POST(request: NextRequest) {
     const sourceType = (text(body.sourceType) || "manual") as InvoiceSourceType;
     const sourceId = text(body.sourceId);
     if (!sourceId) return NextResponse.json({ error: "缺少来源单据（sourceId）" }, { status: 400 });
+    if (!["cloud_row", "billing_statement", "service_fee", "settlement_invoice"].includes(sourceType)) throw new Error("不支持的审批来源");
+    const flow = text(body.flow) || "cloud";
+    if (!["cloud", "vat"].includes(flow)) throw new Error("不支持的开票审批流程");
+    if (flow === "vat") {
+      if (!body.draft || typeof body.draft !== "object") throw new Error("缺少增值税开票信息");
+      const result = await submitVatInvoiceApproval({
+        sourceType, sourceId, sourceIds: Array.isArray(body.sourceIds) ? body.sourceIds.map(text).filter(Boolean) : undefined,
+        starterOpenId, starterUserId: user.userId, starterName: user.feishuName || user.displayName,
+        draft: { ...body.draft as VatDraft, ...parseInvoiceAttachmentSelection(body.draft as VatDraft) },
+      });
+      return NextResponse.json({ ok: true, ...result });
+    }
 
     const result = await submitInvoiceApprovalFromSource({
+      ...parseInvoiceAttachmentSelection(body as InvoiceAttachmentSelection),
       sourceType,
       sourceId,
       sourceIds: Array.isArray(body.sourceIds) ? (body.sourceIds as unknown[]).map(text).filter(Boolean) : undefined,

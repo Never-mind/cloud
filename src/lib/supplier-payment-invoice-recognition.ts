@@ -1,4 +1,5 @@
 import { addDaysToDateOnly } from "./date-only";
+import { completeInvoiceReviewAmounts } from "./invoice-review";
 
 /**
  * 发票识别结果 → 华为云供应商付款「供应商开票」字段。
@@ -20,7 +21,7 @@ export type SupplierPaymentInvoiceRecognitionForm = {
 
 export function buildSupplierPaymentInvoicePatch(
   form: SupplierPaymentInvoiceRecognitionForm,
-  current: { supplierId?: unknown } = {},
+  current: { supplierId?: unknown; receivableDate?: unknown } = {},
 ) {
   const patch: Record<string, unknown> = {};
   const assign = (key: string, value: unknown) => {
@@ -30,11 +31,12 @@ export function buildSupplierPaymentInvoicePatch(
   assign("invoiceDate", form.invoiceDate);
   assign("invoiceCurrency", form.currency);
   assign("invoiceExchangeRate", form.exchangeRate);
-  assign("invoiceNetAmount", form.amountExcludingTax);
-  assign("invoiceTaxRate", form.taxRate);
-  assign("invoiceTaxAmount", form.taxAmount);
-  assign("invoiceTotalAmount", form.invoiceTotal);
-  if (patch.invoiceDate) patch.receivableDate = addDaysToDateOnly(patch.invoiceDate, 30);
+  const amounts = completeInvoiceReviewAmounts({ amountExcludingTax: String(form.amountExcludingTax ?? ""), taxRate: String(form.taxRate ?? ""), taxAmount: String(form.taxAmount ?? ""), amountIncludingTax: String(form.invoiceTotal ?? "") });
+  assign("invoiceNetAmount", amounts.amountExcludingTax);
+  if (amounts.taxRate !== "") assign("invoiceTaxRate", String(Number(amounts.taxRate) / 100));
+  assign("invoiceTaxAmount", amounts.taxAmount);
+  assign("invoiceTotalAmount", amounts.amountIncludingTax);
+  if (patch.invoiceDate && !current.receivableDate) patch.receivableDate = addDaysToDateOnly(patch.invoiceDate, 30);
   if (Object.keys(patch).length) patch.invoiceStatus = "issued";
 
   const warnings: string[] = [];

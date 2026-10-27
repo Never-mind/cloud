@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { recordOperationLog } from "@/lib/operation-log";
 import { getAuthenticatedUserEmail } from "@/lib/auth";
 import { getOperationActor } from "@/lib/operation-actor";
 import { hasPermission } from "@/lib/permission-definitions";
@@ -59,6 +60,7 @@ export async function POST(request: NextRequest) {
       const form = await request.formData();
       const file = form.get("file");
       if (!(file instanceof File)) return NextResponse.json({ error: "请先上传外部发票文件" }, { status: 400 });
+      if (file.size > 20 * 1024 * 1024) throw new Error("文件不能超过 20 MB");
       input = JSON.parse(String(form.get("payload") ?? "{}")) as InvoiceDraftInput;
       input.file = {
         fileName: file.name,
@@ -71,6 +73,7 @@ export async function POST(request: NextRequest) {
     }
 
     const invoice = await saveInvoice(input, operationActor);
+    if (input.source === "external") await recordOperationLog({ actor, moduleKey: "invoices", action: "confirm_recognition", entityType: "invoice", entityId: String(invoice?.id ?? ""), detail: { recognized: input.recognitionFacts ?? null, confirmed: { invoiceNo: input.invoiceNo, invoiceDate: input.invoiceDate, currency: input.currency, exchangeRate: input.exchangeRate, amountExcludingTax: input.amountExcludingTax, taxRate: input.taxRate, taxAmount: input.taxAmount, amountIncludingTax: input.amountIncludingTax } } });
     return NextResponse.json({ invoice });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "开票失败" }, { status: 400 });

@@ -5,8 +5,8 @@
  *   npm run feishu:approval-sync -- --limit 200
  *   npm run feishu:approval-sync -- --check <instance_code>   只查单条，看飞书侧状态
  *
- * 做两件事：把审批中的状态拉回来、审批通过但还没出票的补出票。
- * 幂等：按 instance_code 记台账，出过票的不会再出。
+ * 同步审批状态，并取回财务回票原件和识别草稿；不会自动登记正式发票。
+ * 已通过审批仍会继续检查后补附件，重复文件按内容去重。
  * 部署后建议挂成定时任务（每 1~5 分钟一次）。
  */
 import { existsSync, readFileSync } from "node:fs";
@@ -30,7 +30,7 @@ async function main() {
   }
   const limit = Number(argValue("--limit") || 50) || 50;
   const result = await syncPendingInvoiceApprovals(limit);
-  console.log(`检查 ${result.checked} 条，状态/出票更新 ${result.updated} 条`);
+  console.log(`检查 ${result.checked} 条，审批状态变化 ${result.updated} 条；回票需在系统内确认登记`);
   for (const error of result.errors) console.log(`  ✘ ${error.instanceCode}：${error.error}`);
   if (!result.errors.length) console.log("  没有失败项");
 }

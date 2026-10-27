@@ -9,11 +9,13 @@
  *
  * 金额、账期、客户、开票主体都由服务端按来源账单现算，避免与账单不一致。
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertCircle, CheckCircle2, FileText, Info } from "lucide-react";
 import { Input, Select, Textarea } from "./ui";
 import { notify } from "./app-dialog";
 import { paymentApprovalStatusLabel } from "@/lib/payment-approval-status";
+import { InvoiceApprovalAttachments } from "./invoice-approval-attachments";
+import type { InvoiceAttachmentOption, InvoiceAttachmentSelection } from "@/lib/invoice-approval-attachments";
 
 type Option = { key: string; value: string; label: string };
 
@@ -40,6 +42,8 @@ export type ApprovalPrefill = {
   paymentTermDays: number;
   customer: { customerId: string; name: string; taxId: string; taxRegime: string; address: string; postCode: string } | null;
   customerAttachments: Array<{ attachmentId: string; fileName: string; fileSize: number; uploadedAt: string | null }>;
+  attachmentOptions: InvoiceAttachmentOption[];
+  attachmentField: { id: string; name: string } | null;
   options: { paymentMethods: Option[]; cfdiCodes: Option[]; chileInvoiceTypes: Option[]; chileNote2: Option[] };
   blockers: string[];
   warnings: string[];
@@ -50,6 +54,7 @@ export type ApprovalPanelState = {
   loading: boolean;
   blocked: boolean;
   submitting: boolean;
+  preparingAttachments?: boolean;
   submit: () => Promise<void>;
 };
 
@@ -83,6 +88,10 @@ export function InvoiceApprovalPanel({
   const [prefill, setPrefill] = useState<ApprovalPrefill | null>(null);
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [materials, setMaterials] = useState<InvoiceAttachmentSelection>({});
+  const [readingAttachments, setReadingAttachments] = useState(false);
+  const requestId = useRef(0), submitLock = useRef(false);
+  const ids = sourceIds.join(",");
   const [form, setForm] = useState({
     purpose: "",
     paymentReceivedTime: "",
@@ -100,7 +109,6 @@ export function InvoiceApprovalPanel({
     paymentMethodKey: "",
     cfdiCodeKey: "",
     invoiceContent: "",
-    cfsAttachmentId: "",
     chileInvoiceTypeKey: "",
     chileAmount: "",
     chileNote1: "",
@@ -111,14 +119,17 @@ export function InvoiceApprovalPanel({
 
   const load = useCallback(async () => {
     if (!sourceId) return;
+    const id = ++requestId.current;
     setLoading(true);
     try {
       const params = new URLSearchParams({ sourceType, sourceId });
-      if (sourceIds.length) params.set("sourceIds", sourceIds.join(","));
+      if (ids) params.set("sourceIds", ids);
       const response = await fetch(`/api/invoices/approval/prefill?${params}`, { cache: "no-store" });
       const data = (await response.json()) as ApprovalPrefill & { error?: string };
+      if (id !== requestId.current) return;
       if (!response.ok) throw new Error(data.error ?? "审批预填失败");
       setPrefill(data);
+      setMaterials({}); setReadingAttachments(false);
       setForm({
         purpose: data.suggestedPurpose,
         paymentReceivedTime: data.paymentReceivedTime,
@@ -138,7 +149,6 @@ export function InvoiceApprovalPanel({
         paymentMethodKey: data.options.paymentMethods.find((item) => item.key === "PPD")?.value ?? data.options.paymentMethods[0]?.value ?? "",
         cfdiCodeKey: data.options.cfdiCodes.find((item) => item.key === "G03")?.value ?? data.options.cfdiCodes[0]?.value ?? "",
         invoiceContent: data.suggestedInvoiceContent,
-        cfsAttachmentId: "",
         chileInvoiceTypeKey: data.options.chileInvoiceTypes[0]?.value ?? "",
         chileAmount: "",
         chileNote1: "",
@@ -147,16 +157,18 @@ export function InvoiceApprovalPanel({
         chileNote4: "",
       });
     } catch (error) {
+      if (id !== requestId.current) return;
       notify(error instanceof Error ? error.message : "审批预填失败", "info");
       setPrefill(null);
     } finally {
-      setLoading(false);
+      if (id === requestId.current) setLoading(false);
     }
-  }, [sourceId, sourceIds, sourceType]);
+  }, [sourceId, ids, sourceType]);
 
   useEffect(() => {
     setPrefill(null);
     void load();
+    return () => { requestId.current += 1; };
   }, [load]);
 
   /** 金额联动：改「未税金额 / 税率」重算税金与含税；改「税金」重算含税；「含税金额」可直接改。 */
@@ -179,7 +191,8 @@ export function InvoiceApprovalPanel({
   }
 
   const submit = useCallback(async () => {
-    if (!prefill) return;
+    if (!prefill || readingAttachments || submitLock.current) return;
+    submitLock.current = true;
     setSubmitting(true);
     try {
       const response = await fetch("/api/invoices/approval", {
@@ -197,7 +210,7 @@ export function InvoiceApprovalPanel({
           customerOverride: { name: form.customerName, taxId: form.taxId, taxRegime: form.taxRegime, address: form.address, postCode: form.postCode },
           amountIncludingTax: Number(form.amountIncludingTax) || undefined,
           amountCurrency: form.amountCurrency || undefined,
-          cfsAttachmentId: form.cfsAttachmentId || undefined,
+          ...materials,
           chile: prefill.branch === "cl"
             ? {
               invoiceTypeKey: form.chileInvoiceTypeKey,
@@ -218,15 +231,16 @@ export function InvoiceApprovalPanel({
     } catch (error) {
       notify(error instanceof Error ? error.message : "发起审批失败", "info");
     } finally {
+      submitLock.current = false;
       setSubmitting(false);
     }
-  }, [form, onClose, onSubmitted, prefill, sourceId, sourceIds, sourceType]);
+  }, [form, materials, readingAttachments, onClose, onSubmitted, prefill, sourceId, sourceIds, sourceType]);
 
   const blocked = !prefill || prefill.blockers.length > 0 || prefill.branch === "br" || prefill.branch === null || Boolean(prefill.existingApproval);
 
   useEffect(() => {
-    onStateChange?.({ loading, blocked, submitting, submit });
-  }, [blocked, loading, onStateChange, submit, submitting]);
+    onStateChange?.({ loading, blocked: blocked || readingAttachments, submitting, preparingAttachments: readingAttachments, submit });
+  }, [blocked, loading, readingAttachments, onStateChange, submit, submitting]);
 
   if (loading || !prefill) {
     return (
@@ -248,7 +262,7 @@ export function InvoiceApprovalPanel({
         <Notice tone="info">
           该账单已有一条审批：{prefill.existingApproval.status === "approved" ? "已通过（待出票）" : paymentApprovalStatusLabel(prefill.existingApproval.status) || prefill.existingApproval.status}
           ，单号 {prefill.existingApproval.serialNumber || prefill.existingApproval.instanceCode}，提交于 {prefill.existingApproval.submittedAt}。
-          不需要重复发起 —— 审批通过后系统会自动出票；如果被驳回，可以在这里重新提交。
+          回传发票需核对确认后登记；驳回后可重新提交。
         </Notice>
       ) : null}
       {prefill.blockers.map((item) => <Notice key={item} tone="danger">{item}</Notice>)}
@@ -370,33 +384,6 @@ export function InvoiceApprovalPanel({
             </div>
           </Section>
 
-          <Section index={4} title="客户 CSF 附件" subtitle="Attachment (Customer CFS)" hint="从客户档案已有附件里选一个；档案里常掺杂其它文件，所以由人工确认。">
-            {prefill.customerAttachments.length ? (
-              <div className="space-y-1.5">
-                {prefill.customerAttachments.map((attachment) => {
-                  const active = form.cfsAttachmentId === attachment.attachmentId;
-                  return (
-                    <label
-                      className={`flex cursor-pointer items-center gap-3 rounded border px-3 py-2 text-sm transition-colors ${active ? "border-primary bg-info-soft" : "border-line-soft bg-white hover:border-info-border hover:bg-surface-2"}`}
-                      key={attachment.attachmentId}
-                    >
-                      <input
-                        checked={active}
-                        className="h-4 w-4"
-                        name="cfs"
-                        onChange={() => setForm({ ...form, cfsAttachmentId: attachment.attachmentId })}
-                        type="radio"
-                      />
-                      <span className="min-w-0 flex-1 truncate">{attachment.fileName}</span>
-                      <span className="shrink-0 text-xs text-ink-3">{Math.max(1, Math.round(Number(attachment.fileSize ?? 0) / 1024))} KB</span>
-                    </label>
-                  );
-                })}
-              </div>
-            ) : (
-              <p className="rounded border border-dashed border-line bg-white px-3 py-4 text-sm text-ink-3">客户档案里没有附件。请先在客户档案上传 CSF，再回来提交。</p>
-            )}
-          </Section>
         </>
       ) : null}
 
@@ -429,6 +416,11 @@ export function InvoiceApprovalPanel({
         </Section>
       ) : null}
 
+
+      {prefill.branch === "mx" || prefill.attachmentField ? <InvoiceApprovalAttachments
+        key={`${sourceType}:${sourceId}:${ids}`} options={prefill.attachmentOptions ?? []} value={materials} onChange={setMaterials}
+        disabled={submitting || blocked} requireCsf={prefill.branch === "mx"} onBusyChange={setReadingAttachments}
+      /> : prefill.branch === "cl" ? <p role="status" className="text-sm text-warning-ink">飞书 Cloud 智利分支尚未配置附件栏，请管理员增加附件栏后重新打开申请。</p> : null}
 
       <Section index={linesIndex} title="账期明细" subtitle="Invoice Lines" hint="明细来自来源账单，审批通过后与发票信息一并回填到该账单行。">
         {prefill.lines.length ? (

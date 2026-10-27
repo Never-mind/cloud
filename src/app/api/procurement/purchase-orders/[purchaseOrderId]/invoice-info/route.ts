@@ -3,13 +3,14 @@ import { getAuthenticatedUserEmail } from "@/lib/auth";
 import { execute, queryRows, type Row } from "@/lib/db";
 import { normalizeDateOnlyValue } from "@/lib/date-only";
 import { getOperationActor } from "@/lib/operation-actor";
+import { recordOperationLog } from "@/lib/operation-log";
 import { deriveInvoiceTaxAmounts, validateInvoiceTaxAmounts } from "@/lib/invoice-tax";
 
 type RouteContext = { params: Promise<{ purchaseOrderId: string }> };
 
 async function loadInvoiceInfo(purchaseOrderId: string) {
   const rows = await queryRows<Row>(
-    `SELECT po.purchaseOrderId, po.poNo, po.currency AS orderCurrency,
+    `SELECT po.purchaseOrderId, po.poNo, po.supplierId, po.currency AS orderCurrency,
             po.invoiceNo, po.invoiceDate, po.invoiceAmount, po.invoiceNetAmount, po.invoiceTaxRate, po.invoiceTaxAmount,
             po.invoiceCurrency, po.invoiceStatus,
             po.paymentDate AS expectedPaymentDate, po.invoiceRemark,
@@ -94,6 +95,10 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
         : current.invoiceStatus ?? null;
 
     const actor = await getOperationActor(request);
+    if (text(body.invoiceNo) && text(current.supplierId)) {
+      const duplicates = await queryRows("SELECT purchaseOrderId FROM merge_power_purchaseorders WHERE supplierId = :supplierId AND invoiceNo = :invoiceNo AND purchaseOrderId <> :purchaseOrderId LIMIT 1", { supplierId: current.supplierId, invoiceNo: text(body.invoiceNo), purchaseOrderId });
+      if (duplicates.length) throw new Error("该供应商的发票已在其他采购订单登记，请先核对或分摊，不能重复登记整票金额");
+    }
     await execute(
       `UPDATE merge_power_purchaseorders
           SET invoiceNo = :invoiceNo,
@@ -132,6 +137,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     );
     const invoiceInfo = await loadInvoiceInfo(purchaseOrderId);
     if (!invoiceInfo) return NextResponse.json({ error: "采购订单不存在" }, { status: 404 });
+    if (body.recognitionFacts) await recordOperationLog({ actor, domainKey: "power", moduleKey: "purchase-orders", action: "confirm_recognition", entityId: purchaseOrderId, detail: { recognized: body.recognitionFacts, confirmed: invoiceInfo } });
     return NextResponse.json({ invoiceInfo });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "发票信息保存失败" }, { status: 400 });

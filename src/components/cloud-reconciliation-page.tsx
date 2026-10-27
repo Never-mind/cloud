@@ -1,4 +1,7 @@
 "use client";
+import { InvoiceRecognitionReview } from "./invoice-recognition-review";
+import type { InvoiceRecognition } from "@/lib/invoice-recognition-service";
+import { updateInvoiceReviewAmounts, validateInvoiceReview } from "@/lib/invoice-review";
 
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { Banknote, Check, ChevronDown, ChevronRight, Cloud, Download, FileText, FileUp, Pencil, Plus, RefreshCw, ScanLine, Search, Trash2, X } from "lucide-react";
@@ -381,15 +384,16 @@ export function CloudReconciliationPage() {
   async function updatePayment(row: Row, patch: Row) {
     try {
       await requestJson(`/api/cloud/supplier-payments/${encodeURIComponent(String(row.id ?? ""))}`, { method: "PATCH", body: JSON.stringify({ period: row.period, supplierId: row.supplierId ?? "", supplierName: row.supplierName, ...patch }) });
-      setNotice("供应商付款信息已更新"); await load();
+      setNotice("供应商付款信息已更新"); await load(); return true;
     }
-    catch (error) { setNotice(error instanceof Error ? error.message : "付款保存失败"); }
+    catch (error) { setNotice(error instanceof Error ? error.message : "付款保存失败"); return false; }
   }
 
-  async function saveSupplierPayment() {
+  async function saveSupplierPayment(file?: File | null, recognitionFacts?: Record<string, string>) {
     if (!supplierPaymentForm?.id) return;
     const patch = Object.fromEntries(Object.entries(supplierPaymentForm).filter(([key]) => key.startsWith("payment") || key.startsWith("invoice") || ["payerUnitId", "payerUnitName", "currency", "paid", "invoiceStatus", "receivableDate"].includes(key)));
-    await updatePayment(supplierPaymentForm, patch);
+    if (!await updatePayment(supplierPaymentForm, { ...patch, recognitionFacts })) throw new Error("付款信息保存失败，请重试");
+    if (file && !await attachSupplierPaymentInvoice(supplierPaymentForm, file)) throw new Error("字段已保存，附件上传失败，请重试保存以补传附件");
     setSupplierPaymentForm(null);
   }
 
@@ -514,7 +518,7 @@ export function CloudReconciliationPage() {
         ownerIds={paymentApprovalOwnerIds}
       />
     ) : null}
-    {supplierPaymentForm ? <SupplierPaymentForm value={supplierPaymentForm} masters={masters} onChange={setSupplierPaymentForm} onCancel={() => setSupplierPaymentForm(null)} onRecognizedFile={(file) => attachSupplierPaymentInvoice(supplierPaymentForm, file)} onSave={() => void saveSupplierPayment()} /> : null}
+    {supplierPaymentForm ? <SupplierPaymentForm value={supplierPaymentForm} masters={masters} onChange={setSupplierPaymentForm} onCancel={() => setSupplierPaymentForm(null)} onSave={saveSupplierPayment} /> : null}
     {allocationTarget ? (
       <CrmInvoiceAllocationModal
         crmInvoiceId={allocationTarget.crmInvoiceId}
@@ -700,7 +704,7 @@ function CollectionTable({ rows, onEditCollection, onEditInvoice, onIssueInvoice
                 {invoiced
                   ? <button className="inline-flex h-7 items-center rounded px-1.5 text-xs text-primary hover:bg-canvas" onClick={() => onEditInvoice(row)} type="button">查看发票</button>
                   : <button className="inline-flex h-7 items-center rounded px-1.5 text-xs text-primary hover:bg-canvas" onClick={() => onIssueInvoice(row)} type="button">开票</button>}
-                <IconButton icon={<FileUp size={14} />} label="上传发票" onClick={() => onUploadInvoice(row)} />
+                <IconButton icon={<FileUp size={14} />} label="上传并识别" onClick={() => onUploadInvoice(row)} />
               </div>
             </td>
           </tr>;
@@ -906,7 +910,7 @@ function CloudLedgerDetails({ row, attachmentVersion, onAttach, onToggleCollecti
       <button aria-checked={row.collectionInvoice === "issued"} className="inline-flex h-7 items-center gap-1 rounded border border-line bg-white px-2 text-xs text-ink-2 disabled:opacity-50" disabled={Boolean(row.confirmed)} role="switch" type="button" onClick={() => onToggleInvoice(row)}><span className={`relative inline-flex h-4 w-7 rounded-full ${row.collectionInvoice === "issued" ? "bg-success" : "bg-ink-4"}`}><span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white shadow ${row.collectionInvoice === "issued" ? "translate-x-[15px]" : "translate-x-0.5"}`} /></span>{row.collectionInvoice === "issued" ? "已开票" : "未开票"}</button>
       <Button disabled={Boolean(row.confirmed)} size="sm" onClick={() => onEditInvoice(row)}>编辑开票</Button>
       <Button size="sm" onClick={() => onIssueInvoice(row)}>开票</Button>
-      <Button size="sm" onClick={() => onUploadInvoice(row)}>上传外部发票</Button>
+      <Button size="sm" onClick={() => onUploadInvoice(row)}>上传并识别</Button>
       <UploadIconButton icon={<FileUp size={13} />} label="上传客户发票附件" onFile={(event) => { const file = event.target.files?.[0]; if (file) onAttach(row, file); event.target.value = ""; }} />
       <CloudAttachments ownerId={String(row.id ?? "")} ownerType="invoice" refreshToken={attachmentVersion} />
       <InvoiceApprovalBadge row={row} />
@@ -1018,13 +1022,12 @@ function CloudRowForm({ value, masters, onChange, onCancel, onSave }: { value: R
   return <Modal footer={<><Button onClick={onCancel}>取消</Button><Button onClick={onSave} tone="primary">保存</Button></>} onClose={onCancel} title={`${value.id ? "修改" : "手动新增"}华为云对账单`} widthClass="max-w-4xl"><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3"><PartnerSelect required kind="customers" label="客户名称" idValue={value.customerId} nameValue={value.customer} masters={masters} onChange={(selected) => onChange({ ...value, customerId: selected.id, customer: selected.name })} />{fields.map(([key, label, type]) => <label className="space-y-1 text-sm text-ink-2" key={key}><span>{label}{key === "period" || key === "account" ? <b className="ml-1 text-danger">*</b> : null}</span><Input autoFocus={key === "account" && !value.id} className="w-full" type={type ?? "text"} value={String(value[key] ?? "")} onChange={(event) => onChange(changeField(key, type, event.target.value))} /></label>)}<label className="space-y-1 text-sm text-ink-2 sm:col-span-2 lg:col-span-3"><span>备注</span><textarea className="min-h-20 w-full rounded border border-line px-3 py-2 text-sm outline-none focus:border-primary" value={String(value.remark ?? "")} onChange={(event) => onChange({ ...value, remark: event.target.value })} /></label></div></Modal>;
 }
 
-function SupplierPaymentForm({ value, masters, onChange, onCancel, onSave, onRecognizedFile }: {
+function SupplierPaymentForm({ value, masters, onChange, onCancel, onSave }: {
   value: Row;
   masters: MasterSet;
   onChange: (value: Row) => void;
   onCancel: () => void;
-  onSave: () => void;
-  onRecognizedFile?: (file: File) => Promise<boolean> | boolean;
+  onSave: (file?: File | null, recognitionFacts?: Record<string, string>) => Promise<void>;
 }) {
   const paymentFields: Array<[string, string, string?]> = [
     ["currency", "实付币种"], ["paymentExchangeRate", "实付汇率", "number"], ["paymentNetAmount", "实付未税金额", "number"],
@@ -1032,14 +1035,19 @@ function SupplierPaymentForm({ value, masters, onChange, onCancel, onSave, onRec
   ];
   const invoiceFields: Array<[string, string, string?]> = [
     ["invoiceNo", "发票号"], ["invoiceCurrency", "发票币种"], ["invoiceExchangeRate", "发票汇率", "number"], ["invoiceNetAmount", "发票未税金额", "number"],
-    ["invoiceTaxRate", "发票税率", "number"], ["invoiceTaxAmount", "发票税金", "number"], ["invoiceTotalAmount", "发票含税金额", "number"], ["invoiceDate", "开票日期", "date"], ["receivableDate", "预计付款日期", "date"],
+    ["invoiceTaxRate", "发票税率（%）", "number"], ["invoiceTaxAmount", "发票税金", "number"], ["invoiceTotalAmount", "发票含税金额", "number"], ["invoiceDate", "开票日期", "date"], ["receivableDate", "预计付款日期", "date"],
   ];
   const changeField = (key: string, type: string | undefined, input: string) => {
     if (key === "invoiceDate") {
-      return { ...value, invoiceDate: input, receivableDate: addDaysToDateOnly(input, 30) };
+      return { ...value, invoiceDate: input, receivableDate: value.receivableDate || addDaysToDateOnly(input, 30) };
     }
     if (type === "number" && ["payment", "invoice"].some((prefix) => key.startsWith(prefix)) && ["NetAmount", "TaxRate", "TaxAmount", "TotalAmount"].some((suffix) => key.endsWith(suffix))) {
       const prefix = key.startsWith("payment") ? "payment" : "invoice";
+      if (prefix === "invoice") {
+        const field = key.endsWith("NetAmount") ? "amountExcludingTax" : key.endsWith("TaxAmount") ? "taxAmount" : key.endsWith("TotalAmount") ? "amountIncludingTax" : "taxRate";
+        const next = updateInvoiceReviewAmounts(reviewValues, field, input);
+        return { ...value, invoiceNetAmount: next.amountExcludingTax, invoiceTaxRate: next.taxRate === "" ? "" : String(Number(next.taxRate) / 100), invoiceTaxAmount: next.taxAmount, invoiceTotalAmount: next.amountIncludingTax };
+      }
       return updateCloudTaxValue(value, prefix, key.endsWith("NetAmount") ? "net" : key.endsWith("TaxAmount") ? "tax" : key.endsWith("TotalAmount") ? "total" : "rate", input);
     }
     return { ...value, [key]: input };
@@ -1048,8 +1056,27 @@ function SupplierPaymentForm({ value, masters, onChange, onCancel, onSave, onRec
   const [recognizing, setRecognizing] = useState(false);
   const [recognizeMessage, setRecognizeMessage] = useState("");
   const [recognizeWarnings, setRecognizeWarnings] = useState("");
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [recognitionResult, setRecognitionResult] = useState<InvoiceRecognition | null>(null);
+  const [saving, setSaving] = useState(false);
+  const lock = useRef(false);
+  const reviewValues = { invoiceNo: String(value.invoiceNo ?? ""), invoiceDate: dateInputValue(value.invoiceDate), currency: String(value.invoiceCurrency ?? ""), exchangeRate: String(value.invoiceExchangeRate ?? ""), amountExcludingTax: String(value.invoiceNetAmount ?? ""), taxRate: value.invoiceTaxRate === null || value.invoiceTaxRate === undefined || value.invoiceTaxRate === "" ? "" : String(Number(value.invoiceTaxRate) * 100), taxAmount: String(value.invoiceTaxAmount ?? ""), amountIncludingTax: String(value.invoiceTotalAmount ?? "") };
+  const close = () => { if (!lock.current) onCancel(); };
+  async function save() {
+    if (lock.current) return;
+    const error = pendingFile ? validateInvoiceReview(reviewValues) : "";
+    if (error) { setRecognizeWarnings(error); return; }
+    lock.current = true; setSaving(true);
+    try { await onSave(pendingFile, recognitionResult?.facts); }
+    catch (error) { setRecognizeWarnings(error instanceof Error ? error.message : "保存失败"); }
+    finally { lock.current = false; setSaving(false); }
+  }
 
   async function recognizeInvoice(file: File) {
+    if (lock.current) return;
+    if (file.size > 20 * 1024 * 1024) { setRecognizeWarnings("文件不能超过 20 MB"); return; }
+    lock.current = true; setPendingFile(file); setRecognitionResult(null);
+    onChange({ ...value, invoiceNo: "", invoiceDate: "", invoiceNetAmount: "", invoiceTaxRate: "", invoiceTaxAmount: "", invoiceTotalAmount: "" });
     setRecognizing(true);
     setRecognizeMessage("");
     setRecognizeWarnings("");
@@ -1060,34 +1087,47 @@ function SupplierPaymentForm({ value, masters, onChange, onCancel, onSave, onRec
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(String(data.error ?? "发票识别失败"));
       const recognition = data.recognition ?? {};
-      const { patch, warnings: mappingWarnings } = buildSupplierPaymentInvoicePatch(recognition.form ?? {}, { supplierId: value.supplierId });
-      onChange({ ...value, ...patch });
-      const uploaded = await onRecognizedFile?.(file);
+      setRecognitionResult(recognition);
+      const { patch, warnings: mappingWarnings } = buildSupplierPaymentInvoicePatch(recognition.form ?? {}, { supplierId: value.supplierId, receivableDate: value.receivableDate });
+      onChange({ ...value, invoiceNo: "", invoiceDate: "", invoiceNetAmount: "", invoiceTaxRate: "", invoiceTaxAmount: "", invoiceTotalAmount: "", invoiceExchangeRate: recognition.form?.currency === value.invoiceCurrency ? value.invoiceExchangeRate : "", ...patch });
 
       const warnings: string[] = [
         ...(Array.isArray(recognition.warnings) ? recognition.warnings : []),
         ...mappingWarnings,
       ];
-      if (onRecognizedFile && !uploaded) warnings.push("发票附件上传失败，请在列表操作列重新上传");
-      setRecognizeMessage(`已识别${recognition.source ? `：${recognition.source}` : ""}${recognition.kind ? ` · ${recognition.kind}` : ""}，开票字段已回填${uploaded ? "，发票已上传到附件" : ""}`);
+      setRecognizeMessage("识别完成，待确认保存");
       if (warnings.length) setRecognizeWarnings(warnings.join("；"));
     } catch (error) {
-      setRecognizeWarnings(error instanceof Error ? error.message : "发票识别失败");
+      setRecognizeWarnings(`${error instanceof Error ? error.message : "发票识别失败"}，可手工补充后确认`);
     } finally {
-      setRecognizing(false);
+      lock.current = false; setRecognizing(false);
     }
   }
-  return <Modal description="供应商付款按账期和供应商汇总，明细账号只展示供应商应付金额" footer={<><Button onClick={onCancel}>取消</Button><Button onClick={onSave} tone="primary">保存</Button></>} onClose={onCancel} title="编辑供应商实付和开票" widthClass="max-w-4xl"><div className="grid gap-3 border-b border-line-soft pb-4 sm:grid-cols-2"><PartnerSelect kind="undertakingUnits" label="付款单位" idValue={value.payerUnitId} nameValue={value.payerUnitName} masters={masters} onChange={(selected) => onChange({ ...value, payerUnitId: selected.id, payerUnitName: selected.name })} /></div><section className="mt-4"><h3 className="mb-3 text-sm font-medium text-ink">供应商实付</h3><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{paymentFields.map(([key, label, type]) => <label className="space-y-1 text-sm text-ink-2" key={key}><span>{label}</span><Input className="w-full" type={type ?? "text"} value={type === "date" ? dateInputValue(value[key]) : String(value[key] ?? "")} onChange={(event) => onChange(changeField(key, type, event.target.value))} /></label>)}</div><div className="mt-3"><StatusSwitch checked={Boolean(value.paid)} onClick={() => onChange({ ...value, paid: value.paid ? 0 : 1 })} onLabel="已付款" offLabel="未付款" title="点击切换付款状态" /></div></section><section className="mt-5 border-t border-line-soft pt-4">
-      <div className="mb-3 flex flex-wrap items-center gap-2">
-        <h3 className="text-sm font-medium text-ink">供应商开票</h3>
-        <Button size="sm" disabled={recognizing} onClick={() => recognizeInputRef.current?.click()} title="上传发票、自动识别并挂到付款发票附件">
-          <ScanLine size={14} />{recognizing ? "上传识别中…" : "上传并识别"}
-        </Button>
-        <input ref={recognizeInputRef} className="hidden" type="file" accept=".pdf,.ofd,.xml,application/pdf,text/xml,application/xml" onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; if (file) void recognizeInvoice(file); }} />
-        <span className="text-xs text-ink-3">支持 PDF / OFD / XML，上传后自动识别、回填开票字段并挂到付款发票附件</span>
+  return <Modal description="供应商付款按账期和供应商汇总，明细账号只展示供应商应付金额" footer={<><Button disabled={saving || recognizing} onClick={close}>取消</Button><Button disabled={saving || recognizing} onClick={() => void save()} tone="primary">{saving ? "保存中…" : "确认保存"}</Button></>} onClose={close} title="编辑供应商实付和开票" widthClass="max-w-4xl">
+    <fieldset disabled={saving || recognizing}>
+      <div className="grid gap-3 border-b border-line-soft pb-4 sm:grid-cols-2">
+        <PartnerSelect kind="undertakingUnits" label="付款单位" idValue={value.payerUnitId} nameValue={value.payerUnitName} masters={masters} onChange={(selected) => onChange({ ...value, payerUnitId: selected.id, payerUnitName: selected.name })} />
       </div>
-      {recognizeMessage ? <div className="mb-3 rounded border border-info-border bg-info-soft px-3 py-2 text-xs text-primary">{recognizeMessage}</div> : null}
-      {recognizeWarnings ? <div className="mb-3 rounded border border-warning-border-soft bg-warning-soft px-3 py-2 text-xs text-warning-ink">{recognizeWarnings}</div> : null}<div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{invoiceFields.map(([key, label, type]) => <label className="space-y-1 text-sm text-ink-2" key={key}><span>{label}</span><Input className="w-full" type={type ?? "text"} value={type === "date" ? dateInputValue(value[key]) : String(value[key] ?? "")} onChange={(event) => onChange(changeField(key, type, event.target.value))} onBlur={key === "invoiceDate" ? (event) => onChange({ ...value, invoiceDate: event.target.value, receivableDate: addDaysToDateOnly(event.target.value, 30) }) : undefined} /></label>)}</div><div className="mt-3"><StatusSwitch checked={value.invoiceStatus === "issued"} onClick={() => onChange({ ...value, invoiceStatus: value.invoiceStatus === "issued" ? "not_issued" : "issued" })} onLabel="已开票" offLabel="未开票" title="点击切换开票状态" /></div></section></Modal>;
+      <section className="mt-4">
+        <h3 className="mb-3 text-sm font-medium text-ink">供应商实付</h3>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{paymentFields.map(([key, label, type]) => <label className="space-y-1 text-sm text-ink-2" key={key}><span>{label}</span><Input className="w-full" type={type ?? "text"} value={type === "date" ? dateInputValue(value[key]) : String(value[key] ?? "")} onChange={(event) => onChange(changeField(key, type, event.target.value))} /></label>)}</div>
+        <div className="mt-3"><StatusSwitch checked={Boolean(value.paid)} onClick={() => onChange({ ...value, paid: value.paid ? 0 : 1 })} onLabel="已付款" offLabel="未付款" title="点击切换付款状态" /></div>
+      </section>
+      <section className="mt-5 border-t border-line-soft pt-4">
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <h3 className="text-sm font-medium text-ink">供应商开票</h3>
+          <Button size="sm" disabled={recognizing || saving} onClick={() => recognizeInputRef.current?.click()} title="选择发票并识别"><ScanLine size={14} />{recognizing ? "上传识别中…" : "上传并识别"}</Button>
+          <input ref={recognizeInputRef} className="hidden" type="file" accept=".pdf,.ofd,.xml,application/pdf,text/xml,application/xml" onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; if (file) void recognizeInvoice(file); }} />
+          {pendingFile ? <span className="text-xs text-ink-3">待确认</span> : null}
+        </div>
+        {recognizeMessage ? <div className="mb-3 rounded border border-info-border bg-info-soft px-3 py-2 text-xs text-primary">{recognizeMessage}</div> : null}
+        {recognizeWarnings ? <div className="mb-3 rounded border border-warning-border-soft bg-warning-soft px-3 py-2 text-xs text-warning-ink">{recognizeWarnings}</div> : null}
+        <InvoiceRecognitionReview recognition={recognitionResult} file={pendingFile} values={reviewValues} />
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{invoiceFields.map(([key, label, type]) => <label className="space-y-1 text-sm text-ink-2" key={key}><span>{label}</span><Input className="w-full" type={type ?? "text"} value={key === "invoiceTaxRate" ? reviewValues.taxRate : type === "date" ? dateInputValue(value[key]) : String(value[key] ?? "")} onChange={(event) => onChange(changeField(key, type, event.target.value))} /></label>)}</div>
+        <div className="mt-3"><StatusSwitch checked={value.invoiceStatus === "issued"} onClick={() => onChange({ ...value, invoiceStatus: value.invoiceStatus === "issued" ? "not_issued" : "issued" })} onLabel="已开票" offLabel="未开票" title="点击切换开票状态" /></div>
+      </section>
+    </fieldset>
+  </Modal>;
 }
 
 function cloudTaxInputField(group: CloudTaxGroup, key: string): CloudTaxField | null {

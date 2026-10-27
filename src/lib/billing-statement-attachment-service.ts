@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { executeRaw, queryRowsRaw, type Row } from "./db";
+import { executeRaw as executeOutsideTransaction, queryRowsRaw as queryOutsideTransaction, executeInTransaction, queryRowsInTransaction } from "./db";
+import type { PoolConnection } from "mysql2/promise";
 import { deleteFileObject, readFile, storeFile } from "./file-storage-service";
 import type { OperationActor } from "./operation-actor";
 
@@ -89,7 +91,9 @@ export async function attachInvoiceFileToStatement(params: {
   storageKey: string | null;
   dataUrl: string | null;
   actor: InvoiceActorLike;
-}) {
+}, connection?: PoolConnection) {
+  const executeRaw = (sql: string, values: Row = {}) => connection ? executeInTransaction(connection, sql, values) : executeOutsideTransaction(sql, values);
+  const queryRowsRaw = <T extends Row>(sql: string, values: Row = {}) => connection ? queryRowsInTransaction<T>(connection, sql, values) : queryOutsideTransaction<T>(sql, values);
   const existing = (await queryRowsRaw<Row>(
     `SELECT id FROM ${TABLE} WHERE snapshotNo = :snapshotNo AND fileName = :fileName LIMIT 1`,
     { snapshotNo: params.snapshotNo, fileName: params.fileName },

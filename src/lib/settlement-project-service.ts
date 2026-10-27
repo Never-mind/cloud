@@ -1024,12 +1024,18 @@ export async function deleteSettlementSale(projectId: string, saleId: string, ac
 }
 
 async function invoiceValues(_projectId: string, input: Record<string, unknown>) {
+  if (text(input.currency) && !validCurrency(input.currency)) throw new Error("结算发票币种仅支持 CNY、USD、MXN");
+  if (text(input.exchangeRate) && (!Number.isFinite(Number(input.exchangeRate)) || Number(input.exchangeRate) <= 0)) throw new Error("发票汇率必须大于 0");
   const type: SettlementInvoiceType = text(input.type) === "income" ? "income" : "cost";
   const currency: SettlementCurrency = validCurrency(input.currency) ? input.currency : "CNY";
-  const invoiceTotal = numeric(input.invoiceTotal);
-  const taxRate = Math.max(0, numeric(input.taxRate));
-  const invoiceTaxExcludedTotal = round(invoiceTotal / (1 + taxRate / 100 || 1));
-  const invoiceTaxAmount = round(invoiceTotal - invoiceTaxExcludedTotal);
+  const invoiceTotal = text(input.invoiceTotal) ? Number(input.invoiceTotal) : 0;
+  const taxRate = text(input.taxRate) ? Number(input.taxRate) : 0;
+  const invoiceTaxExcludedTotal = text(input.amountExcludingTax ?? input.invoiceTaxExcludedTotal) !== ""
+    ? Number(input.amountExcludingTax ?? input.invoiceTaxExcludedTotal) : round(invoiceTotal / (1 + taxRate / 100 || 1));
+  const invoiceTaxAmount = text(input.taxAmount ?? input.invoiceTaxAmount) !== ""
+    ? Number(input.taxAmount ?? input.invoiceTaxAmount) : round(invoiceTotal - invoiceTaxExcludedTotal);
+  if (![invoiceTaxExcludedTotal, invoiceTaxAmount, invoiceTotal, taxRate].every(Number.isFinite) || invoiceTaxExcludedTotal < 0 || invoiceTaxAmount < 0 || invoiceTotal < 0 || taxRate < 0 || taxRate > 100) throw new Error("发票金额或税率无效");
+  if (Math.abs(invoiceTaxExcludedTotal + invoiceTaxAmount - invoiceTotal) > 0.011) throw new Error("未税金额 + 税金与含税金额不一致");
   const exchangeRate = numeric(input.exchangeRate, 1) || 1;
   const usdAmount = round((type === "cost" ? -1 : 1) * invoiceTaxExcludedTotal / exchangeRate);
   const invoiceEntityType = text(input.invoiceEntityType) === "supplier" || text(input.invoiceEntityType) === "customer" ? text(input.invoiceEntityType) as "supplier" | "customer" : null;
@@ -1093,6 +1099,10 @@ export async function addSettlementInvoice(projectId: string, input: Record<stri
     if (duplicated) throw new Error(`这张发票已经录过了${duplicated.invoiceNo ? `（发票号 ${duplicated.invoiceNo}）` : ""}，不需要重复上传`);
   }
   const values = await invoiceValues(projectId, input);
+  if (values.invoiceNo) {
+    const duplicate = await queryRows("SELECT id FROM merge_po_settlement_invoices WHERE projectId = :projectId AND invoiceNo = :invoiceNo AND type = :type AND (invoiceEntityId <=> :invoiceEntityId) LIMIT 1", { projectId, invoiceNo: values.invoiceNo, type: values.type, invoiceEntityId: values.invoiceEntityId });
+    if (duplicate.length) throw new Error("该往来方的发票已存在，请核对后修改原记录");
+  }
   const id = randomUUID();
   await execute(
     `INSERT INTO merge_po_settlement_invoices (id,projectId,type,accountPeriod,accountingDate,companyEntity,invoiceEntity,companyEntityId,invoiceEntityId,invoiceEntityType,invoiceDate,invoiceNo,taxUuid,invoiceTotal,invoiceTaxExcludedTotal,taxRate,invoiceTaxAmount,currency,exchangeRate,usdAmount,isPaid,isInvoiced,receivableDate,actualReceiptDate)
@@ -1102,7 +1112,12 @@ export async function addSettlementInvoice(projectId: string, input: Record<stri
   // 识别发票时文件要跟着这条记录一起进附件（走和手工上传附件同一条链路，含 OBS）
   const attachment = input.attachment as Record<string, unknown> | undefined;
   if (attachment && text(attachment.fileName) && text(attachment.dataUrl)) {
-    await addSettlementAttachment(projectId, attachment, actor, id);
+    try { await addSettlementAttachment(projectId, attachment, actor, id); }
+    catch (error) {
+      await execute("DELETE FROM merge_po_settlement_attachments WHERE invoiceId = :id AND projectId = :projectId", { id, projectId });
+      await execute("DELETE FROM merge_po_settlement_invoices WHERE id = :id AND projectId = :projectId", { id, projectId });
+      throw error;
+    }
   }
   return touchAndRecalculate(projectId, actor);
 }

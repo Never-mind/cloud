@@ -43,6 +43,15 @@ function mexicoForm(): InvoiceApprovalFormInput {
 }
 
 describe("飞书审批开票 · 表单组装", () => {
+  it("submits CSF and supplementary materials together", () => {
+    const input = mexicoForm(); input.mexico!.cfsFileTokens = ["csf", "statement", "contract"];
+    expect(buildInvoiceApprovalForm(input)).toContainEqual({ id: APPROVAL_FIELDS.customerCfs, type: "attachmentV2", value: ["csf", "statement", "contract"] });
+  });
+  it("supports a configured Chile attachment widget without reusing the hidden CSF widget", () => {
+    const input: InvoiceApprovalFormInput = { ...mexicoForm(), branch: "cl", attachmentTokens: ["material"], chile: { customerLabel: "Customer", invoiceTypeKey: "service", amountIncludingTax: 119, note1: "note", note2Key: "note", note3: 1, note4: 2 } };
+    expect(() => buildInvoiceApprovalForm(input)).toThrow("附件栏");
+    expect(buildInvoiceApprovalForm({ ...input, attachmentFieldId: "chile-materials" })).toContainEqual({ id: "chile-materials", type: "attachmentV2", value: ["material"] });
+  });
   it("审批状态区分审批中、已退回、已撤回和已驳回", () => {
     expect(resolveFeishuApprovalStatus("PENDING", [{ type: "START", create_time: "1" }])).toBe("pending");
     expect(resolveFeishuApprovalStatus("PENDING", [

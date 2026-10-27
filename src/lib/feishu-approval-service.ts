@@ -12,8 +12,9 @@
  * 依赖飞书权限：approval:approval（已开通）。附件字段还需要 drive:file:upload，
  * 未开通时附件相关的分支会在提交前被拦下并给出提示。
  */
-import { execute, queryRows, type Row } from "./db";
-import { randomUUID } from "node:crypto";
+import { execute, queryRows, getDb, executeInTransaction, queryRowsInTransaction, type Row } from "./db";
+import type { PoolConnection } from "mysql2/promise";
+import { randomUUID, createHash } from "node:crypto";
 import { FEISHU_API_BASE } from "./feishu-auth-config";
 import { getFeishuTenantAccessToken } from "./feishu-message-service";
 import {
@@ -27,6 +28,9 @@ import {
 import { readFile as readStoredFile } from "./file-storage-service";
 import { parseCfdiInvoice, verifyInvoiceAgainstExpectation, type CfdiInvoice, type InvoiceVerificationIssue } from "./cfdi-invoice-parser";
 import { attachApprovalFilesToSource } from "./approval-source-attachments";
+import { defaultInvoicePaymentTermDays, invoiceDueDate } from "./invoice-payment-terms";
+import { cloudAttachmentField, type InvoiceAttachmentSelection } from "./invoice-approval-attachments";
+import { listInvoiceApprovalAttachments, prepareInvoiceApprovalAttachments } from "./invoice-approval-attachment-service";
 
 /** 「Cloud invoicing process」的审批定义 code。可用 FEISHU_INVOICE_APPROVAL_CODE 覆盖。 */
 const DEFAULT_INVOICE_APPROVAL_CODE = "ABBC8240-2CA4-4A33-8E58-AC91FC8648F2";
@@ -124,7 +128,7 @@ export function resolveInvoiceApprovalParty(input: { undertakingUnitCode?: strin
   return null;
 }
 
-export type InvoiceApprovalFormItem = { id: string; type: string; value: unknown; currency?: string };
+export type InvoiceApprovalFormItem = { id: string; type: string; value: unknown; currency?: string; open_ids?: string[] };
 
 /**
  * 日期控件的值必须是 **RFC3339**（官方文档「审批实例表单控件参数 - 日期」），
@@ -149,6 +153,8 @@ export type InvoiceApprovalFormInput = {
   paymentReceivedTime: string;
   /** 金额控件的币种：墨西哥 MXN/USD，智利固定 CLP */
   amountCurrency: string;
+  attachmentFieldId?: string;
+  attachmentTokens?: string[];
   /** 墨西哥分支 */
   mexico?: {
     customerName: string;
@@ -236,6 +242,10 @@ export function buildInvoiceApprovalForm(input: InvoiceApprovalFormInput): Invoi
         ]],
       },
     );
+    if (input.attachmentTokens?.length) {
+      if (!input.attachmentFieldId) throw new Error("Cloud 智利审批尚未配置附件栏，请联系飞书管理员");
+      fields.push({ id: input.attachmentFieldId, type: "attachmentV2", value: input.attachmentTokens });
+    }
   }
 
   return fields;
@@ -415,14 +425,15 @@ export function resolveApprovalAmountCurrency(allowed: string[], preferred: unkn
 
 type FeishuEnvelope<T> = { code?: number; msg?: string; data?: T };
 
-async function callFeishu<T>(path: string, init: RequestInit = {}, action = "调用飞书接口"): Promise<T> {
+export async function callFeishu<T>(path: string, init: RequestInit = {}, action = "调用飞书接口"): Promise<T> {
   const token = await getFeishuTenantAccessToken();
   const response = await fetch(`${FEISHU_API_BASE}${path}`, {
+    signal: AbortSignal.timeout(30_000),
     ...init,
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json; charset=utf-8", ...(init.headers ?? {}) },
   });
   const body = (await response.json().catch(() => ({}))) as FeishuEnvelope<T> & { error?: { log_id?: string } };
-  if (body.code !== 0) {
+  if (!response.ok || body.code !== 0) {
     const logId = body.error?.log_id ? `（log_id ${body.error.log_id}）` : "";
     throw new Error(`${action}失败（${String(body.code)}）：${body.msg ?? response.status}${logId}`);
   }
@@ -434,6 +445,7 @@ export async function createInvoiceApprovalInstance(input: {
   starterOpenId: string;
   form: InvoiceApprovalFormItem[];
   approvalCode?: string;
+  nodeApprovers?: Array<{ key: string; value: string[] }>;
 }) {
   const openId = String(input.starterOpenId ?? "").trim();
   if (!openId.startsWith("ou_")) throw new Error("发起人缺少飞书 open_id，无法以本人身份发起审批");
@@ -445,6 +457,7 @@ export async function createInvoiceApprovalInstance(input: {
         approval_code: input.approvalCode ?? getInvoiceApprovalCode(),
         open_id: openId,
         form: JSON.stringify(input.form),
+        ...(input.nodeApprovers?.length ? { node_approver_open_id_list: input.nodeApprovers } : {}),
       }),
     },
     "发起飞书审批",
@@ -583,6 +596,8 @@ export type SubmitInvoiceApprovalInput = {
   invoiceId?: string | null;
   form: InvoiceApprovalFormItem[];
   title?: string;
+  approvalCode?: string;
+  nodeApprovers?: Array<{ key: string; value: string[] }>;
 };
 
 /**
@@ -590,11 +605,40 @@ export type SubmitInvoiceApprovalInput = {
  * 返回台账 ID 与审批单号，调用方据此把来源单据置为「审批中」。
  */
 export async function submitInvoiceApproval(input: SubmitInvoiceApprovalInput) {
-  const approvalCode = getInvoiceApprovalCode();
+  const allocationSourceIds = [...new Set(input.allocationSourceIds ?? [])];
+  if (allocationSourceIds.join(",").length > 500) throw new Error("合并账期数量过多，请分批提交审批");
+  const connection = await getDb().getConnection();
+    const keys: string[] = [];
+    try {
+      const sources = [...new Set([input.ownerId, ...(input.allocationSourceIds ?? [])])].sort();
+      for (const source of sources) {
+        const key = createHash("sha256").update("invoice-approval:" + input.ownerType + ":" + source).digest("hex");
+        const [lock] = await queryRowsInTransaction<Row>(connection, "SELECT GET_LOCK(:key, 5) AS acquired", { key });
+        if (Number(lock?.acquired) !== 1) throw new Error("该单据正在提交审批，请稍后刷新");
+        keys.push(key);
+      }
+      for (const source of sources) {
+        const active = await queryRowsInTransaction(connection, "SELECT id FROM merge_common_feishu_approvals WHERE ownerType = :type AND (ownerId = :id OR FIND_IN_SET(:id, allocationSourceIds) > 0) AND status IN ('pending', 'returned', 'approved') LIMIT 1", { type: input.ownerType, id: source });
+        if (active.length) throw new Error("该单据已有生效审批，请勿重复提交");
+      }
+      return await submitLockedInvoiceApproval({ ...input, allocationSourceIds }, connection);
+    } finally {
+      try {
+        for (const key of keys.reverse()) await queryRowsInTransaction(connection, "SELECT RELEASE_LOCK(:key)", { key });
+      } catch (error) {
+        connection.destroy();
+        throw error;
+      } finally { connection.release(); }
+    }
+}
+async function submitLockedInvoiceApproval(input: SubmitInvoiceApprovalInput, connection: PoolConnection) {
+  const execute = (sql: string, params: Row) => executeInTransaction(connection, sql, params);
+  const approvalCode = input.approvalCode ?? getInvoiceApprovalCode();
   const { instanceCode } = await createInvoiceApprovalInstance({
     starterOpenId: input.starterOpenId,
     form: input.form,
     approvalCode,
+    nodeApprovers: input.nodeApprovers,
   });
 
   const id = `FA-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
@@ -616,7 +660,7 @@ export async function submitInvoiceApproval(input: SubmitInvoiceApprovalInput) {
       approvalCode,
       instanceCode,
       title: (input.title ?? "").slice(0, 255),
-      allocationSourceIds: (input.allocationSourceIds ?? []).join(",").slice(0, 500),
+      allocationSourceIds: (input.allocationSourceIds ?? []).join(","),
       starterOpenId: input.starterOpenId,
       starterUserId: input.starterUserId ?? "",
       starterName: input.starterName ?? "",
@@ -639,7 +683,7 @@ export async function submitInvoiceApproval(input: SubmitInvoiceApprovalInput) {
  * 同步一条审批的状态。
  *
  * 状态变化会写回台账，并同步开票记录上的 approvalStatus；
- * 审批通过后：抓审批人回传的真实发票（PDF+XML），用真实发票信息登记本地开票记录。
+ * 回票独立同步：保存原件及识别草稿，只有人工确认后才登记正式发票。
  */
 export async function syncInvoiceApproval(instanceCode: string) {
   const rows = await queryRows<Row>(
@@ -669,29 +713,25 @@ export async function syncInvoiceApproval(instanceCode: string) {
     },
   );
 
-  let invoiceId = String(record.invoiceId ?? "");
+  const invoiceId = String(record.invoiceId ?? "");
   if (invoiceId && remote.status !== "approved") {
     await execute("UPDATE merge_common_invoices SET approvalStatus = :status WHERE id = :invoiceId", { status: remote.status, invoiceId });
   } else {
     await execute("UPDATE merge_common_invoices SET approvalStatus = :status WHERE approvalInstanceCode = :instanceCode", { status: remote.status, instanceCode });
   }
 
-  /**
-   * 审批通过后**不生成我方票面**：真正的税务发票是财务在外部开的，
-   * 审批人会把 PDF+XML 回传在审批意见里。这里只做一件事 ——
-   * 把回传的真实发票抓回来，用**真实发票信息**建立本地开票记录。
-   */
-  if (remote.status === "approved") {
+  // Approval completion and financial invoice return are independent events.
+  if (["pending", "returned", "approved"].includes(remote.status)) {
     try {
-      const applied = await applyApprovedInvoiceFiles(instanceCode);
-      invoiceId = applied.invoiceId ?? "";
+      const { syncReturnedInvoices } = await import("./invoice-approval-return-service");
+      await syncReturnedInvoices(instanceCode);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       await execute("UPDATE merge_common_feishu_approvals SET syncError = :message WHERE instanceCode = :instanceCode", {
         message: `回传发票处理失败：${message}`.slice(0, 500),
         instanceCode,
       });
-      throw new Error(`审批已通过，但回传发票处理失败：${message}`);
+      throw new Error(`审批进度已同步，但回传发票处理失败：${message}`);
     }
   }
 
@@ -722,7 +762,7 @@ export async function findActiveInvoiceApproval(sourceType: string, sourceId: st
   const rows = await queryRows<{ instanceCode: string; status: string; serialNumber: string; rejectReason: string; submittedAt: string; invoiceId: string }>(
     `SELECT instanceCode, status, serialNumber, rejectReason, invoiceId, DATE_FORMAT(submittedAt, '%Y-%m-%d %H:%i') AS submittedAt
        FROM merge_common_feishu_approvals
-      WHERE ownerType = :ownerType AND ownerId = :ownerId AND status IN ('pending', 'returned', 'approved')
+      WHERE ownerType = :ownerType AND (ownerId = :ownerId OR FIND_IN_SET(:ownerId, allocationSourceIds) > 0) AND status IN ('pending', 'returned', 'approved')
       ORDER BY submittedAt DESC LIMIT 1`,
     { ownerType, ownerId: sourceId },
   );
@@ -881,8 +921,8 @@ export async function createInvoiceFromCfdi(input: {
 export async function syncPendingInvoiceApprovals(limit = 50) {
   const rows = await queryRows<{ instanceCode: string }>(
     `SELECT instanceCode FROM merge_common_feishu_approvals
-      WHERE status IN ('pending', 'returned') OR (status = 'approved' AND (invoiceId IS NULL OR invoiceId = ''))
-      ORDER BY submittedAt ASC LIMIT :limit`,
+      WHERE status IN ('pending', 'returned', 'approved')
+      ORDER BY COALESCE(lastSyncedAt, submittedAt) ASC LIMIT :limit`,
     { limit },
   );
   const result = { checked: rows.length, updated: 0, errors: [] as Array<{ instanceCode: string; error: string }> };
@@ -1009,8 +1049,16 @@ export async function buildInvoiceApprovalPrefill(params: { sourceType: InvoiceS
   const party = resolveInvoiceApprovalParty({ undertakingUnitCode: unit?.undertakingUnitCode, undertakingUnitName: unitName });
   const customer = await loadCustomerForApproval(String(base.customerId ?? ""));
   const attachments = await listCustomerAttachments(String(customer?.customerId ?? base.customerId ?? ""));
+  const attachmentOptions = await listInvoiceApprovalAttachments({ ...params, customerId: String(customer?.customerId ?? base.customerId ?? "") });
+  let attachmentField: { id: string; name: string } | null = party?.branch === "mx" ? { id: APPROVAL_FIELDS.customerCfs, name: "Attachment (Customer CFS)" } : null;
+  if (party?.branch === "cl") {
+    try {
+      const definition = await callFeishu<{ form: string }>(`/open-apis/approval/v4/approvals/${encodeURIComponent(getInvoiceApprovalCode())}`, {}, "读取 Cloud 附件字段");
+      attachmentField = cloudAttachmentField(definition.form, party.optionKey);
+    } catch { /* Existing Chile applications can still proceed without attachments. */ }
+  }
   const optionLists = await loadInvoiceApprovalOptionLists();
-  const termDays = Number(unit?.paymentTermDays ?? 30) || 30;
+  const termDays = defaultInvoicePaymentTermDays(unit?.paymentTermDays);
   const invoiceDate = String(base.invoiceDate ?? "").slice(0, 10) || new Date().toISOString().slice(0, 10);
 
   const blockers: string[] = [];
@@ -1025,7 +1073,7 @@ export async function buildInvoiceApprovalPrefill(params: { sourceType: InvoiceS
       if (!String(customer.address ?? "").trim()) blockers.push("客户档案缺少注册地址");
       if (!String(customer.postCode ?? "").trim()) warnings.push("客户档案缺少邮编，需要手工填写");
     }
-    if (!attachments.length) warnings.push("客户档案没有附件，需要现场上传 CSF（依赖飞书 drive:file:upload 权限）");
+    if (!attachments.length) warnings.push("客户档案没有附件，请上传并标记客户 CSF");
   }
 
   return {
@@ -1046,7 +1094,7 @@ export async function buildInvoiceApprovalPrefill(params: { sourceType: InvoiceS
     taxRate: base.taxRate ?? "",
     suggestedPurpose: [base.period, customer?.shortName ?? customer?.name ?? ""].filter(Boolean).join(" · "),
     suggestedInvoiceContent: "project",
-    paymentReceivedTime: addDays(invoiceDate, termDays),
+    paymentReceivedTime: invoiceDueDate(invoiceDate, termDays),
     paymentTermDays: termDays,
     customer: customer
       ? {
@@ -1059,6 +1107,7 @@ export async function buildInvoiceApprovalPrefill(params: { sourceType: InvoiceS
       }
       : null,
     customerAttachments: attachments,
+    attachmentOptions, attachmentField,
     options: {
       // 选项全部来自飞书审批定义（读不到时回落内置），审批后台加了新选项下拉自动跟着变
       paymentMethods: optionLists.paymentMethods,
@@ -1074,10 +1123,9 @@ export async function buildInvoiceApprovalPrefill(params: { sourceType: InvoiceS
 /**
  * 从来源单据发起开票审批：预填 → 组装表单 → 发起 → 登记台账。
  *
- * CSF 附件两种来源：传 cfsAttachmentId（客户档案里已有附件，服务端读出来再传飞书）
- * 或传 cfsFileToken（调用方已经拿到 token）。
+ * 材料支持当前单据/客户的附件引用与本次上传；保留旧 cfsAttachmentId 的兼容入口。
  */
-export async function submitInvoiceApprovalFromSource(input: {
+export async function submitInvoiceApprovalFromSource(input: InvoiceAttachmentSelection & {
   sourceType: InvoiceSourceType;
   sourceId: string;
   sourceIds?: string[];
@@ -1099,6 +1147,7 @@ export async function submitInvoiceApprovalFromSource(input: {
   chile?: { invoiceTypeKey: string; amountIncludingTax: number; note1: string; note2Key: string; note3: number; note4: number; customerLabel?: string };
 }) {
   const prefill = await buildInvoiceApprovalPrefill({ sourceType: input.sourceType, sourceId: input.sourceId, sourceIds: input.sourceIds });
+  if (!/^ou_[a-zA-Z0-9]+$/.test(input.starterOpenId)) throw new Error("当前账号未绑定有效的飞书账号");
   if (!prefill.branch) throw new Error("承接单位对应不到飞书审批主体，无法发起审批");
   if (prefill.branch === "br") throw new Error("巴西主体不走飞书审批，请使用本地开票");
   if (prefill.blockers.length) throw new Error(`发起审批前需要先处理：${prefill.blockers.join("；")}`);
@@ -1117,14 +1166,9 @@ export async function submitInvoiceApprovalFromSource(input: {
     postCode: input.customerOverride?.postCode ?? prefill.customer?.postCode ?? "",
   };
 
-  let cfsFileTokens: string[] = [];
+  if (input.cfsFileToken) throw new Error("请从当前单据选择附件或上传文件，不能直接提交飞书文件标识");
+  const cfsFileTokens: string[] = [];
   if (prefill.branch === "mx") {
-    if (input.cfsFileToken) cfsFileTokens = [input.cfsFileToken];
-    else if (input.cfsAttachmentId) {
-      const attachment = await readCustomerAttachment(input.cfsAttachmentId);
-      cfsFileTokens = [await uploadApprovalAttachment({ bytes: attachment.bytes, fileName: attachment.fileName })];
-    }
-    if (!cfsFileTokens.length) throw new Error("墨西哥主体必须选择客户 CSF 附件");
     if (!customer.taxRegime.trim()) throw new Error("客户档案缺少税制（Régimen Fiscal）");
     if (!customer.postCode.trim()) throw new Error("客户档案缺少邮编");
   }
@@ -1133,6 +1177,15 @@ export async function submitInvoiceApprovalFromSource(input: {
   const amount = Number(input.amountIncludingTax ?? prefill.amountIncludingTax ?? 0);
   if (!Number.isFinite(amount) || amount <= 0) throw new Error("开票金额不正确，无法发起审批");
   const amountCurrency = resolveApprovalAmountCurrency(prefill.amountCurrencyOptions ?? [], input.amountCurrency ?? prefill.currency);
+  toApprovalDateValue(input.paymentReceivedTime);
+  if (prefill.branch === "cl" && !input.chile) throw new Error("智利主体需要填写发票信息（发票类型/金额/备注）");
+  const selection = {
+    attachmentRefs: [...(input.attachmentRefs ?? []), ...(input.cfsAttachmentId ? [{ source: "customer" as const, attachmentId: input.cfsAttachmentId, isCsf: true }] : [])],
+    attachments: input.attachments,
+  };
+  if (!prefill.attachmentField && (selection.attachmentRefs.length || selection.attachments?.length)) throw new Error("Cloud 智利审批尚未配置附件栏，请联系飞书管理员");
+  const files = await prepareInvoiceApprovalAttachments({ ...input, customerId: prefill.customer?.customerId ?? "" }, selection, prefill.branch === "mx");
+  for (const file of files) cfsFileTokens.push(await uploadApprovalAttachment(file));
 
   const form = buildInvoiceApprovalForm({
     branch: prefill.branch,
@@ -1140,6 +1193,8 @@ export async function submitInvoiceApprovalFromSource(input: {
     purpose: (input.purpose ?? prefill.suggestedPurpose).slice(0, 255),
     paymentReceivedTime: input.paymentReceivedTime,
     amountCurrency,
+    attachmentFieldId: prefill.attachmentField?.id,
+    attachmentTokens: cfsFileTokens,
     mexico: prefill.branch === "mx"
       ? {
         customerName: customer.name,
@@ -1166,8 +1221,6 @@ export async function submitInvoiceApprovalFromSource(input: {
       }
       : undefined,
   });
-  if (prefill.branch === "cl" && !input.chile) throw new Error("智利主体需要填写发票信息（发票类型/金额/备注）");
-
   const result = await submitInvoiceApproval({
     ownerType: input.sourceType === "cloud_row" ? "cloud_row"
       : input.sourceType === "billing_statement" ? "billing_statement"

@@ -5,7 +5,7 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ s
   try {
     const { snapshotNo } = await context.params;
     const body = await request.json();
-    if (["invoiceNo", "invoiceCurrency", "invoiceReceivingUnitId", "invoicePayerCustomerId", "invoiceAmountExcludingTax", "invoiceVatRate", "invoiceAmountIncludingTax", "receivableDate"]
+    if (["invoiceNo", "invoiceCurrency", "invoiceReceivingUnitId", "invoicePayerCustomerId", "invoiceAmountExcludingTax", "invoiceVatRate", "invoiceAmountIncludingTax", "invoiceDate", "receivableDate"]
       .some((field) => Object.prototype.hasOwnProperty.call(body, field))) {
       return NextResponse.json(await updateServiceFeeInvoiceInfo(decodeURIComponent(snapshotNo), body));
     }

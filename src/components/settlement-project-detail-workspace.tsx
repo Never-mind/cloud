@@ -1,4 +1,5 @@
 "use client";
+import { updateInvoiceReviewAmounts } from "@/lib/invoice-review";
 
 import { ChangeEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, Banknote, Check, Download, FilePlus2, FileUp, Paperclip, Pencil, ReceiptText, Save, ScanLine, Trash2 } from "lucide-react";
@@ -50,7 +51,7 @@ type Column = { key: string; label: string; type?: string; sortable?: boolean; f
 const currencies = ["CNY", "USD", "MXN"];
 const blankExpense = { type: "first_mile_freight", description: "", amount: "", currency: "CNY", priceType: "tax_included", taxRate: "0", invoiceNo: "" };
 const blankSale = { description: "", amount: "", currency: "USD", priceType: "tax_included", taxRate: "0", invoiceNo: "", receivedAt: new Date().toISOString().slice(0, 10) };
-const blankInvoice = { type: "cost", accountPeriod: "", accountingDate: "", companyEntity: "", invoiceEntity: "", companyEntityId: "", invoiceEntityId: "", invoiceEntityType: "", invoiceDate: "", invoiceNo: "", taxUuid: "", invoiceTotal: "", taxRate: "0", currency: "CNY", exchangeRate: "1", receivableDate: "", actualReceiptDate: "", isPaid: false, isInvoiced: false };
+const blankInvoice = { amountExcludingTax: "", taxAmount: "", type: "cost", accountPeriod: "", accountingDate: "", companyEntity: "", invoiceEntity: "", companyEntityId: "", invoiceEntityId: "", invoiceEntityType: "", invoiceDate: "", invoiceNo: "", taxUuid: "", invoiceTotal: "", taxRate: "0", currency: "CNY", exchangeRate: "1", receivableDate: "", actualReceiptDate: "", isPaid: false, isInvoiced: false };
 
 const columns: Record<TableKey, Column[]> = {
   unpurchased: [
@@ -296,6 +297,7 @@ export function SettlementProjectDetailWorkspace() {
    * 票面里没有的字段（记账日期、实收/实付日期）保持空白，不猜值。
    */
   async function saveRecognizedInvoice(form: RecognizedInvoiceForm, file: File) {
+    const { recognitionFacts, ...confirmedForm } = form;
     const attachment = {
       fileName: file.name,
       fileType: file.type,
@@ -304,8 +306,9 @@ export function SettlementProjectDetailWorkspace() {
       description: "识别发票原件",
     };
     await write(`/api/po/settlement-projects/${encodeURIComponent(projectId)}/invoices`, "POST", {
-      ...toInvoice({ ...blankInvoice, ...form, isInvoiced: true, isPaid: false, receivableDate: form.receivableDate }),
+      ...toInvoice({ ...blankInvoice, ...confirmedForm, isInvoiced: true, isPaid: false, receivableDate: form.receivableDate }),
       taxUuid: form.taxUuid,
+      recognitionFacts,
       attachment,
     });
     setRecognizeOpen(false);
@@ -520,7 +523,7 @@ function InvoiceSection({ invoices, allInvoices, draft, editing, partners, busy,
   const renderColumnHeader = (column: Column) => <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium" key={column.key}><ColumnHeader tableKey="invoices" column={column} rows={allInvoices as unknown as TableRow[]} state={state} onState={onState} /></th>;
 
   return <Panel>
-    <SectionTitle title="发票管理" action={<div className="flex items-center gap-2"><Button disabled={readOnly || busy} onClick={onRecognize} title="上传发票自动识别并预填表单"><ScanLine size={15} />识别发票</Button><Button disabled={readOnly} onClick={onAdd}><FilePlus2 size={15} />新增发票</Button><Button disabled={readOnly || busy} tone="primary" onClick={() => onIssue("generated")} title="按项目预计收入开票（本地开票 / 飞书审批开票）"><ReceiptText size={15} />开具发票</Button><Button disabled={readOnly || busy} onClick={() => onIssue("external")} title="外部已开好票：上传文件并登记"><FileUp size={15} />上传外部发票</Button></div>} />
+    <SectionTitle title="发票管理" action={<div className="flex flex-wrap items-center gap-2"><Button disabled={readOnly || busy} onClick={onRecognize} title="识别成本或收入发票，确认后新增发票明细"><ScanLine size={15} />上传并识别</Button><Button disabled={readOnly} onClick={onAdd}><FilePlus2 size={15} />新增发票</Button><Button disabled={readOnly || busy} tone="primary" onClick={() => onIssue("generated")} title="按项目预计收入开票（本地开票 / 飞书审批开票）"><ReceiptText size={15} />开具发票</Button><Button disabled={readOnly || busy} onClick={() => onIssue("external")} title="上传并识别外部收入发票，关联项目收入单据"><FileUp size={15} />收入发票上传并识别</Button></div>} />
     <InvoiceFormFields draft={draft} partners={partners} onChange={onDraftChange} />
     <TableScroll tableKey="settlement-invoices">
       <table className="min-w-[2500px] border-collapse text-sm">
@@ -562,10 +565,11 @@ function InvoiceSection({ invoices, allInvoices, draft, editing, partners, busy,
 }
 
 function InvoiceFormFields({ draft, partners, onChange }: { draft: Record<string, string | boolean>; partners: InvoicePartnerSet; onChange: (key: string, value: string | boolean) => void }) {
-  const total = Number(draft.invoiceTotal || 0);
-  const rate = Number(draft.taxRate || 0) / 100;
-  const excluded = total / (1 + rate || 1);
-  const tax = total - excluded;
+  function changeAmount(key: "amountExcludingTax" | "taxRate" | "taxAmount" | "amountIncludingTax", value: string) {
+    const next = updateInvoiceReviewAmounts({ amountExcludingTax: String(draft.amountExcludingTax ?? ""), taxRate: String(draft.taxRate ?? ""), taxAmount: String(draft.taxAmount ?? ""), amountIncludingTax: String(draft.invoiceTotal ?? "") }, key, value);
+    for (const field of ["amountExcludingTax", "taxRate", "taxAmount"] as const) onChange(field, next[field]);
+    onChange("invoiceTotal", next.amountIncludingTax);
+  }
   const invoicePartners = [
     ...partners.suppliers.map((row) => ({ ...row, partnerType: "supplier" })),
     ...partners.customers.map((row) => ({ ...row, partnerType: "customer" })),
@@ -582,10 +586,10 @@ function InvoiceFormFields({ draft, partners, onChange }: { draft: Record<string
       <Field label={draft.type === "cost" ? "预计付款日期" : "应收日期"}><Input className="w-full" type="date" value={dateInputValue(draft.receivableDate)} onChange={(event) => onChange("receivableDate", event.target.value)} /></Field>
       <Field label={draft.type === "cost" ? "实际付款日期" : "实际收款日期"}><Input className="w-full" type="date" value={dateInputValue(draft.actualReceiptDate)} onChange={(event) => onChange("actualReceiptDate", event.target.value)} /></Field>
       <Field label="发票号"><Input className="w-full" value={String(draft.invoiceNo)} onChange={(event) => onChange("invoiceNo", event.target.value)} /></Field>
-      <Field label="发票总额"><NumberInput className="w-full" value={String(draft.invoiceTotal)} onChange={(text) => onChange("invoiceTotal", text)} /></Field>
-      <Field label="不含税总额"><Input className="w-full" readOnly value={money(excluded)} /></Field>
-      <Field label="税率(%)"><NumberInput className="w-full" value={String(draft.taxRate)} onChange={(text) => onChange("taxRate", text)} /></Field>
-      <Field label="发票税金"><Input className="w-full" readOnly value={money(tax)} /></Field>
+      <Field label="发票总额"><NumberInput className="w-full" value={String(draft.invoiceTotal)} onChange={(text) => changeAmount("amountIncludingTax", text)} /></Field>
+      <Field label="不含税总额"><Input className="w-full" value={String(draft.amountExcludingTax ?? "")} onChange={event => changeAmount("amountExcludingTax", event.target.value)} /></Field>
+      <Field label="税率(%)"><NumberInput className="w-full" value={String(draft.taxRate)} onChange={(text) => changeAmount("taxRate", text)} /></Field>
+      <Field label="发票税金"><Input className="w-full" value={String(draft.taxAmount ?? "")} onChange={event => changeAmount("taxAmount", event.target.value)} /></Field>
       <Field label="发票币种"><Select className="w-full" value={String(draft.currency)} onChange={(event) => onChange("currency", event.target.value)}>{currencies.map((currency) => <option key={currency}>{currency}</option>)}</Select></Field>
       <Field label="发票汇率"><NumberInput className="w-full" value={String(draft.exchangeRate)} onChange={(text) => onChange("exchangeRate", text)} /></Field>
       <Field label="是否支付"><Toggle checked={Boolean(draft.isPaid)} onChange={(checked) => onChange("isPaid", checked)} label="支付" /></Field>
@@ -630,7 +634,7 @@ function compare(left: unknown, right: unknown, order: TableSortOrder) {
 function pageInfo(rows: TableRow[], requestedPage: number, pageSize: number, allRows = rows): PagedRows { const total = rows.length; const totalPages = Math.max(1, Math.ceil(total / pageSize)); const page = Math.min(Math.max(1, requestedPage), totalPages); const pageRows = rows.slice((page - 1) * pageSize, page * pageSize) as FilterRows; pageRows.allRows = allRows; return { rows: pageRows, summaryRows: rows, page, pageSize, total, totalPages }; }
 function editablePurchaseField(key: string) { return ["purchaseQty", "purchaseUnitPrice", "currency", "priceType", "taxRate", "invoiceNo"].includes(key); }
 function editableEntryField(key: string) { return ["type", "description", "amount", "currency", "priceType", "taxRate", "invoiceNo", "receivedAt"].includes(key); }
-function editableInvoiceField(key: string) { return ["type", "accountPeriod", "accountingDate", "companyEntity", "invoiceEntity", "invoiceDate", "receivableDate", "actualReceiptDate", "invoiceNo", "currency", "isPaid", "isInvoiced", "invoiceTotal", "taxRate", "exchangeRate"].includes(key); }
+function editableInvoiceField(key: string) { return ["invoiceTaxExcludedTotal", "invoiceTaxAmount","type", "accountPeriod", "accountingDate", "companyEntity", "invoiceEntity", "invoiceDate", "receivableDate", "actualReceiptDate", "invoiceNo", "currency", "isPaid", "isInvoiced", "invoiceTotal", "taxRate", "exchangeRate"].includes(key); }
 function isInvoiceToggleField(key: string): key is "isPaid" | "isInvoiced" { return key === "isPaid" || key === "isInvoiced"; }
 function PaymentApprovalBadge({ invoice }: { invoice: Invoice }) {
   const label = paymentApprovalStatusLabel(invoice.paymentApprovalStatus);
@@ -650,17 +654,17 @@ function purchaseBreakdown(item: Item, project: Project) { const amounts = calcu
 function formatQuantity(value: number) { return Number(value || 0).toLocaleString("en-US", { maximumFractionDigits: 2 }); }
 function formatCurrencyTotals(amounts: Record<string, number>) { const keys = Object.keys(amounts).sort((left, right) => currencies.indexOf(left) - currencies.indexOf(right)); return keys.length ? keys.map((currency) => `${currency} ${money(amounts[currency])}`).join(" / ") : money(0); }
 function entryBreakdown(entry: Expense | Sale, project: Project) { return calculateSettlementEntryAmounts(entry, project); }
-function invoiceBreakdown(invoice: Invoice, value: Record<string, string | boolean>) { const total = Number(value.invoiceTotal ?? invoice.invoiceTotal) || 0; const taxRate = Number(value.taxRate ?? invoice.taxRate) || 0; const excluded = total / (1 + taxRate / 100 || 1); const tax = total - excluded; const exchangeRate = Number(value.exchangeRate ?? invoice.exchangeRate) || 1; const usdAmount = (String(value.type ?? invoice.type) === "cost" ? -1 : 1) * excluded / exchangeRate; return { invoiceTaxExcludedTotal: moneyNumber(excluded), invoiceTaxAmount: moneyNumber(tax), usdAmount: moneyNumber(usdAmount) }; }
+function invoiceBreakdown(invoice: Invoice, value: Record<string, string | boolean>) { const total = Number(value.invoiceTotal ?? invoice.invoiceTotal) || 0; const taxRate = Number(value.taxRate ?? invoice.taxRate) || 0; const excluded = value.amountExcludingTax !== undefined && value.amountExcludingTax !== "" ? Number(value.amountExcludingTax) : invoice.invoiceTaxExcludedTotal; const tax = value.taxAmount !== undefined && value.taxAmount !== "" ? Number(value.taxAmount) : invoice.invoiceTaxAmount; const exchangeRate = Number(value.exchangeRate ?? invoice.exchangeRate) || 1; const usdAmount = (String(value.type ?? invoice.type) === "cost" ? -1 : 1) * excluded / exchangeRate; return { invoiceTaxExcludedTotal: moneyNumber(excluded), invoiceTaxAmount: moneyNumber(tax), usdAmount: moneyNumber(usdAmount) }; }
 function invoiceColumnValue(key: string, invoice: Invoice, preview: ReturnType<typeof invoiceBreakdown>) { if (key === "invoiceTaxExcludedTotal") return preview.invoiceTaxExcludedTotal; if (key === "invoiceTaxAmount") return preview.invoiceTaxAmount; if (key === "usdAmount") return preview.usdAmount; return invoice[key as keyof Invoice]; }
 function convertUsd(amount: number, currency: string, project?: Project) { if (currency === "USD") return moneyNumber(amount); if (currency === "MXN") return moneyNumber(amount * Number(project?.exchangeRateMxn || 1)); return moneyNumber(amount / Number(project?.exchangeRateUsd || 1)); }
 function moneyNumber(value: number) { return Math.round(Number(value || 0) * 10000) / 10000; }
 function draftItem(item: Item) { return { purchaseQty: String(item.purchaseQty || item.plannedQty || ""), purchaseUnitPrice: String(item.purchaseUnitPrice || ""), currency: item.currency || "USD", priceType: item.priceType || "tax_excluded", taxRate: String(item.taxRate || 0), invoiceNo: item.invoiceNo || "" }; }
 function draftExpense(item: Expense) { return { type: item.type, description: item.description || "", amount: String(item.amount), currency: item.currency, priceType: item.priceType, taxRate: String(item.taxRate), invoiceNo: item.invoiceNo || "" }; }
 function draftSale(item: Sale) { return { description: item.description || "", amount: String(item.amount), currency: item.currency, priceType: item.priceType, taxRate: String(item.taxRate), invoiceNo: item.invoiceNo || "", receivedAt: item.receivedAt ? String(item.receivedAt).slice(0, 10) : "" }; }
-function draftInvoice(item: Invoice) { return { type: item.type, accountPeriod: dateInputValue(item.accountPeriod), accountingDate: dateInputValue(item.accountingDate), companyEntity: item.companyEntity || "", invoiceEntity: item.invoiceEntity || "", companyEntityId: item.companyEntityId || "", invoiceEntityId: item.invoiceEntityId || "", invoiceEntityType: item.invoiceEntityType || "", invoiceDate: dateInputValue(item.invoiceDate), receivableDate: dateInputValue(item.receivableDate), actualReceiptDate: dateInputValue(item.actualReceiptDate), invoiceNo: item.invoiceNo || "", taxUuid: item.taxUuid || "", invoiceTotal: String(item.invoiceTotal), taxRate: String(item.taxRate), currency: item.currency, exchangeRate: String(item.exchangeRate), isPaid: item.isPaid, isInvoiced: item.isInvoiced }; }
+function draftInvoice(item: Invoice) { return { amountExcludingTax: String(item.invoiceTaxExcludedTotal ?? ""), taxAmount: String(item.invoiceTaxAmount ?? ""), type: item.type, accountPeriod: dateInputValue(item.accountPeriod), accountingDate: dateInputValue(item.accountingDate), companyEntity: item.companyEntity || "", invoiceEntity: item.invoiceEntity || "", companyEntityId: item.companyEntityId || "", invoiceEntityId: item.invoiceEntityId || "", invoiceEntityType: item.invoiceEntityType || "", invoiceDate: dateInputValue(item.invoiceDate), receivableDate: dateInputValue(item.receivableDate), actualReceiptDate: dateInputValue(item.actualReceiptDate), invoiceNo: item.invoiceNo || "", taxUuid: item.taxUuid || "", invoiceTotal: String(item.invoiceTotal), taxRate: String(item.taxRate), currency: item.currency, exchangeRate: String(item.exchangeRate), isPaid: item.isPaid, isInvoiced: item.isInvoiced }; }
 function toExpense(value: Record<string, string>) { return { type: value.type || "other", description: value.description || "", amount: Number(value.amount || 0), currency: value.currency || "CNY", priceType: value.priceType || "tax_included", taxRate: Number(value.taxRate || 0), invoiceNo: value.invoiceNo || "" }; }
 function toSale(value: Record<string, string>) { return { description: value.description || "", amount: Number(value.amount || 0), currency: value.currency || "USD", priceType: value.priceType || "tax_included", taxRate: Number(value.taxRate || 0), invoiceNo: value.invoiceNo || "", receivedAt: value.receivedAt || "" }; }
-function toInvoice(value: Record<string, string | boolean> | undefined) { return { type: value?.type || "cost", accountPeriod: dateInputValue(value?.accountPeriod), accountingDate: dateInputValue(value?.accountingDate), companyEntity: value?.companyEntity || "", invoiceEntity: value?.invoiceEntity || "", companyEntityId: value?.companyEntityId || "", invoiceEntityId: value?.invoiceEntityId || "", invoiceEntityType: value?.invoiceEntityType || "", invoiceDate: dateInputValue(value?.invoiceDate), receivableDate: dateInputValue(value?.receivableDate), actualReceiptDate: dateInputValue(value?.actualReceiptDate), invoiceNo: value?.invoiceNo || "", taxUuid: value?.taxUuid || "", invoiceTotal: Number(value?.invoiceTotal || 0), taxRate: Number(value?.taxRate || 0), currency: value?.currency || "CNY", exchangeRate: Number(value?.exchangeRate || 1), isPaid: Boolean(value?.isPaid), isInvoiced: Boolean(value?.isInvoiced) }; }
+function toInvoice(value: Record<string, string | boolean> | undefined) { return { amountExcludingTax: value?.amountExcludingTax, taxAmount: value?.taxAmount, type: value?.type || "cost", accountPeriod: dateInputValue(value?.accountPeriod), accountingDate: dateInputValue(value?.accountingDate), companyEntity: value?.companyEntity || "", invoiceEntity: value?.invoiceEntity || "", companyEntityId: value?.companyEntityId || "", invoiceEntityId: value?.invoiceEntityId || "", invoiceEntityType: value?.invoiceEntityType || "", invoiceDate: dateInputValue(value?.invoiceDate), receivableDate: dateInputValue(value?.receivableDate), actualReceiptDate: dateInputValue(value?.actualReceiptDate), invoiceNo: value?.invoiceNo || "", taxUuid: value?.taxUuid || "", invoiceTotal: Number(value?.invoiceTotal || 0), taxRate: Number(value?.taxRate || 0), currency: value?.currency || "CNY", exchangeRate: Number(value?.exchangeRate || 1), isPaid: Boolean(value?.isPaid), isInvoiced: Boolean(value?.isInvoiced) }; }
 function fileToDataUrl(file: File) { return new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result || "")); reader.onerror = () => reject(new Error("附件读取失败")); reader.readAsDataURL(file); }); }
 function money(value: number) { return formatMoneyValue(value); }
 function dateInputValue(value: unknown) { return normalizeDateOnlyValue(value) || ""; }
@@ -757,6 +761,15 @@ function EntryInput({ entry, value, field, kind, onChange }: { entry: Expense | 
 }
 
 function InvoiceInput({ invoice, value, field, partners, onChange }: { invoice: Invoice; value: Record<string, string | boolean>; field: string; partners: InvoicePartnerSet; onChange: (value: string | boolean, patch?: Record<string, string | boolean>) => void }) {
+  const amountFields: Record<string, "amountIncludingTax" | "amountExcludingTax" | "taxRate" | "taxAmount"> = { invoiceTotal: "amountIncludingTax", invoiceTaxExcludedTotal: "amountExcludingTax", taxRate: "taxRate", invoiceTaxAmount: "taxAmount" };
+  const amountField = amountFields[field];
+  if (amountField) {
+    const amounts = { amountIncludingTax: String(value.invoiceTotal ?? ""), amountExcludingTax: String(value.amountExcludingTax ?? ""), taxRate: String(value.taxRate ?? ""), taxAmount: String(value.taxAmount ?? "") };
+    return <Input value={amounts[amountField]} onChange={event => {
+      const next = updateInvoiceReviewAmounts(amounts, amountField, event.target.value);
+      onChange(event.target.value, { amountExcludingTax: next.amountExcludingTax, taxAmount: next.taxAmount, invoiceTotal: next.amountIncludingTax, taxRate: next.taxRate });
+    }} />;
+  }
   if (field === "type") return <Select value={String(value.type)} onChange={(event) => onChange(event.target.value)}><option value="cost">成本</option><option value="income">收入</option></Select>;
   if (field === "currency") return <Select value={String(value.currency || invoice.currency)} onChange={(event) => onChange(event.target.value)}>{currencies.map((currency) => <option key={currency}>{currency}</option>)}</Select>;
   if (field === "companyEntity") return <PartnerLookup options={partners.undertakingUnits} selectedId={value.companyEntityId} selectedName={value.companyEntity} onChange={(selected) => onChange(selected.name, { companyEntityId: selected.id, companyEntity: selected.name })} />;

@@ -9,6 +9,7 @@ import { EmptyState, LoadingBlock } from "./table-state";
 import { confirmDialog, notify } from "./app-dialog";
 import { InvoiceDraftModal, type InvoiceDraftMode } from "./invoice-draft-modal";
 import { formatDisplayValue, formatMoneyValue } from "@/lib/display-format";
+import { InvoiceApprovalProgress } from "./invoice-approval-progress";
 
 type InvoiceRow = Record<string, unknown>;
 
@@ -44,6 +45,7 @@ export function InvoicesPage() {
   const [loading, setLoading] = useState(true);
   const [detail, setDetail] = useState<InvoiceRow | null>(null);
   const [modal, setModal] = useState<InvoiceDraftMode | null>(null);
+  const [approvalsOpen, setApprovalsOpen] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -150,7 +152,8 @@ export function InvoicesPage() {
           <div className="ml-auto flex items-center gap-2">
             <a className="inline-flex h-9 items-center gap-1 rounded border border-line bg-white px-3 text-sm text-ink-2 hover:border-primary hover:text-primary" href={`/api/invoices/export?${exportParams.toString()}`}>导出</a>
             <Button onClick={() => setModal("generated")} tone="primary"><Plus size={15} />开票</Button>
-            <Button onClick={() => setModal("external")}><FileUp size={15} />上传外部发票</Button>
+            <Button onClick={() => setModal("external")}><FileUp size={15} />上传并识别</Button>
+            <Button onClick={() => setApprovalsOpen(true)}><RefreshCw size={15} />审批与回票</Button>
           </div>
         </div>
       </Panel>
@@ -210,7 +213,7 @@ export function InvoicesPage() {
                     </td>
                   </tr>
                 ))}
-                {!rows.length ? <tr><td colSpan={14}><EmptyState hint="点右上角「开票」在系统里出票，或「上传外部发票」登记外部已开的票。" title="还没有开票记录" /></td></tr> : null}
+                {!rows.length ? <tr><td colSpan={14}><EmptyState title="还没有开票记录" /></td></tr> : null}
               </tbody>
             </table>
           )}
@@ -225,6 +228,9 @@ export function InvoicesPage() {
         open={Boolean(modal)}
         sourceType="manual"
       />
+      {approvalsOpen ? <Modal title="审批与回票" widthClass="max-w-5xl" onClose={() => setApprovalsOpen(false)} footer={<Button onClick={() => setApprovalsOpen(false)}>关闭</Button>}>
+        <InvoiceApprovalProgress onSaved={() => void load()} />
+      </Modal> : null}
 
       {detail ? (
         <Modal

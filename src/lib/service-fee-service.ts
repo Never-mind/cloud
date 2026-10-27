@@ -1006,7 +1006,7 @@ export async function listServiceFeeStatements(searchParams: URLSearchParams) {
     customerReceivable: "serviceFeeTotal", customerReceived: "repaymentAmount", customerInvoice: "invoiceAmountIncludingTax",
     repaymentStatus: "repaymentStatus", repaymentCurrency: "repaymentCurrency", repaymentAmount: "repaymentAmount", repaymentAmountExcludingTax: "repaymentAmountExcludingTax", repaymentVatRate: "repaymentVatRate",
     invoiceNo: "invoiceNo", invoiceCurrency: "invoiceCurrency", invoiceAmountExcludingTax: "invoiceAmountExcludingTax", invoiceVatRate: "invoiceVatRate", invoiceAmountIncludingTax: "invoiceAmountIncludingTax",
-    receivableDate: "receivableDate",
+    receivableDate: "receivableDate", invoiceDate: "invoiceDate",
     invoiceStatus: "invoiceStatus", invoiceOriginalName: "invoiceOriginalName",
   };
   for (const [field, expression] of Object.entries(filterExpressions)) appendTableInFilter(whereParts, params, expression, field, searchParams, "serviceStatement");
@@ -1061,6 +1061,7 @@ export async function listServiceFeeStatements(searchParams: URLSearchParams) {
              invoiceVatRate,
              invoiceAmountIncludingTax,
              DATE_FORMAT(receivableDate, '%Y-%m-%d') AS receivableDate,
+             DATE_FORMAT(invoiceDate, '%Y-%m-%d') AS invoiceDate,
              invoiceStatus,
              invoiceOriginalName,
              invoiceMimeType,
@@ -1118,7 +1119,7 @@ export async function listServiceFeeStatementFilterOptions(searchParams: URLSear
     customerReceivable: "serviceFeeTotal", customerReceived: "repaymentAmount", customerInvoice: "invoiceAmountIncludingTax",
     repaymentStatus: "repaymentStatus", repaymentCurrency: "repaymentCurrency", repaymentAmount: "repaymentAmount", repaymentAmountExcludingTax: "repaymentAmountExcludingTax", repaymentVatRate: "repaymentVatRate",
     invoiceNo: "invoiceNo", invoiceCurrency: "invoiceCurrency", invoiceAmountExcludingTax: "invoiceAmountExcludingTax", invoiceVatRate: "invoiceVatRate", invoiceAmountIncludingTax: "invoiceAmountIncludingTax",
-    receivableDate: "receivableDate",
+    receivableDate: "receivableDate", invoiceDate: "invoiceDate",
     invoiceStatus: "invoiceStatus", invoiceOriginalName: "invoiceOriginalName",
   };
   const field = searchParams.get("field")?.trim() ?? "";
@@ -1250,6 +1251,7 @@ export async function updateServiceFeeRepayment(snapshotNo: string, input: Row) 
 }
 
 export async function updateServiceFeeInvoiceInfo(snapshotNo: string, input: Row) {
+  const invoiceDate = String(input.invoiceDate ?? "").slice(0, 10);
   const invoiceNo = String(input.invoiceNo ?? "").trim();
   const invoiceCurrency = String(input.invoiceCurrency ?? "").trim();
   const invoiceReceivingUnitId = String(input.invoiceReceivingUnitId ?? "").trim();
@@ -1272,7 +1274,8 @@ export async function updateServiceFeeInvoiceInfo(snapshotNo: string, input: Row
      SET invoiceNo = :invoiceNo, invoiceCurrency = :invoiceCurrency,
          invoiceReceivingUnitId = :invoiceReceivingUnitId, invoicePayerCustomerId = :invoicePayerCustomerId,
          invoiceAmountExcludingTax = :invoiceAmountExcludingTax, invoiceVatRate = :invoiceVatRate,
-         invoiceAmountIncludingTax = :invoiceAmountIncludingTax, receivableDate = :receivableDate
+         invoiceAmountIncludingTax = :invoiceAmountIncludingTax, receivableDate = :receivableDate,
+         invoiceDate = CASE WHEN :updateInvoiceDate = 1 THEN :invoiceDate ELSE invoiceDate END
      WHERE snapshotNo = :snapshotNo`,
     {
       snapshotNo,
@@ -1284,9 +1287,10 @@ export async function updateServiceFeeInvoiceInfo(snapshotNo: string, input: Row
       invoiceVatRate,
       invoiceAmountIncludingTax,
       receivableDate: receivableDate || null,
+      invoiceDate: invoiceDate || null, updateInvoiceDate: Object.prototype.hasOwnProperty.call(input, "invoiceDate") ? 1 : 0,
     },
   );
-  return { snapshotNo, invoiceNo, invoiceCurrency, invoiceReceivingUnitId, invoicePayerCustomerId, invoiceAmountExcludingTax, invoiceVatRate, invoiceAmountIncludingTax, receivableDate };
+  return { snapshotNo, invoiceNo, invoiceCurrency, invoiceReceivingUnitId, invoicePayerCustomerId, invoiceAmountExcludingTax, invoiceVatRate, invoiceAmountIncludingTax, invoiceDate, receivableDate };
 }
 
 export async function confirmServiceFeeStatement(snapshotNo: string) {
