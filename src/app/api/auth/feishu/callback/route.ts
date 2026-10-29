@@ -12,6 +12,7 @@ import {
 } from "@/lib/feishu-auth-service";
 import { getOperationRequestId, recordOperationLog } from "@/lib/operation-log";
 import { resolveRequestOrigin } from "@/lib/request-origin";
+import { scheduleLoginBackgroundSync } from "@/lib/login-background-sync";
 
 /**
  * 飞书授权回调：校验 state → code 换用户令牌 → 读飞书用户信息 → 落到本地账号 → 下发会话 cookie。
@@ -66,6 +67,7 @@ export async function GET(request: NextRequest) {
     });
     const response = NextResponse.redirect(new URL(next, origin));
     await applyLoginCookies(response, request, result.email);
+    scheduleLoginBackgroundSync(user);
     return response;
   } catch (error) {
     const message = error instanceof Error ? error.message : "飞书登录失败";

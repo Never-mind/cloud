@@ -79,18 +79,21 @@ describe("external invoice persistence", () => {
     const allocations = db.writes.filter(item => item.sql.includes("INSERT INTO merge_common_invoice_allocations"));
     expect(allocations.map(item => item.values.total)).toEqual(["113.00", "112.99"]);
   });
-  it("commits the review, approval link, source and invoice in one transaction", async () => {
+  it.each(["manual", "automatic"] as const)("commits %s registration, approval link, source and invoice in one transaction", async mode => {
     db.queryTransaction.mockImplementation(async (sql: string) => {
       if (sql.includes("FROM merge_common_feishu_approvals")) return [{ status: "approved", ownerType: "cloud_row", ownerId: "row-1" }];
       if (sql.includes("FROM merge_common_invoice_approval_files")) return [{ id: "file-1" }];
       return sql.includes("FROM merge_cloud_rows") ? [{ id: "row-1" }] : [];
     });
-    await saveInvoice(input, { userId: "user" }, { fileId: "file-1", instanceCode: "instance", relatedFileIds: ["file-1", "file-2"] });
+    await saveInvoice(input, { userId: "user" }, { fileId: "file-1", instanceCode: "instance", relatedFileIds: ["file-1", "file-2"], mode });
     expect(db.committed).toBe(true);
     expect(db.writes.some(item => item.sql.includes("SET approvalInstanceCode"))).toBe(true);
     const confirmed = db.writes.find(item => item.sql.includes("confirmedJson"));
     expect(confirmed?.sql).toContain("id IN (:fileId0,:fileId1)");
     expect(confirmed?.values).toMatchObject({fileId0:"file-1",fileId1:"file-2"});
+    expect(JSON.parse(String(confirmed?.values.confirmed))).toMatchObject({ registrationMode: mode, invoiceNo: input.invoiceNo });
+    expect(db.writes.some(item => item.sql.includes("UPDATE merge_cloud_rows"))).toBe(true);
+    expect(db.writes.some(item => item.sql.includes("INSERT INTO merge_cloud_attachments"))).toBe(true);
     expect(Object.values(confirmed?.values ?? {}).some(Array.isArray)).toBe(false);
   });
   it.each(["pending", "canceled", "rejected"])("never posts a %s approval", async status => {

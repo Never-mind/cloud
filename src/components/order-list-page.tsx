@@ -645,7 +645,9 @@ export function OrderListPage({
                     ) : null}
                     {mode === "purchase" ? (
                       <td className="w-[260px] max-w-[260px] border-b border-r border-line-soft px-3 py-3">
-                        <span className="block truncate" title={String(row.requestNo ?? "")}>{formatValue(row.requestNo)}</span>
+                        <span className="block whitespace-pre-line break-all" title={String(row.requestNo ?? "")}>
+                          {row.requestNo ? String(row.requestNo).split(",").join("\n") : "-"}
+                        </span>
                       </td>
                     ) : null}
                     {mode === "purchase" ? (

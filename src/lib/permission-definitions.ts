@@ -383,6 +383,7 @@ const PAGE_ROUTE_RULES: RoutePermissionRule[] = [
   { prefix: "/data-imports", moduleKey: "data-imports" },
   { prefix: "/customer-pos/items", moduleKey: "customer-po-items" },
   { prefix: "/customer-pos", moduleKey: "customer-pos" },
+  { prefix: "/customer-product-aliases", moduleKey: "customer-product-aliases" },
   { prefix: "/quotation/items", moduleKey: "quotation-items" },
   { prefix: "/quotation/list", moduleKey: "quotations" },
   { prefix: "/history-quotations", moduleKey: "history-quotations" },

@@ -37,7 +37,8 @@ export async function POST(request: NextRequest) {
     const body = await request.json() as { fileId?: string; draft?: InvoiceDraftInput };
     if (!body.fileId || !body.draft) throw new Error("缺少待确认发票");
     let review = await returnedInvoiceReview(body.fileId);
-    await syncInvoiceApproval(review.approval.instanceCode);
+    // An exception correction must preserve the user's edits while refreshing remote status.
+    await syncInvoiceApproval(review.approval.instanceCode, { autoRegister: false });
     review = await returnedInvoiceReview(body.fileId);
     if (review.approval.status !== "approved") throw new Error("审批尚未通过，识别结果已保留，审批通过后再确认登记");
     if (!review.group) throw new Error("待确认回票不存在");

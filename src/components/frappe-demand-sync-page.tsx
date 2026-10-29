@@ -53,6 +53,7 @@ type SyncRun = {
   changedItemCount: number;
   startedAt: string | null;
   results: SyncResult[];
+  errors?: string[];
 };
 
 const emptyMasters: MasterSet = { suppliers: [], instanceModels: [] };
@@ -382,9 +383,10 @@ export function FrappeDemandSyncPage() {
     {latestRun ? <Panel>
       <details open>
         <summary className="cursor-pointer list-none px-4 py-3 text-sm text-ink [&::-webkit-details-marker]:hidden">
-          <span className="font-medium">本次同步结果</span><span className="ml-2 text-ink-3">{formatRunTime(latestRun.startedAt)} · {latestRun.dryRun ? "试运行" : "正式同步"} · 新建 {latestRun.createdRequestCount} 张 / {latestRun.createdItemCount} 条，跳过 {latestRun.skippedExistingCount} 条，待处理 {latestRun.blockedItemCount} 条，待核对 {latestRun.changedItemCount} 条</span>
+          <span className="font-medium">最近同步结果</span><span className="ml-2 text-ink-3">{formatRunTime(latestRun.startedAt)} · {({ login: "登录触发", scheduled: "定时同步", script: "脚本同步", manual: "手动同步" } as Record<string, string>)[latestRun.triggerType] || "同步"} · {latestRun.status === "running" ? "执行中" : latestRun.status === "failed" ? "同步失败" : latestRun.dryRun ? "试运行" : "正式同步"} · 新建 {latestRun.createdRequestCount} 张 / {latestRun.createdItemCount} 条，跳过 {latestRun.skippedExistingCount} 条，待处理 {latestRun.blockedItemCount} 条，待核对 {latestRun.changedItemCount} 条</span>
         </summary>
         <div className="border-t border-line-soft">
+          {latestRun.errors?.length ? <p role="alert" className="px-4 py-3 text-sm text-danger">{latestRun.errors.slice(0, 3).join("；")}</p> : null}
           {latestRun.results.length ? <StickyTable className="max-h-72 overflow-auto" tableKey="frappe-demand-sync-results">
             <table className="min-w-[920px] border-collapse text-sm"><thead className="bg-canvas"><tr><th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">结果</th><th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">远端需求单</th><th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium">本地需求单</th><th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-right font-medium">明细数</th><th className="whitespace-nowrap border-b border-line-soft px-3 py-3 text-left font-medium">原因</th></tr></thead>
               <tbody>{latestRun.results.map((result, index) => <tr key={`${result.sourceOrderId}-${result.status}-${index}`}><td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3">{syncResultStatus(result.status)}</td><td className="border-b border-r border-line-soft px-3 py-3 font-mono text-xs">{display(result.sourceOrderId)}</td><td className="border-b border-r border-line-soft px-3 py-3 font-mono text-xs">{display(result.localRequestNo)}</td><td className="border-b border-r border-line-soft px-3 py-3 text-right">{result.itemCount}</td><td className="border-b border-line-soft px-3 py-3 text-ink-2">{display(result.reason)}</td></tr>)}</tbody>

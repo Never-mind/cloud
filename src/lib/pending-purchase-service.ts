@@ -23,6 +23,7 @@ import {
   listSqlFilterOptions,
 } from "./table-query";
 import type { OperationActor } from "./operation-actor";
+import { getPurchaseSourceRequestNos } from "./purchase-order-sources";
 
 /** 待采购 = 已确认需求单（待下单/已下单）里、还没有任何采购订单的明细。 */
 const PENDING_CONDITIONS = [
@@ -190,7 +191,7 @@ export async function createPurchaseOrdersFromItems(input: CreatePurchaseOrdersF
     if (input.targetPoNo?.trim()) {
       const [target] = await queryRowsInTransaction<Row>(
         connection,
-        "SELECT purchaseOrderId, poNo, status, sourceRequestNos FROM purchaseorders WHERE poNo = :key OR purchaseOrderId = :key LIMIT 1 FOR UPDATE",
+        "SELECT purchaseOrderId, poNo, status, requestNo, sourceRequestNos FROM purchaseorders WHERE poNo = :key OR purchaseOrderId = :key LIMIT 1 FOR UPDATE",
         { key: input.targetPoNo.trim() },
       );
       if (!target) throw new Error(`目标采购订单不存在：${input.targetPoNo.trim()}`);
@@ -199,7 +200,11 @@ export async function createPurchaseOrdersFromItems(input: CreatePurchaseOrdersF
       }
       const existing = await queryRowsInTransaction<Row>(
         connection,
-        "SELECT id FROM purchaseorderitems WHERE purchaseOrderId = :purchaseOrderId ORDER BY id",
+        `SELECT existingItem.id,
+           COALESCE(NULLIF(existingItem.requestNo, ''), requestItem.requestNo) AS requestNo
+         FROM purchaseorderitems existingItem
+         LEFT JOIN requestitems requestItem ON requestItem.id = existingItem.requestItemId
+         WHERE existingItem.purchaseOrderId = :purchaseOrderId ORDER BY existingItem.id`,
         { purchaseOrderId: String(target.purchaseOrderId) },
       );
       let index = existing.length;
@@ -225,7 +230,9 @@ export async function createPurchaseOrdersFromItems(input: CreatePurchaseOrdersF
           },
         );
       }
-      const mergedRequestNos = normalizeRequestNos([...String(target.sourceRequestNos ?? "").split(","), ...requestNos]);
+      const mergedRequestNos = normalizeRequestNos([
+        getPurchaseSourceRequestNos(target, existing.map((item) => item.requestNo)), ...requestNos,
+      ]);
       await executeInTransaction(
         connection,
         "UPDATE purchaseorders SET sourceRequestNos = :sourceRequestNos, updatedAt = NOW() WHERE purchaseOrderId = :purchaseOrderId",

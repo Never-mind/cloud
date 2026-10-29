@@ -394,7 +394,9 @@ export function OrderDetailPage({
         <div className="border-b border-line-soft px-4 py-3 font-medium text-ink">主单信息</div>
         {editing && mode === "purchase" ? (
           <div className="grid grid-cols-4 gap-3 p-4">
-            {masterFormFields.map((field) => (
+            {masterFormFields.map((field) => field.key === "requestNo" ? (
+              <Info key={field.key} label={field.label} value={master.sourceRequestNos || master.requestNo} wrap />
+            ) : (
               <label key={field.key}>
                 <span className="mb-1 block text-xs text-ink-3">{field.label}</span>
                 {field.type === "select" ? (
@@ -443,8 +445,11 @@ export function OrderDetailPage({
                 <Info
                   key={field.key}
                   label={field.label}
+                  wrap={field.key === "requestNo"}
                   value={
-                    field.key === "countryCode" && !master[field.key]
+                    field.key === "requestNo"
+                      ? master.sourceRequestNos || master.requestNo
+                      : field.key === "countryCode" && !master[field.key]
                       ? derivedPurchaseInfo.countryCode
                       : field.key === "requestType" && !master[field.key]
                         ? derivedPurchaseInfo.requestType
@@ -563,11 +568,13 @@ type OrderDetailResponse = {
   instanceModels?: Row[];
 };
 
-function Info({ label, value, type }: { label: string; value: unknown; type?: string }) {
+function Info({ label, value, type, wrap = false }: { label: string; value: unknown; type?: string; wrap?: boolean }) {
   return (
     <div className="border border-line-soft bg-surface-2 p-3">
       <div className="text-xs text-ink-3">{label}</div>
-      <div className="mt-1 truncate text-sm text-ink">{formatValue(value, type)}</div>
+      <div className={`mt-1 text-sm text-ink ${wrap ? "whitespace-pre-line break-all" : "truncate"}`}>
+        {wrap && value ? String(value).split(",").join("\n") : formatValue(value, type)}
+      </div>
     </div>
   );
 }

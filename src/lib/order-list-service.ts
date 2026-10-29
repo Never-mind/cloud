@@ -1,6 +1,7 @@
 import { queryRows, type Row } from "./db";
 import { DEFAULT_PAGE_SIZE, normalizePageSize } from "./pagination";
 import { formatTableDateExpression, getNaturalBatchSort } from "./table-query";
+import { buildPurchaseSourceRequestFilter, getPurchaseSourceRequestNos } from "./purchase-order-sources";
 
 type OrderListResult = {
   rows: Row[];
@@ -223,7 +224,8 @@ async function listPurchaseOrders(options: {
       SELECT
         purchase.purchaseOrderId,
         purchase.poNo,
-        COALESCE(NULLIF(purchase.requestNo, ''), GROUP_CONCAT(DISTINCT requestItem.requestNo ORDER BY requestItem.requestNo SEPARATOR ',')) AS requestNo,
+        purchase.requestNo,
+        purchase.sourceRequestNos,
         GROUP_CONCAT(DISTINCT UPPER(TRIM(SUBSTRING_INDEX(requestMaster.countryCode, '-', 1))) ORDER BY UPPER(TRIM(SUBSTRING_INDEX(requestMaster.countryCode, '-', 1))) SEPARATOR ',') AS countryCode,
         GROUP_CONCAT(DISTINCT requestMaster.batchName ORDER BY
           CAST(SUBSTRING_INDEX(TRIM(COALESCE(requestMaster.batchName, '')), '-', -1) AS UNSIGNED) DESC,
@@ -256,7 +258,7 @@ async function listPurchaseOrders(options: {
       LEFT JOIN merge_common_feishu_approvals paymentApproval
         ON paymentApproval.id = purchase.paymentApprovalId
       ${baseWhere ? `WHERE ${baseWhere}` : ""}
-      GROUP BY purchase.purchaseOrderId, purchase.poNo, purchase.requestNo, purchase.status, purchase.currency,
+      GROUP BY purchase.purchaseOrderId, purchase.poNo, purchase.requestNo, purchase.sourceRequestNos, purchase.status, purchase.currency,
         purchase.invoiceNo, purchase.invoiceDate, purchase.invoiceStatus, purchase.paymentDate, purchase.paymentStatus,
         purchase.paymentApprovalId, paymentApproval.status, paymentApproval.serialNumber, paymentApproval.paymentConfirmedAt, purchase.paidAt,
         purchase.createdByName, purchase.updatedByName, purchase.confirmedByName,
@@ -267,8 +269,30 @@ async function listPurchaseOrders(options: {
     params,
   );
 
+  // Load all sources for the page in one query. Do not use GROUP_CONCAT here:
+  // its length limit or filters on joined lines can silently omit source numbers.
+  const sourceItems = rows.length ? await queryRows<Row>(
+    `SELECT sourceItem.poNo,
+       COALESCE(NULLIF(sourceItem.requestNo, ''), sourceRequestItem.requestNo) AS requestNo
+     FROM purchaseorderitems sourceItem
+     LEFT JOIN requestitems sourceRequestItem ON sourceRequestItem.id = sourceItem.requestItemId
+     WHERE sourceItem.poNo IN (:poNos)
+     ORDER BY sourceItem.poNo, requestNo`,
+    { poNos: rows.map((row) => row.poNo) },
+  ) : [];
+  const sourcesByPoNo = new Map<string, unknown[]>();
+  for (const item of sourceItems) {
+    const key = String(item.poNo);
+    const sources = sourcesByPoNo.get(key) ?? [];
+    sources.push(item.requestNo);
+    sourcesByPoNo.set(key, sources);
+  }
+
   return {
-    rows,
+    rows: rows.map((row) => {
+      const sourceRequestNos = getPurchaseSourceRequestNos(row, sourcesByPoNo.get(String(row.poNo)));
+      return { ...row, requestNo: sourceRequestNos, sourceRequestNos };
+    }),
     total: normalizedTotal,
     page,
     pageSize: options.pageSize,
@@ -284,7 +308,7 @@ export async function listOrderFilterOptions(searchParams: URLSearchParams) {
   const expressions: Record<string, string> = mode === "purchase"
     ? {
         poNo: "purchase.poNo",
-        requestNo: "COALESCE(NULLIF(purchase.requestNo, ''), requestItem.requestNo, '')",
+        requestNo: "COALESCE(NULLIF(item.requestNo, ''), NULLIF(requestItem.requestNo, ''), NULLIF(purchase.sourceRequestNos, ''), purchase.requestNo, '')",
         countryCode: "UPPER(TRIM(SUBSTRING_INDEX(requestMaster.countryCode, '-', 1)))",
         batchName: "COALESCE(requestMaster.batchName, '')",
         status: "purchase.status",
@@ -413,6 +437,10 @@ export async function listOrderFilterOptions(searchParams: URLSearchParams) {
     const values = getFilterValues(searchParams, candidateField);
     if (!values.length) continue;
     const name = `option_${candidateField}`;
+    if (mode === "purchase" && candidateField === "requestNo") {
+      innerWhere.push(buildPurchaseSourceRequestFilter(values, params, name));
+      continue;
+    }
     params[name] = values;
     columnConditions.push(`valuesList.\`${candidateField}\` IN (:${name})`);
   }
@@ -429,7 +457,7 @@ export async function listOrderFilterOptions(searchParams: URLSearchParams) {
     : `FROM requests req`;
   const identity = mode === "purchase" ? "purchase.purchaseOrderId" : "req.requestNo";
   const rows = await queryRows<{ value: string; count: number }>(
-    `SELECT valuesList.\`${field}\` AS value, COUNT(*) AS count FROM (
+    `SELECT valuesList.\`${field}\` AS value, COUNT(DISTINCT identityKey) AS count FROM (
        SELECT ${identity} AS identityKey, ${selectColumns}
        ${from}
        ${innerWhere.length ? `WHERE ${innerWhere.join(" AND ")}` : ""}
@@ -492,7 +520,7 @@ function buildPurchaseKeywordWhere(keyword: string | undefined, params: Row) {
       LEFT JOIN requestitems AS searchRequestItem ON searchRequestItem.id = searchItem.requestItemId
       LEFT JOIN requests AS searchRequest ON searchRequest.requestNo = COALESCE(NULLIF(searchItem.requestNo, ''), searchRequestItem.requestNo)
       WHERE searchItem.poNo = purchase.poNo
-        AND (searchRequestItem.requestNo LIKE :keyword OR searchRequestItem.deviceCode LIKE :keyword OR searchRequest.batchName LIKE :keyword)
+        AND (searchItem.requestNo LIKE :keyword OR searchRequestItem.requestNo LIKE :keyword OR searchRequestItem.deviceCode LIKE :keyword OR searchRequest.batchName LIKE :keyword)
     )
   )`;
 }
@@ -524,7 +552,7 @@ function getPurchaseOrderBy(sortField: string, sortOrder: "ASC" | "DESC") {
   const direction = sortOrder === "ASC" ? "ASC" : "DESC";
   const expressions: Record<string, string> = {
     poNo: "purchase.poNo",
-    requestNo: "requestNo",
+    requestNo: "COALESCE(NULLIF(purchase.sourceRequestNos, ''), purchase.requestNo)",
     countryCode: "countryCode",
     batchName: "batchName",
     status: "purchase.status",
@@ -607,8 +635,7 @@ function buildPurchaseColumnFilters(searchParams: URLSearchParams, params: Row) 
   }
   const requestNos = getFilterValues(searchParams, "requestNo");
   if (requestNos.length) {
-    params.column_requestNo = requestNos;
-    filters.push("COALESCE(NULLIF(purchase.requestNo, ''), requestItem.requestNo, '') IN (:column_requestNo)");
+    filters.push(buildPurchaseSourceRequestFilter(requestNos, params, "column_requestNo"));
   }
   const batchNames = getFilterValues(searchParams, "batchName");
   if (batchNames.length) {

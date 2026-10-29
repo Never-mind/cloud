@@ -10,7 +10,7 @@ import { buildImportMessage, type ImportReport } from "@/lib/entity-import";
 import { getInstanceContractModelAutofill } from "@/lib/instance-contract-form";
 import { formatInstanceModelType } from "@/lib/instance-model-type";
 import { fetchAllEntityRows } from "@/lib/client-entity-fetch";
-import { buildListRoute, getCurrentRoute, getPositiveNumber, useListScrollPosition } from "@/lib/client-list-navigation";
+import { buildDetailRoute, buildListRoute, getCurrentRoute, getPositiveNumber, useListScrollPosition } from "@/lib/client-list-navigation";
 import type { EntityConfig, EntityField } from "@/lib/modules";
 import { appendKnownTotal, DEFAULT_PAGE_SIZE } from "@/lib/pagination";
 import {
@@ -277,7 +277,8 @@ export function EntityPage({
   useEffect(() => {
     if (config.key !== "instance-models") return;
 
-    void fetchAllEntityRows<Row>("b6-type-configs").then(setB6TypeConfigs);
+    // B6 is an optional module; its absence must not break instance maintenance.
+    void fetchAllEntityRows<Row>("b6-type-configs").then(setB6TypeConfigs).catch(() => setB6TypeConfigs([]));
   }, [config.key]);
 
   useEffect(() => {
@@ -865,7 +866,7 @@ export function EntityPage({
                 tone="primary"
                 onClick={() => {
                   if (isPartyArchive && config.detailRoute) {
-                    router.push(`${config.detailRoute}/new`);
+                    router.push(buildDetailRoute(`${config.detailRoute}/new`, currentRoute));
                     return;
                   }
                   setEditing(null);
@@ -1038,13 +1039,13 @@ export function EntityPage({
                       key={column.key}
                     >
                       {isPartyArchive ? (
-                        <PartyListCell config={config} row={row} column={column} firstVisibleKey={visibleColumns[0]?.key ?? ""} nameField={partyNameField} />
+                        <PartyListCell config={config} row={row} column={column} firstVisibleKey={visibleColumns[0]?.key ?? ""} nameField={partyNameField} returnTo={currentRoute} />
                       ) : config.detailRoute && column.key === visibleColumns[0]?.key ? (
-                        <Link className="text-primary hover:underline" href={`${config.detailRoute}/${encodeURIComponent(String(row[config.primaryKey] ?? ""))}`}>
+                        <Link className="text-primary hover:underline" href={buildDetailRoute(`${config.detailRoute}/${encodeURIComponent(String(row[config.primaryKey] ?? ""))}`, currentRoute)}>
                           {getListCellValue(row, column)}
                         </Link>
                       ) : config.key === "shipments" && column.key === "poNo" && row.purchaseOrderId ? (
-                        <Link className="text-primary hover:underline" href={`/purchase/orders/${encodeURIComponent(String(row.purchaseOrderId))}`}>
+                        <Link className="text-primary hover:underline" href={buildDetailRoute(`/purchase/orders/${encodeURIComponent(String(row.purchaseOrderId))}`, currentRoute)}>
                           {getListCellValue(row, column)}
                         </Link>
                       ) : (
@@ -1056,7 +1057,7 @@ export function EntityPage({
                     <td className="sticky right-0 whitespace-nowrap border-b border-line-soft bg-white px-3 py-3">
                       {isPartyArchive ? (
                         <>
-                          <IconLink href={`${config.detailRoute}/${encodeURIComponent(String(row[config.primaryKey] ?? ""))}`} label="查看">
+                          <IconLink href={buildDetailRoute(`${config.detailRoute}/${encodeURIComponent(String(row[config.primaryKey] ?? ""))}`, currentRoute)} label="查看">
                             <Eye size={16} />
                           </IconLink>
                           <IconButton className="ml-2" icon={<Trash2 size={16} />} label="删除" onClick={() => void deleteRow(row)} tone="danger" />
@@ -1543,14 +1544,16 @@ function PartyListCell({
   column,
   firstVisibleKey,
   nameField,
+  returnTo,
 }: {
   config: EntityConfig;
   row: Row;
   column: EntityField;
   firstVisibleKey: string;
   nameField: string;
+  returnTo: string;
 }) {
-  const detailHref = `${config.detailRoute}/${encodeURIComponent(String(row[config.primaryKey] ?? ""))}`;
+  const detailHref = buildDetailRoute(`${config.detailRoute}/${encodeURIComponent(String(row[config.primaryKey] ?? ""))}`, returnTo);
   const isName = column.key === nameField;
   const isTags = column.key === "supplyCategories" || column.key === "brands" || column.key === "businessTypes";
   const display = getConfiguredValue(row[column.key], column);

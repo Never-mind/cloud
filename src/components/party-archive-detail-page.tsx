@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState, type ChangeEvent, type FormEvent } from "react";
 import { ArrowLeft, Building2, Download, Edit3, FileUp, Landmark, Plus, RefreshCw, Save, Tag, Trash2, UserRound } from "lucide-react";
 import { fetchAllEntityRows } from "@/lib/client-entity-fetch";
@@ -12,6 +12,8 @@ import { SearchSelect } from "./search-select";
 import { SignatureField } from "./signature-field";
 import { confirmDialog } from "./app-dialog";
 import { broadcastMasterDataChanged } from "@/lib/workspace-events";
+import { buildDetailRoute, getReturnTo } from "@/lib/client-list-navigation";
+import { getEmbeddedRoute } from "@/lib/tab-workspace";
 
 type Row = Record<string, string | number | boolean | null>;
 
@@ -30,6 +32,9 @@ const CUSTOMER_BUSINESS_OPTIONS = ["算力业务", "集采业务", "华为云业
 
 export function PartyArchiveDetailPage({ config, id, related }: { config: EntityConfig; id: string; related: EntityConfig[] }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const returnTo = getReturnTo(searchParams.get("returnTo"),
+    searchParams.get("embed") === "1" ? getEmbeddedRoute(config.route) : config.route);
   const isCreate = id === "new";
   const [record, setRecord] = useState<Row | null>(null);
   const [draft, setDraft] = useState<Row>({});
@@ -81,7 +86,7 @@ export function PartyArchiveDetailPage({ config, id, related }: { config: Entity
 
   function cancelEditing() {
     if (isCreate) {
-      router.push(config.route);
+      router.push(returnTo);
       return;
     }
     setDraft(record ?? {});
@@ -129,7 +134,7 @@ export function PartyArchiveDetailPage({ config, id, related }: { config: Entity
             if (!relatedResponse.ok) throw new Error(relatedData.error ?? `${relatedConfig.title}保存失败`);
           }
         }
-        router.replace(`${config.detailRoute}/${encodeURIComponent(savedId)}`);
+        router.replace(buildDetailRoute(`${config.detailRoute}/${encodeURIComponent(savedId)}`, returnTo));
         return;
       }
       setRecord(data);
@@ -165,7 +170,7 @@ export function PartyArchiveDetailPage({ config, id, related }: { config: Entity
     <div className="space-y-4">
       <Panel>
         <header className="flex flex-wrap items-center gap-3 border-b border-line-soft px-5 py-4">
-          <Link className="inline-flex h-9 w-9 items-center justify-center border border-line bg-white text-ink-2 hover:border-primary hover:text-primary" href={config.route} aria-label={`返回${config.title}`} title={`返回${config.title}`}>
+          <Link className="inline-flex h-9 w-9 items-center justify-center border border-line bg-white text-ink-2 hover:border-primary hover:text-primary" href={returnTo} aria-label={`返回${config.title}`} title={`返回${config.title}`}>
             <ArrowLeft size={17} />
           </Link>
           <div className="min-w-0">

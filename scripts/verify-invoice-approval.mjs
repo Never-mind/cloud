@@ -188,7 +188,7 @@ for(const viewport of [{width:1440,height:1000},{width:390,height:844}]) {
         assert.equal(writes.length,1);assert.equal(writes[0].body.flow,'vat');assert.equal(Number(writes[0].body.draft.amountIncludingTax),usd?742:212);
       }
     } else {
-      await page.getByRole('button',{name:scenario==='registered'?'查看发票':'核对发票',exact:true}).click();
+      await page.getByRole('button',{name:scenario==='registered'?'查看发票':'查看／处理回票',exact:true}).click();
       const dialog=page.getByRole('dialog').last();
       await dialog.getByLabel('发票号',{exact:true}).waitFor();
       const confirm=dialog.getByRole('button',{name:'确认并登记发票',exact:true});

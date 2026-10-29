@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-const mocks = vi.hoisted(() => ({ query: vi.fn(), execute: vi.fn(), feishu: vi.fn(), recognize: vi.fn(), store: vi.fn(), read: vi.fn(), prefill: vi.fn() }));
+const mocks = vi.hoisted(() => ({ query: vi.fn(), execute: vi.fn(), feishu: vi.fn(), recognize: vi.fn(), store: vi.fn(), read: vi.fn(), prefill: vi.fn(), autoRegister: vi.fn() }));
 vi.mock("./db", () => ({ queryRows: mocks.query, execute: mocks.execute }));
 vi.mock("./feishu-approval-service", () => ({ callFeishu: mocks.feishu }));
 vi.mock("./invoice-service", () => ({ buildInvoicePrefill: mocks.prefill }));
 vi.mock("./invoice-recognition-service", () => ({ recognizeInvoiceFile: mocks.recognize }));
 vi.mock("./file-storage-service", () => ({ storeFile: mocks.store, readFile: mocks.read }));
+vi.mock("./invoice-approval-auto-register", () => ({ autoRegisterReturnedInvoice: mocks.autoRegister }));
 import { downloadReturnedInvoice, syncReturnedInvoices, returnedInvoiceReview } from "./invoice-approval-return-service";
 import { VAT_APPROVAL_CODE, VAT_FIELDS } from "./vat-invoice-approval";
 
@@ -43,6 +44,37 @@ afterEach(() => vi.unstubAllGlobals());
 const attachment = (ext: string) => ({ title: "invoice_12345678901234567890." + ext, url: "https://lf9-approval-sign.feishucdn.com/invoice." + ext });
 
 describe("returned invoice intake", () => {
+  const withStoredReturn = () => {
+    mocks.feishu.mockResolvedValue({});
+    mocks.query.mockImplementation(async (sql: string) => sql.includes("SELECT period") ? [{ period: "202603" }] : sql.includes("ORDER BY createdAt") ? [{ id: "pdf", fileName: "invoice.pdf", invoiceNo: "12345678901234567890", invoiceIdentity: "identity" }] : []);
+    mocks.autoRegister.mockResolvedValue({ status: "waiting", note: "审批通过后自动登记" });
+  };
+  it("automatically processes a stored return on normal synchronization", async () => {
+    withStoredReturn();
+    const result = await syncReturnedInvoices("instance");
+    expect(mocks.autoRegister).toHaveBeenCalledWith("instance");
+    expect(result.errors).toEqual([]);
+    expect(result.note).toBe("审批通过后自动登记");
+  });
+  it("keeps manual exception corrections from being posted before their edits", async () => {
+    withStoredReturn();
+    await syncReturnedInvoices("instance", { autoRegister: false });
+    expect(mocks.autoRegister).not.toHaveBeenCalled();
+  });
+  it("persists automatic posting errors for display and retry", async () => {
+    withStoredReturn();
+    mocks.autoRegister.mockRejectedValue(new Error("transaction failed"));
+    const result = await syncReturnedInvoices("instance");
+    expect(result.errors).toEqual(["自动登记失败：transaction failed"]);
+    expect(mocks.execute).toHaveBeenLastCalledWith(expect.stringContaining("invoiceParseJson"), expect.objectContaining({ error: "自动登记失败：transaction failed" }));
+  });
+  it("does not post an incomplete set of returns after a download error", async () => {
+    withStoredReturn();
+    mocks.feishu.mockResolvedValue({ timeline: [{ type: "PASS", files: [attachment("pdf")] }] });
+    vi.mocked(fetch).mockResolvedValueOnce(new Response("expired", { status: 403 }));
+    expect((await syncReturnedInvoices("instance")).errors).toHaveLength(1);
+    expect(mocks.autoRegister).not.toHaveBeenCalled();
+  });
   it("archives and recognizes early financial attachments without posting a business invoice", async () => {
     mocks.feishu.mockResolvedValue({ timeline: [{ type: "PASS", files: [attachment("pdf")] }], task_list: [{ node_name: "Financial", status: "APPROVED" }, { node_name: "Delivery", status: "PENDING" }] });
     expect((await syncReturnedInvoices("instance")).added).toBe(1);

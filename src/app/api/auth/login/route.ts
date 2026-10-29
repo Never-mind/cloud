@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getUserByEmail, validateLogin } from "@/lib/auth";
 import { applyLoginCookies } from "@/lib/auth-login-cookies";
 import { getOperationRequestId, recordOperationLog } from "@/lib/operation-log";
+import { scheduleLoginBackgroundSync } from "@/lib/login-background-sync";
 
 export async function POST(request: NextRequest) {
   try {
@@ -37,6 +38,7 @@ export async function POST(request: NextRequest) {
 
     const response = NextResponse.json({ ok: true });
     await applyLoginCookies(response, request, email);
+    scheduleLoginBackgroundSync(user);
     return response;
   } catch {
     return NextResponse.json({ error: "登录服务暂时不可用，请联系管理员" }, { status: 503 });

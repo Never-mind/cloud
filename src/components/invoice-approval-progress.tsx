@@ -45,6 +45,13 @@ export function InvoiceApprovalProgress({ sourceType, sourceId, onSaved }: { sou
     finally { setLoading(false); }
   }, [sourceType, sourceId]);
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    if (selected || syncing) return;
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") void load();
+    }, 30_000);
+    return () => window.clearInterval(timer);
+  }, [load, selected, syncing]);
   async function sync(instanceCode: string) {
     if (syncing) return;
     setSyncing(instanceCode);
@@ -58,6 +65,7 @@ export function InvoiceApprovalProgress({ sourceType, sourceId, onSaved }: { sou
   }
   return <section className="space-y-3">
     <div className="flex items-center gap-2"><GitBranch size={16} /><h3 className="text-sm font-medium">审批进度与回票</h3><Button disabled={loading} onClick={() => void load()} aria-label="刷新审批记录"><RefreshCw size={14} /></Button></div>
+    <p className="text-xs text-ink-3">审批通过后，系统自动取回发票、识别并登记到对应账期，无需再次确认。识别失败或存在冲突时会显示具体原因，可在此补充处理。</p>
     {error ? <p role="alert" className="text-sm text-danger">{error}</p> : null}
     {!loading && !error && !rows.length ? <p className="text-sm text-ink-3">暂无开票审批</p> : null}
     {rows.map(row => {
@@ -75,8 +83,8 @@ export function InvoiceApprovalProgress({ sourceType, sourceId, onSaved }: { sou
         {!row.groups.length ? <p className="mt-2 text-sm text-ink-3">{row.invoiceId ? "已登记发票" : row.status === "approved" ? "审批已通过，待财务回传发票" : "待回传发票"}</p> : null}
         {row.groups.map(group => <div key={group.key} className="mt-3 flex flex-wrap items-center gap-2 text-sm">
           <span className="min-w-0 flex-1 break-all">{group.primary.invoiceNo || group.primary.fileName}</span>
-          <span className={group.conflicting ? "text-danger" : "text-ink-2"}>{group.registered ? "已登记" : row.invoiceId ? "新增回票待核对" : group.conflicting ? "版本信息不一致" : group.primary.recognition ? "已识别，待确认" : "识别失败，待补充"}</span>
-          <Button onClick={() => setSelected(group.primary.id)}><ScanLine size={14} />{group.registered ? "查看发票" : "核对发票"}</Button>
+          <span className={group.conflicting || row.syncError ? "text-danger" : "text-ink-2"}>{group.registered ? "已登记并回填账期" : row.invoiceId ? "新增回票待处理" : group.conflicting ? "版本信息不一致" : row.syncError ? "自动登记异常" : group.primary.recognition ? row.status === "approved" ? "已识别，等待自动登记" : "已识别，审批通过后自动登记" : "识别失败，待补充"}</span>
+          <Button onClick={() => setSelected(group.primary.id)}><ScanLine size={14} />{group.registered ? "查看发票" : "查看／处理回票"}</Button>
           <div className="flex w-full flex-wrap gap-3 text-xs">{group.files.map(file => <a key={file.id} className="inline-flex items-center gap-1 break-all text-primary" href={"/api/invoices/approval/returns?download=1&fileId=" + encodeURIComponent(file.id)}><Download size={13} />{file.fileName}</a>)}</div>
         </div>)}
       </div>;

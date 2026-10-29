@@ -134,7 +134,7 @@ export function InvoicesPage() {
     <div className="flex h-full min-h-0 flex-col gap-3">
       <Panel>
         <div className="flex flex-wrap items-center gap-2 p-3">
-          <Input className="w-[220px]" onChange={(event) => { setPage(1); setKeyword(event.target.value); }} placeholder="发票号 / 客户 / 来源单据" value={keyword} />
+          <Input className="w-[280px]" onChange={(event) => { setPage(1); setKeyword(event.target.value); }} placeholder="发票号 / 审批编号 / 客户 / 来源单据" value={keyword} />
           <Input className="w-[120px]" onChange={(event) => { setPage(1); setPeriod(event.target.value); }} placeholder="账期 YYYYMM" value={period} />
           <Select className="w-[130px]" onChange={(event) => { setPage(1); setSource(event.target.value); }} value={source}>
             <option value="">全部来源</option>
@@ -172,10 +172,10 @@ export function InvoicesPage() {
               <tbody>
                 {rows.map((row) => (
                   <tr className="hover:bg-surface-2" key={text(row.id)}>
-                    <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-2 font-medium">{text(row.invoiceNo)}</td>
+                    <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-2 font-medium">{text(row.invoiceNo)}{text(row.approvalSerialNumber) ? <div className="mt-1 text-xs font-normal text-ink-3">审批编号：{text(row.approvalSerialNumber)}</div> : null}</td>
                     <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-2">
                       <span className={`rounded px-1.5 py-0.5 text-xs ${text(row.source) === "external" ? "bg-warning-soft text-warning" : "bg-info-soft text-primary"}`}>
-                        {SOURCE_LABELS[text(row.source)] ?? text(row.source)}
+                        {row.approvalInstanceCode ? "飞书回票" : SOURCE_LABELS[text(row.source)] ?? text(row.source)}
                       </span>
                     </td>
                     <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-2">{text(row.customerDisplayName ?? row.customerName) || "-"}</td>
@@ -228,7 +228,7 @@ export function InvoicesPage() {
         open={Boolean(modal)}
         sourceType="manual"
       />
-      {approvalsOpen ? <Modal title="审批与回票" widthClass="max-w-5xl" onClose={() => setApprovalsOpen(false)} footer={<Button onClick={() => setApprovalsOpen(false)}>关闭</Button>}>
+      {approvalsOpen ? <Modal title="审批与回票" widthClass="max-w-5xl" onClose={() => { setApprovalsOpen(false); void load(); }} footer={<Button onClick={() => { setApprovalsOpen(false); void load(); }}>关闭</Button>}>
         <InvoiceApprovalProgress onSaved={() => void load()} />
       </Modal> : null}
 

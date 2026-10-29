@@ -57,8 +57,8 @@ export async function listReturnedInvoiceFiles(instanceCode: string): Promise<Re
   return rows.map(fileSummary);
 }
 
-/** Collect drafts even while approval is pending; only explicit confirmation can post an invoice. */
-export async function syncReturnedInvoices(instanceCode: string) {
+/** Archive returns; approved, recognizable invoices post automatically unless handling a manual correction. */
+export async function syncReturnedInvoices(instanceCode: string, options: { autoRegister?: boolean } = {}) {
   const [approval] = await queryRows<Row>("SELECT period, invoiceId FROM merge_common_feishu_approvals WHERE instanceCode = :instanceCode LIMIT 1", { instanceCode });
   if (!approval) throw new Error("审批台账不存在");
   const data = await callFeishu<{ timeline?: Row[]; comment_list?: Row[]; task_list?: Row[] }>(
@@ -89,8 +89,18 @@ export async function syncReturnedInvoices(instanceCode: string) {
       added += 1;
     } catch (error) { errors.push(file.title + "：" + (error instanceof Error ? error.message : "处理失败")); }
   }
-  const groups = groupReturnedInvoices(await listReturnedInvoiceFiles(instanceCode));
-  const note = errors.length ? errors.join("；") : groups.length ? "回票已取回，请核对识别结果后确认登记" : "尚未发现回传发票";
+  let groups = groupReturnedInvoices(await listReturnedInvoiceFiles(instanceCode));
+  let note = groups.length ? "回票已取回" : "尚未发现回传发票";
+  if (groups.length && !errors.length && options.autoRegister !== false) {
+    try {
+      const { autoRegisterReturnedInvoice } = await import("./invoice-approval-auto-register");
+      const result = await autoRegisterReturnedInvoice(instanceCode);
+      note = result.note;
+      groups = groupReturnedInvoices(await listReturnedInvoiceFiles(instanceCode));
+      if (result.status === "registered" && groups.some(group => !group.registered)) note = "已登记发票；新增回票未覆盖原记录，请处理回票异常";
+    } catch (error) { errors.push("自动登记失败：" + (error instanceof Error ? error.message : "请处理回票异常")); }
+  }
+  if (errors.length) note = errors.join("；");
   await execute("UPDATE merge_common_feishu_approvals SET invoiceParseJson = :summary, syncError = :error WHERE instanceCode = :instanceCode", {
     instanceCode, summary: JSON.stringify({ version: 2, count: groups.length, pending: groups.filter(group => !group.registered).length, note,
       nodes: (data.task_list ?? []).map(node => ({ nodeId: node.node_id, name: node.node_name, status: node.status, startTime: node.start_time, endTime: node.end_time })) }),

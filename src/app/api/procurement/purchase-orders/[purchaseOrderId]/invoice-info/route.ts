@@ -10,7 +10,12 @@ type RouteContext = { params: Promise<{ purchaseOrderId: string }> };
 
 async function loadInvoiceInfo(purchaseOrderId: string) {
   const rows = await queryRows<Row>(
-    `SELECT po.purchaseOrderId, po.poNo, po.supplierId, po.currency AS orderCurrency,
+    `SELECT po.purchaseOrderId, po.poNo,
+            (SELECT MIN(ri.supplierId)
+               FROM merge_power_purchaseorderitems poi
+               JOIN merge_power_requestitems ri ON ri.id = poi.requestItemId
+              WHERE poi.purchaseOrderId = po.purchaseOrderId) AS supplierId,
+            po.currency AS orderCurrency,
             po.invoiceNo, po.invoiceDate, po.invoiceAmount, po.invoiceNetAmount, po.invoiceTaxRate, po.invoiceTaxAmount,
             po.invoiceCurrency, po.invoiceStatus,
             po.paymentDate AS expectedPaymentDate, po.invoiceRemark,
@@ -96,7 +101,16 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
 
     const actor = await getOperationActor(request);
     if (text(body.invoiceNo) && text(current.supplierId)) {
-      const duplicates = await queryRows("SELECT purchaseOrderId FROM merge_power_purchaseorders WHERE supplierId = :supplierId AND invoiceNo = :invoiceNo AND purchaseOrderId <> :purchaseOrderId LIMIT 1", { supplierId: current.supplierId, invoiceNo: text(body.invoiceNo), purchaseOrderId });
+      const duplicates = await queryRows(
+        `SELECT po.purchaseOrderId FROM merge_power_purchaseorders po
+          WHERE po.invoiceNo = :invoiceNo AND po.purchaseOrderId <> :purchaseOrderId
+            AND EXISTS (
+              SELECT 1 FROM merge_power_purchaseorderitems poi
+                JOIN merge_power_requestitems ri ON ri.id = poi.requestItemId
+               WHERE poi.purchaseOrderId = po.purchaseOrderId AND ri.supplierId = :supplierId
+            ) LIMIT 1`,
+        { supplierId: current.supplierId, invoiceNo: text(body.invoiceNo), purchaseOrderId },
+      );
       if (duplicates.length) throw new Error("该供应商的发票已在其他采购订单登记，请先核对或分摊，不能重复登记整票金额");
     }
     await execute(

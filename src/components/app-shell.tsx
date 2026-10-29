@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import {
   Bell,
@@ -52,6 +52,7 @@ import {
 } from "@/lib/tab-workspace";
 import { hasPermission, type PermissionState } from "@/lib/permission-definitions";
 import { AppDialogHost, notify } from "./app-dialog";
+import { isInsideFrame } from "@/lib/embedded-workspace";
 
 const WORKSPACE_STORAGE_KEY = "cloud-power-workspace-tabs";
 const SIDEBAR_OPEN_GROUPS_STORAGE_KEY = "cloud-power-sidebar-open-groups";
@@ -60,6 +61,8 @@ const SIDEBAR_COLLAPSED_STORAGE_KEY = "cloud-power-sidebar-collapsed";
 // Restore the client-only workspace before the first browser paint. The server
 // still uses useEffect, so the server and hydration snapshots remain identical.
 const useIsomorphicLayoutEffect = typeof window === "undefined" ? useEffect : useLayoutEffect;
+const subscribeFrameIdentity = () => () => {};
+const getServerFrameIdentity = () => false;
 
 const icons = {
   公共区域: FolderOpen,
@@ -96,6 +99,8 @@ export function AppShell({
 }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const insideFrame = useSyncExternalStore(subscribeFrameIdentity, isInsideFrame, getServerFrameIdentity);
+  const isEmbedded = embedded || searchParams.get("embed") === "1" || insideFrame;
   const [openGroups, setOpenGroups] = useState<SidebarGroupState>({});
   const [sidebarGroupsReady, setSidebarGroupsReady] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -159,7 +164,7 @@ export function AppShell({
   const moduleSearchEntries = useMemo(() => buildModuleSearchIndex(visibleNavGroups as never), [visibleNavGroups]);
 
   useEffect(() => {
-    if (embedded) return;
+    if (isEmbedded) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
@@ -168,12 +173,13 @@ export function AppShell({
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [embedded]);
+  }, [isEmbedded]);
   const currentSectionTitle = getTopLevelTitle(pathname);
-  // The middleware marks embedded requests on the server. Keep the query
-  // marker as a client-side fallback so an older/stale server build cannot
-  // render another full workspace inside the iframe.
-  const isEmbedded = embedded || searchParams.get("embed") === "1";
+
+  useIsomorphicLayoutEffect(() => {
+    if (isEmbedded) document.documentElement.dataset.embeddedPage = "1";
+    else delete document.documentElement.dataset.embeddedPage;
+  }, [isEmbedded]);
 
   useEffect(() => {
     activeRouteRef.current = workspace.activeRoute;

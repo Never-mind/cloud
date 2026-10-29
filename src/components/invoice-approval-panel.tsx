@@ -13,7 +13,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertCircle, CheckCircle2, FileText, Info } from "lucide-react";
 import { Input, Select, Textarea } from "./ui";
 import { notify } from "./app-dialog";
-import { paymentApprovalStatusLabel } from "@/lib/payment-approval-status";
+import { invoiceApprovalStatusLabel } from "@/lib/invoice-approval-status";
 import { InvoiceApprovalAttachments } from "./invoice-approval-attachments";
 import { InvoiceApprovalPartners } from "./invoice-approval-partners";
 import { usePartnerOptions } from "./use-invoice-partner-options";
@@ -25,7 +25,7 @@ type Option = { key: string; value: string; label: string };
 
 export type ApprovalPrefill = {
   approvalCode: string;
-  existingApproval: { instanceCode: string; status: string; serialNumber: string; rejectReason: string; submittedAt: string } | null;
+  existingApproval: { instanceCode: string; status: string; serialNumber: string; rejectReason: string; submittedAt: string; invoiceId?: string; invoiceStatus?: string | null } | null;
   branch: "mx" | "cl" | "br" | null;
   companyText: string;
   undertakingUnitId: string;
@@ -321,9 +321,9 @@ export function InvoiceApprovalPanel({
       {onAllocationChange?<InvoiceAllocationEditor sourceType={sourceType} sourceId={sourceId} currency={form.amountCurrency} totals={{...form,amountIncludingTax:prefill.branch==="cl"?form.chileAmount:form.amountIncludingTax}} value={allocationPlan} onChange={onAllocationChange} disabled={submitting||loading||Boolean(prefill.existingApproval)} onTotalsChange={totals=>setForm(current=>({...current,amountExcludingTax:String(totals.amountExcludingTax),taxAmount:String(totals.taxAmount),taxRate:String(totals.taxRate??""),amountIncludingTax:String(totals.amountIncludingTax),chileAmount:String(totals.amountIncludingTax)}))}/>:null}
       {prefill.existingApproval ? (
         <Notice tone="info">
-          该账单已有一条审批：{prefill.existingApproval.status === "approved" ? "已通过（待出票）" : paymentApprovalStatusLabel(prefill.existingApproval.status) || prefill.existingApproval.status}
+          该账单已有一条审批：{invoiceApprovalStatusLabel(prefill.existingApproval.status, prefill.existingApproval.invoiceId, prefill.existingApproval.invoiceStatus)}
           ，单号 {prefill.existingApproval.serialNumber || prefill.existingApproval.instanceCode}，提交于 {prefill.existingApproval.submittedAt}。
-          回传发票需核对确认后登记；驳回后可重新提交。
+          审批通过后，正常回票自动登记并回填账期；异常可在“审批与回票”中处理，驳回后可重新提交。
         </Notice>
       ) : null}
       {prefill.blockers.map((item) => <Notice key={item} tone="danger">{item}</Notice>)}

@@ -22,6 +22,26 @@ function query(sql:string,values:Record<string,unknown>={}){
 }
 beforeEach(()=>{vi.resetAllMocks();mock.writes=[];mock.committed=false;mock.rolledBack=false;mock.query.mockImplementation(async(sql,values)=>query(sql,values));mock.queryTx.mockImplementation(async(sql,values)=>query(sql,values));mock.execute.mockImplementation(async(sql,values)=>{mock.writes.push({sql,values});});});
 describe("multi-period persistence",()=>{
+  it.each(["cloud_row","service_fee"] as const)("automatically registers a single-line approval return and backfills different monthly amounts for %s",async sourceType=>{
+    const allocationPlan=plan(sourceType);
+    allocationPlan.allocations=allocationPlan.allocations.map((row,index)=>({...row,taxRate:"6",amountExcludingTax:(700*(index+1)).toFixed(2),taxAmount:(42*(index+1)).toFixed(2),amountIncludingTax:(742*(index+1)).toFixed(2)}));
+    const approval={instanceCode:"instance",status:"approved",ownerType:sourceType,ownerId:"row0",allocationSourceIds:rows.map(row=>row.id).join(","),allocationPlanJson:JSON.stringify(allocationPlan)};
+    const respond=(sql:string,values:Record<string,unknown>)=>sql.includes("FROM merge_common_feishu_approvals")?[approval]:sql.includes("FROM merge_common_invoice_approval_files")?[{id:"pdf"}]:query(sql,values);
+    mock.query.mockImplementation(async(sql,values)=>respond(sql,values));mock.queryTx.mockImplementation(async(sql,values)=>respond(sql,values));
+    await saveInvoice({source:"external",sourceType,sourceId:"row0",invoiceNo:"APPROVAL-SIX",customerId:"invoice-buyer-B",undertakingUnitId:"invoice-unit",currency:"CNY",invoiceDate:"2026-06-01",paymentTermDays:30,dueDate:"2026-07-01",...allocationTotals(allocationPlan.allocations),allocationPlan,file:{fileName:"six-months.pdf",fileType:"application/pdf",bytes:Buffer.from("fixture")}}, {name:"飞书回票自动登记"}, {instanceCode:"instance",fileId:"pdf",relatedFileIds:["pdf"],mode:"automatic"});
+    expect(mock.committed).toBe(true);
+    expect(mock.writes.filter(row=>row.sql.includes("INSERT INTO merge_common_invoices"))).toHaveLength(1);
+    const items=mock.writes.filter(row=>row.sql.includes("INSERT INTO merge_common_invoice_items"));expect(items).toHaveLength(1);expect(items[0].values.amount).toBe("15582.00");
+    const backfills=mock.writes.filter(row=>row.sql.includes(sourceType==="cloud_row"?"UPDATE merge_cloud_rows":"UPDATE merge_power_servicefeesnapshots"));
+    expect(backfills).toHaveLength(6);
+    for(const [index,row] of backfills.entries()){
+      expect(row.values).toMatchObject({sourceId:`row${index}`,net:(700*(index+1)).toFixed(2),total:(742*(index+1)).toFixed(2),invoiceNo:"APPROVAL-SIX",invoiceDate:"2026-06-01",dueDate:"2026-07-01"});
+      if(sourceType==="cloud_row")expect(row.values.taxAmount).toBe((42*(index+1)).toFixed(2));
+    }
+    const allocations=mock.writes.filter(row=>row.sql.includes("INSERT INTO merge_common_invoice_allocations"));expect(allocations.map(row=>row.values.taxAmount)).toEqual(allocationPlan.allocations.map(row=>row.taxAmount));
+    expect(mock.writes.filter(row=>row.sql.includes("INSERT INTO merge_cloud_attachments"))).toHaveLength(6);
+    const confirmed=mock.writes.find(row=>row.sql.includes("confirmedJson"));expect(JSON.parse(String(confirmed?.values.confirmed)).registrationMode).toBe("automatic");
+  });
   it.each(["cloud_row","service_fee"] as const)("registers one CNY invoice and six independent allocations for %s",async sourceType=>{
     const allocationPlan=plan(sourceType);
     await saveInvoice({source:"external",sourceType,sourceId:"row0",invoiceNo:"SIX-MONTHS",customerId:"invoice-buyer-B",undertakingUnitId:"invoice-unit",currency:"CNY",invoiceDate:"2026-06-01",paymentTermDays:30,dueDate:"2026-07-01",...allocationTotals(allocationPlan.allocations) as {amountExcludingTax:string;taxAmount:string;amountIncludingTax:string;taxRate:string},allocationPlan,file:{fileName:"six-months.pdf",fileType:"application/pdf",bytes:Buffer.from("fixture")}});

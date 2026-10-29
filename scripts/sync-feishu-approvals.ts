@@ -5,14 +5,15 @@
  *   npm run feishu:approval-sync -- --limit 200
  *   npm run feishu:approval-sync -- --check <instance_code>   只查单条，看飞书侧状态
  *
- * 同步审批状态，并取回财务回票原件和识别草稿；不会自动登记正式发票。
- * 已通过审批仍会继续检查后补附件，重复文件按内容去重。
- * 部署后建议挂成定时任务（每 1~5 分钟一次）。
+ * 同步审批状态，取回财务回票原件；正常回票自动登记并回填账期。
+ * 已通过但未完成登记的审批继续检查附件；正常登记后退出队列。
+ * 常驻服务已内置轮询；非长驻部署可另配定时任务运行本命令。
  */
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { closeDb } from "../src/lib/db";
-import { fetchInvoiceApprovalInstance, syncPendingInvoiceApprovals } from "../src/lib/feishu-approval-service";
+import { fetchInvoiceApprovalInstance } from "../src/lib/feishu-approval-service";
+import { syncInvoiceApprovalBatch } from "../src/lib/invoice-approval-sync-batch";
 
 // 定时任务在裸 node 环境跑，必须自己加载 .env.local，否则拿不到飞书应用凭证
 loadLocalEnv();
@@ -29,8 +30,9 @@ async function main() {
     return;
   }
   const limit = Number(argValue("--limit") || 50) || 50;
-  const result = await syncPendingInvoiceApprovals(limit);
-  console.log(`检查 ${result.checked} 条，审批状态变化 ${result.updated} 条；回票需在系统内确认登记`);
+  const result = await syncInvoiceApprovalBatch(limit);
+  if (result.skipped) { console.log("另一实例正在同步，本轮跳过"); return; }
+  console.log(`检查 ${result.checked} 条，审批状态变化 ${result.updated} 条；正常回票已自动登记，异常请查看审批与回票`);
   for (const error of result.errors) console.log(`  ✘ ${error.instanceCode}：${error.error}`);
   if (!result.errors.length) console.log("  没有失败项");
 }

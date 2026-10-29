@@ -25,6 +25,7 @@ import { TableColumnMenu, type TableFilterOption, type TableSortOrder } from "./
 import { calculateCloudTaxGroup, CLOUD_TAX_GROUPS, type CloudTaxField, type CloudTaxGroup } from "@/lib/cloud-tax";
 import { formatDisplayValue, formatMoneyValue } from "@/lib/display-format";
 import { paymentApprovalStatusClass, paymentApprovalStatusLabel } from "@/lib/payment-approval-status";
+import { invoiceApprovalStatusLabel } from "@/lib/invoice-approval-status";
 import { DEFAULT_PAGE_SIZE } from "@/lib/pagination";
 import { fetchTableFilterOptions } from "@/lib/table-query-client";
 import { useWorkspaceDataRefresh } from "@/lib/workspace-events";
@@ -583,7 +584,7 @@ export function CloudReconciliationPage() {
     ) : null}
     <InvoiceDraftModal
       mode={invoiceModal?.mode ?? "generated"}
-      onClose={() => setInvoiceModal(null)}
+      onClose={() => { setInvoiceModal(null); setAttachmentVersion(current => current + 1); void load(); }}
       onSaved={() => {
         // 开票会回填本行开票字段，并把票面挂到本行开票附件下，所以行和附件都要刷新
         setAttachmentVersion((current) => current + 1);
@@ -1039,7 +1040,7 @@ function StatusSwitch({ checked, onClick, onLabel, offLabel, title }: { checked:
 function InvoiceApprovalBadge({ row }: { row: Row }) {
   const status = String(row.invoiceApprovalStatus ?? "").trim();
   if (!status) return null;
-  const label = status === "approved" ? "审批通过待出票" : paymentApprovalStatusLabel(status) || status;
+  const label = invoiceApprovalStatusLabel(status, row.invoiceApprovalInvoiceId, row.invoiceApprovalInvoiceStatus);
   const tone = status === "approved"
     ? "border-success bg-success-soft text-success"
     : status === "rejected"

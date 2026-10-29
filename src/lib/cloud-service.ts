@@ -909,11 +909,12 @@ async function attachCloudRowApprovalStatus(rows: Row[]) {
     const ids = Array.from(new Set(rows.map((row) => String(row.id ?? "").trim()).filter(Boolean)));
     if (!ids.length) return rows;
     // 这里直接查审批台账，避免 cloud-service 与 feishu-approval-service 互相 import
-    const approvals = await queryRows<{ ownerId: string; allocationSourceIds?:string; status: string; serialNumber: string; instanceCode: string; submittedAt: string }>(
-      `SELECT ownerId, allocationSourceIds, status, serialNumber, instanceCode, DATE_FORMAT(submittedAt, '%Y-%m-%d %H:%i') AS submittedAt
-         FROM merge_common_feishu_approvals
-        WHERE ownerType = 'cloud_row' AND (ownerId IN (:ids) OR allocationSourceIds IS NOT NULL) AND status IN ('pending', 'returned', 'approved')
-        ORDER BY submittedAt ASC`,
+    const approvals = await queryRows<{ ownerId: string; allocationSourceIds?:string; status: string; serialNumber: string; instanceCode: string; submittedAt: string; invoiceId: string | null; invoiceStatus: string | null }>(
+      `SELECT a.ownerId, a.allocationSourceIds, a.status, a.serialNumber, a.instanceCode, a.invoiceId, i.status AS invoiceStatus, DATE_FORMAT(a.submittedAt, '%Y-%m-%d %H:%i') AS submittedAt
+         FROM merge_common_feishu_approvals a
+         LEFT JOIN merge_common_invoices i ON i.id = a.invoiceId
+        WHERE a.ownerType = 'cloud_row' AND (a.ownerId IN (:ids) OR a.allocationSourceIds IS NOT NULL) AND a.status IN ('pending', 'returned', 'approved')
+        ORDER BY a.submittedAt ASC`,
       { ids },
     );
     const map = new Map<string,(typeof approvals)[number]>();
@@ -924,6 +925,8 @@ async function attachCloudRowApprovalStatus(rows: Row[]) {
       row.invoiceApprovalStatus = approval.status;
       row.invoiceApprovalNo = approval.serialNumber || approval.instanceCode;
       row.invoiceApprovalAt = approval.submittedAt;
+      row.invoiceApprovalInvoiceId = approval.invoiceId;
+      row.invoiceApprovalInvoiceStatus = approval.invoiceStatus;
     }
   } catch (error) {
     // 审批状态只是展示附加信息，读不到不影响对账列表

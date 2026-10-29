@@ -700,9 +700,9 @@ async function submitLockedInvoiceApproval(input: SubmitInvoiceApprovalInput, co
  * 同步一条审批的状态。
  *
  * 状态变化会写回台账，并同步开票记录上的 approvalStatus；
- * 回票独立同步：保存原件及识别草稿，只有人工确认后才登记正式发票。
+ * 回票独立同步：保存原件及识别结果，审批通过后自动登记；异常保留人工处理入口。
  */
-export async function syncInvoiceApproval(instanceCode: string) {
+export async function syncInvoiceApproval(instanceCode: string, options: { autoRegister?: boolean } = {}) {
   const rows = await queryRows<Row>(
     "SELECT id, status, invoiceId FROM merge_common_feishu_approvals WHERE instanceCode = :instanceCode LIMIT 1",
     { instanceCode },
@@ -741,7 +741,7 @@ export async function syncInvoiceApproval(instanceCode: string) {
   if (["pending", "returned", "approved"].includes(remote.status)) {
     try {
       const { syncReturnedInvoices } = await import("./invoice-approval-return-service");
-      await syncReturnedInvoices(instanceCode);
+      await syncReturnedInvoices(instanceCode, options);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       await execute("UPDATE merge_common_feishu_approvals SET syncError = :message WHERE instanceCode = :instanceCode", {
@@ -776,11 +776,12 @@ const SOURCE_TYPE_TO_OWNER: Record<string, InvoiceApprovalOwnerType> = {
 /** 一条来源单据上最近一次还在生效的审批（审批中 / 已通过）。 */
 export async function findActiveInvoiceApproval(sourceType: string, sourceId: string) {
   const ownerType = SOURCE_TYPE_TO_OWNER[String(sourceType)] ?? "cloud_row";
-  const rows = await queryRows<{ instanceCode: string; status: string; serialNumber: string; rejectReason: string; submittedAt: string; invoiceId: string }>(
-    `SELECT instanceCode, status, serialNumber, rejectReason, invoiceId, DATE_FORMAT(submittedAt, '%Y-%m-%d %H:%i') AS submittedAt
-       FROM merge_common_feishu_approvals
-      WHERE ownerType = :ownerType AND (ownerId = :ownerId OR FIND_IN_SET(:ownerId, allocationSourceIds) > 0) AND status IN ('pending', 'returned', 'approved')
-      ORDER BY submittedAt DESC LIMIT 1`,
+  const rows = await queryRows<{ instanceCode: string; status: string; serialNumber: string; rejectReason: string; submittedAt: string; invoiceId: string; invoiceStatus: string | null }>(
+    `SELECT a.instanceCode, a.status, a.serialNumber, a.rejectReason, a.invoiceId, i.status AS invoiceStatus, DATE_FORMAT(a.submittedAt, '%Y-%m-%d %H:%i') AS submittedAt
+       FROM merge_common_feishu_approvals a
+       LEFT JOIN merge_common_invoices i ON i.id = a.invoiceId
+      WHERE a.ownerType = :ownerType AND (a.ownerId = :ownerId OR FIND_IN_SET(:ownerId, a.allocationSourceIds) > 0) AND a.status IN ('pending', 'returned', 'approved')
+      ORDER BY a.submittedAt DESC LIMIT 1`,
     { ownerType, ownerId: sourceId },
   );
   return rows[0] ?? null;
@@ -935,18 +936,23 @@ export async function createInvoiceFromCfdi(input: {
  *   1) 审批中的（查飞书状态）
  *   2) 已通过但还没登记真实发票的（审批人还没回传发票，或上次处理失败，下一轮自动重试）
  */
-export async function syncPendingInvoiceApprovals(limit = 50) {
+export async function syncPendingInvoiceApprovals(limit = 50, dueOnly = false) {
+  const batchLimit = Number.isFinite(limit) ? Math.max(1, Math.min(200, Math.floor(limit))) : 50;
   const rows = await queryRows<{ instanceCode: string }>(
     `SELECT instanceCode FROM merge_common_feishu_approvals
-      WHERE status IN ('pending', 'returned', 'approved')
+      WHERE ownerType IN ('cloud_row', 'billing_statement', 'service_fee', 'settlement_invoice')
+        AND (status IN ('pending', 'returned') OR (status = 'approved' AND (NULLIF(invoiceId, '') IS NULL OR NULLIF(syncError, '') IS NOT NULL)))
+        ${dueOnly ? "AND (lastSyncedAt IS NULL OR lastSyncedAt <= TIMESTAMPADD(SECOND, -60, CURRENT_TIMESTAMP))" : ""}
       ORDER BY COALESCE(lastSyncedAt, submittedAt) ASC LIMIT :limit`,
-    { limit },
+    { limit: batchLimit },
   );
   const result = { checked: rows.length, updated: 0, errors: [] as Array<{ instanceCode: string; error: string }> };
   for (const row of rows) {
     try {
       const synced = await syncInvoiceApproval(String(row.instanceCode));
       if (synced.changed) result.updated += 1;
+      const [current] = await queryRows<Row>("SELECT syncError FROM merge_common_feishu_approvals WHERE instanceCode = :instanceCode LIMIT 1", { instanceCode: String(row.instanceCode) });
+      if (current?.syncError) result.errors.push({ instanceCode: String(row.instanceCode), error: String(current.syncError) });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       result.errors.push({ instanceCode: String(row.instanceCode), error: message });

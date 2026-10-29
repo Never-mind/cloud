@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
-import type { PoolConnection, RowDataPacket } from "mysql2/promise";
-import { executeRaw, getDb, queryRowsRaw, type Row } from "./db";
+import { createConnection, type Connection, type RowDataPacket } from "mysql2/promise";
+import { buildDbConfig, executeRaw, getDb, queryRowsRaw, type Row } from "./db";
 import { resolveFrappeEndpoint, resolvePageSize, resolveTimeoutMs } from "./frappe-config";
 import type { OperationActor } from "./operation-actor";
 import {
@@ -146,7 +146,7 @@ type MappingRow = Row & {
   matchMethod: string | null;
 };
 
-export type FrappeDemandSyncTrigger = "manual" | "scheduled" | "script";
+export type FrappeDemandSyncTrigger = "manual" | "scheduled" | "script" | "login";
 
 type FrappeDemandSyncResult = {
   status: "created" | "skipped_existing" | "blocked" | "pending_change";
@@ -157,6 +157,8 @@ type FrappeDemandSyncResult = {
 };
 
 type FrappeDemandSyncSummary = {
+  skipped?: "running" | "recent";
+  retryAfterMs?: number;
   runId: string;
   triggerType: FrappeDemandSyncTrigger;
   status: "success" | "failed";
@@ -955,7 +957,8 @@ async function prepareLine(
 
 async function updateSyncRun(runId: string, values: Record<string, unknown>) {
   const assignments = Object.keys(values).map((key) => `\`${key}\` = :${key}`).join(", ");
-  await executeRaw(`UPDATE ${RUN_TABLE} SET ${assignments}, updatedAt = CURRENT_TIMESTAMP WHERE syncRunId = :runId`, { ...values, runId });
+  // Start, finish and cooldown all use the database clock, regardless of the app server timezone.
+  await executeRaw(`UPDATE ${RUN_TABLE} SET ${assignments}, finishedAt = CURRENT_TIMESTAMP, updatedAt = CURRENT_TIMESTAMP WHERE syncRunId = :runId`, { ...values, runId });
 }
 
 /** 台账里已经"处理过"的状态：这些明细再次出现时不再自动创建。 */
@@ -1018,7 +1021,7 @@ export function describeRemoteChanges(previousJson: unknown, current: ReturnType
 
 /** 写入/更新一条台账记录。preserveBaseline=true 时保留上次的比对基线（用于"远端已变更待核对"）。 */
 async function persistLedgerItem(
-  connection: PoolConnection,
+  connection: Connection,
   options: {
     item: RemoteDemandItem;
     order: RemoteDemandOrder;
@@ -1077,7 +1080,7 @@ async function persistBlockedItem(item: RemoteDemandItem, order: RemoteDemandOrd
   }
 }
 
-async function requestExists(connection: PoolConnection, requestNo: string) {
+async function requestExists(connection: Connection, requestNo: string) {
   const [rows] = await connection.query<RowDataPacket[]>("SELECT requestNo FROM merge_power_requests WHERE requestNo = ? LIMIT 1", [requestNo]);
   return rows.length > 0;
 }
@@ -1090,7 +1093,7 @@ async function requestExists(connection: PoolConnection, requestNo: string) {
  * 同一个编码出现多条时，按远端 DOI 的顺序依次对应本地的第 1、2… 条。
  */
 async function persistSkippedExistingItems(
-  connection: PoolConnection,
+  connection: Connection,
   order: RemoteDemandOrder,
   lines: Array<{ sourceItem: RemoteDemandItem; deviceCode: string }>,
   requestNo: string,
@@ -1123,7 +1126,7 @@ async function persistSkippedExistingItems(
   }
 }
 
-async function createRequestGroup(connection: PoolConnection, order: RemoteDemandOrder, lines: PreparedLine[], actor: OperationActor | null) {
+async function createRequestGroup(connection: Connection, order: RemoteDemandOrder, lines: PreparedLine[], actor: OperationActor | null) {
   const requestNo = lines[0].requestNo;
   if (await requestExists(connection, requestNo)) {
     await persistSkippedExistingItems(connection, order, lines, requestNo);
@@ -1153,16 +1156,32 @@ async function createRequestGroup(connection: PoolConnection, order: RemoteDeman
   return "created" as const;
 }
 
-export async function runFrappeDemandSync({ triggerType = "manual", dryRun = false, actor = null }: { triggerType?: FrappeDemandSyncTrigger; dryRun?: boolean; actor?: OperationActor | null } = {}) {
+export async function runFrappeDemandSync({ triggerType = "manual", dryRun = false, actor = null, minimumIntervalSeconds = 0 }: { triggerType?: FrappeDemandSyncTrigger; dryRun?: boolean; actor?: OperationActor | null; minimumIntervalSeconds?: number } = {}) {
   const runId = `FRAPPE-DEMAND-${new Date().toISOString().replace(/[-:.TZ]/g, "")}-${randomUUID().slice(0, 8)}`;
-  const connection = await getDb().getConnection();
+  // A sync holds its lock while other helpers use the pool; keep that pool available even at size 1.
+  const config = buildDbConfig(process.env);
+  const connection = await createConnection({ host: config.host, port: config.port, user: config.user, password: config.password,
+    database: config.database, charset: config.charset, namedPlaceholders: true, connectTimeout: 10_000 });
   let locked = false;
+  let runCreated = false;
   const summary: FrappeDemandSyncSummary = { runId, triggerType, status: "success", dryRun, fetchedItems: 0, eligibleItems: 0, createdRequests: 0, createdItems: 0, skippedExisting: 0, blockedItems: 0, changedItems: 0, errors: [], results: [] };
   try {
     const [lockRows] = await connection.query<RowDataPacket[]>("SELECT GET_LOCK(?, 0) AS acquired", [SYNC_LOCK_NAME]);
     locked = Number(lockRows[0]?.acquired ?? 0) === 1;
-    if (!locked) throw new Error("已有需求同步任务正在执行，请稍后再试");
+    if (!locked) {
+      if (minimumIntervalSeconds > 0) return { ...summary, skipped: "running" as const, retryAfterMs: 60_000 };
+      throw new Error("已有需求同步任务正在执行，请稍后再试");
+    }
+    if (minimumIntervalSeconds > 0) {
+      // Check inside the shared lock: simultaneous logins and different servers share one cooldown.
+      const [recent] = await connection.query<RowDataPacket[]>(`SELECT TIMESTAMPDIFF(SECOND, GREATEST(startedAt, COALESCE(finishedAt, startedAt)), CURRENT_TIMESTAMP) AS ageSeconds
+        FROM ${RUN_TABLE} WHERE dryRun = 0 ORDER BY startedAt DESC LIMIT 1`);
+      if (recent.length && Number(recent[0].ageSeconds) < minimumIntervalSeconds) {
+        return { ...summary, skipped: "recent" as const, retryAfterMs: Math.max(1000, (minimumIntervalSeconds - Number(recent[0].ageSeconds)) * 1000) };
+      }
+    }
     await connection.execute(`INSERT INTO ${RUN_TABLE} (syncRunId,triggerType,status,dryRun,startedAt) VALUES (?,?,'running',?,CURRENT_TIMESTAMP)`, [runId, triggerType, dryRun ? 1 : 0]);
+    runCreated = true;
     const snapshot = await loadRemoteSnapshot();
     await Promise.all(snapshot.sources.filter((source) => isSourceType(source.type)).map((source) => saveSourceMapping(source, actor)));
     // 远端履约状态回写到本地需求单（仅更新已存在的单，试运行不写）。
@@ -1381,18 +1400,18 @@ export async function runFrappeDemandSync({ triggerType = "manual", dryRun = fal
         });
       }
     }
-    await updateSyncRun(runId, { status: "success", fetchedItemCount: summary.fetchedItems, eligibleItemCount: summary.eligibleItems, createdRequestCount: summary.createdRequests, createdItemCount: summary.createdItems, skippedExistingCount: summary.skippedExisting, blockedItemCount: summary.blockedItems, changedItemCount: summary.changedItems, errorJson: JSON.stringify(summary.errors.slice(0, 200)), resultJson: JSON.stringify(summary.results.slice(0, 200)), finishedAt: new Date() });
+    await updateSyncRun(runId, { status: "success", fetchedItemCount: summary.fetchedItems, eligibleItemCount: summary.eligibleItems, createdRequestCount: summary.createdRequests, createdItemCount: summary.createdItems, skippedExistingCount: summary.skippedExisting, blockedItemCount: summary.blockedItems, changedItemCount: summary.changedItems, errorJson: JSON.stringify(summary.errors.slice(0, 200)), resultJson: JSON.stringify(summary.results.slice(0, 200)) });
     return summary;
   } catch (error) {
     summary.status = "failed";
     summary.errors.push({ sourceItemId: "", error: error instanceof Error ? error.message : String(error) });
-    if (locked) {
-      try { await updateSyncRun(runId, { status: "failed", errorJson: JSON.stringify(summary.errors), resultJson: JSON.stringify(summary.results.slice(0, 200)), finishedAt: new Date() }); } catch { /* retain the original error */ }
+    if (runCreated) {
+      try { await updateSyncRun(runId, { status: "failed", errorJson: JSON.stringify(summary.errors), resultJson: JSON.stringify(summary.results.slice(0, 200)) }); } catch { /* retain the original error */ }
     }
     throw error;
   } finally {
-    if (locked) await connection.query("SELECT RELEASE_LOCK(?)", [SYNC_LOCK_NAME]);
-    connection.release();
+    try { if (locked) await connection.query("SELECT RELEASE_LOCK(?)", [SYNC_LOCK_NAME]); }
+    finally { await connection.end(); }
   }
 }
 
@@ -1710,7 +1729,7 @@ export async function listFrappeDemandSyncRuns() {
   const rows = await queryRowsRaw<Row>(`
     SELECT syncRunId, triggerType, status, dryRun, fetchedItemCount, eligibleItemCount,
            createdRequestCount, createdItemCount, skippedExistingCount, blockedItemCount,
-           changedItemCount, resultJson, startedAt, finishedAt
+           changedItemCount, resultJson, errorJson, startedAt, finishedAt
       FROM ${RUN_TABLE}
      ORDER BY startedAt DESC
      LIMIT 20
@@ -1730,6 +1749,7 @@ export async function listFrappeDemandSyncRuns() {
       changedItemCount: Number(row.changedItemCount ?? 0),
       startedAt: row.startedAt ?? null,
       finishedAt: row.finishedAt ?? null,
+      errors: (() => { try { const items = JSON.parse(String(row.errorJson || "[]")); return Array.isArray(items) ? items.map(item => String(item?.error ?? "")).filter(Boolean) : []; } catch { return []; } })(),
       results: parseSyncResults(row.resultJson),
     })),
   };

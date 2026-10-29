@@ -1,14 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedUserEmail } from "@/lib/auth";
 import { queryRows } from "@/lib/db";
-import { syncInvoiceApproval } from "@/lib/feishu-approval-service";
+import { syncInvoiceApproval, syncPendingInvoiceApprovals } from "@/lib/feishu-approval-service";
 import { hasPermission } from "@/lib/permission-definitions";
 import { getPermissionStateForEmail } from "@/lib/permission-service";
 
 /**
  * 手动同步飞书审批状态。
  *
- * 定时任务（`npm run feishu:approval-sync`）是主要通道，这里是给用户的即时入口：
+ * 服务内置轮询自动执行，这里是给用户的即时入口：
  * 在飞书里撤回 / 被驳回 / 审批通过之后，不必等下一轮轮询就能把状态拉回来。
  */
 export async function POST(request: NextRequest) {
@@ -19,24 +19,11 @@ export async function POST(request: NextRequest) {
     const body = await request.json().catch(() => ({}));
     if (body.instanceCode) {
       const result = await syncInvoiceApproval(String(body.instanceCode));
-      return NextResponse.json({ checked: 1, updated: Number(result.changed), errors: [] });
+      const [record] = await queryRows("SELECT syncError FROM merge_common_feishu_approvals WHERE instanceCode = :instanceCode LIMIT 1", { instanceCode: String(body.instanceCode) });
+      return NextResponse.json({ checked: 1, updated: Number(result.changed), errors: record?.syncError ? [String(record.syncError)] : [] });
     }
-    const rows = await queryRows<{ instanceCode: string }>(
-      `SELECT instanceCode FROM merge_common_feishu_approvals
-        WHERE status IN ('pending', 'returned', 'approved')
-        ORDER BY COALESCE(lastSyncedAt, submittedAt) ASC LIMIT 20`,
-    );
-    let updated = 0;
-    const errors: string[] = [];
-    for (const row of rows) {
-      try {
-        await syncInvoiceApproval(row.instanceCode);
-        updated += 1;
-      } catch (error) {
-        errors.push(`${row.instanceCode}: ${error instanceof Error ? error.message : error}`);
-      }
-    }
-    return NextResponse.json({ checked: rows.length, updated, errors });
+    const result = await syncPendingInvoiceApprovals(20);
+    return NextResponse.json({ ...result, errors: result.errors.map(item => `${item.instanceCode}: ${item.error}`) });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "同步飞书审批状态失败" }, { status: 400 });
   }

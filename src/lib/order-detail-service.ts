@@ -1,5 +1,6 @@
 import { queryRows, type Row } from "./db";
 import { normalizeTemporalFields } from "./display-format";
+import { getPurchaseSourceRequestNos } from "./purchase-order-sources";
 
 const REQUEST_MASTER_TEMPORAL = {
   datetime: ["createdAt", "updatedAt", "cancelledAt", "remoteStatusUpdatedAt"],
@@ -106,7 +107,13 @@ async function getPurchaseOrderDetail(purchaseOrderId: string): Promise<OrderDet
   ]);
 
   return {
-    master: normalizeTemporalFields(masterRows[0], PURCHASE_MASTER_TEMPORAL),
+    master: normalizeTemporalFields({
+      ...masterRows[0],
+      sourceRequestNos: getPurchaseSourceRequestNos(masterRows[0], [
+        ...details.map((item) => item.requestNo),
+        ...requestItems.map((item) => item.requestNo),
+      ]),
+    }, PURCHASE_MASTER_TEMPORAL),
     details: details.map((row) => normalizeTemporalFields(row, PURCHASE_ITEM_TEMPORAL)),
     requestItems: requestItems.map((row) => normalizeTemporalFields(row, REQUEST_ITEM_TEMPORAL)),
     instanceModels,

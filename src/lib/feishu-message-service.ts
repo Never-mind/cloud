@@ -22,6 +22,7 @@ export async function getFeishuTenantAccessToken() {
   const { appId, appSecret } = getFeishuCredentials();
   const response = await fetch(`${FEISHU_API_BASE}/open-apis/auth/v3/tenant_access_token/internal`, {
     method: "POST",
+    signal: AbortSignal.timeout(30_000),
     headers: { "Content-Type": "application/json; charset=utf-8" },
     body: JSON.stringify({ app_id: appId, app_secret: appSecret }),
   });

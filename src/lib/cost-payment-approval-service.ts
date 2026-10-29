@@ -612,19 +612,25 @@ async function saveAttachmentForOwner(ownerId: string, fileName: string, fileTyp
   );
 }
 
-/** 同步审批状态；通过后回写已付款。 */
-export async function syncCostPaymentApprovals(limit = 30) {
-  const rows = await queryRows<{ id: string; instanceCode: string; ownerType: CostPaymentOwnerType; ownerId: string; allocationSourceIds: string | null }>(
-    `SELECT id, instanceCode, ownerType, ownerId, allocationSourceIds
+/** Only unfinished approvals or failed backfills; completed historical payments leave the queue. */
+export async function syncCostPaymentApprovals(limit = 30, dueOnly = false) {
+  const batchLimit = Number.isFinite(limit) ? Math.max(1, Math.min(200, Math.floor(limit))) : 30;
+  const rows = await queryRows<{ id: string; instanceCode: string; status: string; syncError: string; ownerType: CostPaymentOwnerType; ownerId: string; allocationSourceIds: string | null }>(
+    `SELECT id, instanceCode, status, syncError, ownerType, ownerId, allocationSourceIds
        FROM merge_common_feishu_approvals
-      WHERE approvalCode = :approvalCode AND status IN ('pending', 'returned')
-      ORDER BY submittedAt ASC LIMIT ${Math.max(1, Math.floor(limit))}`,
+      WHERE approvalCode = :approvalCode AND (status IN ('pending', 'returned') OR NULLIF(syncError, '') IS NOT NULL)
+        ${dueOnly ? "AND (lastSyncedAt IS NULL OR lastSyncedAt <= TIMESTAMPADD(SECOND, -60, CURRENT_TIMESTAMP))" : ""}
+      ORDER BY COALESCE(lastSyncedAt, submittedAt) ASC LIMIT ${batchLimit}`,
     { approvalCode: COST_PAYMENT_APPROVAL_CODE },
   );
   const results: Array<{ instanceCode: string; status: string; changed: boolean }> = [];
+  const errors: Array<{ instanceCode: string; error: string }> = [];
   for (const row of rows) {
+    try {
     const remote = await fetchInvoiceApprovalInstance(row.instanceCode);
-    const changed = remote.status !== "pending";
+    const changed = remote.status !== row.status;
+    // Backfill before advancing the ledger to a terminal state, so a failed write remains retryable.
+    if (changed || remote.paymentConfirmedAt || row.syncError) await applyCostPaymentStatus(row.ownerType, approvalOwnerIds(row), remote.status, row.id, remote.paymentConfirmedAt);
     await execute(
       `UPDATE merge_common_feishu_approvals
           SET status = :status, remoteStatus = :remoteStatus, serialNumber = :serialNumber,
@@ -644,13 +650,16 @@ export async function syncCostPaymentApprovals(limit = 30) {
         instanceCode: row.instanceCode,
       },
     );
-    if (changed || remote.paymentConfirmedAt) {
-      const ownerIds = approvalOwnerIds(row);
-      await applyCostPaymentStatus(row.ownerType, ownerIds, remote.status, row.id, remote.paymentConfirmedAt);
-    }
     results.push({ instanceCode: row.instanceCode, status: remote.status, changed });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      errors.push({ instanceCode: row.instanceCode, error: message });
+      await execute("UPDATE merge_common_feishu_approvals SET syncError = :message, lastSyncedAt = CURRENT_TIMESTAMP WHERE instanceCode = :instanceCode", {
+        instanceCode: row.instanceCode, message: message.slice(0, 500),
+      });
+    }
   }
-  return { total: rows.length, results };
+  return { total: rows.length, results, errors };
 }
 
 function approvalOwnerIds(row: { ownerId?: string | null; allocationSourceIds?: string | null }) {

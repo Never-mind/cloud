@@ -164,7 +164,8 @@ export function periodLabel(value: unknown) {
 const LIST_SQL = `
   SELECT i.*,
          COALESCE(NULLIF(cu.shortName, ''), NULLIF(cu.nameCn, ''), NULLIF(cu.name, ''), i.customerName) AS customerDisplayName,
-         COALESCE(NULLIF(uu.shortName, ''), NULLIF(uu.nameCn, ''), NULLIF(uu.nameEn, ''), i.sellerName) AS sellerDisplayName
+         COALESCE(NULLIF(uu.shortName, ''), NULLIF(uu.nameCn, ''), NULLIF(uu.nameEn, ''), i.sellerName) AS sellerDisplayName,
+         (SELECT a.serialNumber FROM merge_common_feishu_approvals a WHERE a.instanceCode = i.approvalInstanceCode LIMIT 1) AS approvalSerialNumber
     FROM ${INVOICE_TABLE} i
     LEFT JOIN merge_common_customers cu ON cu.customerId = i.customerId
     LEFT JOIN merge_common_undertaking_units uu ON uu.undertakingUnitId = i.undertakingUnitId`;
@@ -185,7 +186,7 @@ export async function listInvoices(query: InvoiceListQuery = {}) {
   const keyword = text(query.keyword);
   if (keyword) {
     conditions.push(
-      "(i.invoiceNo LIKE :keyword OR i.customerName LIKE :keyword OR i.customerDisplayName LIKE :keyword OR i.sourceNo LIKE :keyword OR i.sellerName LIKE :keyword)",
+      "(i.invoiceNo LIKE :keyword OR i.customerName LIKE :keyword OR cu.shortName LIKE :keyword OR cu.nameCn LIKE :keyword OR cu.name LIKE :keyword OR i.sourceNo LIKE :keyword OR i.sellerName LIKE :keyword OR EXISTS (SELECT 1 FROM merge_common_feishu_approvals a WHERE a.instanceCode = i.approvalInstanceCode AND a.serialNumber LIKE :keyword))",
     );
     params.keyword = `%${keyword}%`;
   }
@@ -838,7 +839,7 @@ function toRenderInput(resolved: ResolvedInvoice) {
 }
 
 /** 生成/保存开票记录。source=generated 时渲染票面文件；external 时用传入的附件。 */
-export async function saveInvoice(input: InvoiceDraftInput, actor: InvoiceActor = {}, approvalReturn?: { fileId: string; instanceCode: string; relatedFileIds: string[] }) {
+export async function saveInvoice(input: InvoiceDraftInput, actor: InvoiceActor = {}, approvalReturn?: { fileId: string; instanceCode: string; relatedFileIds: string[]; mode?: "automatic" | "manual" }) {
   /**
    * 来源判定：以弹层明确传来的 source 为准，其次按有没有上传文件判断。
    * 注意**不能**用 sourceType === \"manual\" 来判断——手工开票（无来源单据）同样要生成票面，
@@ -1194,7 +1195,7 @@ export async function saveInvoice(input: InvoiceDraftInput, actor: InvoiceActor 
     const fileIds=Object.fromEntries(approvalReturn.relatedFileIds.map((fileId,index)=>[`fileId${index}`,fileId]));
     await executeRaw(`UPDATE merge_common_invoice_approval_files SET invoiceId = :id, confirmedJson = :confirmed, confirmedBy = :actor, confirmedAt = NOW() WHERE instanceCode = :code AND id IN (${Object.keys(fileIds).map(key=>`:${key}`).join(",")})`, {
       id, code: approvalReturn.instanceCode, ...fileIds, actor: text(actor.userId || actor.name),
-      confirmed: JSON.stringify({ invoiceNo: resolved.invoiceNo, invoiceDate: resolved.invoiceDate, currency: resolved.currency,
+      confirmed: JSON.stringify({ registrationMode: approvalReturn.mode || "manual", invoiceNo: resolved.invoiceNo, invoiceDate: resolved.invoiceDate, currency: resolved.currency,
         customerId: resolved.customer.customerId, undertakingUnitId: resolved.bank.undertakingUnitId,
         amountExcludingTax: resolved.amountExcludingTax, taxAmount: resolved.taxAmount, taxRate: resolved.taxRate,
         amountIncludingTax: resolved.amountIncludingTax, dueDate: resolved.dueDate, paymentTermDays: resolved.paymentTermDays }),
