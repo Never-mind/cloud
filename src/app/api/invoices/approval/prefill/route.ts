@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
     if (!["cloud_row", "billing_statement", "service_fee", "settlement_invoice"].includes(sourceType)) throw new Error("不支持的审批来源");
     const flow = params.get("flow") ?? "cloud";
     if (!["cloud", "vat"].includes(flow)) throw new Error("不支持的开票审批流程");
-    const source = { sourceType, sourceId: params.get("sourceId"), sourceIds };
+    const source = { sourceType, sourceId: params.get("sourceId"), sourceIds, customerId: params.get("customerId") ?? undefined, undertakingUnitId: params.get("undertakingUnitId") ?? undefined };
     if (flow === "vat") {
       const [user] = await queryRows<{ feishuOpenId: string }>("SELECT feishuOpenId FROM merge_common_users WHERE email = :email LIMIT 1", { email });
       return NextResponse.json(await buildVatApprovalPrefill({ ...source, starterOpenId: String(user?.feishuOpenId ?? "").trim() }));

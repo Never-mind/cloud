@@ -2,10 +2,14 @@ import { queryRows, type Row } from "./db";
 import {
   aggregateNewInstancesByCountryMonth,
   aggregateServiceFeesByCountryMonthCurrency,
+  aggregateCloudFinancials,
+  normalizeDashboardMonth,
+  type DashboardCloudSource,
   type DashboardNewInstanceSource,
   type DashboardServiceFeeSource,
 } from "./dashboard-workflow";
 import { isConfirmedOrderStatus } from "./order-status";
+import { buildExchangeRateMap, lookupExchangeRate } from "./exchange-rate-service";
 
 /** 项目结算的五个阶段，与 `settlement-project-service` 里的状态码保持一致。 */
 const PO_SETTLEMENT_STATUSES = ["purchasing", "procurement_completed", "accepting", "acceptance_completed", "closed"] as const;
@@ -18,7 +22,7 @@ const PO_SETTLEMENT_STATUSES = ["purchasing", "procurement_completed", "acceptin
  * 华为云的应收/应付直接按对账表求和（与对账页"按币种合计"的 USD 段同源）。
  */
 async function loadDomainPortfolio() {
-  const [poRows, cloudRows, poStatusRows, poCustomerRows, grossProfitRows, pipelineRows] = await Promise.all([
+  const [poRows, cloudRows, poStatusRows, poCustomerRows, cloudFinancialRows, pipelineRows] = await Promise.all([
     queryRows<Row>(
       `SELECT
          (SELECT COUNT(*) FROM merge_po_customer_pos) AS customerPoCount,
@@ -47,12 +51,18 @@ async function loadDomainPortfolio() {
         GROUP BY customer
         ORDER BY quotedUsd DESC`,
     ),
-    // 结算毛利按月 × 客户：月份做横轴（数据会随月份增多），客户做可选序列。
-    queryRows<Row>(
-      `SELECT period, customer, COALESCE(SUM(COALESCE(settlementGrossProfit, 0)), 0) AS amount
-         FROM merge_cloud_rows
-        GROUP BY period, customer
-        ORDER BY period, customer`,
+    // 名称与对账列表一致；在纯函数中统一账期、合并同一客户的多个账号。
+    queryRows<DashboardCloudSource>(
+      `SELECT r.period, r.customerId,
+              COALESCE(
+                (SELECT COALESCE(NULLIF(c.shortName, ''), NULLIF(c.nameCn, ''), NULLIF(c.name, ''), NULLIF(c.customerCode, ''))
+                   FROM merge_common_customers c
+                  WHERE c.customerId = r.customerId OR c.customerCode = r.customerId LIMIT 1),
+                NULLIF(r.customer, ''), NULLIF(r.customerId, '')) AS customer,
+              r.customerReceivableNetAmount, r.customerReceivable,
+              r.settlementGrossProfit, r.grossProfit
+         FROM merge_cloud_rows r
+        ORDER BY r.period, r.customer`,
     ),
     /**
      * 集采售前两个环节的「当前数量」：
@@ -98,19 +108,6 @@ async function loadDomainPortfolio() {
     quotedUsd: Number(row.quotedUsd ?? 0),
     receivedUsd: Number(row.receivedUsd ?? 0),
   }));
-  const grossProfitMonths = [...new Set(grossProfitRows.map((row) => String(row.period ?? "")))].filter(Boolean).sort();
-  const customerSeries = new Map<string, number[]>();
-  for (const row of grossProfitRows) {
-    const customer = String(row.customer ?? "").trim() || "（未填客户）";
-    const monthIndex = grossProfitMonths.indexOf(String(row.period ?? ""));
-    if (monthIndex < 0) continue;
-    const values = customerSeries.get(customer) ?? grossProfitMonths.map(() => 0);
-    values[monthIndex] = Number(row.amount ?? 0);
-    customerSeries.set(customer, values);
-  }
-  const grossProfitByCustomer = [...customerSeries.entries()]
-    .map(([customer, values]) => ({ customer, values, total: values.reduce((sum, value) => sum + value, 0) }))
-    .sort((left, right) => right.total - left.total);
   return {
     po: {
       customerPoCount: Number(po.customerPoCount ?? 0),
@@ -135,13 +132,7 @@ async function loadDomainPortfolio() {
       cloudRowCount: Number(cloud.cloudRowCount ?? 0),
       receivableUsd: Number(cloud.receivableUsd ?? 0),
       payableUsd: Number(cloud.payableUsd ?? 0),
-      grossProfit: {
-        months: grossProfitMonths,
-        totals: grossProfitMonths.map((_, index) =>
-          grossProfitByCustomer.reduce((sum, entry) => sum + Number(entry.values[index] ?? 0), 0),
-        ),
-        byCustomer: grossProfitByCustomer,
-      },
+      financials: aggregateCloudFinancials(cloudFinancialRows),
     },
   };
 }
@@ -155,9 +146,12 @@ export async function getDashboardOverview(searchParams: URLSearchParams) {
     listInstanceReceiptRows(countryCode),
   ]);
 
+  const rates = await buildExchangeRateMap(serviceFeeRows
+    .filter((row) => String(row.countryCode ?? "").trim().toUpperCase() === "BR")
+    .map((row) => normalizeDashboardMonth(row.writeOffMonth)));
   return {
     countries,
-    serviceFees: aggregateServiceFeesByCountryMonthCurrency(serviceFeeRows),
+    serviceFees: aggregateServiceFeesByCountryMonthCurrency(serviceFeeRows, (month, source, target) => lookupExchangeRate(rates, month, source, target)),
     newInstances: aggregateNewInstancesByCountryMonth(newInstanceRows),
     instanceReceipt: instanceReceiptRows,
     portfolio: await loadDomainPortfolio(),
@@ -168,10 +162,10 @@ export async function getDashboardOverview(searchParams: URLSearchParams) {
  * 首页「设备签收情况」两个饼图的数据源。
  *
  * 口径（按业务确认）：
- *   - 范围：**全部历史**的已确认需求单（待下单/已下单），草稿单不计（不按月份截取）；
+ *   - 范围：**全部历史、已生成物流**的已确认需求明细，草稿及尚未生成物流的不计；
  *   - 类型：只统计**设备（Equipment）**的实例型号，配件/组件不计；
  *   - 单位：**设备台数**，取需求明细的数量（一个实例 16 台即算 16 台）；
- *   - 签收：该明细关联的物流派送时间有值算已签收，无物流或派送时间为空算未签收
+ *   - 签收：该明细关联的物流派送时间有值算已签收，已有物流但派送时间为空算未签收
  *     （与物流列表「是否签收」同一口径）；
  *   - 分组：按需求单国家 × 签收状态。
  */
@@ -202,6 +196,12 @@ async function listInstanceReceiptRows(countryCode: string) {
         JOIN requests req ON req.requestNo = ri.requestNo
         LEFT JOIN instancemodels im ON im.deviceCode = ri.deviceCode
        WHERE COALESCE(NULLIF(im.instanceType, ''), 'Equipment') = 'Equipment'
+         AND EXISTS (
+               SELECT 1
+                 FROM purchaseorderitems poi
+                 JOIN shipments s ON s.purchaseOrderItemId = poi.id
+                WHERE poi.requestItemId = ri.id
+             )
          ${countryWhere}
     `,
     params,
@@ -240,7 +240,9 @@ async function listServiceFeeRows(countryCode: string) {
         currency,
         billingCurrency,
         prepaymentCurrency,
-        serviceFeeAmount
+        serviceFeeCurrency,
+        serviceFeeAmount,
+        fxStatus
       FROM servicefeesnapshotitems
       ${where}
       ORDER BY writeOffMonth DESC, countryCode, currency

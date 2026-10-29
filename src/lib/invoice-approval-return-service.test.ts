@@ -17,6 +17,15 @@ beforeEach(() => {
 });
 
 describe("cross-currency VAT return review", () => {
+  it("compares return parties and terms with the approved selections instead of source defaults", async () => {
+    const partySnapshot = { customerId: "actual-customer", undertakingUnitId: "actual-unit", customer: { name: "Approved Customer", taxId: "TAX", address: "Approved Address" }, sellerName: "Approved Unit", paymentTermDays: 30 };
+    mocks.prefill.mockResolvedValue({ customerId: "business-customer", undertakingUnitId: "business-unit", paymentTermDays: 1111 });
+    mocks.query.mockImplementation(async (sql: string) => sql.includes("SELECT instanceCode") ? [{ instanceCode: "instance" }] : sql.includes("FROM merge_common_feishu_approvals") ? [{ ownerType: "cloud_row", ownerId: "source", status: "approved", partySnapshotJson: JSON.stringify(partySnapshot) }] : []);
+    const result = await returnedInvoiceReview("file");
+    expect(result.base).toMatchObject({ customerId: "actual-customer", undertakingUnitId: "actual-unit", customerName: "Approved Customer", customerTaxNumber: "TAX", paymentTermDays: 30 });
+    expect(result.partySnapshot).toEqual(partySnapshot);
+    expect(mocks.query.mock.calls.some(([sql]) => sql.includes("SELECT paymentTermDays"))).toBe(false);
+  });
   it.each([JSON.stringify([{ id: VAT_FIELDS.amount, value: 742 }]), "invalid snapshot"])("uses the VAT application currency while preserving the USD source: %s", async formJson => {
     mocks.prefill.mockResolvedValue({ currency: "USD", amountIncludingTax: "106", exchangeRate: "1" });
     mocks.query.mockImplementation(async (sql: string) => {

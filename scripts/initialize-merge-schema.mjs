@@ -847,6 +847,8 @@ CREATE TABLE IF NOT EXISTS cloud_supplier_payments (
   period VARCHAR(16) NOT NULL,
   supplierId VARCHAR(64) NULL,
   supplierName VARCHAR(255) NOT NULL,
+  invoiceSupplierId VARCHAR(64) NULL,
+  invoiceSupplierName VARCHAR(255) NULL,
   supplierPayableCurrency VARCHAR(10) NULL,
   supplierPayableNetAmount DECIMAL(18,4) NULL,
   supplierTaxRate DECIMAL(10,6) NULL,
@@ -1091,6 +1093,8 @@ async function ensureCloudRowColumns() {
 
 async function ensureCloudSupplierPaymentColumns() {
   for (const [columnName, definition] of [
+    ["invoiceSupplierId", "VARCHAR(64) NULL"],
+    ["invoiceSupplierName", "VARCHAR(255) NULL"],
     ["supplierPayableCurrency", "VARCHAR(10) NULL"],
     ["supplierPayableNetAmount", "DECIMAL(18,4) NULL"],
     ["supplierTaxRate", "DECIMAL(10,6) NULL"],

@@ -3,7 +3,7 @@ import type { InvoiceSourceType } from "./invoice-service";
 import { readFile } from "./file-storage-service";
 import { INVOICE_ATTACHMENT_LIMITS as LIMITS, parseInvoiceAttachmentSelection, type InvoiceAttachmentOption, type InvoiceAttachmentSelection, type InvoiceAttachmentSource } from "./invoice-approval-attachments";
 
-type Context = { sourceType: InvoiceSourceType; sourceId?: string | null; sourceIds?: string[] | null; customerId: string };
+type Context = { sourceType: InvoiceSourceType; sourceId?: string | null; sourceIds?: string[] | null; customerId: string; sourceCustomerId?: string };
 type Scope = { source: InvoiceAttachmentSource; label: string; table: string; id: string; where: string; values: Row };
 async function scopes(context: Context): Promise<Scope[]> {
   const result: Scope[] = [];
@@ -20,7 +20,15 @@ async function scopes(context: Context): Promise<Scope[]> {
         OR c.customerCode = COALESCE(NULLIF(r.invoicePayerCustomerId, ''), r.customerId)
       WHERE r.id IN (:ids)`, { ids });
     if (rows.length !== ids.length) throw new Error("选中的账单行已不存在，请重新选择");
-    if (rows.some(row => String(row.customerId ?? "") !== context.customerId && (!row.customerCode || String(row.customerCode) !== context.customerId))) throw new Error("所选账期的开票客户不一致，请按客户分别申请");
+    const sourceCustomerId = context.sourceCustomerId ?? context.customerId;
+    if (rows.some(row => String(row.customerId ?? "") !== sourceCustomerId && (!row.customerCode || String(row.customerCode) !== sourceCustomerId))) throw new Error("所选账期的开票客户不一致，请按客户分别申请");
+  } else if(context.sourceType==="service_fee"&&context.sourceIds?.length) {
+    if(!ids.includes(sourceId))throw new Error("来源账期不在所选账单中，请重新选择");
+    const rows=await queryRows<Row>(`SELECT r.snapshotNo,COALESCE(c.customerId,k.defaultCustomerId) AS customerId
+      FROM merge_power_servicefeesnapshots r LEFT JOIN merge_power_countries k ON k.code=r.countryCode
+      LEFT JOIN merge_common_customers c ON c.customerId=k.defaultCustomerId OR c.customerCode=k.defaultCustomerId WHERE r.snapshotNo IN (:ids)`,{ids});
+    if(rows.length!==ids.length)throw new Error("所选服务费账单已不存在");
+    if(new Set(rows.map(row=>String(row.customerId??""))).size!==1)throw new Error("所选服务费账单的业务客户不一致");
   } else {
     if (context.sourceIds?.length) throw new Error("当前来源不支持合并账期，请重新选择");
     const tables: Partial<Record<InvoiceSourceType, [string, string]>> = {
@@ -35,7 +43,7 @@ async function scopes(context: Context): Promise<Scope[]> {
   if (context.customerId) result.push({ source: "customer", label: "客户档案", table: "merge_common_attachments", id: "attachmentId", where: "ownerType = 'customers' AND ownerId = :customerId", values: { customerId: context.customerId } });
   if (context.sourceType === "cloud_row") result.push({ source: "cloud_row", label: "华为云账期账单", table: "merge_cloud_attachments", id: "id", where: "ownerType IN ('reconciliation', 'invoice', 'collection') AND ownerId IN (:ids)", values: { ids } });
   if (context.sourceType === "billing_statement") result.push({ source: "billing_statement", label: "算力月账单", table: "merge_power_billingstatement_attachments", id: "id", where: "snapshotNo = :sourceId", values: { sourceId } });
-  if (context.sourceType === "service_fee") result.push({ source: "service_fee", label: "服务费对账单", table: "merge_cloud_attachments", id: "id", where: "ownerType = 'service_fee_invoice' AND ownerId = :sourceId", values: { sourceId } });
+  if (context.sourceType === "service_fee") result.push({ source: "service_fee", label: "服务费对账单", table: "merge_cloud_attachments", id: "id", where: ids.length>1?"ownerType = 'service_fee_invoice' AND ownerId IN (:ids)":"ownerType = 'service_fee_invoice' AND ownerId = :sourceId", values: ids.length>1?{ids}:{sourceId} });
   if (context.sourceType === "settlement_invoice") {
     result.push({ source: "settlement_invoice", label: "项目结算单据", table: "merge_po_settlement_attachments", id: "id", where: "invoiceId = :sourceId", values: { sourceId } });
     result.push({ source: "settlement_project", label: "项目附件", table: "merge_po_settlement_attachments", id: "id", where: "invoiceId IS NULL AND projectId IN (SELECT projectId FROM merge_po_settlement_invoices WHERE id = :sourceId)", values: { sourceId } });

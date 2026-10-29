@@ -6,7 +6,7 @@ vi.mock("./db", () => ({
   executeInTransaction: (_connection: unknown, sql: string, values: Record<string, unknown>) => db.transactional(sql, values),
   withTransaction: async (callback: (connection: object) => Promise<void>) => { try { await callback({}); db.committed = true; } catch (error) { db.rolledBack = true; throw error; } },
 }));
-vi.mock("./file-storage-service", () => ({ storeFile: vi.fn(async () => ({ provider: "db", storageKey: null, fileName: "Inv_test.pdf" })), deleteFileObject: vi.fn(), readFile: vi.fn() }));
+vi.mock("./file-storage-service", () => ({ storeFile: vi.fn(async (input: { fileName: string }) => ({ provider: "db", storageKey: null, fileName: input.fileName })), deleteFileObject: vi.fn(), readFile: vi.fn() }));
 vi.mock("./invoice-pdf", () => ({ renderInvoicePdf: vi.fn() }));
 import { backfillInvoiceSourceFields, buildInvoicePrefill, saveInvoice, voidInvoice } from "./invoice-service";
 const input = { source: "external" as const, sourceType: "cloud_row" as const, sourceId: "row-1", invoiceNo: "TEST-1", invoiceDate: "2026-10-23", dueDate: "2026-12-10", period: "202609", customerId: "customer-1", undertakingUnitId: "unit-1", currency: "CNY", exchangeRate: "7.12345678", amountExcludingTax: "100", taxRate: "13", taxAmount: "12.99", amountIncludingTax: "112.99", file: { fileName: "test.pdf", fileType: "application/pdf", bytes: Buffer.from("test") } };
@@ -18,6 +18,33 @@ beforeEach(() => {
   db.transactional.mockImplementation(async (sql: string, values: Record<string, unknown>) => { db.writes.push({ sql, values }); });
 });
 describe("external invoice persistence", () => {
+  it.each(["cloud_row", "service_fee"] as const)("saves reviewed no-tax Excel invoices and dates back to %s", async sourceType => {
+    db.queryTransaction.mockImplementation(async (sql: string) => sql.includes("FROM merge_cloud_rows") ? [{ id: "row-1", confirmed: 1 }]
+      : sql.includes("FROM merge_power_servicefeesnapshots") ? [{ snapshotNo: "row-1", status: "已确认" }] : []);
+    db.query.mockImplementation(async (sql: string) => sql.includes("FROM merge_cloud_rows") ? [{ id: "row-1", confirmed: 1 }]
+      : sql.includes("FROM merge_power_servicefeesnapshots") ? [{ snapshotNo: "row-1", status: "已确认" }]
+      : sql.includes("FROM merge_common_customers WHERE") ? [{ name: "Customer" }]
+      : sql.includes("FROM merge_common_undertaking_units WHERE") ? [{ name: "Unit", paymentTermDays: 30 }] : []);
+    await saveInvoice({ ...input, sourceType, invoiceDate: "2026-05-07", dueDate: "2026-05-14", paymentTermDays: "7",
+      currency: "USD", exchangeRate: "1", amountExcludingTax: "1059.76", taxRate: "0", taxAmount: "0", amountIncludingTax: "1059.76",
+      bankCode: "020", bankAccount: "00012345678", customerAddress: "Invoice address",
+      file: { fileName: "invoice.xlsx", fileType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", bytes: Buffer.from("test workbook") } });
+    const invoice = db.writes.find(item => item.sql.includes("INSERT INTO merge_common_invoices"));
+    expect(invoice?.values).toMatchObject({ amountExcludingTax: "1059.76", amountIncludingTax: "1059.76", taxRate: "0", taxAmount: "0.00",
+      dueDate: "2026-05-14", paymentTermDays: 7, bankCode: "020", bankAccount: "00012345678", customerAddress: "Invoice address", fileName: "invoice.xlsx" });
+    const source = db.writes.find(item => item.sql.includes(sourceType === "cloud_row" ? "UPDATE merge_cloud_rows" : "UPDATE merge_power_servicefeesnapshots"));
+    expect(source?.values).toMatchObject({ taxRate: "0", total: "1059.76", net: "1059.76", dueDate: "2026-05-14" });
+    expect(source?.sql).not.toMatch(/(?:SET|,)\s*(?:confirmed\w*|status|serviceFeeTotal|customerReceivable\w*|repayment\w*)\s*=/);
+  });
+  it("stores reviewed partner data and does not replace deliberately cleared fields from the archive", async () => {
+    await saveInvoice({ ...input, customerId: "customer-2", undertakingUnitId: "unit-2", customerName: "Reviewed Customer", customerTaxNumber: "NEW-TAX", customerAddress: "", sellerName: "Reviewed Seller", bankName: "New Bank", bankAccount: "New Account" });
+    expect(db.writes.find(item => item.sql.includes("INSERT INTO merge_common_invoices"))?.values).toMatchObject({ customerId: "customer-2", undertakingUnitId: "unit-2", customerName: "Reviewed Customer", customerTaxNumber: "NEW-TAX", customerAddress: "", sellerName: "Reviewed Seller", bankName: "New Bank", bankAccount: "New Account" });
+    expect(db.writes.some(item => /UPDATE merge_common_(customers|undertaking_units)/.test(item.sql))).toBe(false);
+  });
+  it("uses settlement invoice overrides before project defaults", async () => {
+    db.query.mockImplementation(async (sql: string) => sql.includes("FROM merge_po_settlement_invoices") ? [{ id: "line", type: "income", companyEntityId: "actual-unit", invoiceEntityId: "actual-customer", invoiceEntityType: "customer", contractingUnitId: "project-unit", customerId: "project-customer", invoiceTotal: 106 }] : []);
+    expect(await buildInvoicePrefill({ sourceType: "settlement_invoice", sourceId: "line" })).toMatchObject({ undertakingUnitId: "actual-unit", customerId: "actual-customer" });
+  });
   it("does not label USD receivables as CNY when only an invoice currency has been entered", async () => {
     db.query.mockImplementation(async (sql: string) => sql.includes("FROM merge_cloud_rows") ? [{ id: "row-1", collectionCurrency: "USD", invoiceCurrency: "CNY", invoiceNetAmount: "700", invoiceExchangeRate: "7", invoiceTaxRate: "0.13", customerReceivableNetAmount: "100", customerReceivableTotalAmount: "106", customerTaxRate: "0.06" }] : []);
     const result = await buildInvoicePrefill({ sourceType: "cloud_row", sourceId: "row-1" });
@@ -61,7 +88,10 @@ describe("external invoice persistence", () => {
     await saveInvoice(input, { userId: "user" }, { fileId: "file-1", instanceCode: "instance", relatedFileIds: ["file-1", "file-2"] });
     expect(db.committed).toBe(true);
     expect(db.writes.some(item => item.sql.includes("SET approvalInstanceCode"))).toBe(true);
-    expect(db.writes.find(item => item.sql.includes("confirmedJson"))?.values.fileIds).toEqual(["file-1", "file-2"]);
+    const confirmed = db.writes.find(item => item.sql.includes("confirmedJson"));
+    expect(confirmed?.sql).toContain("id IN (:fileId0,:fileId1)");
+    expect(confirmed?.values).toMatchObject({fileId0:"file-1",fileId1:"file-2"});
+    expect(Object.values(confirmed?.values ?? {}).some(Array.isArray)).toBe(false);
   });
   it.each(["pending", "canceled", "rejected"])("never posts a %s approval", async status => {
     db.queryTransaction.mockResolvedValue([{ status }]);
@@ -88,11 +118,14 @@ describe("external invoice persistence", () => {
   });
 
   it("backfills confirmed dates, parties, precise FX and actual tax atomically", async () => {
+    db.queryTransaction.mockImplementation(async (sql: string) => sql.includes("FROM merge_cloud_rows")
+      ? [{ id: "row-1", confirmed: 1, confirmedAt: "2026-10-01", customerReceivableNetAmount: 1000 }] : []);
     await saveInvoice(input);
     expect(db.committed).toBe(true);
     const invoice = db.writes.find(item => item.sql.includes("INSERT INTO merge_common_invoices"));
     expect(invoice?.values).toMatchObject({ period: "202609", exchangeRate: "7.12345678", taxAmount: "12.99", amountIncludingTax: "112.99" });
     const source = db.writes.find(item => item.sql.includes("UPDATE merge_cloud_rows"));
+    expect(source?.sql).not.toMatch(/(?:SET|,)\s*(?:confirmed\w*|customerReceivable\w*|supplierPayable\w*|collectionNetAmount|collectionTotalAmount|settlementGrossProfit)\s*=/);
     expect(source?.values).toMatchObject({ invoiceDate: "2026-10-23", dueDate: "2026-12-10", unitId: "unit-1", customerId: "customer-1", taxAmount: "12.99", taxRate: "0.13" });
     expect(db.writes.some(item => item.sql.includes("INSERT INTO merge_cloud_attachments"))).toBe(true);
   });
@@ -120,6 +153,7 @@ describe("external invoice persistence", () => {
     expect(db.writes[0].sql).toContain("invoiceDate = :invoiceDate");
     expect(db.writes[0].sql).toContain("receivableDate = COALESCE(:dueDate, receivableDate)");
     expect(db.writes[0].values).toMatchObject({ invoiceDate: "2026-10-23", dueDate: "2026-12-10" });
+    expect(db.writes[0].sql).not.toMatch(/(?:SET|,)\s*(?:status|confirmedAt|serviceFeeTotal|repayment\w*)\s*=/);
   });
   it.each([0, 0.5, 1, 0.1234])("preserves %s percent without rounding to a money precision", async rate => {
     await saveInvoice({ ...input, taxRate: String(rate), taxAmount: String(rate), amountIncludingTax: String(100 + rate) });

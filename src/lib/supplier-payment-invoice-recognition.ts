@@ -17,6 +17,8 @@ export type SupplierPaymentInvoiceRecognitionForm = {
   taxAmount?: unknown;
   invoiceTotal?: unknown;
   invoiceEntityId?: unknown;
+  invoiceEntity?: unknown;
+  invoiceEntityType?: unknown;
 };
 
 export function buildSupplierPaymentInvoicePatch(
@@ -40,6 +42,10 @@ export function buildSupplierPaymentInvoicePatch(
   if (Object.keys(patch).length) patch.invoiceStatus = "issued";
 
   const warnings: string[] = [];
+  // Never keep the previous invoice's supplier when the new file is ambiguous.
+  patch.invoiceSupplierId = form.invoiceEntityType === "supplier" || form.invoiceEntityType === undefined ? String(form.invoiceEntityId ?? "") : "";
+  patch.invoiceSupplierName = patch.invoiceSupplierId ? String(form.invoiceEntity ?? "") : "";
+  if (!patch.invoiceSupplierId) warnings.push("未唯一匹配实际开票供应商，请从供应商库选择");
   if (!patch.invoiceNo) warnings.push("未识别到发票号，请手工填写");
   if (!patch.invoiceTotalAmount) warnings.push("未识别到发票含税金额，请手工填写");
   if (current.supplierId && form.invoiceEntityId && String(current.supplierId) !== String(form.invoiceEntityId)) {

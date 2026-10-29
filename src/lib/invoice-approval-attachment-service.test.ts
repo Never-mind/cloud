@@ -16,6 +16,11 @@ function attachmentRows(rows: Array<Record<string, unknown>>) {
 }
 beforeEach(() => { vi.resetAllMocks(); attachmentRows([]); mocks.read.mockResolvedValue({ bytes: Buffer.from("file") }); });
 describe("invoice approval attachment scopes", () => {
+  it("loads the explicitly selected customer's materials while retaining source ownership validation", async () => {
+    await listInvoiceApprovalAttachments({ ...context, sourceCustomerId: "customer1", customerId: "customer2" });
+    expect(mocks.query).toHaveBeenCalledWith(expect.stringContaining("ownerType = 'customers'"), { customerId: "customer2" });
+    expect(mocks.query).toHaveBeenCalledWith(expect.stringContaining("ownerId IN (:ids)"), { ids: ["row1", "row2"] });
+  });
   it("lists metadata only from the current customer and selected periods", async () => {
     attachmentRows([{ attachmentId: "a", fileName: "file.pdf", fileSize: 4 }]);
     const files = await listInvoiceApprovalAttachments(context);
@@ -91,8 +96,15 @@ describe("invoice approval attachment scopes", () => {
     mocks.query.mockResolvedValue([]);
     await expect(listInvoiceApprovalAttachments({ ...context, sourceType, sourceIds: [] })).rejects.toThrow("来源单据不存在");
     mocks.query.mockClear();
-    await expect(listInvoiceApprovalAttachments({ ...context, sourceType })).rejects.toThrow("不支持合并");
-    expect(mocks.query).not.toHaveBeenCalled();
+    await expect(listInvoiceApprovalAttachments({ ...context, sourceType })).rejects.toThrow(sourceType==="service_fee"?"已不存在":"不支持合并");
+    if(sourceType!=="service_fee")expect(mocks.query).not.toHaveBeenCalled();
+  });
+  it("loads selected service-fee materials and rejects a foreign business customer",async()=>{
+    mocks.query.mockImplementation(async(sql:string)=>sql.includes("FROM merge_power_servicefeesnapshots r")?[{snapshotNo:"row1",customerId:"customer1"},{snapshotNo:"row2",customerId:"customer1"}]:[]);
+    await listInvoiceApprovalAttachments({...context,sourceType:"service_fee",customerId:"invoice-customer-B"});
+    expect(mocks.query).toHaveBeenCalledWith(expect.stringContaining("ownerId IN (:ids)"),{ids:["row1","row2"]});
+    mocks.query.mockResolvedValue([{snapshotNo:"row1",customerId:"customer1"},{snapshotNo:"row2",customerId:"other"}]);
+    await expect(listInvoiceApprovalAttachments({...context,sourceType:"service_fee"})).rejects.toThrow("业务客户不一致");
   });
 });
 describe("attachment input and Cloud branch definitions", () => {

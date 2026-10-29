@@ -67,8 +67,10 @@ async function main() {
         \`starterUserId\` VARCHAR(64) NULL COMMENT '发起人系统用户ID',
         \`starterName\` VARCHAR(128) NULL COMMENT '发起人姓名',
         \`invoiceId\` CHAR(36) NULL COMMENT '通过后生成的开票记录ID',
-        \`allocationSourceIds\` VARCHAR(500) NULL COMMENT '合并多账期时勾选的账单行ID（逗号分隔），通过后按这批行出票',
+        \`allocationSourceIds\` TEXT NULL COMMENT '合并多账期时勾选的账单行ID（逗号分隔），通过后按这批行出票',
+        \`allocationPlanJson\` LONGTEXT NULL COMMENT '多账期开票分摊与票面展示快照',
         \`formJson\` LONGTEXT NULL COMMENT '提交给飞书的表单快照',
+        \`partySnapshotJson\` LONGTEXT NULL COMMENT '本次开票双方资料快照',
         \`rejectReason\` VARCHAR(500) NULL COMMENT '驳回/撤回原因',
         \`submittedAt\` DATETIME NULL COMMENT '提交时间',
         \`finishedAt\` DATETIME NULL COMMENT '审批结束时间',
@@ -100,7 +102,7 @@ async function main() {
     console.log("提示：merge_common_invoices 不存在，先跑 npm run schema:invoices");
   }
 
-  await addColumnIfMissing("merge_common_feishu_approvals", "allocationSourceIds", "`allocationSourceIds` VARCHAR(500) NULL COMMENT '合并多账期时勾选的账单行ID（逗号分隔）'");
+  await addColumnIfMissing("merge_common_feishu_approvals", "allocationSourceIds", "`allocationSourceIds` TEXT NULL COMMENT '合并多账期时勾选的账单行ID（逗号分隔）'");
   await addColumnIfMissing("merge_common_feishu_approvals", "invoiceParseJson", "`invoiceParseJson` LONGTEXT NULL COMMENT '审批回传发票的解析结果与核验差异'");
 
   // 客户档案补两个开票审批要用的字段：墨西哥的税制（Régimen Fiscal）和发票地址邮编

@@ -602,6 +602,8 @@ async function main() {
     "`receivableDate` DATE NULL COMMENT '应收日期' AFTER `paymentDate`",
   );
   // 供应商付款的应付金额快照：前端按账期+供应商汇总展示，这里落库供外部系统直接读取。
+  await addColumnIfMissing("merge_cloud_supplier_payments", "invoiceSupplierId", "`invoiceSupplierId` VARCHAR(64) NULL COMMENT '实际开票供应商ID'");
+  await addColumnIfMissing("merge_cloud_supplier_payments", "invoiceSupplierName", "`invoiceSupplierName` VARCHAR(255) NULL COMMENT '实际开票供应商名称快照'");
   for (const [columnName, ddl] of [
     ["supplierPayableCurrency", "`supplierPayableCurrency` VARCHAR(10) NULL COMMENT '应付币种' AFTER `supplierName`"],
     ["supplierPayableNetAmount", "`supplierPayableNetAmount` DECIMAL(18,4) NULL COMMENT '应付未税金额' AFTER `supplierPayableCurrency`"],

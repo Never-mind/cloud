@@ -7,6 +7,7 @@ import { hasPermission } from "@/lib/permission-definitions";
 import { getPermissionStateForEmail } from "@/lib/permission-service";
 import { submitVatInvoiceApproval } from "@/lib/vat-invoice-approval-service";
 import type { VatDraft } from "@/lib/vat-invoice-approval";
+import type {InvoiceAllocationPlan} from "@/lib/invoice-allocation";
 import { parseInvoiceAttachmentSelection, type InvoiceAttachmentSelection } from "@/lib/invoice-approval-attachments";
 
 /**
@@ -45,6 +46,7 @@ export async function POST(request: NextRequest) {
     if (flow === "vat") {
       if (!body.draft || typeof body.draft !== "object") throw new Error("缺少增值税开票信息");
       const result = await submitVatInvoiceApproval({
+        allocationPlan:body.allocationPlan as InvoiceAllocationPlan|undefined,
         sourceType, sourceId, sourceIds: Array.isArray(body.sourceIds) ? body.sourceIds.map(text).filter(Boolean) : undefined,
         starterOpenId, starterUserId: user.userId, starterName: user.feishuName || user.displayName,
         draft: { ...body.draft as VatDraft, ...parseInvoiceAttachmentSelection(body.draft as VatDraft) },
@@ -53,9 +55,12 @@ export async function POST(request: NextRequest) {
     }
 
     const result = await submitInvoiceApprovalFromSource({
+      allocationPlan:body.allocationPlan as InvoiceAllocationPlan|undefined,
       ...parseInvoiceAttachmentSelection(body as InvoiceAttachmentSelection),
       sourceType,
       sourceId,
+      customerId: body.customerId === undefined ? undefined : text(body.customerId),
+      undertakingUnitId: body.undertakingUnitId === undefined ? undefined : text(body.undertakingUnitId),
       sourceIds: Array.isArray(body.sourceIds) ? (body.sourceIds as unknown[]).map(text).filter(Boolean) : undefined,
       invoiceId: text(body.invoiceId) || null,
       starterOpenId,
@@ -63,16 +68,17 @@ export async function POST(request: NextRequest) {
       starterName: String(user?.feishuName || user?.displayName || ""),
       purpose: text(body.purpose) || undefined,
       paymentReceivedTime: text(body.paymentReceivedTime),
+      paymentTermDays: body.paymentTermDays === undefined ? undefined : text(body.paymentTermDays),
       invoiceContent: text(body.invoiceContent) || undefined,
       paymentMethodKey: text(body.paymentMethodKey) || undefined,
       cfdiCodeKey: text(body.cfdiCodeKey) || undefined,
       customerOverride: body.customerOverride && typeof body.customerOverride === "object"
         ? {
-          name: text((body.customerOverride as Record<string, unknown>).name) || undefined,
-          taxId: text((body.customerOverride as Record<string, unknown>).taxId) || undefined,
-          taxRegime: text((body.customerOverride as Record<string, unknown>).taxRegime) || undefined,
-          address: text((body.customerOverride as Record<string, unknown>).address) || undefined,
-          postCode: text((body.customerOverride as Record<string, unknown>).postCode) || undefined,
+          name: (body.customerOverride as Record<string, unknown>).name === undefined ? undefined : text((body.customerOverride as Record<string, unknown>).name),
+          taxId: (body.customerOverride as Record<string, unknown>).taxId === undefined ? undefined : text((body.customerOverride as Record<string, unknown>).taxId),
+          taxRegime: (body.customerOverride as Record<string, unknown>).taxRegime === undefined ? undefined : text((body.customerOverride as Record<string, unknown>).taxRegime),
+          address: (body.customerOverride as Record<string, unknown>).address === undefined ? undefined : text((body.customerOverride as Record<string, unknown>).address),
+          postCode: (body.customerOverride as Record<string, unknown>).postCode === undefined ? undefined : text((body.customerOverride as Record<string, unknown>).postCode),
         }
         : undefined,
       cfsAttachmentId: text(body.cfsAttachmentId) || undefined,

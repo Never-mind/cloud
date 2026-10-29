@@ -94,3 +94,15 @@ export function confirmedCloudInvoiceAmounts(values: Record<string, unknown>, fi
   if (Math.abs(net + tax - total) > 0.011) throw new Error("未税金额 + 税金与含税金额不一致");
   return { net, tax, total, source: null };
 }
+
+/** Preserve the amounts confirmed in the receipt editor, including invoice rounding. */
+export function confirmedCloudCollectionAmounts(values: Record<string, unknown>, fields: readonly string[]): CloudTaxCalculation | null {
+  const keys = CLOUD_TAX_GROUPS.collection;
+  if (![keys.netKey, keys.taxKey, keys.totalKey].every(key => fields.includes(key) && String(values[key] ?? "").trim() !== "")) return null;
+  const net = cloudTaxNumber(values[keys.netKey]);
+  const tax = cloudTaxNumber(values[keys.taxKey]);
+  const total = cloudTaxNumber(values[keys.totalKey]);
+  if (net === null || tax === null || total === null) throw new Error("实收金额无效");
+  if (Math.abs(net + tax - total) > 0.011) throw new Error("实收未税金额 + 税金与含税金额不一致，请核对后保存");
+  return { net, tax, total, source: null };
+}

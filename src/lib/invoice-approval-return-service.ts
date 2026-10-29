@@ -7,6 +7,10 @@ import { approvalAttachmentUrl, collectReturnedAttachments, recognizedInvoiceIde
 import { buildInvoicePrefill, type InvoiceSourceType } from "./invoice-service";
 import { defaultInvoicePaymentTermDays } from "./invoice-payment-terms";
 import { VAT_APPROVAL_CODE, VAT_FIELDS } from "./vat-invoice-approval";
+import { readApprovalPartySnapshot } from "./invoice-approval-party-snapshot";
+import {readInvoiceAllocationPlan,allocationTotals,suggestInvoiceAllocations} from "./invoice-allocation";
+import {loadAllocationSources} from "./invoice-allocation-service";
+import {buildExchangeRateMap,lookupExchangeRate} from "./exchange-rate-service";
 
 const FILE_LIMIT = 20 * 1024 * 1024;
 export async function downloadReturnedInvoice(value: string) {
@@ -126,15 +130,23 @@ export async function returnedInvoiceReview(id: string) {
   const files = await listReturnedInvoiceFiles(String(file.instanceCode));
   const group = groupReturnedInvoices(files).find(item => item.files.some(f => f.id === id));
   const allocationSourceIds = String(approval.allocationSourceIds ?? "").split(",").filter(Boolean);
+  let allocationPlan=readInvoiceAllocationPlan(approval.allocationPlanJson);
   const base = await buildInvoicePrefill({ sourceType: approval.ownerType as InvoiceSourceType, sourceId: String(approval.ownerId), sourceIds: allocationSourceIds.length > 1 ? allocationSourceIds : undefined });
+  const partySnapshot = readApprovalPartySnapshot(approval.partySnapshotJson);
+  if (partySnapshot) {
+    base.customerId = partySnapshot.customerId; base.undertakingUnitId = partySnapshot.undertakingUnitId;
+    base.customerName = String(partySnapshot.customer.name ?? ""); base.customerAddress = String(partySnapshot.customer.address ?? "");
+    base.customerTaxNumber = String(partySnapshot.customer.taxId ?? ""); base.sellerName = partySnapshot.sellerName;
+    base.paymentTermDays = defaultInvoicePaymentTermDays(partySnapshot.paymentTermDays);
+  }
   const matchedUnitId = group?.primary.recognition?.matches?.issuerUnitId || base.undertakingUnitId;
-  if (matchedUnitId) {
+  if (matchedUnitId && (!partySnapshot || matchedUnitId !== partySnapshot.undertakingUnitId)) {
     const [unit] = await queryRows<Row>("SELECT paymentTermDays FROM merge_common_undertaking_units WHERE undertakingUnitId = :id LIMIT 1", { id: matchedUnitId });
     base.paymentTermDays = defaultInvoicePaymentTermDays(unit?.paymentTermDays);
   }
   const fileRecord = await queryRows<Row>("SELECT confirmedJson FROM merge_common_invoice_approval_files WHERE instanceCode = :code AND invoiceId IS NOT NULL AND id IN (:ids) LIMIT 1", { code: file.instanceCode, ids: group?.files.map(item => item.id) ?? [id] });
   const confirmed = fileRecord[0]?.confirmedJson ? JSON.parse(String(fileRecord[0].confirmedJson)) : null;
-  let expectedInvoice: { currency: string; amountIncludingTax: string } | null = null;
+  let expectedInvoice: { currency: string; amountIncludingTax: string } | null = allocationPlan?{currency:allocationPlan.currency,amountIncludingTax:String(allocationTotals(allocationPlan.allocations).amountIncludingTax)}:null;
   if (approval.approvalCode === (process.env.FEISHU_VAT_INVOICE_APPROVAL_CODE?.trim() || VAT_APPROVAL_CODE)) {
     expectedInvoice = { currency: "CNY", amountIncludingTax: "" };
     try {
@@ -143,7 +155,15 @@ export async function returnedInvoiceReview(id: string) {
       if (String(amount ?? "").trim() && Number.isFinite(Number(amount)) && Number(amount) > 0) expectedInvoice.amountIncludingTax = String(amount);
     } catch { /* Keep the known invoice currency even if a legacy snapshot cannot be read. */ }
   }
-  return { approval: { instanceCode: String(file.instanceCode), status: String(approval.status), invoiceId: approval.invoiceId,
+  if(!allocationPlan&&allocationSourceIds.length>1&&["cloud_row","service_fee"].includes(String(approval.ownerType))) {
+    const sources=await loadAllocationSources(approval.ownerType as "cloud_row"|"service_fee",allocationSourceIds);
+    if(sources.length===allocationSourceIds.length) {
+      const currency=expectedInvoice?.currency||String(base.currency);
+      const rates=await buildExchangeRateMap(sources.map(row=>row.period));
+      allocationPlan=suggestInvoiceAllocations(sources.map(row=>({...row,suggestedRate:String(lookupExchangeRate(rates,row.period,row.sourceCurrency,currency)??"")})),currency);
+    }
+  }
+  return { allocationPlan,approval: { instanceCode: String(file.instanceCode), status: String(approval.status), invoiceId: approval.invoiceId,
     sourceType: String(approval.ownerType), sourceId: String(approval.ownerId), allocationSourceIds: String(approval.allocationSourceIds ?? "").split(",").filter(Boolean) },
-    base, group, confirmed, expectedInvoice };
+    base, group, confirmed, expectedInvoice, partySnapshot };
 }

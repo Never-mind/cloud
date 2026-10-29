@@ -13,6 +13,8 @@ import { PaginationBar } from "./pagination-bar";
 import { SearchSelect } from "./search-select";
 import { NumberInput } from "./number-input";
 import { computeCloudSettlementGrossProfit } from "@/lib/cloud-gross-profit";
+import { isCloudRowConfirmed, pickCloudFinancialFields } from "@/lib/cloud-row-edit-policy";
+import { prefillReceiptFromSource, receiptInvoiceCurrencyMismatch } from "@/lib/receipt-prefill";
 import { buildSupplierPaymentInvoicePatch } from "@/lib/supplier-payment-invoice-recognition";
 import { collectionAmount, collectionCurrency, collectionStatus, collectionUsdAmount } from "@/lib/cloud-collection";
 import { addDaysToDateOnly } from "@/lib/date-only";
@@ -30,6 +32,7 @@ import { CloudCrmInvoicesPanel } from "./cloud-crm-invoices-panel";
 import { CrmInvoicePicker } from "./crm-invoice-picker";
 import { CrmInvoiceAllocationModal } from "./crm-invoice-allocation-modal";
 import { InvoiceDraftModal, type InvoiceDraftMode } from "./invoice-draft-modal";
+import { StatementInvoiceSummary } from "./statement-invoice-summary";
 import {
   StatementFieldSettingsButton,
   StatementFieldSettingsModal,
@@ -40,7 +43,7 @@ import {
 type Tab = "reconciliation" | "crm-invoices" | "mapping" | "supplier-payments";
 type LedgerView = "ledger" | "collection";
 type Row = Record<string, unknown> & { id?: string };
-type Master = { id: string; code?: string; name: string; shortName?: string };
+type Master = { id: string; code?: string; name: string; shortName?: string; taxNumber?: string; nameEn?: string; nameCn?: string; entityName?: string };
 type MasterSet = { suppliers: Master[]; undertakingUnits: Master[]; customers: Master[] };
 type LedgerColumn = {
   key: string;
@@ -63,20 +66,45 @@ const columns: LedgerColumn[] = [
   { key: "partnerAmount", label: "伙伴结算金额", group: "金额", defaultVisible: true, sortable: true, filterable: true },
   { key: "voucherCustomerAmount", label: "代金券-客户", group: "金额", defaultVisible: false, sortable: true, filterable: true },
   { key: "voucherSupplierAmount", label: "代金券-供应商", group: "金额", defaultVisible: false, sortable: true, filterable: true },
+  { key: "supplierPayableNetAmount", label: "供应商应付（未税）", group: "供应商应付", defaultVisible: false, sortable: true, filterable: true },
   { key: "supplierTaxRate", label: "供应商应付税率", group: "供应商应付", defaultVisible: false, sortable: true, filterable: true, percent: true },
   { key: "supplierTaxAmount", label: "供应商应付税金", group: "供应商应付", defaultVisible: false, sortable: true, filterable: true },
   { key: "supplierPayableTotalAmount", label: "供应商应付（含税）", group: "供应商应付", defaultVisible: true, sortable: true, filterable: true },
+  { key: "customerReceivablePayer", label: "应收付款单位", group: "客户应收", defaultVisible: false, sortable: false, filterable: false },
+  { key: "customerReceivablePayee", label: "应收收款单位", group: "客户应收", defaultVisible: false, sortable: false, filterable: false },
+  { key: "customerCurrency", label: "应收币种", group: "客户应收", defaultVisible: false, sortable: false, filterable: false },
+  { key: "customerReceivableNetAmount", label: "客户应收（未税）", group: "客户应收", defaultVisible: false, sortable: true, filterable: true },
+  { key: "customerTaxRate", label: "客户应收税率", group: "客户应收", defaultVisible: false, sortable: true, filterable: true, percent: true },
+  { key: "customerReceivableTaxAmount", label: "客户应收税金", group: "客户应收", defaultVisible: false, sortable: true, filterable: true },
   { key: "customerReceivableTotalAmount", label: "客户应收（含税）", group: "客户应收", defaultVisible: true, sortable: true, filterable: true },
+  { key: "collectionPayer", label: "实收付款单位", group: "客户实收", defaultVisible: false, sortable: false, filterable: false },
+  { key: "collectionPayee", label: "实收收款单位", group: "客户实收", defaultVisible: false, sortable: false, filterable: false },
+  { key: "collectionCurrency", label: "实收币种", group: "客户实收", defaultVisible: false, sortable: false, filterable: false },
+  { key: "collectionNetAmount", label: "客户实收（未税）", group: "客户实收", defaultVisible: false, sortable: true, filterable: true },
+  { key: "collectionTaxRate", label: "客户实收税率", group: "客户实收", defaultVisible: false, sortable: true, filterable: true, percent: true },
+  { key: "collectionTaxAmount", label: "客户实收税金", group: "客户实收", defaultVisible: false, sortable: true, filterable: true },
   { key: "collectionTotalAmount", label: "客户实收（含税）", group: "客户实收", defaultVisible: true, sortable: true, filterable: true },
+  { key: "collectionDate", label: "实收日期", group: "客户实收", defaultVisible: false, sortable: true, filterable: true },
+  { key: "invoicePayer", label: "开票客户单位", group: "客户开票", defaultVisible: false, sortable: false, filterable: false },
+  { key: "invoicePayee", label: "开票承接单位", group: "客户开票", defaultVisible: false, sortable: false, filterable: false },
+  { key: "invoiceNo", label: "发票号", group: "客户开票", defaultVisible: false, sortable: true, filterable: true },
+  { key: "invoiceCurrency", label: "开票币种", group: "客户开票", defaultVisible: false, sortable: false, filterable: false },
+  { key: "invoiceNetAmount", label: "客户开票（未税）", group: "客户开票", defaultVisible: false, sortable: true, filterable: true },
+  { key: "invoiceTaxRate", label: "客户开票税率", group: "客户开票", defaultVisible: false, sortable: true, filterable: true, percent: true },
+  { key: "invoiceTaxAmount", label: "客户开票税金", group: "客户开票", defaultVisible: false, sortable: true, filterable: true },
   { key: "invoiceTotalAmount", label: "客户开票（含税）", group: "客户开票", defaultVisible: true, sortable: true, filterable: true },
+  { key: "invoiceDate", label: "开票日期", group: "客户开票", defaultVisible: false, sortable: true, filterable: true },
+  { key: "receivableDate", label: "应收日期", group: "客户开票", defaultVisible: false, sortable: true, filterable: true },
   { key: "theoreticalGrossProfit", label: "万众理论毛利（未税）", group: "毛利", defaultVisible: true, sortable: true, filterable: true },
   { key: "settlementGrossProfit", label: "万众实际毛利（未税）", group: "毛利", defaultVisible: true, sortable: true, filterable: true },
-  { key: "status", label: "状态", group: "状态", defaultVisible: true, sortable: false, filterable: false },
   { key: "customerDiscount", label: "客户折扣", group: "其他", defaultVisible: false, sortable: true, filterable: true },
   { key: "remark", label: "备注", group: "其他", defaultVisible: false, sortable: true, filterable: true },
   { key: "createdAt", label: "创建时间", group: "审计", defaultVisible: false, sortable: true, filterable: true },
   { key: "updatedAt", label: "更新时间", group: "审计", defaultVisible: false, sortable: true, filterable: true },
   { key: "confirmedAt", label: "确认时间", group: "审计", defaultVisible: false, sortable: true, filterable: true },
+  { key: "status", label: "确认状态", group: "状态", defaultVisible: true, sortable: true, filterable: true },
+  { key: "collectionInvoice", label: "开票状态", group: "状态", defaultVisible: true, sortable: true, filterable: true },
+  { key: "collected", label: "收款状态", group: "状态", defaultVisible: true, sortable: true, filterable: true },
 ];
 const mappingColumns: Array<[string, string]> = [["supplierName", "供应商"], ["undertakingUnitName", "承接单位"], ["customerName", "客户"], ["accounts", "账号"], ["reconciler", "对账人"], ["calculationLogic", "计算逻辑"], ["userDiscount", "客户折扣"]];
 const paymentColumns: Array<[string, string]> = [
@@ -277,7 +305,8 @@ export function CloudReconciliationPage() {
       const response = await fetch("/api/cloud/import", { method: "POST", body: form });
       const data = await response.json(); if (!response.ok) throw new Error(String(data.error ?? "导入失败"));
        const unmapped: string[] = Array.isArray(data.unmappedHeaders) ? data.unmappedHeaders : [];
-       setNotice(`账单已导入：${data.batchCode}，共${data.rowCount}行（新增 ${data.created ?? 0}，更新 ${data.updated ?? 0}）${unmapped.length ? `；未识别列（数据未导入）：${unmapped.join("、")}` : ""}`); setImportFile(null); await load();
+       const skipped: { period: string; account: string }[] = Array.isArray(data.skippedConfirmed) ? data.skippedConfirmed : [];
+       setNotice(`账单已导入：${data.batchCode}，共${data.rowCount}行（新增 ${data.created ?? 0}，更新 ${data.updated ?? 0}，跳过已确认 ${skipped.length}）${skipped.length ? `；已确认账单未覆盖：${skipped.map((row) => `${row.period} / ${row.account}`).join("、")}。开票和实收请通过对应编辑入口维护` : ""}${unmapped.length ? `；未识别列（数据未导入）：${unmapped.join("、")}` : ""}`); setImportFile(null); await load();
     } catch (error) { setNotice(error instanceof Error ? error.message : "导入失败"); }
     finally { setBusy(false); }
   }
@@ -295,7 +324,7 @@ export function CloudReconciliationPage() {
 
   async function saveCollection() {
     if (!collectionForm?.id) return;
-    const patch = Object.fromEntries(Object.entries(collectionForm).filter(([key]) => key.startsWith("collection") || key === "collected"));
+    const patch = pickCloudFinancialFields(collectionForm, "collection");
     try {
       await requestJson(`/api/cloud/rows/${encodeURIComponent(String(collectionForm.id))}`, { method: "PATCH", body: JSON.stringify(patch) });
       setCollectionForm(null); setNotice("客户实收已保存"); await load();
@@ -304,7 +333,7 @@ export function CloudReconciliationPage() {
 
   async function saveInvoice() {
     if (!invoiceForm?.id) return;
-    const patch = Object.fromEntries(Object.entries(invoiceForm).filter(([key]) => key.startsWith("invoice") || key === "collectionInvoice" || key === "receivableDate"));
+    const patch = pickCloudFinancialFields(invoiceForm, "invoice");
     try {
       await requestJson(`/api/cloud/rows/${encodeURIComponent(String(invoiceForm.id))}`, { method: "PATCH", body: JSON.stringify(patch) });
       /**
@@ -344,7 +373,9 @@ export function CloudReconciliationPage() {
   }
 
   async function confirmRow(row: Row) {
-    try { await requestJson(`/api/cloud/rows/${encodeURIComponent(String(row.id ?? ""))}/confirm`, { method: "POST", body: JSON.stringify({ confirmed: !row.confirmed }) }); setNotice("确认状态已更新"); await load(); }
+    const confirmed = isCloudRowConfirmed(row.confirmed);
+    if (!await confirmDialog(confirmed ? "取消该账单的确认？取消后可修改账单金额及明细，已登记的开票和实收信息保留。" : "确认该对账单？确认后，账单金额及明细将锁定；开票、实收和相关附件仍可继续维护。")) return;
+    try { await requestJson(`/api/cloud/rows/${encodeURIComponent(String(row.id ?? ""))}/confirm`, { method: "POST", body: JSON.stringify({ confirmed: !confirmed }) }); setNotice("确认状态已更新"); await load(); }
     catch (error) { setNotice(error instanceof Error ? error.message : "确认失败"); }
   }
 
@@ -404,25 +435,48 @@ export function CloudReconciliationPage() {
 
   function columnOptions(endpoint: string, field: string, optionKeyword: string) {
     const extra: Record<string, string> = tab === "mapping" ? {} : { period };
+    if (endpoint === "/api/cloud/rows" && keyword.trim()) extra.listKeyword = keyword.trim();
     return fetchTableFilterOptions(endpoint, field, optionKeyword, extra, activeQuery.filters);
   }
 
   function amountFormDefaults(row: Row, prefix: "collection" | "invoice") {
+    const invoiceIssued = row.collectionInvoice === "issued";
+    const source = invoiceIssued ? {
+      currency: row.invoiceCurrency,
+      net: row.invoiceNetAmount,
+      rate: row.invoiceTaxRate,
+      total: row.invoiceTotalAmount,
+      tax: row.invoiceTaxAmount,
+    } : {
+      // 华为云客户应收固定按账单 USD 口径展示；customerCurrency 若由历史数据提供则优先使用。
+      currency: row.customerCurrency || "USD",
+      net: row.customerReceivableNetAmount ?? row.customerReceivable,
+      rate: row.customerTaxRate,
+      total: row.customerReceivableTotalAmount ?? row.customerReceivable,
+      tax: row.customerReceivableTaxAmount,
+    };
+    const amounts = prefix === "collection" ? prefillReceiptFromSource({
+      currency: row.collectionCurrency, net: row.collectionNetAmount, rate: row.collectionTaxRate,
+      total: row.collectionTotalAmount, tax: row.collectionTaxAmount,
+    }, source) : null;
     const payerName = prefix === "collection" ? row.collectionPayer : row.invoicePayer;
     const payeeName = prefix === "collection" ? row.collectionPayee : row.invoicePayee;
     return {
       ...row,
+      ...(amounts ? { collectionCurrency: amounts.currency, collectionNetAmount: amounts.net,
+        collectionTaxRate: amounts.rate, collectionTotalAmount: amounts.total, collectionTaxAmount: amounts.tax } : {}),
       [`${prefix}PayerCustomerId`]: row[`${prefix}PayerCustomerId`] ?? row.customerId ?? "",
       [`${prefix}PayeeUndertakingUnitId`]: row[`${prefix}PayeeUndertakingUnitId`] ?? row.undertakingUnitId ?? "",
       [`${prefix}PayerCustomerName`]: row[`${prefix}PayerCustomerName`] ?? payerName ?? row.customerReceivablePayer ?? row.customer ?? "",
       [`${prefix}PayeeUndertakingUnitName`]: row[`${prefix}PayeeUndertakingUnitName`] ?? payeeName ?? row.customerReceivablePayee ?? "承接单位",
       ...(prefix === "collection" ? { collectionPayer: payerName ?? row.customerReceivablePayer ?? row.customer ?? "", collectionPayee: payeeName ?? row.customerReceivablePayee ?? "承接单位" } : { invoicePayer: payerName ?? row.customerReceivablePayer ?? row.customer ?? "", invoicePayee: payeeName ?? row.customerReceivablePayee ?? "承接单位" }),
+      ...(prefix === "collection" ? { collectionPrefillSource: invoiceIssued ? "开票信息" : "客户应收", collectionPrefillCurrency: String(source.currency ?? "") } : {}),
     };
   }
 
   return <div className="flex h-[calc(var(--app-viewport-height)-40px)] flex-col gap-4">
     <header className="flex flex-wrap items-start justify-between gap-3">
-      <div><div className="flex items-center gap-2"><Cloud size={22} className="text-primary" /><h1 className="text-2xl font-medium text-ink">华为云业务</h1></div><p className="mt-2 text-sm text-ink-3">月度账单、服务映射、跨月收款和供应商付款</p></div>
+      <div><div className="flex items-center gap-2"><Cloud size={22} className="text-primary" /><h1 className="text-2xl font-medium text-ink">华为云业务</h1></div><p className="mt-2 text-sm text-ink-3">月度账单、服务映射、跨月收款和供应商付款</p>{tab === "reconciliation" ? <p className="mt-1 text-xs text-ink-3">确认后账单金额及明细锁定，开票、实收和相关附件仍可维护。</p> : null}</div>
       {tab === "crm-invoices" ? null : <div className="flex flex-wrap gap-2">{tab === "reconciliation" && ledgerView === "ledger" ? <Button tone="primary" onClick={() => setRowForm({ period: period || new Date().toISOString().slice(0, 7).replace("-", ""), batchCode: "", customer: "", account: "", cloudReconciler: "", catalogAmount: "", partnerAmount: "", voucherCustomerAmount: "", voucherSupplierAmount: "", supplierPayablePayer: "", supplierPayablePayee: "", supplierPayableNetAmount: "", supplierTaxRate: "0.16", supplierTaxAmount: "", supplierPayableTotalAmount: "", customerReceivablePayer: "", customerReceivablePayee: "", customerReceivableNetAmount: "", customerTaxRate: "", customerReceivableTaxAmount: "", customerReceivableTotalAmount: "", theoreticalGrossProfit: "", settlementGrossProfit: "", customerDiscount: "", remark: "" })}><Plus size={15} />手动新增</Button> : null}<label className="inline-flex h-9 cursor-pointer items-center gap-1 rounded border border-line bg-white px-3 text-sm text-ink-2"><FileUp size={15} />导入账单<input className="hidden" type="file" accept=".xlsx,.xls" onChange={(event) => setImportFile(event.target.files?.[0] ?? null)} /></label><a href="/api/cloud/template"><Button type="button"><Download size={15} />下载导入模板</Button></a>{importFile ? <Button tone="primary" disabled={busy} onClick={() => void importWorkbook()}>确认导入</Button> : null}<Button onClick={() => window.open(`/api/cloud/rows/export?keyword=${encodeURIComponent(keyword)}&period=${encodeURIComponent(period)}`, "_blank")}><Download size={15} />导出数据</Button><Button disabled={busy} onClick={() => void syncApprovalStatus()}><RefreshCw size={15} />同步审批状态</Button></div>}
     </header>
     {notice ? <div className="flex items-center justify-between border border-info-border bg-info-soft px-3 py-2 text-sm text-primary">{notice}<button type="button" title="关闭提示" onClick={() => setNotice("")}><X size={15} /></button></div> : null}
@@ -719,27 +773,36 @@ function RowTable({ attachmentVersion, currencyTotals, expanded, onToggleExpande
 
   function cell(row: Row, key: string) {
     const cellRow = cloudRowWithAmounts(row);
+    if (key === "period") return periodText(row.period);
     if (key === "customer") {
       return <div className="min-w-[130px]"><div className="font-medium text-ink">{display(cellRow.customer)}</div><div className="mt-0.5 font-mono text-[11px] text-ink-3">{display(cellRow.account)}</div></div>;
     }
-    if (key === "supplierCurrency") return <span className="font-medium text-ink">{display(cellRow.supplierCurrency || "USD")}</span>;
-    if (key === "status") return <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs ${cellRow.confirmed ? "border-success-border bg-success-soft text-success" : "border-warning-border-soft bg-warning-soft text-warning-ink"}`}>{cellRow.confirmed ? "已确认" : "未确认"}</span>;
+    if (["supplierCurrency", "customerCurrency", "collectionCurrency", "invoiceCurrency"].includes(key)) return <span className="font-medium text-ink">{display(cellRow[key] || "USD")}</span>;
+    if (["customerReceivablePayer", "collectionPayer", "invoicePayer"].includes(key)) return display(cellRow[key] || cellRow.customer || "客户");
+    if (["customerReceivablePayee", "collectionPayee", "invoicePayee"].includes(key)) return display(cellRow[key] || cellRow.undertakingUnitName || "承接单位");
+    if (key === "status" || key === "collected" || key === "collectionInvoice") {
+      const active = key === "collectionInvoice" ? cellRow.collectionInvoice === "issued" : Number(cellRow[key === "status" ? "confirmed" : "collected"]) === 1;
+      const label = key === "status" ? (active ? "已确认" : "未确认") : key === "collected" ? (active ? "已收款" : "未收款") : (active ? "已开票" : "未开票");
+      const color = active ? "border-success-border bg-success-soft text-success" : key === "collectionInvoice" ? "border-line-soft bg-canvas text-ink-3" : "border-warning-border-soft bg-warning-soft text-warning-ink";
+      return <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs ${color}`}>{label}</span>;
+    }
     if (key === "supplierTaxRate" || key === "customerTaxRate" || key === "collectionTaxRate" || key === "invoiceTaxRate") return rateText(cellRow[key]);
     if (key === "createdAt" || key === "updatedAt" || key === "confirmedAt") return formatDisplayValue(cellRow[key] as never, "datetime");
-    if (["catalogAmount", "partnerAmount", "voucherCustomerAmount", "voucherSupplierAmount", "supplierTaxAmount", "supplierPayableTotalAmount", "theoreticalGrossProfit", "settlementGrossProfit"].includes(key)) return money(cellRow[key], String(cellRow.supplierCurrency || "USD"));
-    if (key === "customerReceivableTotalAmount") return money(cellRow[key], String(cellRow.customerCurrency || "USD"));
-    if (key === "collectionTotalAmount") return money(cellRow[key], String(cellRow.collectionCurrency || "USD"));
-    if (key === "invoiceTotalAmount") return money(cellRow[key], String(cellRow.invoiceCurrency || "USD"));
+    if (["invoiceDate", "receivableDate", "collectionDate"].includes(key)) return dateOnlyText(cellRow[key]);
+    if (["catalogAmount", "partnerAmount", "voucherCustomerAmount", "voucherSupplierAmount", "supplierPayableNetAmount", "supplierTaxAmount", "supplierPayableTotalAmount", "theoreticalGrossProfit", "settlementGrossProfit"].includes(key)) return money(cellRow[key], String(cellRow.supplierCurrency || "USD"));
+    if (["customerReceivableNetAmount", "customerReceivableTaxAmount", "customerReceivableTotalAmount"].includes(key)) return money(cellRow[key], String(cellRow.customerCurrency || "USD"));
+    if (["collectionNetAmount", "collectionTaxAmount", "collectionTotalAmount"].includes(key)) return money(cellRow[key], String(cellRow.collectionCurrency || "USD"));
+    if (["invoiceNetAmount", "invoiceTaxAmount", "invoiceTotalAmount"].includes(key)) return money(cellRow[key], String(cellRow.invoiceCurrency || "USD"));
     return display(cellRow[key]);
   }
 
   function actionButtons(row: Row) {
     return <div className="flex items-center gap-1">
-      <IconButton disabled={Boolean(row.confirmed)} icon={<Banknote size={14} />} label="编辑客户实收" onClick={() => onEditCollection(row)} />
-      <IconButton disabled={Boolean(row.confirmed)} icon={<FileText size={14} />} label="编辑客户开票" onClick={() => onEditInvoice(row)} />
-      <IconButton disabled={Boolean(row.confirmed)} icon={<Pencil size={14} />} label="修改华为云对账单" onClick={() => onEditRow(row)} />
-      <IconButton icon={<Check size={14} />} label={row.confirmed ? "取消确认" : "确认"} onClick={() => onConfirm(row)} tone="success" />
-      <IconButton icon={<Trash2 size={14} />} label="删除华为云对账单" onClick={() => onDelete(row)} tone="danger" />
+      <IconButton icon={<Banknote size={14} />} label="编辑客户实收" onClick={() => onEditCollection(row)} />
+      <IconButton icon={<FileText size={14} />} label="编辑客户开票" onClick={() => onEditInvoice(row)} />
+      <IconButton disabled={isCloudRowConfirmed(row.confirmed)} icon={<Pencil size={14} />} label="修改华为云对账单" onClick={() => onEditRow(row)} />
+      <IconButton icon={<Check size={14} />} label={isCloudRowConfirmed(row.confirmed) ? "取消确认" : "确认"} onClick={() => onConfirm(row)} tone="success" />
+      <IconButton disabled={isCloudRowConfirmed(row.confirmed)} icon={<Trash2 size={14} />} label="删除华为云对账单" onClick={() => onDelete(row)} tone="danger" />
     </div>;
   }
 
@@ -751,16 +814,21 @@ function RowTable({ attachmentVersion, currencyTotals, expanded, onToggleExpande
         return <article className="mb-3 overflow-hidden rounded border border-line-soft bg-white" key={id}>
           <div className="flex items-start gap-3 border-b border-line-soft p-3">
             <div className="min-w-0 flex-1">
-              <div className="font-medium text-ink">{periodText(row.period)}</div>
-              <div className="mt-0.5 truncate text-xs text-ink-3">{display(row.customer)} · {display(row.account)}</div>
+              {visibleColumns.some((column) => column.key === "period") ? <div className="font-medium text-ink">{periodText(row.period)}</div> : null}
+              {visibleColumns.some((column) => column.key === "customer") ? <div className="mt-0.5 truncate text-xs text-ink-3">{display(row.customer)} · {display(row.account)}</div> : null}
             </div>
-            {cell(row, "status")}
           </div>
           <div className="grid grid-cols-2 gap-px bg-line-soft">
-            {visibleColumns.filter((column) => !["period", "customer", "status"].includes(column.key)).map((column) => <div className="min-w-0 bg-white px-3 py-2" key={column.key}>
+            {visibleColumns.filter((column) => !["period", "customer"].includes(column.key) && column.group !== "状态").map((column) => <div className="min-w-0 bg-white px-3 py-2" key={column.key}>
               <div className="text-[11px] text-ink-3">{column.label}</div>
               <div className="mt-0.5 truncate text-xs text-ink" title={String(row[column.key] ?? "")}>{cell(row, column.key)}</div>
             </div>)}
+            {visibleColumns.some((column) => column.group === "状态") ? <div aria-label="账单状态" className="col-span-full grid grid-cols-3 gap-px" role="group">
+              {visibleColumns.filter((column) => column.group === "状态").map((column) => <div className="min-w-0 bg-white px-3 py-2" key={column.key}>
+                <div className="text-[11px] text-ink-3">{column.label}</div>
+                <div className="mt-0.5 text-xs text-ink">{cell(row, column.key)}</div>
+              </div>)}
+            </div> : null}
           </div>
           <div className="flex flex-wrap items-center gap-2 border-t border-line-soft bg-surface-2 px-3 py-2">
             <Button size="sm" onClick={() => onToggleExpanded(row)}>{open ? "收起" : "展开"}</Button>
@@ -772,7 +840,7 @@ function RowTable({ attachmentVersion, currencyTotals, expanded, onToggleExpande
     </div>
 
     <div className="hidden min-h-0 min-w-0 max-w-full flex-1 flex-col md:flex">
-      <div className="min-h-0 min-w-0 flex-1">
+      <div className="min-h-0 min-w-0 flex-1 [container-type:inline-size]">
         <StickyTable className="table-scroll h-full w-full overflow-auto" tableKey="cloud-rows">
           <table className="w-full border-collapse text-sm" style={{ minWidth: Math.max(1500, visibleColumns.length * 145 + 160) }}>
           <thead className="bg-canvas">
@@ -789,18 +857,18 @@ function RowTable({ attachmentVersion, currencyTotals, expanded, onToggleExpande
               const open = Boolean(expanded[id]);
               return <Fragment key={id}>
                 <tr className="hover:bg-surface-2">
-                  {visibleColumns.map((column) => <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 align-top" key={column.key}>
-                    {column.key === "period" ? <div className="flex items-center gap-2"><button aria-label={open ? "收起明细" : "展开明细"} className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded border border-line bg-white text-ink-2 hover:border-primary hover:text-primary" title={open ? "收起明细" : "展开明细"} type="button" onClick={() => onToggleExpanded(row)}>{open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</button><span>{periodText(row.period)}</span></div> : cell(row, column.key)}
+                  {visibleColumns.map((column, index) => <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 align-top" key={column.key}>
+                    {index === 0 ? <div className="flex items-center gap-2"><button aria-label={open ? "收起明细" : "展开明细"} className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded border border-line bg-white text-ink-2 hover:border-primary hover:text-primary" title={open ? "收起明细" : "展开明细"} type="button" onClick={() => onToggleExpanded(row)}>{open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</button><span>{cell(row, column.key)}</span></div> : cell(row, column.key)}
                   </td>)}
                   <td className="sticky right-0 whitespace-nowrap border-b border-line-soft bg-white px-3 py-2 align-top">{actionButtons(row)}</td>
                 </tr>
-                {open ? <tr><td className="border-b border-line-soft bg-canvas p-3" colSpan={visibleColumns.length + 1}><CloudLedgerDetails row={row} attachmentVersion={attachmentVersion} onAttach={onAttach} onToggleCollection={onToggleCollection} onToggleInvoice={onToggleInvoice} onEditCollection={onEditCollection} onEditInvoice={onEditInvoice} onIssueInvoice={onIssueInvoice} onUploadInvoice={onUploadInvoice} /></td></tr> : null}
+                {open ? <tr><td className="border-b border-line-soft bg-canvas p-3" colSpan={visibleColumns.length + 1}><div className="sticky left-3 w-[calc(100cqw-1.5rem)] max-w-4xl"><CloudLedgerDetails row={row} attachmentVersion={attachmentVersion} onAttach={onAttach} onToggleCollection={onToggleCollection} onToggleInvoice={onToggleInvoice} onEditCollection={onEditCollection} onEditInvoice={onEditInvoice} onIssueInvoice={onIssueInvoice} onUploadInvoice={onUploadInvoice} /></div></td></tr> : null}
               </Fragment>;
             })}
             {!rows.length ? <tr><td className="py-12 text-center text-ink-3" colSpan={visibleColumns.length + 1}><EmptyState title="暂无数据" /></td></tr> : null}
           </tbody>
           {currencyTotals?.length ? <tfoot>{currencyTotals.map((totals) => <tr key={String(totals.currency)}>
-            {visibleColumns.map((column, index) => <td className="sticky bottom-0 whitespace-nowrap border-t-2 border-line bg-canvas-deep px-3 py-3 align-top font-medium text-ink" key={column.key}>{index === 0 ? `合计（${display(totals.currency)}）` : totals[column.key] === undefined || totals[column.key] === null ? "" : money(totals[column.key], "")}</td>)}
+            {visibleColumns.map((column, index) => <td className="sticky bottom-0 whitespace-nowrap border-t-2 border-line bg-canvas-deep px-3 py-3 align-top font-medium text-ink" key={column.key}>{index === 0 ? <div className="text-xs">合计（{display(totals.currency)}）</div> : null}{totals[column.key] === undefined || totals[column.key] === null ? "" : money(totals[column.key], "")}</td>)}
             <td className="sticky bottom-0 border-t-2 border-line bg-canvas-deep px-3 py-3" />
           </tr>)}</tfoot> : null}
           </table>
@@ -905,16 +973,17 @@ function CloudLedgerDetails({ row, attachmentVersion, onAttach, onToggleCollecti
   return <div className="space-y-3">
     <div className="flex flex-wrap items-center gap-2 rounded border border-line-soft bg-surface-2 px-3 py-2">
       <span className="text-xs font-medium text-ink-2">本行操作</span>
-      <button aria-checked={Boolean(row.collected)} className="inline-flex h-7 items-center gap-1 rounded border border-line bg-white px-2 text-xs text-ink-2 disabled:opacity-50" disabled={Boolean(row.confirmed)} role="switch" type="button" onClick={() => onToggleCollection(row)}><span className={`relative inline-flex h-4 w-7 rounded-full ${row.collected ? "bg-success" : "bg-ink-4"}`}><span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white shadow ${row.collected ? "translate-x-[15px]" : "translate-x-0.5"}`} /></span>{row.collected ? "已收款" : "未收款"}</button>
-      <Button disabled={Boolean(row.confirmed)} size="sm" onClick={() => onEditCollection(row)}>编辑实收</Button>
-      <button aria-checked={row.collectionInvoice === "issued"} className="inline-flex h-7 items-center gap-1 rounded border border-line bg-white px-2 text-xs text-ink-2 disabled:opacity-50" disabled={Boolean(row.confirmed)} role="switch" type="button" onClick={() => onToggleInvoice(row)}><span className={`relative inline-flex h-4 w-7 rounded-full ${row.collectionInvoice === "issued" ? "bg-success" : "bg-ink-4"}`}><span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white shadow ${row.collectionInvoice === "issued" ? "translate-x-[15px]" : "translate-x-0.5"}`} /></span>{row.collectionInvoice === "issued" ? "已开票" : "未开票"}</button>
-      <Button disabled={Boolean(row.confirmed)} size="sm" onClick={() => onEditInvoice(row)}>编辑开票</Button>
+      <button aria-checked={Boolean(row.collected)} className="inline-flex h-7 items-center gap-1 rounded border border-line bg-white px-2 text-xs text-ink-2 disabled:opacity-50" role="switch" type="button" onClick={() => onToggleCollection(row)}><span className={`relative inline-flex h-4 w-7 rounded-full ${row.collected ? "bg-success" : "bg-ink-4"}`}><span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white shadow ${row.collected ? "translate-x-[15px]" : "translate-x-0.5"}`} /></span>{row.collected ? "已收款" : "未收款"}</button>
+      <Button size="sm" onClick={() => onEditCollection(row)}>编辑实收</Button>
+      <button aria-checked={row.collectionInvoice === "issued"} className="inline-flex h-7 items-center gap-1 rounded border border-line bg-white px-2 text-xs text-ink-2 disabled:opacity-50" role="switch" type="button" onClick={() => onToggleInvoice(row)}><span className={`relative inline-flex h-4 w-7 rounded-full ${row.collectionInvoice === "issued" ? "bg-success" : "bg-ink-4"}`}><span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white shadow ${row.collectionInvoice === "issued" ? "translate-x-[15px]" : "translate-x-0.5"}`} /></span>{row.collectionInvoice === "issued" ? "已开票" : "未开票"}</button>
+      <Button size="sm" onClick={() => onEditInvoice(row)}>编辑开票</Button>
       <Button size="sm" onClick={() => onIssueInvoice(row)}>开票</Button>
       <Button size="sm" onClick={() => onUploadInvoice(row)}>上传并识别</Button>
       <UploadIconButton icon={<FileUp size={13} />} label="上传客户发票附件" onFile={(event) => { const file = event.target.files?.[0]; if (file) onAttach(row, file); event.target.value = ""; }} />
       <CloudAttachments ownerId={String(row.id ?? "")} ownerType="invoice" refreshToken={attachmentVersion} />
       <InvoiceApprovalBadge row={row} />
     </div>
+    <StatementInvoiceSummary invoiceNo={row.invoiceNo} invoiceDate={row.invoiceDate} receivableDate={row.receivableDate} collectionDate={row.collectionDate} />
     {groups.map((group) => <section className="overflow-hidden rounded border border-line-soft" key={group.title}>
       <div className="border-b border-line-soft bg-canvas px-3 py-2 text-xs font-medium text-ink-2">{group.title}</div>
       <StatementDetailGrid fields={group.fields} flow={group.flow} singleRow={group.title === "基本信息"} />
@@ -1064,6 +1133,7 @@ function SupplierPaymentForm({ value, masters, onChange, onCancel, onSave }: {
   const close = () => { if (!lock.current) onCancel(); };
   async function save() {
     if (lock.current) return;
+    if (pendingFile && !(value.invoiceSupplierId ?? value.supplierId)) { setRecognizeWarnings("请先选择实际开票供应商"); return; }
     const error = pendingFile ? validateInvoiceReview(reviewValues) : "";
     if (error) { setRecognizeWarnings(error); return; }
     lock.current = true; setSaving(true);
@@ -1076,7 +1146,7 @@ function SupplierPaymentForm({ value, masters, onChange, onCancel, onSave }: {
     if (lock.current) return;
     if (file.size > 20 * 1024 * 1024) { setRecognizeWarnings("文件不能超过 20 MB"); return; }
     lock.current = true; setPendingFile(file); setRecognitionResult(null);
-    onChange({ ...value, invoiceNo: "", invoiceDate: "", invoiceNetAmount: "", invoiceTaxRate: "", invoiceTaxAmount: "", invoiceTotalAmount: "" });
+    onChange({ ...value, invoiceSupplierId: "", invoiceSupplierName: "", invoiceNo: "", invoiceDate: "", invoiceNetAmount: "", invoiceTaxRate: "", invoiceTaxAmount: "", invoiceTotalAmount: "" });
     setRecognizing(true);
     setRecognizeMessage("");
     setRecognizeWarnings("");
@@ -1123,6 +1193,10 @@ function SupplierPaymentForm({ value, masters, onChange, onCancel, onSave }: {
         {recognizeMessage ? <div className="mb-3 rounded border border-info-border bg-info-soft px-3 py-2 text-xs text-primary">{recognizeMessage}</div> : null}
         {recognizeWarnings ? <div className="mb-3 rounded border border-warning-border-soft bg-warning-soft px-3 py-2 text-xs text-warning-ink">{recognizeWarnings}</div> : null}
         <InvoiceRecognitionReview recognition={recognitionResult} file={pendingFile} values={reviewValues} />
+        <div className="mb-3 grid gap-3 sm:grid-cols-2">
+          <PartnerSelect kind="suppliers" label="实际开票供应商" idValue={value.invoiceSupplierId ?? value.supplierId} nameValue={value.invoiceSupplierName ?? value.supplierName} masters={masters} onChange={selected => onChange({ ...value, invoiceSupplierId: selected.id, invoiceSupplierName: selected.name })} />
+          <p className="self-end text-xs text-ink-3">业务供应商：{String(value.supplierName ?? "—")}。更换开票供应商仅影响本次发票登记。</p>
+        </div>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{invoiceFields.map(([key, label, type]) => <label className="space-y-1 text-sm text-ink-2" key={key}><span>{label}</span><Input className="w-full" type={type ?? "text"} value={key === "invoiceTaxRate" ? reviewValues.taxRate : type === "date" ? dateInputValue(value[key]) : String(value[key] ?? "")} onChange={(event) => onChange(changeField(key, type, event.target.value))} /></label>)}</div>
         <div className="mt-3"><StatusSwitch checked={value.invoiceStatus === "issued"} onClick={() => onChange({ ...value, invoiceStatus: value.invoiceStatus === "issued" ? "not_issued" : "issued" })} onLabel="已开票" offLabel="未开票" title="点击切换开票状态" /></div>
       </section>
@@ -1162,18 +1236,20 @@ function updateCloudTaxValue(value: Row, group: CloudTaxGroup, field: CloudTaxFi
 function PartnerSelect({ kind, label, idValue, nameValue, masters, onChange, required = false }: { kind: keyof MasterSet; label: string; idValue: unknown; nameValue: unknown; masters: MasterSet; onChange: (value: { id: string; name: string }) => void; required?: boolean }) {
   const [options, setOptions] = useState<Master[]>(masters[kind]);
   const searchTimer = useRef<number | null>(null);
+  const searchRequest = useRef(0);
   useEffect(() => setOptions(masters[kind]), [kind, masters]);
-  useEffect(() => () => { if (searchTimer.current) window.clearTimeout(searchTimer.current); }, []);
+  useEffect(() => () => { searchRequest.current += 1; if (searchTimer.current) window.clearTimeout(searchTimer.current); }, []);
 
   const selectedId = String(idValue ?? "");
   const selectedName = String(nameValue ?? "");
   const known = options.find((item) => item.id === selectedId);
   // 已保存的值不在当前选项里时补一条占位，避免回显成空白
   const withSelected: Master[] = known || !selectedId
-    ? options
+    ? options.map(item => item.id === selectedId && selectedName ? { ...item, shortName: selectedName } : item)
     : [{ id: selectedId, name: selectedName || selectedId, shortName: selectedName }, ...options];
 
   function handleSearch(keyword: string) {
+    const request = ++searchRequest.current;
     if (searchTimer.current) window.clearTimeout(searchTimer.current);
     const trimmed = keyword.trim();
     /**
@@ -1182,8 +1258,8 @@ function PartnerSelect({ kind, label, idValue, nameValue, masters, onChange, req
      */
     searchTimer.current = window.setTimeout(() => {
       void requestJson<MasterSet>(`/api/cloud/master-data?keyword=${encodeURIComponent(trimmed)}`)
-        .then((data) => setOptions(data[kind]))
-        .catch(() => { if (!trimmed) setOptions(masters[kind]); });
+        .then((data) => { if (request === searchRequest.current) setOptions(data[kind]); })
+        .catch(() => { if (request === searchRequest.current && !trimmed) setOptions(masters[kind]); });
     }, trimmed ? 180 : 0);
   }
 
@@ -1196,9 +1272,10 @@ function PartnerSelect({ kind, label, idValue, nameValue, masters, onChange, req
           value: item.id,
           label: item.shortName || item.name,
           code: item.code,
-          hint: item.code,
+          hint: item.name,
+          keywords: [item.taxNumber, item.name, item.nameEn, item.nameCn, item.entityName].filter(Boolean).join(" "),
         }))}
-        placeholder="输入编码或简称搜索"
+        placeholder="输入名称、编码或税号搜索"
         value={selectedId}
         onChange={(value) => {
           const picked = withSelected.find((item) => item.id === value);
@@ -1223,7 +1300,10 @@ function CloudAmountForm({ mode, value, masters, onChange, onCancel, onSave, onR
     }
     return { ...value, [key]: input };
   };
-  return <Modal description="付款单位从客户档案选择，收款单位从承接单位档案选择，支持按编码或简称搜索" footer={<><Button onClick={onCancel}>取消</Button><Button tone="primary" onClick={onSave}>保存</Button></>} onClose={onCancel} title={invoice ? "编辑客户开票" : "编辑客户实收"} widthClass="max-w-3xl"><div className="grid gap-3 border-b border-line-soft pb-4 sm:grid-cols-2">{partner("customers", "付款单位", `${prefix}PayerCustomerId`, `${prefix}PayerCustomerName`)}{partner("undertakingUnits", "收款单位", `${prefix}PayeeUndertakingUnitId`, `${prefix}PayeeUndertakingUnitName`)}</div>{invoice ? <div className="mt-4 border-b border-line-soft pb-4"><div className="mb-1 flex flex-wrap items-center gap-2"><span className="text-sm text-ink-2">从 CRM 发票匹配</span><span className="text-xs text-ink-3">按发票号 / 客户 / 主体搜索；选中后自动带出开票信息，保存时把发票 PDF 挂到本行「客户开票附件」</span></div><CrmInvoicePicker customerId={String(value.customerId ?? "")} onPick={(picked) => onChange({ ...value, invoiceNo: String(picked.invoiceNo ?? ""), invoiceCurrency: String(picked.currency ?? ""), invoiceNetAmount: (picked.amountTaxExcluded ?? "") as string | number, invoiceTaxAmount: (picked.taxAmount ?? "") as string | number, invoiceTotalAmount: (picked.amountTaxIncluded ?? "") as string | number, invoiceDate: String(picked.invoiceDate ?? ""), collectionInvoice: "issued", crmInvoiceId: String(picked.crmInvoiceId), crmInvoiceNo: String(picked.invoiceNo ?? "") })} rowId={String(value.id ?? "")} value={String(value.crmInvoiceId ?? "")} />{value.crmInvoiceId && onRequestAllocation ? <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-ink-3"><span>这张发票如果覆盖多个月或多个华为账号，可以按账期拆分：</span><Button onClick={() => onRequestAllocation(String(value.crmInvoiceId))} type="button">拆分到多账期</Button></div> : null}</div> : null}<div className="mt-4 grid gap-3 sm:grid-cols-2">{fields.map(([key, label, type]) => <label className="space-y-1 text-sm text-ink-2" key={key}><span>{label}</span><Input className="w-full" type={type ?? "text"} value={type === "date" ? dateInputValue(value[key]) : String(value[key] ?? "")} onChange={(event) => onChange(changeField(key, type, event.target.value))} /></label>)}</div>{invoice ? <label className="mt-3 flex items-center gap-2 text-sm text-ink-2"><input checked={value.collectionInvoice === "issued"} type="checkbox" onChange={(event) => onChange({ ...value, collectionInvoice: event.target.checked ? "issued" : "not_issued" })} />已开票</label> : <label className="mt-3 flex items-center gap-2 text-sm text-ink-2"><input checked={Boolean(value.collected)} type="checkbox" onChange={(event) => onChange({ ...value, collected: event.target.checked ? 1 : 0 })} />已收款</label>}</Modal>;
+  const description = invoice
+    ? "付款单位从客户档案选择，收款单位从承接单位档案选择，支持按编码或简称搜索"
+    : `空白的币种、未税金额、税率和含税金额按${String(value.collectionPrefillSource ?? "客户应收")}补充，可修改后确认保存。`;
+  return <Modal description={description} footer={<><Button onClick={onCancel}>取消</Button><Button tone="primary" onClick={onSave}>{invoice ? "保存" : "确认保存"}</Button></>} onClose={onCancel} title={invoice ? "编辑客户开票" : "编辑客户实收"} widthClass="max-w-3xl"><div className="grid gap-3 border-b border-line-soft pb-4 sm:grid-cols-2">{partner("customers", "付款单位", `${prefix}PayerCustomerId`, `${prefix}PayerCustomerName`)}{partner("undertakingUnits", "收款单位", `${prefix}PayeeUndertakingUnitId`, `${prefix}PayeeUndertakingUnitName`)}</div>{!invoice && receiptInvoiceCurrencyMismatch(value.collectionCurrency, value.collectionPrefillCurrency) ? <p className="mt-3 text-xs text-warning-ink">实收币种与{String(value.collectionPrefillSource ?? "来源")}币种不同，请按实际收款币种核对金额；系统不自动换算。</p> : null}{invoice ? <div className="mt-4 border-b border-line-soft pb-4"><div className="mb-1 flex flex-wrap items-center gap-2"><span className="text-sm text-ink-2">从 CRM 发票匹配</span><span className="text-xs text-ink-3">按发票号 / 客户 / 主体搜索；选中后自动带出开票信息，保存时把发票 PDF 挂到本行「客户开票附件」</span></div><CrmInvoicePicker customerId={String(value.customerId ?? "")} onPick={(picked) => onChange({ ...value, invoiceNo: String(picked.invoiceNo ?? ""), invoiceCurrency: String(picked.currency ?? ""), invoiceNetAmount: (picked.amountTaxExcluded ?? "") as string | number, invoiceTaxAmount: (picked.taxAmount ?? "") as string | number, invoiceTotalAmount: (picked.amountTaxIncluded ?? "") as string | number, invoiceDate: String(picked.invoiceDate ?? ""), collectionInvoice: "issued", crmInvoiceId: String(picked.crmInvoiceId), crmInvoiceNo: String(picked.invoiceNo ?? "") })} rowId={String(value.id ?? "")} value={String(value.crmInvoiceId ?? "")} />{value.crmInvoiceId && onRequestAllocation ? <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-ink-3"><span>这张发票如果覆盖多个月或多个华为账号，可以按账期拆分：</span><Button onClick={() => onRequestAllocation(String(value.crmInvoiceId))} type="button">拆分到多账期</Button></div> : null}</div> : null}<div className="mt-4 grid gap-3 sm:grid-cols-2">{fields.map(([key, label, type]) => <label className="space-y-1 text-sm text-ink-2" key={key}><span>{label}</span><Input className="w-full" type={type ?? "text"} value={type === "date" ? dateInputValue(value[key]) : String(value[key] ?? "")} onChange={(event) => onChange(changeField(key, type, event.target.value))} /></label>)}</div>{invoice ? <label className="mt-3 flex items-center gap-2 text-sm text-ink-2"><input checked={value.collectionInvoice === "issued"} type="checkbox" onChange={(event) => onChange({ ...value, collectionInvoice: event.target.checked ? "issued" : "not_issued" })} />已开票</label> : <label className="mt-3 flex items-center gap-2 text-sm text-ink-2"><input checked={Boolean(value.collected)} type="checkbox" onChange={(event) => onChange({ ...value, collected: event.target.checked ? 1 : 0 })} />已收款</label>}</Modal>;
 }
 
 function MappingForm({ value, masters, onChange, onCancel, onSave }: { value: Row; masters: { suppliers: Master[]; undertakingUnits: Master[]; customers: Master[] }; onChange: (value: Row) => void; onCancel: () => void; onSave: () => void }) {

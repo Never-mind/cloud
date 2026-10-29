@@ -6,15 +6,19 @@ import { Button, Input, Select, Textarea } from "./ui";
 import { Modal } from "./modal";
 import { notify } from "./app-dialog";
 import { SearchSelect, type SearchSelectOption } from "./search-select";
-import { InvoiceMergePicker } from "./invoice-merge-picker";
 import { InvoiceRecognitionReview } from "./invoice-recognition-review";
+import { InvoiceAllocationEditor } from "./invoice-allocation-editor";
+import { InvoiceAllocationAdjustModal } from "./invoice-allocation-adjust-modal";
+import { validateInvoiceAllocationPlan, type InvoiceAllocationPlan } from "@/lib/invoice-allocation";
 import type { InvoiceRecognition } from "@/lib/invoice-recognition-service";
+import { recognizedInvoiceFields } from "@/lib/invoice-recognition-fill";
 import { usePartnerOptions } from "./use-invoice-partner-options";
 export { usePartnerOptions } from "./use-invoice-partner-options";
 import { completeInvoiceReviewAmounts, updateInvoiceReviewAmounts, validateInvoiceReview } from "@/lib/invoice-review";
 import { defaultInvoicePaymentTermDays, invoiceDueDate, updateInvoicePaymentDates, validateInvoicePaymentDates } from "@/lib/invoice-payment-terms";
 import { type ApprovalPanelState } from "./invoice-approval-panel";
 import { InvoiceApprovalFlows } from "./invoice-approval-flows";
+import { INVOICE_CUSTOMER_FIELDS, INVOICE_SELLER_FIELDS, invoicePartyFields, partnerToInvoiceFields, type InvoicePartyFields } from "@/lib/invoice-party-fields";
 
 /**
  * 开票弹层（两种模式共用）：
@@ -29,7 +33,7 @@ export type InvoiceDraftSourceType = "manual" | "cloud_row" | "billing_statement
 
 type DraftLine = { periodLabel: string; description: string; amount: string };
 
-type DraftForm = {
+type DraftForm = InvoicePartyFields & {
   sourceType: InvoiceDraftSourceType;
   sourceId: string;
   sourceNo: string;
@@ -111,8 +115,11 @@ export function InvoiceDraftModal({
   const [prefilling, setPrefilling] = useState(false);
   const [loadingTerms, setLoadingTerms] = useState(false);
   const [termsError, setTermsError] = useState("");
-  const [mergeOpen, setMergeOpen] = useState(false);
   const [allocationIds, setAllocationIds] = useState<string[]>([]);
+  const [allocationPlan,setAllocationPlan] = useState<InvoiceAllocationPlan|null>(null);
+  const [existingInvoiceId,setExistingInvoiceId] = useState<string|null>(null);
+  const [adjustExisting,setAdjustExisting] = useState(false);
+  const updateAllocationPlan = useCallback((plan:InvoiceAllocationPlan) => {setAllocationPlan(plan);setAllocationIds(plan.allocations.map(row=>row.sourceId));},[]);
   /**
    * 开票方式：本地开票（系统生成票面）/ 飞书审批开票。
    * 放在弹层顶部切换 —— 原来这两个是底部两个按钮，长表单要滚到最底才看得到。
@@ -135,6 +142,7 @@ export function InvoiceDraftModal({
     const base = emptyInvoiceDraft(sourceType, sourceId);
     sourceParties.current = { customerId: "", undertakingUnitId: "" };
     setRecognition(null); setRecognizing(false); setFile(null); setAllocationIds([]);
+    setAllocationPlan(null);setExistingInvoiceId(null);setAdjustExisting(false);
     setLoadingTerms(false); setTermsError("");
     requestId.current += 1;
     setIssueMode("local"); setApprovalState(null); setVisitedApproval(false);
@@ -150,6 +158,7 @@ export function InvoiceDraftModal({
         sourceParties.current = { customerId: text(data.customerId), undertakingUnitId: text(data.undertakingUnitId) };
         setDraft({
           ...base,
+          ...invoicePartyFields(data),
           sourceNo: text(data.sourceNo),
           period: text(data.period) || base.period,
           invoiceNo: mode === "external" ? "" : text(data.suggestedInvoiceNo),
@@ -183,14 +192,13 @@ export function InvoiceDraftModal({
     setAllocationIds([]);
     setIssueMode("local");
     setApprovalState(null);
-    setMergeOpen(autoOpenMergePicker && sourceType !== "manual");
     return () => { cancelled = true; requestId.current += 1; };
   }, [autoOpenMergePicker, mode, open, sourceId, sourceType]);
 
   async function recognizeFile(next: File) {
     if (next.size > 20 * 1024 * 1024) { notify("文件不能超过 20 MB", "error"); return; }
     const id = ++requestId.current;
-    setFile(next); setRecognition(null); setRecognizing(true);
+    setFile(next); setRecognition(null); setRecognizing(true); setExistingInvoiceId(null);
     setTermsError("");
     setDraft(current => current ? { ...current, ...sourceParties.current, invoiceNo: "", invoiceDate: "", paymentTermDays: "30", dueDate: "", amountExcludingTax: "", taxRate: "", taxAmount: "", amountIncludingTax: "" } : current);
     try {
@@ -203,42 +211,35 @@ export function InvoiceDraftModal({
       setRecognition(result);
       setDraft(current => {
         if (!current) return current;
-        const facts = result.facts;
-        const form = result.form;
-        const invoiceDate = facts?.invoiceDate ?? form.invoiceDate;
-        const paymentTermDays = String(defaultInvoicePaymentTermDays(result.partyMatches?.issuerUnit.paymentTermDays));
-        const amounts = completeInvoiceReviewAmounts({
-          amountExcludingTax: facts?.amountExcludingTax ?? form.amountExcludingTax,
-          taxRate: facts?.taxRate ?? form.taxRate, taxAmount: facts?.taxAmount ?? form.taxAmount,
-          amountIncludingTax: facts?.amountIncludingTax ?? form.invoiceTotal,
-        });
-        return { ...current, ...amounts, invoiceNo: facts?.invoiceNo ?? form.invoiceNo,
-          invoiceDate, paymentTermDays, dueDate: invoiceDueDate(invoiceDate, paymentTermDays), currency: facts?.currency || current.currency,
-          exchangeRate: form.exchangeRate || ((facts?.currency || form.currency) === current.currency ? current.exchangeRate : ""),
-          customerId: result.matches?.receiverCustomerId || "",
-          undertakingUnitId: result.matches?.issuerUnitId || "",
-        };
+        return { ...current, ...recognizedInvoiceFields(result, current),
+          ...(!current.sourceId && result.facts?.servicePeriod ? { period: result.facts.servicePeriod.replace("-", "") } : {}) };
       });
     } catch (error) {
       if (id === requestId.current) notify(`${error instanceof Error ? error.message : "识别失败"}，可手工填写后确认`, "info");
     } finally { if (id === requestId.current) setRecognizing(false); }
   }
 
-  async function changeUndertakingUnit(undertakingUnitId: string) {
+  async function changePartner(kind: "customers" | "undertakingUnits", partnerId: string) {
     const id = ++requestId.current;
     setTermsError("");
-    setDraft(current => current ? { ...current, undertakingUnitId, paymentTermDays: "", dueDate: "" } : current);
-    if (!undertakingUnitId) { setLoadingTerms(false); return; }
+    const keepInvoiceTerms = mode === "external" && Boolean(recognition?.facts?.dueDate || recognition?.facts?.paymentTermDays);
+    const matchedId = kind === "customers" ? recognition?.matches?.receiverCustomerId : recognition?.matches?.issuerUnitId;
+    const keepInvoiceParties = mode === "external" && recognition?.partyFields && (!matchedId || matchedId === partnerId);
+    const retainedFields = keepInvoiceParties ? Object.fromEntries((kind === "customers" ? INVOICE_CUSTOMER_FIELDS : INVOICE_SELLER_FIELDS)
+      .filter(([key]) => recognition.partyFields?.[key] !== undefined).map(([key]) => [key, draft?.[key] ?? recognition.partyFields?.[key]])) : {};
+    setDraft(current => current ? { ...current, ...partnerToInvoiceFields(kind, {}), ...retainedFields, ...(kind === "customers" ? { customerId: partnerId } : { undertakingUnitId: partnerId, ...(!keepInvoiceTerms ? { paymentTermDays: "", dueDate: "" } : {}) }) } : current);
+    if (!partnerId) { setLoadingTerms(false); return; }
     setLoadingTerms(true);
     try {
-      const response = await fetch(`/api/entities/undertaking-units/${encodeURIComponent(undertakingUnitId)}`, { cache: "no-store" });
+      const response = await fetch(`/api/invoices/partners?kind=${kind}&id=${encodeURIComponent(partnerId)}`, { cache: "no-store" });
       const data = await response.json();
       if (id !== requestId.current) return;
       if (!response.ok) throw new Error(data.error ?? "主体账期加载失败");
       const paymentTermDays = String(defaultInvoicePaymentTermDays(data.paymentTermDays));
-      setDraft(current => current ? { ...current, paymentTermDays, dueDate: invoiceDueDate(current.invoiceDate, paymentTermDays) } : current);
+      setDraft(current => current ? { ...current, ...partnerToInvoiceFields(kind, data), ...retainedFields, ...(kind === "undertakingUnits" && !keepInvoiceTerms ? { paymentTermDays, dueDate: invoiceDueDate(current.invoiceDate, paymentTermDays) } : {}) } : current);
+      if (data.warnings?.length) notify(data.warnings.join("；"), "info");
     } catch (error) {
-      if (id === requestId.current) setTermsError(`${error instanceof Error ? error.message : "主体账期加载失败"}，请重新选择开票主体`);
+      if (id === requestId.current) setTermsError(`${error instanceof Error ? error.message : "开票资料加载失败"}，请重新选择业务伙伴`);
     } finally { if (id === requestId.current) setLoadingTerms(false); }
   }
 
@@ -248,42 +249,11 @@ export function InvoiceDraftModal({
     onClose();
   }
 
-  /** 合并多账期：拿到勾选的行后重新按这些行预填（明细/金额都由服务端算）。 */
-  const applyMergeRows = useCallback(async (ids: string[]) => {
-    setMergeOpen(false);
-    if (!ids.length) return;
-    try {
-      const response = await fetch(`/api/invoices/prefill?sourceType=cloud_row&sourceIds=${encodeURIComponent(ids.join(","))}`, { cache: "no-store" });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error ?? "按账单行预填失败");
-      setDraft((current) => current ? {
-        ...current,
-        sourceType: "cloud_row",
-        sourceId: text(data.sourceId),
-        sourceNo: text(data.sourceNo),
-        period: text(data.period) || current.period,
-        invoiceNo: text(data.suggestedInvoiceNo) || current.invoiceNo,
-        customerId: text(data.customerId) || current.customerId,
-        undertakingUnitId: text(data.undertakingUnitId) || current.undertakingUnitId,
-        currency: text(data.currency) || current.currency,
-        amountExcludingTax: text(data.amountExcludingTax),
-        taxRate: text(data.taxRate),
-        taxAmount: text(data.taxAmount),
-        amountIncludingTax: text(data.amountIncludingTax),
-        lines: ((data.lines ?? []) as Record<string, unknown>[]).map((line) => ({
-          periodLabel: text(line.date), description: text(line.desc), amount: text(line.cost),
-        })),
-      } : current);
-      setAllocationIds(ids);
-      const warnings = (data.warnings ?? []) as string[];
-      notify(`已合并 ${ids.length} 个账期，保存后这些行都会标记已开票${warnings.length ? `；${warnings.join("；")}` : ""}`, "info");
-    } catch (error) {
-      notify(error instanceof Error ? error.message : "按账单行预填失败", "error");
-    }
-  }, []);
-
   const submit = useCallback(async () => {
     if (!draft || saving.current || recognizing || loadingTerms) return;
+    if(allocationPlan) {const error=validateInvoiceAllocationPlan(allocationPlan,draft);if(error){notify(error,"error");return;}if(allocationPlan.currency!==draft.currency){notify("请按当前开票币种重新核对分摊","error");return;}}
+    if (!draft.customerId || !draft.undertakingUnitId) { notify("请选择客户抬头和开票主体", "error"); return; }
+    if (termsError) { notify(termsError, "error"); return; }
     if (mode === "external" && !file) { notify("请先选择发票文件", "error"); return; }
     if (mode === "external") {
       if (termsError) { notify(termsError, "error"); return; }
@@ -300,16 +270,17 @@ export function InvoiceDraftModal({
       if (mode === "external") {
         const form = new FormData();
         form.set("file", file as File);
-        form.set("payload", JSON.stringify({ ...draft, ...completeInvoiceReviewAmounts(draft), source: "external", recognitionFacts: recognition?.facts }));
+        form.set("payload", JSON.stringify({ ...draft, ...completeInvoiceReviewAmounts(draft), source: "external", recognitionFacts: recognition?.facts,allocationPlan }));
         response = await fetch("/api/invoices", { method: "POST", body: form });
       } else {
         response = await fetch("/api/invoices", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ ...draft, source: "generated", allocationSourceIds: allocationIds }),
+          body: JSON.stringify({ ...draft, source: "generated", allocationSourceIds: allocationIds,allocationPlan }),
         });
       }
       const data = await response.json();
+      if(data.existingInvoiceId)setExistingInvoiceId(data.existingInvoiceId);
       if (!response.ok) throw new Error(data.error ?? (mode === "external" ? "登记失败" : "开票失败"));
       notify(`${mode === "external" ? "已登记外部发票" : "已开票"}：${text(data.invoice?.invoiceNo)}`, "success");
       onSaved?.(data.invoice as Record<string, unknown>);
@@ -320,7 +291,7 @@ export function InvoiceDraftModal({
       saving.current = false;
       setBusy(false);
     }
-  }, [allocationIds, draft, file, mode, onClose, onSaved, recognizing, recognition, loadingTerms, termsError]);
+  }, [allocationIds, allocationPlan, draft, file, mode, onClose, onSaved, recognizing, recognition, loadingTerms, termsError]);
 
   if (!open) return null;
 
@@ -375,6 +346,8 @@ export function InvoiceDraftModal({
           sourceId={draft?.sourceId || sourceId}
           sourceIds={allocationIds}
           sourceType={sourceType}
+          allocationPlan={allocationPlan}
+          onAllocationChange={updateAllocationPlan}
         />
       </div> : null}
       <div hidden={issueMode === "approval" && showIssueTabs}>
@@ -387,37 +360,38 @@ export function InvoiceDraftModal({
               <h3 className="mb-3 border-b border-line-soft pb-2 text-sm font-medium text-ink">发票文件</h3>
               <label className="flex cursor-pointer items-center gap-2 rounded border border-dashed border-line px-4 py-4 text-sm text-ink-2 hover:border-primary hover:text-primary">
                 <FileUp size={16} />
-                <span className="min-w-0 break-all">{recognizing ? "正在识别…" : file ? `${file.name}（${Math.max(1, Math.round(file.size / 1024))} KB）` : "上传并识别（单个最大 20 MB）"}</span>
+                <span className="min-w-0 break-all">{recognizing ? "正在识别…" : file ? `${file.name}（${Math.max(1, Math.round(file.size / 1024))} KB）` : "上传并识别（PDF / Excel / OFD / XML，最大 20 MB）"}</span>
                 <input disabled={busy || recognizing || loadingTerms} className="hidden" onChange={(event) => { const next = event.target.files?.[0]; event.target.value = ""; if (next) void recognizeFile(next); }} type="file" />
               </label>
               <InvoiceRecognitionReview recognition={recognition} file={file} values={draft} direction="income" />
+              {recognition?.facts?.servicePeriod && !allocationPlan ? <p className={`mt-2 text-sm ${draft.sourceId && draft.period.replace(/[^0-9]/g, "").slice(0, 6) !== recognition.facts.servicePeriod.replace("-", "") ? "text-warning-ink" : "text-ink-2"}`}>票面服务月份：{recognition.facts.servicePeriod}；关联账单账期：{draft.period || "未指定"}。{draft.sourceId && draft.period.replace(/[^0-9]/g, "").slice(0, 6) !== recognition.facts.servicePeriod.replace("-", "") ? "月份不一致，请核对关联账单。" : ""}</p> : null}
               {recognition?.matches && ((sourceParties.current.customerId && recognition.matches.receiverCustomerId && sourceParties.current.customerId !== recognition.matches.receiverCustomerId) || (sourceParties.current.undertakingUnitId && recognition.matches.issuerUnitId && sourceParties.current.undertakingUnitId !== recognition.matches.issuerUnitId)) ? <p className="mt-2 text-sm text-warning-ink">票面双方与业务单据默认单位不同，已按票面匹配填写本张发票，请确认。</p> : null}
               {recognition?.matches && ((recognition.matches.receiverCustomerId && recognition.matches.receiverCustomerId !== draft.customerId) || (recognition.matches.issuerUnitId && recognition.matches.issuerUnitId !== draft.undertakingUnitId)) ? <p className="mt-2 text-sm text-danger">票面双方与当前选择不一致，请核对客户及开票主体。</p> : null}
             </section>
           ) : null}
-          {loadingTerms ? <p className="text-sm text-ink-3">正在读取主体账期…</p> : null}
+          {loadingTerms ? <p className="text-sm text-ink-3">正在读取业务伙伴开票资料…</p> : null}
           {termsError ? <p role="alert" className="text-sm text-danger">{termsError}</p> : null}
+          {existingInvoiceId?<div className="flex flex-wrap items-center gap-2 rounded border border-warning-border p-3 text-sm"><span>该发票已登记，可直接调整原票的关联账期。</span><a className="text-primary" href={`/api/invoices/${encodeURIComponent(existingInvoiceId)}/file`} target="_blank" rel="noreferrer">查看原发票</a><Button onClick={()=>setAdjustExisting(true)}>调整关联账期及分摊</Button></div>:null}
+          {["cloud_row","service_fee"].includes(sourceType)?<div className="space-y-2"><InvoiceAllocationEditor sourceType={sourceType} sourceId={sourceId} currency={draft.currency} totals={draft} value={allocationPlan} onChange={updateAllocationPlan} autoOpen={autoOpenMergePicker} recognizedLines={recognition?.lines} disabled={busy||recognizing||loadingTerms}
+            onTotalsChange={mode==="generated"?totals=>setDraft(current=>current?{...current,amountExcludingTax:String(totals.amountExcludingTax),taxAmount:String(totals.taxAmount),amountIncludingTax:String(totals.amountIncludingTax),taxRate:String(totals.taxRate??"")}:current):undefined}/>
+            <button className="text-xs text-primary" type="button" onClick={()=>setAdjustExisting(true)}>查看／调整本账单已登记发票的分摊</button></div>:null}
           <fieldset disabled={busy || recognizing || loadingTerms}><DraftFormFields
             customerOptions={customerOptions}
             draft={draft}
             mergedCount={allocationIds.length}
-            onOpenMergePicker={sourceType === "cloud_row" ? () => setMergeOpen(true) : undefined}
+            hasAllocationPlan={Boolean(allocationPlan)}
+            onOpenMergePicker={undefined}
             onChange={setDraft}
-            onUndertakingUnitChange={mode === "external" ? id => void changeUndertakingUnit(id) : undefined}
+            onUndertakingUnitChange={id => void changePartner("undertakingUnits", id)}
+            onCustomerChange={id => void changePartner("customers", id)}
             simple={mode === "external"}
             unitOptions={unitOptions}
           /></fieldset>
         </div>
       )}
       </div>
-      {mergeOpen && draft ? (
-        <InvoiceMergePicker
-          currency={draft.currency}
-          customerId={draft.customerId}
-          onApply={(ids) => void applyMergeRows(ids)}
-          onClose={() => setMergeOpen(false)}
-        />
-      ) : null}
+      {adjustExisting?<InvoiceAllocationAdjustModal invoiceId={existingInvoiceId||undefined} sourceType={sourceType} sourceId={sourceId} onClose={()=>setAdjustExisting(false)} onSaved={()=>{setAdjustExisting(false);onSaved?.({});onClose();}}/>:null}
+
     </Modal>
   );
 }
@@ -427,8 +401,10 @@ function DraftFormFields({
   customerOptions,
   unitOptions,
   mergedCount = 0,
+  hasAllocationPlan = false,
   onChange,
   onUndertakingUnitChange,
+  onCustomerChange,
   onOpenMergePicker,
   simple = false,
 }: {
@@ -437,8 +413,10 @@ function DraftFormFields({
   unitOptions: SearchSelectOption[];
   /** 已合并的账期数量（>0 时提示保存后这些行都会标记已开票）。 */
   mergedCount?: number;
+  hasAllocationPlan?: boolean;
   onChange: (next: DraftForm) => void;
   onUndertakingUnitChange?: (id: string) => void;
+  onCustomerChange?: (id: string) => void;
   /** 传了才显示「合并多账期」按钮（目前只有华为云对账行支持）。 */
   onOpenMergePicker?: () => void;
   simple?: boolean;
@@ -472,9 +450,9 @@ function DraftFormFields({
             <span className="text-ink-2">客户抬头</span>
             <SearchSelect
               className="w-full"
-              onChange={(value) => patch({ customerId: value })}
+              onChange={(value) => onCustomerChange ? onCustomerChange(value) : patch({ customerId: value })}
               options={customerOptions}
-              placeholder="按简称 / 编码搜索客户"
+              placeholder="按名称 / 编码 / 税号搜索客户"
               value={draft.customerId}
             />
             <span className={hintClass}>抬头、发票地址、联系人都取客户档案</span>
@@ -485,7 +463,7 @@ function DraftFormFields({
               className="w-full"
               onChange={(value) => onUndertakingUnitChange ? onUndertakingUnitChange(value) : patch({ undertakingUnitId: value })}
               options={unitOptions}
-              placeholder="按简称 / 编码搜索承接单位"
+              placeholder="按名称 / 编码 / 税号搜索承接单位"
               value={draft.undertakingUnitId}
             />
             <span className={hintClass}>地址、电话、财务邮箱、签章与收款银行取承接单位档案</span>
@@ -493,6 +471,12 @@ function DraftFormFields({
         </div>
       </section>
 
+      <section className={sectionClass}>
+        <details><summary className="cursor-pointer text-sm font-medium">开票资料（自动带入，可展开修改）</summary>
+          <p className="my-2 text-xs text-ink-3">修改仅用于本次开票，保存时记录资料快照。</p>
+          <div className="grid gap-3 sm:grid-cols-2">{[...INVOICE_CUSTOMER_FIELDS, ...INVOICE_SELLER_FIELDS].map(([key, label]) => <label key={key} className={labelClass}><span>{label}</span><Input value={draft[key] ?? ""} onChange={event => patch({ [key]: event.target.value })} /></label>)}</div>
+        </details>
+      </section>
       <section className={sectionClass}>
         <div className={headingRowClass}><h3 className={headingClass}>票号与日期</h3></div>
         <div className="grid gap-3 sm:grid-cols-3">
@@ -597,8 +581,9 @@ function DraftFormFields({
       {simple && (draft.sourceType === "cloud_row" || draft.sourceType === "settlement_invoice") ? <label className={labelClass}>
         <span>发票汇率（1 USD 对应的原币金额）</span><Input value={draft.exchangeRate} onChange={event => patch({ exchangeRate: event.target.value })} />
       </label> : null}
+      {simple ? <label className={labelClass}><span>发票备注</span><Textarea className="w-full" rows={2} value={draft.comment} onChange={event => patch({ comment: event.target.value })} /></label> : null}
 
-      {simple ? null : (
+      {simple || hasAllocationPlan ? null : (
         <>
           <section className={sectionClass}>
             <div className="mb-3 flex items-center justify-between border-b border-line-soft pb-2">

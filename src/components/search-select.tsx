@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { ChevronDown, X } from "lucide-react";
+import { useEffect, useId, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { Check, ChevronDown, Search, X } from "lucide-react";
 import { Input } from "./ui";
 
 /**
@@ -58,6 +59,8 @@ export function SearchSelect({
   options,
   placeholder = "输入关键词搜索",
   value,
+  appearance = "default",
+  inputId,
 }: {
   className?: string;
   clearable?: boolean;
@@ -71,13 +74,19 @@ export function SearchSelect({
   options: SearchSelectOption[];
   placeholder?: string;
   value: string;
+  /** Approval partner fields use a full-width, name-first presentation. */
+  appearance?: "default" | "partner";
+  inputId?: string;
 }) {
+  const partner = appearance === "partner";
+  const listId = useId();
+  const panelRef = useRef<HTMLDivElement | null>(null);
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
-  const [menuPosition, setMenuPosition] = useState({ left: 0, top: 0, minWidth: 0, maxWidth: 480 });
+  const [menuPosition, setMenuPosition] = useState({ left: 0, top: 0, minWidth: 0, maxWidth: 480, maxHeight: 288, bottom: 0, upward: false });
 
   const selected = options.find((option) => option.value === value);
   const selectedLabel = selected ? selected.label ?? selected.value : value;
@@ -107,13 +116,25 @@ export function SearchSelect({
     const update = () => {
       const rect = inputRef.current?.getBoundingClientRect();
       if (!rect) return;
+      // The app applies CSS zoom to html. A body portal uses unscaled CSS
+      // coordinates, while boundingClientRect returns scaled viewport pixels.
+      const zoom = partner ? (Number.parseFloat(getComputedStyle(document.documentElement).zoom) || 1) * (Number.parseFloat(getComputedStyle(document.body).zoom) || 1) : 1;
+      const left = rect.left / zoom, top = rect.top / zoom, bottom = rect.bottom / zoom;
+      const viewportHeight = window.innerHeight / zoom, viewportWidth = window.innerWidth / zoom;
+      const below = viewportHeight - bottom - 12;
+      const above = top - 12;
+      const upward = partner && below < 220 && above > below;
+      const height = Math.max(80, Math.min(288, upward ? above : below));
       setMenuPosition({
-        left: rect.left,
+        left,
         // 输入框下方留 4px 缝
-        top: rect.bottom + 4,
+        top: upward ? top - height - 4 : bottom + 4,
         // 宽度按内容自适应（保证全称完整），最窄不窄于输入框，最宽不超出视口
-        minWidth: rect.width,
-        maxWidth: Math.max(200, window.innerWidth - rect.left - 12),
+        minWidth: rect.width / zoom,
+        maxWidth: Math.max(200, viewportWidth - left - 12),
+        maxHeight: height,
+        upward,
+        bottom: viewportHeight - top + 4,
       });
     };
     update();
@@ -123,7 +144,11 @@ export function SearchSelect({
       window.removeEventListener("resize", update);
       window.removeEventListener("scroll", update, true);
     };
-  }, [open]);
+  }, [open, partner]);
+
+  useEffect(() => {
+    if (partner && open) panelRef.current?.querySelector(`[data-option-index="${activeIndex}"]`)?.scrollIntoView({ block: "nearest" });
+  }, [activeIndex, open, partner]);
 
   // 点击面板以外关闭
   useEffect(() => {
@@ -131,6 +156,7 @@ export function SearchSelect({
     const handlePointerDown = (event: MouseEvent) => {
       const target = event.target as Node;
       if (wrapperRef.current?.contains(target)) return;
+      if (panelRef.current?.contains(target)) return;
       if ((target as HTMLElement)?.closest?.("[data-search-select-panel]")) return;
       setOpen(false);
     };
@@ -154,6 +180,7 @@ export function SearchSelect({
 
   function handleKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
     if (event.key === "Escape") {
+      if (partner && open) event.stopPropagation();
       setOpen(false);
       setQuery(selectedLabel);
       return;
@@ -186,12 +213,45 @@ export function SearchSelect({
     }
   }
 
+  const menu = partner && open && !disabled ? (
+    <div ref={panelRef} id={listId} role={partner ? "listbox" : undefined}
+      aria-label={partner ? "业务伙伴选项" : undefined} data-search-select-panel=""
+      className={`fixed z-[120] overflow-y-auto overflow-x-hidden rounded border border-line bg-white shadow-lg ${partner ? "p-1" : "max-h-72 py-0.5"}`}
+      style={{left:menuPosition.left,top:menuPosition.upward?undefined:menuPosition.top,bottom:menuPosition.upward?menuPosition.bottom:undefined,width:menuPosition.minWidth,maxWidth:menuPosition.maxWidth,maxHeight:menuPosition.maxHeight}}
+    >
+      {loading ? <div className="px-3 py-3 text-sm text-ink-2">加载中…</div> : visible.length ? <>
+        {visible.map((option,index) => {
+          const label = option.label ?? option.value;
+          const hint = partner && option.hint?.trim() === label.trim() ? "" : option.hint;
+          const isSelected = value === option.value;
+          return <button key={`${option.value}-${index}`} id={`${listId}-${index}`} data-option-index={index}
+            role={partner?"option":undefined} aria-selected={partner?isSelected:undefined} tabIndex={partner?-1:undefined}
+            className={`flex w-full items-center gap-2 text-left ${partner?"rounded px-3 py-2.5":"px-3 py-1.5"} ${partner&&isSelected?"bg-info-soft text-ink":index===activeIndex?"bg-canvas-deep":"hover:bg-canvas-deep"} ${partner&&index===activeIndex?"ring-1 ring-inset ring-primary/30":""}`}
+            type="button" onMouseDown={event=>event.preventDefault()} onClick={()=>commit(option)} onMouseEnter={()=>setActiveIndex(index)}>
+            <span className="flex min-w-0 flex-1 flex-col gap-1">
+              <span className={partner?"break-words text-sm font-medium leading-5 text-ink":"w-full truncate text-sm font-semibold text-ink"}>{highlightMatch(label,keyword)}</span>
+              {hint?<span className={partner?"break-words text-xs leading-4 text-ink-2":"w-full truncate text-xs text-ink-3"}>{highlightMatch(hint,keyword)}</span>:null}
+            </span>
+            {partner?<Check size={16} aria-hidden="true" className={`shrink-0 text-primary ${isSelected?"":"invisible"}`}/>:null}
+          </button>;
+        })}
+        {truncated?<div className="border-t border-line-soft px-3 py-2 text-xs text-ink-2">共匹配 {matched.length} 条，仅显示前 {visible.length} 条，请继续输入缩小范围</div>:null}
+      </>:<div className="px-3 py-3 text-sm text-ink-2">{emptyText}</div>}
+    </div>
+  ):null;
+
   return (
-    <div className="relative" ref={wrapperRef}>
+    <div className={partner?"relative min-w-0 w-full":"relative"} ref={wrapperRef}>
+      {partner?<Search size={16} aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-2"/>:null}
       <Input
+        id={inputId}
         aria-autocomplete="list"
         aria-expanded={open}
-        className={`${className ?? ""} ${disabled ? "" : "pr-8"}`}
+        aria-controls={partner&&open?listId:undefined}
+        aria-activedescendant={partner&&open&&visible[activeIndex]?`${listId}-${activeIndex}`:undefined}
+        aria-haspopup={partner?"listbox":undefined}
+        title={partner ? selectedLabel : undefined}
+        className={`${className ?? ""} ${partner ? "h-10 w-full pl-10 pr-10" : disabled ? "" : "pr-8"}`}
         disabled={disabled}
         placeholder={placeholder}
         ref={inputRef}
@@ -204,8 +264,10 @@ export function SearchSelect({
           onSearch?.(next);
         }}
         onFocus={openMenu}
+        onClick={() => { if (partner && !open) openMenu(); }}
         onKeyDown={handleKeyDown}
         onBlur={() => {
+          if (partner) { setOpen(false); setQuery(selectedLabel); return; }
           // 清空输入即视为取消选择；否则回显已选项
           window.setTimeout(() => {
             if (open) return;
@@ -227,9 +289,9 @@ export function SearchSelect({
           <X size={15} />
         </button>
       ) : disabled ? null : (
-        <ChevronDown className="pointer-events-none absolute right-2 top-2.5 text-ink-4" size={15} />
+        <ChevronDown className={partner?`pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-ink-2 transition-transform ${open?"rotate-180":""}`:"pointer-events-none absolute right-2 top-2.5 text-ink-4"} size={15} />
       )}
-      {open && !disabled ? (
+      {partner ? (menu ? createPortal(menu,document.body) : null) : open && !disabled ? (
         <div
           className="fixed z-[120] max-h-72 overflow-y-auto overflow-x-hidden rounded border border-line bg-white py-0.5 shadow-lg"
           data-search-select-panel=""

@@ -1,5 +1,7 @@
 import { queryRows, type Row } from "./db";
-import { extractPdfPages } from "./pdf-text-extract";
+import { extractPdfLayoutPages } from "./pdf-text-extract";
+import { hkwzPdfRows, isHkwzInvoiceText, parseHkwzInvoice, parseHkwzWorkbook, type HkwzInvoice } from "./hkwz-invoice-parser";
+import type { InvoicePartyFields } from "./invoice-party-fields";
 import { parseChinaVatInvoice } from "./china-vat-invoice-parser";
 import { parseCfdiInvoiceText } from "./cfdi-pdf-parser";
 import { parseCfdiInvoice } from "./cfdi-invoice-parser";
@@ -19,7 +21,7 @@ import { defaultInvoicePaymentTermDays } from "./invoice-payment-terms";
  *   - 票面里没有的字段（记账日期、实收日期）留空，不猜值。
  *
  * 支持：中国增值税电子发票、数电票 XML、墨西哥 CFDI（XML / PDF）、
- * 新加坡 GST 商业发票、达创普通商业发票（票面未列明税额时留空提示）。
+ * 新加坡 GST 商业发票、达创普通商业发票、香港万众商业发票（PDF / Excel，按约定无税规则）。
  * 扫描件、拍照件没有文字层，本期不处理（后续接 OCR）。
  */
 
@@ -30,7 +32,7 @@ export type RecognizedInvoiceForm = {
   recognitionFacts?: Record<string, string>;
   invoiceNo: string;
   invoiceDate: string;
-  /** 约定收款日：按开票日期 + 30 天推导 */
+  /** 优先使用支持模板的票面到期日。 */
   receivableDate: string;
   currency: string;
   exchangeRate: string;
@@ -60,7 +62,11 @@ export type InvoiceRecognition = {
     issuerName: string; issuerTaxNumber: string; receiverName: string; receiverTaxNumber: string;
     invoiceNo: string; invoiceDate: string; currency: string; exchangeRate: string;
     amountExcludingTax: string; taxRate: string; taxAmount: string; amountIncludingTax: string; taxUuid: string;
+    dueDate?: string; paymentTermDays?: string; servicePeriod?: string; comment?: string;
   };
+  partyFields?: InvoicePartyFields;
+  lines?: HkwzInvoice["lines"];
+  taxTreatment?: "template_no_tax";
   matches?: { issuerUnitId: string; receiverUnitId: string; issuerSupplierId: string; receiverCustomerId: string };
   partyMatches?: Record<"issuerUnit" | "receiverUnit" | "issuerSupplier" | "receiverCustomer", InvoicePartyMatch>;
   /** 识别来源：中国增值税电子发票 / 墨西哥 CFDI XML / 墨西哥 CFDI PDF */
@@ -188,18 +194,20 @@ export async function recognizeInvoiceFile(params: {
   const fileName = text(params.fileName);
   const head = params.bytes.subarray(0, 5).toString("utf8");
   const isPdf = head.startsWith("%PDF");
+  const isExcel = !isPdf && /\.(xlsx|xls)$/i.test(fileName);
   // OFD 本质是 zip（PK 开头）；个别环境只给扩展名，所以两个条件都认
   const isZip = params.bytes[0] === 0x50 && params.bytes[1] === 0x4b;
-  const isOfd = !isPdf && (isZip || fileName.toLowerCase().endsWith(".ofd"));
-  const rawText = isPdf || isOfd ? "" : params.bytes.toString("utf8");
-  const isXml = !isPdf && !isOfd && /^\s*</.test(rawText);
-  if (!isPdf && !isOfd && !isXml) throw new Error("只支持 PDF / OFD / XML 发票（照片、扫描件请等 OCR 版本）");
+  const isOfd = !isPdf && !isExcel && (isZip || fileName.toLowerCase().endsWith(".ofd"));
+  const rawText = isPdf || isOfd || isExcel ? "" : params.bytes.toString("utf8");
+  const isXml = !isPdf && !isOfd && !isExcel && /^\s*</.test(rawText);
+  if (!isPdf && !isOfd && !isXml && !isExcel) throw new Error("只支持 PDF / Excel（XLSX、XLS）/ OFD / XML 发票（照片、扫描件请等 OCR 版本）");
 
   const entities = await loadEntities();
   const warnings: string[] = [];
   let source = "";
   let kind = "";
   let exact = false;
+  let hkwz: HkwzInvoice | undefined;
   let parsed: {
     fullNumber: string; uuid: string; invoiceDate: string;
     issuerName: string; issuerTaxNumber: string; receiverName: string; receiverTaxNumber: string;
@@ -217,7 +225,18 @@ export async function recognizeInvoiceFile(params: {
     totalIncludingTax: vat.totalIncludingTax, taxRate: vat.taxRate,
   });
 
-  if (isOfd) {
+  const fromHkwzInvoice = (invoice: HkwzInvoice) => ({
+    fullNumber: invoice.invoiceNo, uuid: "", invoiceDate: invoice.invoiceDate,
+    issuerName: invoice.issuerName, issuerTaxNumber: "", receiverName: invoice.receiverName, receiverTaxNumber: "",
+    currency: invoice.currency, exchangeRate: invoice.currency === "USD" ? "1" : "",
+    amountExcludingTax: invoice.total, taxAmount: 0, totalIncludingTax: invoice.total, taxRate: 0,
+  });
+
+  if (isExcel) {
+    hkwz = parseHkwzWorkbook(params.bytes);
+    source = "香港万众商业发票 Excel"; kind = "商业发票（按模板无税规则）"; exact = true;
+    parsed = fromHkwzInvoice(hkwz);
+  } else if (isOfd) {
     const content = extractOfdPages(params.bytes).join("\n");
     if (!content.trim()) throw new Error("这个 OFD 里没有文字层（可能是扫描件转的），本期识别不了");
     const vat = parseChinaVatInvoice(content);
@@ -252,12 +271,17 @@ export async function recognizeInvoiceFile(params: {
       taxRate: xml.taxRate,
     };
   } else {
-    const content = (await extractPdfPages(params.bytes)).join("\n");
+    const pages = await extractPdfLayoutPages(params.bytes);
+    const content = pages.map(page => page.text).join("\n");
     if (!content.trim()) throw new Error("这个 PDF 没有文字层（可能是扫描件），本期识别不了");
     const isSingapore = isSingaporeInvoiceText(content);
     const isDazhuangCommercial = isDazhuangCommercialInvoiceText(content);
     const isCfdi = /CFDI|FACTURA|Comprobante|Folio Fiscal/.test(content) && !/发票号码/.test(content);
-    if (isSingapore) {
+    if (isHkwzInvoiceText(content)) {
+      hkwz = parseHkwzInvoice(hkwzPdfRows(pages));
+      source = "香港万众商业发票 PDF"; kind = "商业发票（按模板无税规则）"; exact = true;
+      parsed = fromHkwzInvoice(hkwz);
+    } else if (isSingapore) {
       const sg = parseSingaporeInvoiceText(content);
       source = "新加坡商业发票";
       kind = `GST ${sg.gstRate ?? 0}%`;
@@ -322,6 +346,8 @@ export async function recognizeInvoiceFile(params: {
     }
   }
 
+  if (hkwz) warnings.push("此模板按已确认的无税规则处理：未税金额等于总额，税率和税金为 0", ...hkwz.warnings);
+
   // 开票方是我们 → 收入；收票方是我们 → 成本
   const issuerMatch = matchEntity(entities.units, parsed.issuerTaxNumber, parsed.issuerName);
   const receiverMatch = matchEntity(entities.units, parsed.receiverTaxNumber, parsed.receiverName);
@@ -362,7 +388,7 @@ export async function recognizeInvoiceFile(params: {
     accountPeriod: parsed.invoiceDate,
     invoiceNo: parsed.fullNumber,
     invoiceDate: parsed.invoiceDate,
-    receivableDate: parsed.invoiceDate ? addDays(parsed.invoiceDate, 30) : "",
+    receivableDate: hkwz?.dueDate || (parsed.invoiceDate ? addDays(parsed.invoiceDate, 30) : ""),
     currency,
     exchangeRate,
     invoiceTotal: money(parsed.totalIncludingTax),
@@ -394,15 +420,24 @@ export async function recognizeInvoiceFile(params: {
   ];
   if (!form.invoiceNo) warnings.push("没读到发票号，请手工填写");
   if (!form.invoiceTotal) warnings.push("没读到发票总额，请手工填写");
+  if (hkwz) {
+    for (const field of fields) {
+      if (["amountExcludingTax", "taxRate"].includes(field.key)) field.status = "derived";
+      if (field.key === "receivableDate" && hkwz.dueDate) field.status = "recognized";
+    }
+    fields.push({ key: "servicePeriod", label: "票面服务月份", value: hkwz.servicePeriod, status: hkwz.servicePeriod ? "recognized" : "missing" });
+  }
 
   return {
     source, kind, exact, fields, form, warnings,
+    ...(hkwz ? { partyFields: hkwz.partyFields, lines: hkwz.lines, taxTreatment: "template_no_tax" as const } : {}),
     facts: {
       issuerName: parsed.issuerName, issuerTaxNumber: parsed.issuerTaxNumber,
       receiverName: parsed.receiverName, receiverTaxNumber: parsed.receiverTaxNumber,
       invoiceNo: parsed.fullNumber, invoiceDate: parsed.invoiceDate, currency: parsed.currency,
       exchangeRate: parsed.exchangeRate, amountExcludingTax: money(parsed.amountExcludingTax),
       taxRate: money(parsed.taxRate), taxAmount: money(parsed.taxAmount), amountIncludingTax: money(parsed.totalIncludingTax), taxUuid: parsed.uuid,
+      ...(hkwz ? { dueDate: hkwz.dueDate, paymentTermDays: hkwz.paymentTermDays, servicePeriod: hkwz.servicePeriod, comment: hkwz.comment } : {}),
     },
     matches: {
       issuerUnitId: issuerMatch.entity?.id ?? "", receiverUnitId: receiverMatch.entity?.id ?? "",

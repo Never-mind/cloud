@@ -25,6 +25,13 @@ describe("invoice approval submission lock", () => {
     expect(mocks.query).toHaveBeenCalledWith("SELECT RELEASE_LOCK(:key)", expect.anything());
     expect(mocks.release).toHaveBeenCalledOnce();
   });
+  it("stores partner identities separately from the Feishu form", async () => {
+    const partySnapshot = { customerId: "selected-customer", undertakingUnitId: "selected-unit", customer: { name: "Reviewed name" }, sellerName: "Unit", paymentTermDays: 30 };
+    await submitInvoiceApproval({ ...input, partySnapshot });
+    const saved = mocks.execute.mock.calls[0][1];
+    expect(JSON.parse(saved.partySnapshotJson)).toEqual(partySnapshot);
+    expect(JSON.parse(vi.mocked(fetch).mock.calls[0][1]!.body as string)).not.toHaveProperty("partySnapshot");
+  });
   it.each(["special", "ordinary"] as const)("serializes %s VAT contacts using open_ids without treating Open IDs as user IDs", async invoiceType => {
     const option = (id: string, text: string) => ({ id, option: [{ value: id, text }] });
     const definition: VatDefinition = { status: "ACTIVE", form: JSON.stringify([

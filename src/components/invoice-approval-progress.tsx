@@ -12,6 +12,8 @@ import { invoiceDueDate, defaultInvoicePaymentTermDays, validateInvoicePaymentDa
 import type { InvoiceRecognition } from "@/lib/invoice-recognition-service";
 import { VAT_APPROVAL_CODE } from "@/lib/vat-invoice-approval";
 import type { ReturnFileSummary } from "@/lib/invoice-approval-returns";
+import {InvoiceAllocationEditor} from "./invoice-allocation-editor";
+import {validateInvoiceAllocationPlan,type InvoiceAllocationPlan} from "@/lib/invoice-allocation";
 
 type Group = { key: string; primary: ReturnFileSummary; files: ReturnFileSummary[]; registered: boolean; conflicting: boolean };
 type Approval = {
@@ -85,6 +87,8 @@ export function InvoiceApprovalProgress({ sourceType, sourceId, onSaved }: { sou
 }
 
 function ReturnedInvoiceReview({ fileId, onClose, onSaved }: { fileId: string; onClose: () => void; onSaved: () => void }) {
+  const [allocationPlan,setAllocationPlan]=useState<InvoiceAllocationPlan|null>(null);
+  const [sourceContext,setSourceContext]=useState({sourceType:"",sourceId:""});
   const [draft, setDraft] = useState<ReviewDraft | null>(null), [recognition, setRecognition] = useState<InvoiceRecognition | null>(null);
   const [error, setError] = useState(""), [warning, setWarning] = useState(""), [busy, setBusy] = useState(false), [blocked, setBlocked] = useState(true);
   const [confirmed, setConfirmed] = useState(false);
@@ -110,6 +114,8 @@ function ReturnedInvoiceReview({ fileId, onClose, onSaved }: { fileId: string; o
         const baseCurrency = String(base.currency || "").trim().toUpperCase();
         const days = String(defaultInvoicePaymentTermDays(base.paymentTermDays));
         setRecognition(result);
+        setAllocationPlan(data.allocationPlan??null);
+        setSourceContext({sourceType:data.approval.sourceType,sourceId:data.approval.sourceId});
         setFiles(data.group?.files ?? []);
         setDraft({
           invoiceNo: facts?.invoiceNo || "", invoiceDate: facts?.invoiceDate || "",
@@ -127,8 +133,9 @@ function ReturnedInvoiceReview({ fileId, onClose, onSaved }: { fileId: string; o
         const reference = expected || { currency: baseCurrency, amountIncludingTax: base.amountIncludingTax };
         if (reference.currency && currency !== reference.currency) warnings.push("票面币种与" + (expected ? "开票申请" : "来源单据") + "币种不同，请核对");
         if (currency === reference.currency && facts?.amountIncludingTax && String(reference.amountIncludingTax ?? "").trim() && Math.abs(Number(facts.amountIncludingTax) - Number(reference.amountIncludingTax)) > 0.01) warnings.push("发票含税金额与" + (expected ? "开票申请" : "来源单据") + "不同，请核对");
-        if (result?.matches?.receiverCustomerId && result.matches.receiverCustomerId !== base.customerId) warnings.push("票面客户与来源单据客户不同");
-        if (result?.matches?.issuerUnitId && result.matches.issuerUnitId !== base.undertakingUnitId) warnings.push("票面开票主体与来源单据不同");
+        const partyReference = data.partySnapshot ? "开票申请" : "来源单据";
+        if (result?.matches?.receiverCustomerId && result.matches.receiverCustomerId !== base.customerId) warnings.push("票面客户与" + partyReference + "客户不同");
+        if (result?.matches?.issuerUnitId && result.matches.issuerUnitId !== base.undertakingUnitId) warnings.push("票面开票主体与" + partyReference + "不同");
         setWarning(warnings.join("；"));
         setBlocked(data.approval.status !== "approved" || Boolean(data.approval.invoiceId) || data.group?.registered);
       } catch (error) { if (!cancelled) setError(error instanceof Error ? error.message : "加载失败"); }
@@ -155,10 +162,11 @@ function ReturnedInvoiceReview({ fileId, onClose, onSaved }: { fileId: string; o
     if (!draft || blocked || loadingTerms || lock.current || !confirmed) return;
     const validation = validateInvoiceReview(draft) || validateInvoicePaymentDates(draft);
     if (validation) { setError(validation); return; }
+    if(allocationPlan){const problem=validateInvoiceAllocationPlan(allocationPlan,draft);if(problem||allocationPlan.currency!==draft.currency){setError(problem||"请核对分摊币种");return;}}
     if (!draft.customerId || !draft.undertakingUnitId) { setError("请选择客户和开票主体"); return; }
     lock.current = true; setBusy(true); setError("");
     try {
-      const response = await fetch("/api/invoices/approval/returns", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ fileId, draft }) });
+      const response = await fetch("/api/invoices/approval/returns", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ fileId, draft:{...draft,allocationPlan} }) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "登记失败");
       notify(data.warning || "已确认发票并回写来源单据", data.warning ? "info" : "success"); onSaved();
@@ -178,7 +186,8 @@ function ReturnedInvoiceReview({ fileId, onClose, onSaved }: { fileId: string; o
         {([["invoiceNo", "发票号"], ["invoiceDate", "开票日期"], ["currency", "币种"], ["exchangeRate", "汇率"], ["paymentTermDays", "账期（天）"], ["dueDate", "到期日"]] as const).map(([key, label]) => <label key={key} className="flex flex-col gap-1 text-sm">{label}<Input type={key === "invoiceDate" || key === "dueDate" ? "date" : "text"} value={draft[key]} readOnly={key === "dueDate"} onChange={e => patch({ [key]: e.target.value, ...(["invoiceDate", "paymentTermDays"].includes(key) ? { dueDate: invoiceDueDate(key === "invoiceDate" ? e.target.value : draft.invoiceDate, key === "paymentTermDays" ? e.target.value : draft.paymentTermDays) } : {}) })} /></label>)}
         {([["amountExcludingTax", "未税金额"], ["taxRate", "税率（%）"], ["taxAmount", "税额"], ["amountIncludingTax", "含税金额"]] as const).map(([key, label]) => <label key={key} className="flex flex-col gap-1 text-sm">{label}<Input value={draft[key]} onChange={e => patch(updateInvoiceReviewAmounts(draft, key, e.target.value))} /></label>)}
       </fieldset> : <p className="text-sm text-ink-3">正在读取发票信息…</p>}
-      {!blocked ? <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={confirmed} onChange={e => setConfirmed(e.target.checked)} />已核对票面、业务主体及金额差异</label> : null}
+      {draft&&allocationPlan?<InvoiceAllocationEditor {...sourceContext} currency={draft.currency} totals={draft} value={allocationPlan} onChange={plan=>{setAllocationPlan(plan);setConfirmed(false);}} disabled={busy||blocked} lockSources/>:null}
+      {!blocked ? <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={confirmed} onChange={e => setConfirmed(e.target.checked)} />已核对票面明细、业务主体、各期分摊及金额差异</label> : null}
     </div>
   </Modal>;
 }

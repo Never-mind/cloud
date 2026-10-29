@@ -1,12 +1,16 @@
 "use client";
 import { useEffect, useRef, useState, useCallback } from "react";
 import { AlertCircle, RefreshCw } from "lucide-react";
-import { Button, Input, Select } from "./ui";
+import { Button, Input } from "./ui";
 import { notify } from "./app-dialog";
 import type { ApprovalPanelState } from "./invoice-approval-panel";
 import type { VatDraft, VatOption } from "@/lib/vat-invoice-approval";
 import { updateInvoiceReviewAmounts } from "@/lib/invoice-review";
 import { InvoiceApprovalAttachments } from "./invoice-approval-attachments";
+import { InvoiceApprovalPartners } from "./invoice-approval-partners";
+import { usePartnerOptions } from "./use-invoice-partner-options";
+import {InvoiceAllocationEditor} from "./invoice-allocation-editor";
+import {allocationTotals,validateInvoiceAllocationPlan,type InvoiceAllocationPlan} from "@/lib/invoice-allocation";
 import type { InvoiceAttachmentOption } from "@/lib/invoice-approval-attachments";
 
 type Prefill = {
@@ -17,9 +21,10 @@ type Prefill = {
   attachmentOptions: InvoiceAttachmentOption[];
   existingApproval: { serialNumber: string; instanceCode: string } | null; blockers: string[];
 };
-export function VatInvoiceApprovalPanel({ sourceType, sourceId, sourceIds, onStateChange, onSubmitted, active }: {
+export function VatInvoiceApprovalPanel({ sourceType, sourceId, sourceIds, onStateChange, onSubmitted, active,allocationPlan=null,onAllocationChange }: {
   sourceType: string; sourceId: string; sourceIds: string[]; active: boolean;
   onStateChange: (state: ApprovalPanelState) => void; onSubmitted: () => void;
+  allocationPlan?:InvoiceAllocationPlan|null;onAllocationChange?:(plan:InvoiceAllocationPlan)=>void;
 }) {
   const [data, setData] = useState<Prefill | null>(null), [draft, setDraft] = useState<VatDraft | null>(null);
   const [loading, setLoading] = useState(false), [submitting, setSubmitting] = useState(false), [error, setError] = useState("");
@@ -27,45 +32,78 @@ export function VatInvoiceApprovalPanel({ sourceType, sourceId, sourceIds, onSta
   const lock = useRef(false);
   const requestId = useRef(0);
   const ids = sourceIds.join(",");
+  const customerOptions = usePartnerOptions("customers"), unitOptions = usePartnerOptions("undertaking-units");
+  const selectedParties = useRef<{ customerId?: string; undertakingUnitId?: string }>({});
+  const planRef=useRef(allocationPlan);planRef.current=allocationPlan;
   const load = useCallback(async (refresh = false) => {
     const id = ++requestId.current;
     setLoading(true); setError("");
     try {
       const params = new URLSearchParams({ flow: "vat", sourceType, sourceId, sourceIds: ids });
+      for (const [key, value] of Object.entries(selectedParties.current)) if (value !== undefined) params.set(key, value);
       const response = await fetch("/api/invoices/approval/prefill?" + params, { cache: "no-store" });
       const result = await response.json();
       if (id !== requestId.current) return;
       if (!response.ok) throw new Error(result.error || "增值税表单加载失败");
-      setData(result); setDraft(current => refresh && current ? current : result.draft);
+      let plannedAmounts:ReturnType<typeof allocationTotals>|null=null;
+      try{if(planRef.current?.currency==="CNY")plannedAmounts=allocationTotals(planRef.current.allocations);}catch{/* keep incomplete amounts for review */}
+      setData(result); setDraft(current => refresh && current ? current : {...result.draft,...(plannedAmounts?{amountExcludingTax:String(plannedAmounts.amountExcludingTax),taxRate:plannedAmounts.taxRate,taxAmount:String(plannedAmounts.taxAmount),amountIncludingTax:String(plannedAmounts.amountIncludingTax)}:{})});
+      if (!refresh) selectedParties.current = { customerId: result.draft.customerId, undertakingUnitId: result.draft.undertakingUnitId };
       if (!refresh) setReadingAttachments(false);
     } catch (error) { if (id === requestId.current) { setError(error instanceof Error ? error.message : "加载失败"); setData(null); } }
     finally { if (id === requestId.current) setLoading(false); }
   }, [sourceType, sourceId, ids]);
   useEffect(() => { void load(); return () => { requestId.current += 1; }; }, [load]);
-  const blocked = loading || readingAttachments || !data || !draft || Boolean(error) || data.blockers.length > 0 || Boolean(data.existingApproval);
+  const blocked = loading || readingAttachments || !data || !draft || !draft.companyKey || Boolean(error) || data.blockers.length > 0 || Boolean(data.existingApproval);
   const submit = useCallback(async () => {
     if (blocked || lock.current) return;
+    if(allocationPlan){const error=validateInvoiceAllocationPlan(allocationPlan,draft!);if(error||allocationPlan.currency!=="CNY"){notify(error||"国内增值税分摊币种应为 CNY","error");return;}}
     lock.current = true; setSubmitting(true);
     try {
       const response = await fetch("/api/invoices/approval", { method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ flow: "vat", sourceType, sourceId, sourceIds, draft }) });
+        body: JSON.stringify({ flow: "vat", sourceType, sourceId, sourceIds, draft,allocationPlan }) });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "提交失败");
       notify("增值税开票审批已发起，回票后可核对发票信息", "success"); onSubmitted();
     } catch (error) { notify(error instanceof Error ? error.message : "提交失败", "error"); }
     finally { lock.current = false; setSubmitting(false); }
-  }, [blocked, draft, sourceType, sourceId, sourceIds, onSubmitted]);
+  }, [blocked, draft, allocationPlan,sourceType, sourceId, sourceIds, onSubmitted]);
   useEffect(() => { if (active) onStateChange({ loading, blocked, submitting, preparingAttachments: readingAttachments, submit }); }, [active, loading, blocked, submitting, readingAttachments, submit, onStateChange]);
   const patch = (next: Partial<VatDraft>) => setDraft(current => current ? { ...current, ...next } : current);
+  async function changePartner(key: "customerId" | "undertakingUnitId", value: string) {
+    const previous = selectedParties.current;
+    const parties = { ...selectedParties.current, [key]: value };
+    selectedParties.current = parties; patch({ [key]: value }); setLoading(true); setError("");
+    const id = ++requestId.current;
+    try {
+      const params = new URLSearchParams({ flow: "vat", sourceType, sourceId, sourceIds: ids });
+      for (const [name, selected] of Object.entries(parties)) if (selected !== undefined) params.set(name, selected);
+      const response = await fetch("/api/invoices/approval/prefill?" + params, { cache: "no-store" });
+      const result = await response.json();
+      if (id !== requestId.current) return;
+      if (!response.ok) throw new Error(result.error || "伙伴资料加载失败");
+      setData(result);
+      const next = result.draft as VatDraft;
+      setDraft(current => current ? { ...current, ...(key === "customerId" ? { customerId: next.customerId, customerName: next.customerName, taxId: next.taxId, address: next.address, phone: next.phone, bankName: next.bankName, bankAccount: next.bankAccount, attachmentIds: [], attachmentRefs: (current.attachmentRefs ?? []).filter(file => file.source !== "customer") } : { undertakingUnitId: next.undertakingUnitId, companyKey: next.companyKey, paymentTermDays: next.paymentTermDays }) } : current);
+    } catch (error) {
+      if (id === requestId.current) {
+        selectedParties.current = previous;
+        patch({ [key]: previous[key] ?? "" });
+        setError(error instanceof Error ? error.message : "资料加载失败，请重新选择");
+      }
+    }
+    finally { if (id === requestId.current) setLoading(false); }
+  }
   return <div className="space-y-4">
     <div className="flex items-center justify-between gap-2"><span className="text-sm text-ink-2">增值税开票申请 · CLOUD</span><Button disabled={loading || submitting || readingAttachments} onClick={() => void load(true)}><RefreshCw size={14} />刷新选项</Button></div>
     {loading ? <p className="text-sm text-ink-3">正在读取增值税审批表单…</p> : null}
     {[error, ...(data?.blockers ?? []), data?.existingApproval ? "该单据已有审批：" + (data.existingApproval.serialNumber || data.existingApproval.instanceCode) : ""].filter(Boolean).map(message => <p key={message} role="alert" className="flex items-start gap-2 text-sm text-danger"><AlertCircle size={16} className="shrink-0" />{message}</p>)}
     {draft && data ? <fieldset disabled={submitting || loading} className="space-y-4">
-      <div className="grid gap-3 sm:grid-cols-2">
-        <label className="flex flex-col gap-1 text-sm">开票主体<Select value={draft.companyKey} onChange={e => patch({ companyKey: e.target.value })}><option value="">请选择</option>{data.options.companies.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}</Select></label>
-        <label className="flex flex-col gap-1 text-sm">所属项目组<Input value="CLOUD" readOnly /></label>
-      </div>
+      <InvoiceApprovalPartners customerOptions={customerOptions} unitOptions={unitOptions}
+        customerId={draft.customerId ?? ""} undertakingUnitId={draft.undertakingUnitId ?? ""}
+        disabled={submitting || loading || readingAttachments} onChange={(key,value)=>void changePartner(key,value)}
+        feishuCompany={data.options.companies.find(item=>item.value===draft.companyKey)?.label || ""}/>
+      {onAllocationChange?<InvoiceAllocationEditor sourceType={sourceType} sourceId={sourceId} currency="CNY" totals={draft} value={allocationPlan} onChange={onAllocationChange} disabled={submitting||loading||Boolean(data.existingApproval)} onTotalsChange={totals=>setDraft(current=>current?{...current,amountExcludingTax:String(totals.amountExcludingTax),taxAmount:String(totals.taxAmount),taxRate:String(totals.taxRate??""),amountIncludingTax:String(totals.amountIncludingTax)}:current)}/>:null}
       <div className="flex flex-wrap items-center gap-4 text-sm"><span>票据类型</span>{([["special", "专票"], ["ordinary", "普票"]] as const).map(([value, label]) => <label key={value} className="flex items-center gap-2"><input type="radio" name="vat-type" checked={draft.invoiceType === value} onChange={() => patch({ invoiceType: value })} />{label}</label>)}</div>
       <section className="border-t border-line-soft pt-4"><h3 className="mb-3 text-sm font-medium">客户开票资料</h3><div className="grid gap-3 sm:grid-cols-2">
         {([["customerName", "客户公司名称"], ["taxId", "纳税人识别号"], ...(draft.invoiceType === "special" ? [["address", "开票地址"], ["phone", "电话"], ["bankName", "开户行"], ["bankAccount", "银行账号"]] : [])] as Array<[keyof VatDraft, string]>).map(([key, label]) => <label key={key} className="flex flex-col gap-1 text-sm">{label}<Input value={String(draft[key])} onChange={e => patch({ [key]: e.target.value })} /></label>)}

@@ -17,6 +17,7 @@ export type VatDefinition = {
   node_list?: Array<{ node_id: string; name: string; need_approver: boolean }>;
 };
 export type VatDraft = InvoiceAttachmentSelection & {
+  customerId?: string; undertakingUnitId?: string;
   companyKey: string; invoiceType: "special" | "ordinary"; customerName: string;
   taxId: string; address: string; phone: string; bankName: string; bankAccount: string;
   months: string[]; payments: string[]; paymentTermDays: string; amountIncludingTax: string;

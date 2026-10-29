@@ -14,7 +14,10 @@
  */
 import { execute, queryRows, getDb, executeInTransaction, queryRowsInTransaction, type Row } from "./db";
 import type { PoolConnection } from "mysql2/promise";
+import type { InvoiceApprovalPartySnapshot } from "./invoice-approval-party-snapshot";
 import { randomUUID, createHash } from "node:crypto";
+import {allocationTotals,servicePeriodLabel,validateInvoiceAllocationPlan,type InvoiceAllocationPlan} from "./invoice-allocation";
+import {prepareInvoiceAllocationPlan,invoiceAllocationAttachment,lockInvoiceAllocationSources} from "./invoice-allocation-service";
 import { FEISHU_API_BASE } from "./feishu-auth-config";
 import { getFeishuTenantAccessToken } from "./feishu-message-service";
 import {
@@ -584,6 +587,7 @@ export async function fetchInvoiceApprovalInstance(instanceCode: string) {
 export type InvoiceApprovalOwnerType = "cloud_row" | "billing_statement" | "service_fee" | "settlement_invoice";
 
 export type SubmitInvoiceApprovalInput = {
+  allocationPlan?:InvoiceAllocationPlan|null;
   ownerType: InvoiceApprovalOwnerType;
   ownerId: string;
   /** 合并多账期时勾选的账单行 ID（含主行），通过后按这批行出票 */
@@ -596,6 +600,7 @@ export type SubmitInvoiceApprovalInput = {
   invoiceId?: string | null;
   form: InvoiceApprovalFormItem[];
   title?: string;
+  partySnapshot?: InvoiceApprovalPartySnapshot;
   approvalCode?: string;
   nodeApprovers?: Array<{ key: string; value: string[] }>;
 };
@@ -605,8 +610,10 @@ export type SubmitInvoiceApprovalInput = {
  * 返回台账 ID 与审批单号，调用方据此把来源单据置为「审批中」。
  */
 export async function submitInvoiceApproval(input: SubmitInvoiceApprovalInput) {
+  // Verify the additive migration before creating a remote approval.
+  await queryRows("SELECT partySnapshotJson,allocationPlanJson FROM merge_common_feishu_approvals LIMIT 0");
   const allocationSourceIds = [...new Set(input.allocationSourceIds ?? [])];
-  if (allocationSourceIds.join(",").length > 500) throw new Error("合并账期数量过多，请分批提交审批");
+  if (allocationSourceIds.length > 200) throw new Error("一次最多关联 200 条账单");
   const connection = await getDb().getConnection();
     const keys: string[] = [];
     try {
@@ -620,6 +627,14 @@ export async function submitInvoiceApproval(input: SubmitInvoiceApprovalInput) {
       for (const source of sources) {
         const active = await queryRowsInTransaction(connection, "SELECT id FROM merge_common_feishu_approvals WHERE ownerType = :type AND (ownerId = :id OR FIND_IN_SET(:id, allocationSourceIds) > 0) AND status IN ('pending', 'returned', 'approved') LIMIT 1", { type: input.ownerType, id: source });
         if (active.length) throw new Error("该单据已有生效审批，请勿重复提交");
+      }
+      if(input.allocationPlan) {
+        await connection.beginTransaction();
+        try {
+          await lockInvoiceAllocationSources(connection,input.allocationPlan);
+          const result=await submitLockedInvoiceApproval({...input,allocationSourceIds},connection);
+          await connection.commit();return result;
+        }catch(error){await connection.rollback();throw error;}
       }
       return await submitLockedInvoiceApproval({ ...input, allocationSourceIds }, connection);
     } finally {
@@ -646,10 +661,10 @@ async function submitLockedInvoiceApproval(input: SubmitInvoiceApprovalInput, co
     `
       INSERT INTO merge_common_feishu_approvals
         (id, ownerType, ownerId, ownerNo, period, approvalCode, instanceCode, title, allocationSourceIds,
-         status, starterOpenId, starterUserId, starterName, invoiceId, formJson, submittedAt, lastSyncedAt)
+         status, starterOpenId, starterUserId, starterName, invoiceId, formJson, partySnapshotJson, allocationPlanJson, submittedAt, lastSyncedAt)
       VALUES
         (:id, :ownerType, :ownerId, :ownerNo, :period, :approvalCode, :instanceCode, :title, :allocationSourceIds,
-         'pending', :starterOpenId, :starterUserId, :starterName, :invoiceId, :formJson, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+         'pending', :starterOpenId, :starterUserId, :starterName, :invoiceId, :formJson, :partySnapshotJson, :allocationPlanJson, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
     `,
     {
       id,
@@ -666,6 +681,8 @@ async function submitLockedInvoiceApproval(input: SubmitInvoiceApprovalInput, co
       starterName: input.starterName ?? "",
       invoiceId: input.invoiceId ?? null,
       formJson: JSON.stringify(input.form),
+      partySnapshotJson: input.partySnapshot ? JSON.stringify(input.partySnapshot) : null,
+      allocationPlanJson:input.allocationPlan?JSON.stringify(input.allocationPlan):null,
     },
   );
 
@@ -777,14 +794,14 @@ export async function loadInvoiceApprovalMap(sourceIds: string[]) {
   const ids = Array.from(new Set(sourceIds.map((value) => String(value ?? "").trim()).filter(Boolean)));
   const map = new Map<string, { status: string; serialNumber: string; instanceCode: string; submittedAt: string; rejectReason: string }>();
   if (!ids.length) return map;
-  const rows = await queryRows<{ ownerId: string; status: string; serialNumber: string; instanceCode: string; submittedAt: string; rejectReason: string }>(
-    `SELECT ownerId, status, serialNumber, instanceCode, rejectReason, DATE_FORMAT(submittedAt, '%Y-%m-%d %H:%i') AS submittedAt
+  const rows = await queryRows<{ ownerId: string; allocationSourceIds?:string; status: string; serialNumber: string; instanceCode: string; submittedAt: string; rejectReason: string }>(
+    `SELECT ownerId, allocationSourceIds, status, serialNumber, instanceCode, rejectReason, DATE_FORMAT(submittedAt, '%Y-%m-%d %H:%i') AS submittedAt
        FROM merge_common_feishu_approvals
-      WHERE ownerType = 'cloud_row' AND ownerId IN (:ids) AND status IN ('pending', 'returned', 'approved')
+      WHERE ownerType = 'cloud_row' AND (ownerId IN (:ids) OR allocationSourceIds IS NOT NULL) AND status IN ('pending', 'returned', 'approved')
       ORDER BY submittedAt ASC`,
     { ids },
   );
-  for (const row of rows) map.set(String(row.ownerId), row);
+  for(const row of rows)for(const id of [row.ownerId,...String(row.allocationSourceIds??"").split(",")])if(ids.includes(id))map.set(id,row);
   return map;
 }
 
@@ -1042,14 +1059,16 @@ function addDays(dateString: string, days: number) {
  * 开票审批预填：复用开票预填的结果（客户/承接单位/金额/账期），
  * 再补上审批特有的东西：主体分支、约定收款日、客户开票信息、客户档案附件候选。
  */
-export async function buildInvoiceApprovalPrefill(params: { sourceType: InvoiceSourceType; sourceId?: string | null; sourceIds?: string[] | null }) {
+export async function buildInvoiceApprovalPrefill(params: { sourceType: InvoiceSourceType; sourceId?: string | null; sourceIds?: string[] | null; customerId?: string; undertakingUnitId?: string }) {
   const base = await buildInvoicePrefill(params);
-  const unit = await loadUndertakingUnit(String(base.undertakingUnitId ?? ""));
+  const unit = await loadUndertakingUnit(params.undertakingUnitId ?? String(base.undertakingUnitId ?? ""));
+  if (params.undertakingUnitId !== undefined && !unit) throw new Error("所选开票承接单位不存在，请重新选择");
   const unitName = [unit?.shortName, unit?.entityName, unit?.name].filter(Boolean).join(" ");
   const party = resolveInvoiceApprovalParty({ undertakingUnitCode: unit?.undertakingUnitCode, undertakingUnitName: unitName });
-  const customer = await loadCustomerForApproval(String(base.customerId ?? ""));
+  const customer = await loadCustomerForApproval(params.customerId ?? String(base.customerId ?? ""));
+  if (params.customerId !== undefined && !customer) throw new Error("所选开票客户不存在，请重新选择");
   const attachments = await listCustomerAttachments(String(customer?.customerId ?? base.customerId ?? ""));
-  const attachmentOptions = await listInvoiceApprovalAttachments({ ...params, customerId: String(customer?.customerId ?? base.customerId ?? "") });
+  const attachmentOptions = await listInvoiceApprovalAttachments({ ...params, sourceCustomerId: String(base.customerId ?? ""), customerId: String(customer?.customerId ?? base.customerId ?? "") });
   let attachmentField: { id: string; name: string } | null = party?.branch === "mx" ? { id: APPROVAL_FIELDS.customerCfs, name: "Attachment (Customer CFS)" } : null;
   if (party?.branch === "cl") {
     try {
@@ -1068,9 +1087,9 @@ export async function buildInvoiceApprovalPrefill(params: { sourceType: InvoiceS
   if (party?.branch === "mx") {
     if (!customer) blockers.push("来源单据没有客户，无法带出客户开票信息");
     else {
-      if (!String(customer.taxNumber ?? "").trim()) blockers.push("客户档案缺少税号（TAX ID）");
-      if (!String(customer.taxRegime ?? "").trim()) blockers.push("客户档案缺少税制（Régimen Fiscal）");
-      if (!String(customer.address ?? "").trim()) blockers.push("客户档案缺少注册地址");
+      if (!String(customer.taxNumber ?? "").trim()) warnings.push("客户档案缺少税号（TAX ID），请在下方补充");
+      if (!String(customer.taxRegime ?? "").trim()) warnings.push("客户档案缺少税制（Régimen Fiscal），请在下方补充");
+      if (!String(customer.address ?? "").trim()) warnings.push("客户档案缺少注册地址，请在下方补充");
       if (!String(customer.postCode ?? "").trim()) warnings.push("客户档案缺少邮编，需要手工填写");
     }
     if (!attachments.length) warnings.push("客户档案没有附件，请上传并标记客户 CSF");
@@ -1082,6 +1101,8 @@ export async function buildInvoiceApprovalPrefill(params: { sourceType: InvoiceS
     branch: party?.branch ?? null,
     companyOptionKey: party?.optionKey ?? "",
     companyText: party?.companyText ?? "",
+    undertakingUnitId: unit?.undertakingUnitId ?? "",
+    sourceCustomerId: String(base.customerId ?? ""),
     sourceNo: base.sourceNo ?? "",
     period: base.period ?? "",
     suggestedInvoiceNo: base.suggestedInvoiceNo ?? "",
@@ -1126,6 +1147,9 @@ export async function buildInvoiceApprovalPrefill(params: { sourceType: InvoiceS
  * 材料支持当前单据/客户的附件引用与本次上传；保留旧 cfsAttachmentId 的兼容入口。
  */
 export async function submitInvoiceApprovalFromSource(input: InvoiceAttachmentSelection & {
+  allocationPlan?:InvoiceAllocationPlan|null;
+  customerId?: string;
+  undertakingUnitId?: string;
   sourceType: InvoiceSourceType;
   sourceId: string;
   sourceIds?: string[];
@@ -1135,6 +1159,7 @@ export async function submitInvoiceApprovalFromSource(input: InvoiceAttachmentSe
   starterName?: string;
   purpose?: string;
   paymentReceivedTime: string;
+  paymentTermDays?: string;
   invoiceContent?: string;
   paymentMethodKey?: string;
   cfdiCodeKey?: string;
@@ -1146,7 +1171,8 @@ export async function submitInvoiceApprovalFromSource(input: InvoiceAttachmentSe
   amountCurrency?: string;
   chile?: { invoiceTypeKey: string; amountIncludingTax: number; note1: string; note2Key: string; note3: number; note4: number; customerLabel?: string };
 }) {
-  const prefill = await buildInvoiceApprovalPrefill({ sourceType: input.sourceType, sourceId: input.sourceId, sourceIds: input.sourceIds });
+  if(input.allocationPlan){const error=validateInvoiceAllocationPlan(input.allocationPlan);if(error)throw new Error(error);if(input.allocationPlan.sourceType!==input.sourceType||!input.allocationPlan.allocations.some(row=>row.sourceId===input.sourceId))throw new Error("关联账期与来源不一致");input.sourceIds=input.allocationPlan.allocations.map(row=>row.sourceId);}
+  const prefill = await buildInvoiceApprovalPrefill(input);
   if (!/^ou_[a-zA-Z0-9]+$/.test(input.starterOpenId)) throw new Error("当前账号未绑定有效的飞书账号");
   if (!prefill.branch) throw new Error("承接单位对应不到飞书审批主体，无法发起审批");
   if (prefill.branch === "br") throw new Error("巴西主体不走飞书审批，请使用本地开票");
@@ -1165,6 +1191,8 @@ export async function submitInvoiceApprovalFromSource(input: InvoiceAttachmentSe
     address: input.customerOverride?.address ?? prefill.customer?.address ?? "",
     postCode: input.customerOverride?.postCode ?? prefill.customer?.postCode ?? "",
   };
+  const paymentTermDays = input.paymentTermDays === undefined ? prefill.paymentTermDays : Number(input.paymentTermDays);
+  if (input.paymentTermDays?.trim() === "" || !Number.isSafeInteger(paymentTermDays) || paymentTermDays < 0) throw new Error("账期天数必须是大于或等于 0 的整数");
 
   if (input.cfsFileToken) throw new Error("请从当前单据选择附件或上传文件，不能直接提交飞书文件标识");
   const cfsFileTokens: string[] = [];
@@ -1177,6 +1205,14 @@ export async function submitInvoiceApprovalFromSource(input: InvoiceAttachmentSe
   const amount = Number(input.amountIncludingTax ?? prefill.amountIncludingTax ?? 0);
   if (!Number.isFinite(amount) || amount <= 0) throw new Error("开票金额不正确，无法发起审批");
   const amountCurrency = resolveApprovalAmountCurrency(prefill.amountCurrencyOptions ?? [], input.amountCurrency ?? prefill.currency);
+  let allocationPlan:InvoiceAllocationPlan|null=null;
+  if(input.allocationPlan) {
+    if(input.allocationPlan.sourceType!==input.sourceType||!input.allocationPlan.allocations.some(row=>row.sourceId===input.sourceId))throw new Error("关联账期与当前来源不一致");
+    allocationPlan=await prepareInvoiceAllocationPlan(input.allocationPlan,{...allocationTotals(input.allocationPlan.allocations),amountIncludingTax:prefill.branch==="cl"?input.chile?.amountIncludingTax:amount});
+    if(allocationPlan.currency!==amountCurrency)throw new Error("分摊币种与审批开票币种不一致");
+    input.sourceIds=allocationPlan.allocations.map(row=>row.sourceId);
+    await queryRows("SELECT allocationPlanJson FROM merge_common_feishu_approvals LIMIT 0");
+  }
   toApprovalDateValue(input.paymentReceivedTime);
   if (prefill.branch === "cl" && !input.chile) throw new Error("智利主体需要填写发票信息（发票类型/金额/备注）");
   const selection = {
@@ -1184,13 +1220,15 @@ export async function submitInvoiceApprovalFromSource(input: InvoiceAttachmentSe
     attachments: input.attachments,
   };
   if (!prefill.attachmentField && (selection.attachmentRefs.length || selection.attachments?.length)) throw new Error("Cloud 智利审批尚未配置附件栏，请联系飞书管理员");
-  const files = await prepareInvoiceApprovalAttachments({ ...input, customerId: prefill.customer?.customerId ?? "" }, selection, prefill.branch === "mx");
+  const files = await prepareInvoiceApprovalAttachments({ ...input, sourceCustomerId: prefill.sourceCustomerId, customerId: prefill.customer?.customerId ?? "" }, selection, prefill.branch === "mx");
+  if(allocationPlan&&prefill.attachmentField)files.push(await invoiceAllocationAttachment(allocationPlan));
+  if(files.length>10)throw new Error("合并开票说明占用一个附件，请将其他审批材料控制在 9 个以内");
   for (const file of files) cfsFileTokens.push(await uploadApprovalAttachment(file));
 
   const form = buildInvoiceApprovalForm({
     branch: prefill.branch,
     companyOptionKey: prefill.companyOptionKey,
-    purpose: (input.purpose ?? prefill.suggestedPurpose).slice(0, 255),
+    purpose: (allocationPlan?`${servicePeriodLabel(allocationPlan.allocations.map(row=>row.period))} · ${allocationPlan.lineMode==="summary"?"合并一行":"按账期分行"} · ${input.purpose??prefill.suggestedPurpose}`:input.purpose??prefill.suggestedPurpose).slice(0,255),
     paymentReceivedTime: input.paymentReceivedTime,
     amountCurrency,
     attachmentFieldId: prefill.attachmentField?.id,
@@ -1204,17 +1242,17 @@ export async function submitInvoiceApprovalFromSource(input: InvoiceAttachmentSe
         address: customer.address,
         postCode: customer.postCode,
         amountIncludingTax: amount,
-        invoiceContent: input.invoiceContent ?? prefill.suggestedInvoiceContent,
+        invoiceContent: allocationPlan?.lineMode==="summary"?allocationPlan.description:input.invoiceContent ?? prefill.suggestedInvoiceContent,
         cfdiCodeKey: input.cfdiCodeKey ?? CFDI_OPTIONS.G03.key,
         cfsFileTokens,
       }
       : undefined,
     chile: prefill.branch === "cl" && input.chile
       ? {
-        customerLabel: input.chile.customerLabel ?? `Customer: ${prefill.customer?.name ?? ""}`.trim(),
+        customerLabel: input.chile.customerLabel ?? `Customer: ${customer.name}`.trim(),
         invoiceTypeKey: input.chile.invoiceTypeKey,
         amountIncludingTax: Number(input.chile.amountIncludingTax),
-        note1: input.chile.note1,
+        note1: allocationPlan?`${allocationPlan.lineMode==="summary"?"合并为一行：":"按账期分行："}${allocationPlan.description}${!prefill.attachmentField?"；分摊："+allocationPlan.allocations.map(row=>`${row.period} ${row.amountIncludingTax} ${allocationPlan.currency}`).join("；"):""}`:input.chile.note1,
         note2Key: input.chile.note2Key,
         note3: Number(input.chile.note3),
         note4: Number(input.chile.note4),
@@ -1227,12 +1265,14 @@ export async function submitInvoiceApprovalFromSource(input: InvoiceAttachmentSe
         : input.sourceType === "service_fee" ? "service_fee" : "settlement_invoice",
     ownerId: input.sourceId,
     allocationSourceIds: input.sourceIds ?? [],
+    allocationPlan,
     ownerNo: prefill.sourceNo,
     period: prefill.period,
     starterOpenId: input.starterOpenId,
     starterUserId: input.starterUserId,
     starterName: input.starterName,
     invoiceId: input.invoiceId ?? null,
+    partySnapshot: { customerId: prefill.customer?.customerId ?? "", undertakingUnitId: prefill.undertakingUnitId, customer, sellerName: prefill.companyText, paymentTermDays },
     form,
     title: (input.purpose ?? prefill.suggestedPurpose).slice(0, 255),
   });

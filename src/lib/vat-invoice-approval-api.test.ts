@@ -17,6 +17,19 @@ beforeEach(() => {
   mocks.cloudSubmit.mockResolvedValue({ instanceCode: "mock" });
 });
 describe("VAT API derives the starter on the server", () => {
+  it("passes reviewed Cloud payment terms and explicit blank overrides without restoring archive values", async () => {
+    const response = await POST(new NextRequest("http://localhost/api/invoices/approval", { method: "POST", body: JSON.stringify({ sourceType: "cloud_row", sourceId: "source", paymentTermDays: "45", customerOverride: { name: "Confirmed", address: "", taxId: "" } }) }));
+    expect(response.status).toBe(200);
+    expect(mocks.cloudSubmit.mock.calls[0][0]).toMatchObject({ paymentTermDays: "45", customerOverride: { name: "Confirmed", address: "", taxId: "" } });
+  });
+  it.each(["cloud", "vat"])("forwards selected partner identities for %s while ignoring client source ownership hints", async flow => {
+    const parties = { customerId: "new-customer", undertakingUnitId: "new-unit" };
+    const response = await POST(new NextRequest("http://localhost/api/invoices/approval", { method: "POST", body: JSON.stringify({ flow, sourceType: "service_fee", sourceId: "source", sourceCustomerId: "forged", ...(flow === "vat" ? { draft: parties } : parties) }) }));
+    expect(response.status).toBe(200);
+    const call = (flow === "vat" ? mocks.submit : mocks.cloudSubmit).mock.calls[0][0];
+    expect(flow === "vat" ? call.draft : call).toMatchObject(parties);
+    expect(call.sourceCustomerId).toBeUndefined();
+  });
   it.each(["cloud", "vat"])("forwards validated %s selections and uploads", async flow => {
     const selection = { attachmentRefs: [{ source: "customer", attachmentId: "file", isCsf: true }], attachments: [{ fileName: "new.pdf", dataUrl: "data:application/pdf;base64,cGRm", isCsf: false }] };
     const response = await POST(new NextRequest("http://localhost/api/invoices/approval", { method: "POST", body: JSON.stringify({ flow, sourceType: "cloud_row", sourceId: "source", ...(flow === "vat" ? { draft: selection } : selection) }) }));

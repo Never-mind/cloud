@@ -76,6 +76,7 @@ export async function POST(request: NextRequest) {
     if (input.source === "external") await recordOperationLog({ actor, moduleKey: "invoices", action: "confirm_recognition", entityType: "invoice", entityId: String(invoice?.id ?? ""), detail: { recognized: input.recognitionFacts ?? null, confirmed: { invoiceNo: input.invoiceNo, invoiceDate: input.invoiceDate, currency: input.currency, exchangeRate: input.exchangeRate, amountExcludingTax: input.amountExcludingTax, taxRate: input.taxRate, taxAmount: input.taxAmount, amountIncludingTax: input.amountIncludingTax } } });
     return NextResponse.json({ invoice });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "开票失败" }, { status: 400 });
+    const existingInvoiceId = error && typeof error === "object" && "existingInvoiceId" in error ? String(error.existingInvoiceId) : undefined;
+    return NextResponse.json({ error: error instanceof Error ? error.message : "开票失败", existingInvoiceId }, { status: existingInvoiceId ? 409 : 400 });
   }
 }

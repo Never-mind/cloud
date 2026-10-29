@@ -570,14 +570,11 @@ function InvoiceFormFields({ draft, partners, onChange }: { draft: Record<string
     for (const field of ["amountExcludingTax", "taxRate", "taxAmount"] as const) onChange(field, next[field]);
     onChange("invoiceTotal", next.amountIncludingTax);
   }
-  const invoicePartners = [
-    ...partners.suppliers.map((row) => ({ ...row, partnerType: "supplier" })),
-    ...partners.customers.map((row) => ({ ...row, partnerType: "customer" })),
-  ];
+  const invoicePartners = draft.type === "income" ? partners.customers.map(row => ({ ...row, partnerType: "customer" })) : partners.suppliers.map(row => ({ ...row, partnerType: "supplier" }));
 
   return (
     <div className="grid grid-cols-1 gap-3 border-b border-line-soft bg-surface-2 p-4 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-8">
-      <Field label="类型"><Select className="w-full" value={String(draft.type)} onChange={(event) => onChange("type", event.target.value)}><option value="cost">成本</option><option value="income">收入</option></Select></Field>
+      <Field label="类型"><Select className="w-full" value={String(draft.type)} onChange={(event) => { onChange("type", event.target.value); onChange("invoiceEntityId", ""); onChange("invoiceEntity", ""); onChange("invoiceEntityType", event.target.value === "income" ? "customer" : "supplier"); }}><option value="cost">成本</option><option value="income">收入</option></Select></Field>
       <Field label="账期"><Input className="w-full" type="date" value={dateInputValue(draft.accountPeriod)} onChange={(event) => onChange("accountPeriod", event.target.value)} /></Field>
       <Field label="财务记账日期"><Input className="w-full" type="date" value={dateInputValue(draft.accountingDate)} onChange={(event) => onChange("accountingDate", event.target.value)} /></Field>
       <Field label="承接单位"><PartnerLookup options={partners.undertakingUnits} selectedId={draft.companyEntityId} selectedName={draft.companyEntity} onChange={(selected) => { onChange("companyEntityId", selected.id); onChange("companyEntity", selected.name); }} /></Field>
@@ -770,10 +767,10 @@ function InvoiceInput({ invoice, value, field, partners, onChange }: { invoice: 
       onChange(event.target.value, { amountExcludingTax: next.amountExcludingTax, taxAmount: next.taxAmount, invoiceTotal: next.amountIncludingTax, taxRate: next.taxRate });
     }} />;
   }
-  if (field === "type") return <Select value={String(value.type)} onChange={(event) => onChange(event.target.value)}><option value="cost">成本</option><option value="income">收入</option></Select>;
+  if (field === "type") return <Select value={String(value.type)} onChange={(event) => onChange(event.target.value, { invoiceEntityId: "", invoiceEntity: "", invoiceEntityType: event.target.value === "income" ? "customer" : "supplier" })}><option value="cost">成本</option><option value="income">收入</option></Select>;
   if (field === "currency") return <Select value={String(value.currency || invoice.currency)} onChange={(event) => onChange(event.target.value)}>{currencies.map((currency) => <option key={currency}>{currency}</option>)}</Select>;
   if (field === "companyEntity") return <PartnerLookup options={partners.undertakingUnits} selectedId={value.companyEntityId} selectedName={value.companyEntity} onChange={(selected) => onChange(selected.name, { companyEntityId: selected.id, companyEntity: selected.name })} />;
-  if (field === "invoiceEntity") return <PartnerLookup options={[...partners.suppliers.map((row) => ({ ...row, partnerType: "supplier" })), ...partners.customers.map((row) => ({ ...row, partnerType: "customer" }))]} selectedId={value.invoiceEntityId} selectedName={value.invoiceEntity} onChange={(selected) => onChange(selected.name, { invoiceEntityId: selected.id, invoiceEntity: selected.name, invoiceEntityType: selected.partnerType || "" })} />;
+  if (field === "invoiceEntity") return <PartnerLookup options={value.type === "income" ? partners.customers.map(row => ({ ...row, partnerType: "customer" })) : partners.suppliers.map(row => ({ ...row, partnerType: "supplier" }))} selectedId={value.invoiceEntityId} selectedName={value.invoiceEntity} onChange={(selected) => onChange(selected.name, { invoiceEntityId: selected.id, invoiceEntity: selected.name, invoiceEntityType: selected.partnerType || "" })} />;
   if (field === "isPaid") return <Toggle checked={Boolean(value.isPaid)} onChange={(checked) => onChange(checked)} label="支付" />;
   if (field === "isInvoiced") return <Toggle checked={Boolean(value.isInvoiced)} onChange={(checked) => onChange(checked)} label="开票" />;
   if (["accountPeriod", "accountingDate", "invoiceDate", "receivableDate", "actualReceiptDate"].includes(field)) return <Input type="date" value={dateInputValue(value[field])} onChange={(event) => onChange(event.target.value)} />;
@@ -784,7 +781,7 @@ type PartnerOption = Row & { partnerType?: string };
 function partnerOptionId(row: PartnerOption) { return String(row.supplierId || row.customerId || row.undertakingUnitId || row.id || ""); }
 function partnerOptionName(row: PartnerOption) { return String(row.shortName || row.nameCn || row.entityName || row.name || row.supplierCode || row.customerCode || row.undertakingUnitCode || row.id || ""); }
 function partnerOptionCode(row: PartnerOption) { return String(row.supplierCode || row.customerCode || row.undertakingUnitCode || row.entityCode || ""); }
-/** 项目结算里的伙伴选择：统一走 SearchSelect，供应商与客户合并成一个列表。 */
+/** 项目结算里的伙伴选择：由调用方按收入或成本传入对应类别的档案。 */
 function PartnerLookup({ options, selectedId, selectedName, onChange }: { options: PartnerOption[]; selectedId: unknown; selectedName: unknown; onChange: (selected: { id: string; name: string; partnerType?: string }) => void }) {
   const selected = String(selectedId ?? "");
   const savedName = String(selectedName ?? "").trim();
@@ -804,7 +801,7 @@ function PartnerLookup({ options, selectedId, selectedName, onChange }: { option
         label: partnerOptionName(row),
         code: partnerOptionCode(row),
         hint: partnerOptionCode(row),
-        keywords: `${partnerOptionCode(row)} ${partnerOptionName(row)} ${row.nameCn || row.entityName || row.name || ""} ${row.partnerType || ""}`,
+        keywords: [partnerOptionCode(row), partnerOptionName(row), row.nameCn, row.nameEn, row.entityName, row.name, row.taxNumber].filter(Boolean).join(" "),
       }))}
       placeholder="搜索供应商、承接单位或客户"
       value={selected}

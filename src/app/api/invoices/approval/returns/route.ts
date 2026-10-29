@@ -45,14 +45,28 @@ export async function POST(request: NextRequest) {
     if (review.approval.invoiceId) throw new Error("该审批已登记发票；补传或换票请先核对原记录，不能覆盖");
     const file = await returnedInvoiceContent(body.fileId);
     const actor = await getOperationActor(request), raw = body.draft;
+    const snapshot = review.partySnapshot;
+    const facts = review.group.primary.recognition?.facts;
+    const matches = review.group.primary.recognition?.matches;
     if (review.expectedInvoice?.currency && String(raw.currency ?? "").trim().toUpperCase() !== review.expectedInvoice.currency) throw new Error("国内增值税发票的开票币种应为人民币（CNY），来源对账单可使用其他币种");
     const input: InvoiceDraftInput = {
       source: "external", sourceType: review.approval.sourceType as InvoiceSourceType, sourceId: review.approval.sourceId,
       sourceNo: review.base.sourceNo, period: review.base.period,
       invoiceNo: raw.invoiceNo, invoiceDate: raw.invoiceDate, dueDate: raw.dueDate, paymentTermDays: raw.paymentTermDays,
       customerId: raw.customerId, undertakingUnitId: raw.undertakingUnitId, currency: raw.currency, exchangeRate: raw.exchangeRate,
+      ...(snapshot && raw.customerId === snapshot.customerId ? {
+        customerName: String(snapshot.customer.name ?? ""), customerTaxNumber: String(snapshot.customer.taxId ?? ""),
+        customerAddress: String(snapshot.customer.address ?? ""),
+      } : {}),
+      ...(snapshot && raw.undertakingUnitId === snapshot.undertakingUnitId ? { sellerName: snapshot.sellerName } : {}),
+      ...(raw.customerId && raw.customerId === matches?.receiverCustomerId ? {
+        ...(facts?.receiverName ? { customerName: facts.receiverName } : {}),
+        ...(facts?.receiverTaxNumber ? { customerTaxNumber: facts.receiverTaxNumber } : {}),
+      } : {}),
+      ...(raw.undertakingUnitId && raw.undertakingUnitId === matches?.issuerUnitId && facts?.issuerName ? { sellerName: facts.issuerName } : {}),
       amountExcludingTax: raw.amountExcludingTax, taxRate: raw.taxRate, taxAmount: raw.taxAmount, amountIncludingTax: raw.amountIncludingTax,
       comment: raw.comment, allocationSourceIds: review.approval.allocationSourceIds.length > 1 ? review.approval.allocationSourceIds : [],
+      allocationPlan:raw.allocationPlan??review.allocationPlan,
       file: { fileName: file.fileName, fileType: file.fileType, bytes: file.bytes },
     };
     const invoice = await saveInvoice(input, { userId: actor?.userId, name: actor?.displayName }, {

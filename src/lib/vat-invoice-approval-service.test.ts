@@ -26,6 +26,18 @@ beforeEach(() => {
   });
 });
 describe("VAT approval material submission", () => {
+  it("uses the selected customer and unit for prefill, attachments and the saved submission snapshot", async () => {
+    const prefill = await buildVatApprovalPrefill({ ...source, customerId: "other-customer", undertakingUnitId: "other-unit" });
+    expect(prefill.draft).toMatchObject({ customerId: "other-customer", undertakingUnitId: "other-unit" });
+    expect(mocks.query).toHaveBeenCalledWith(expect.stringContaining("FROM merge_common_customer_bank_accounts"), { id: "other-customer" });
+    await submitVatInvoiceApproval({ ...source, draft: { ...prefill.draft, customerName: "Manual legal name" } });
+    expect(mocks.submit).toHaveBeenCalledWith(expect.objectContaining({ partySnapshot: expect.objectContaining({ customerId: "other-customer", undertakingUnitId: "other-unit", customer: expect.objectContaining({ name: "Manual legal name" }) }) }));
+  });
+  it("rejects a selected unit with a mismatched Feishu company before uploads", async () => {
+    const prefill = await buildVatApprovalPrefill(source);
+    await expect(submitVatInvoiceApproval({ ...source, draft: { ...prefill.draft, companyKey: "another-company" } })).rejects.toThrow("不匹配");
+    expect(mocks.upload).not.toHaveBeenCalled(); expect(mocks.submit).not.toHaveBeenCalled();
+  });
   it("uploads existing and inline files once and sends all tokens to the VAT attachment widget", async () => {
     const prefill = await buildVatApprovalPrefill(source);
     const baseQuery = mocks.query.getMockImplementation()!;

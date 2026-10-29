@@ -16,6 +16,7 @@ describe("华为云供应商付款发票识别回填", () => {
     }, { supplierId: "supplier-1" });
 
     expect(patch).toEqual({
+      invoiceSupplierId: "supplier-1", invoiceSupplierName: "",
       invoiceNo: "26332000007049990716",
       invoiceDate: "2026-08-17",
       invoiceCurrency: "CNY",
@@ -32,8 +33,8 @@ describe("华为云供应商付款发票识别回填", () => {
 
   it("空字段不覆盖手工值，并提示需要补录", () => {
     const { patch, warnings } = buildSupplierPaymentInvoicePatch({ invoiceNo: "", invoiceTotal: "" });
-    expect(patch).toEqual({});
-    expect(warnings).toEqual(["未识别到发票号，请手工填写", "未识别到发票含税金额，请手工填写"]);
+    expect(patch).toEqual({ invoiceSupplierId: "", invoiceSupplierName: "" });
+    expect(warnings).toEqual(["未唯一匹配实际开票供应商，请从供应商库选择", "未识别到发票号，请手工填写", "未识别到发票含税金额，请手工填写"]);
   });
 
   it("识别到的供应商与当前付款供应商不一致时提示核对", () => {

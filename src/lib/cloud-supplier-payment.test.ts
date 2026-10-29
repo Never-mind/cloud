@@ -48,6 +48,7 @@ describe("cloud supplier payment payable sync", () => {
   });
 
   it("keeps rows that already carry manual payment or invoice data", () => {
+    expect(cloudSupplierPaymentHasUserData({ invoiceSupplierId: "invoice-supplier" })).toBe(true);
     const bare = { paid: 0, invoiceStatus: "not_issued" };
     expect(cloudSupplierPaymentHasUserData({ ...bare, currency: "USD" })).toBe(true);
     expect(cloudSupplierPaymentHasUserData({ ...bare, paymentNetAmount: 0 })).toBe(true);

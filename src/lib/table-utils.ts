@@ -1,6 +1,7 @@
 export type TableColumn = {
   key: string;
   label: string;
+  group?: string;
   defaultVisible?: boolean;
   sortable?: boolean;
   filterable?: boolean;

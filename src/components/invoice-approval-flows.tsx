@@ -4,10 +4,12 @@ import { Cloud, ReceiptText } from "lucide-react";
 import { InvoiceApprovalPanel, type ApprovalPanelState } from "./invoice-approval-panel";
 import { VatInvoiceApprovalPanel } from "./vat-invoice-approval-panel";
 import { InvoiceApprovalProgress } from "./invoice-approval-progress";
+import type { InvoiceAllocationPlan } from "@/lib/invoice-allocation";
 
 export function InvoiceApprovalFlows(props: {
   active: boolean;
   sourceType: string; sourceId: string; sourceIds: string[];
+  allocationPlan?: InvoiceAllocationPlan|null;onAllocationChange?:(plan:InvoiceAllocationPlan)=>void;
   onClose: () => void; onStateChange: (state: ApprovalPanelState) => void;
 }) {
   const [flow, setFlow] = useState<"cloud" | "vat">("cloud");

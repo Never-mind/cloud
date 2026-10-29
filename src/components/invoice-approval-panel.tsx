@@ -15,6 +15,10 @@ import { Input, Select, Textarea } from "./ui";
 import { notify } from "./app-dialog";
 import { paymentApprovalStatusLabel } from "@/lib/payment-approval-status";
 import { InvoiceApprovalAttachments } from "./invoice-approval-attachments";
+import { InvoiceApprovalPartners } from "./invoice-approval-partners";
+import { usePartnerOptions } from "./use-invoice-partner-options";
+import {InvoiceAllocationEditor} from "./invoice-allocation-editor";
+import {allocationInvoiceLines,allocationTotals,validateInvoiceAllocationPlan,type InvoiceAllocationPlan} from "@/lib/invoice-allocation";
 import type { InvoiceAttachmentOption, InvoiceAttachmentSelection } from "@/lib/invoice-approval-attachments";
 
 type Option = { key: string; value: string; label: string };
@@ -24,6 +28,7 @@ export type ApprovalPrefill = {
   existingApproval: { instanceCode: string; status: string; serialNumber: string; rejectReason: string; submittedAt: string } | null;
   branch: "mx" | "cl" | "br" | null;
   companyText: string;
+  undertakingUnitId: string;
   sourceNo: string;
   period: string;
   /** 系统预留票号（INV-账期-流水）；实际票号在审批通过后按回传发票回填 */
@@ -76,6 +81,8 @@ export function InvoiceApprovalPanel({
   sourceId,
   sourceIds = [],
   sourceType,
+  allocationPlan = null,
+  onAllocationChange,
 }: {
   onClose: () => void;
   onStateChange?: (state: ApprovalPanelState) => void;
@@ -84,6 +91,7 @@ export function InvoiceApprovalPanel({
   /** 合并多账期时勾选的行 ID */
   sourceIds?: string[];
   sourceType: string;
+  allocationPlan?:InvoiceAllocationPlan|null;onAllocationChange?:(plan:InvoiceAllocationPlan)=>void;
 }) {
   const [prefill, setPrefill] = useState<ApprovalPrefill | null>(null);
   const [loading, setLoading] = useState(false);
@@ -91,7 +99,13 @@ export function InvoiceApprovalPanel({
   const [materials, setMaterials] = useState<InvoiceAttachmentSelection>({});
   const [readingAttachments, setReadingAttachments] = useState(false);
   const requestId = useRef(0), submitLock = useRef(false);
+  const selectedPartiesRef=useRef<{customerId?:string;undertakingUnitId?:string}>({});
+  const planRef=useRef(allocationPlan);planRef.current=allocationPlan;
   const ids = sourceIds.join(",");
+  const customerOptions = usePartnerOptions("customers");
+  const unitOptions = usePartnerOptions("undertaking-units");
+  const [parties, setParties] = useState<{ customerId?: string; undertakingUnitId?: string }>({});
+  const [partnerError, setPartnerError] = useState("");
   const [form, setForm] = useState({
     purpose: "",
     paymentReceivedTime: "",
@@ -123,6 +137,7 @@ export function InvoiceApprovalPanel({
     setLoading(true);
     try {
       const params = new URLSearchParams({ sourceType, sourceId });
+      for(const [key,value] of Object.entries(selectedPartiesRef.current))if(value!==undefined)params.set(key,value);
       if (ids) params.set("sourceIds", ids);
       const response = await fetch(`/api/invoices/approval/prefill?${params}`, { cache: "no-store" });
       const data = (await response.json()) as ApprovalPrefill & { error?: string };
@@ -130,6 +145,9 @@ export function InvoiceApprovalPanel({
       if (!response.ok) throw new Error(data.error ?? "审批预填失败");
       setPrefill(data);
       setMaterials({}); setReadingAttachments(false);
+      const selectedPlan=planRef.current;
+      let plannedAmounts:ReturnType<typeof allocationTotals>|null=null;
+      try{if(selectedPlan&&data.amountCurrencyOptions.includes(selectedPlan.currency))plannedAmounts=allocationTotals(selectedPlan.allocations);}catch{/* incomplete allocations remain editable */}
       setForm({
         purpose: data.suggestedPurpose,
         paymentReceivedTime: data.paymentReceivedTime,
@@ -155,6 +173,7 @@ export function InvoiceApprovalPanel({
         chileNote2Key: data.options.chileNote2[0]?.value ?? "",
         chileNote3: "",
         chileNote4: "",
+        ...(plannedAmounts&&selectedPlan?{amountCurrency:selectedPlan.currency,amountExcludingTax:String(plannedAmounts.amountExcludingTax),taxRate:plannedAmounts.taxRate,taxAmount:String(plannedAmounts.taxAmount),amountIncludingTax:String(plannedAmounts.amountIncludingTax),chileAmount:String(plannedAmounts.amountIncludingTax)}:{}),
       });
     } catch (error) {
       if (id !== requestId.current) return;
@@ -167,9 +186,35 @@ export function InvoiceApprovalPanel({
 
   useEffect(() => {
     setPrefill(null);
+    setPartnerError("");
     void load();
     return () => { requestId.current += 1; };
   }, [load]);
+
+  async function changePartner(key: "customerId" | "undertakingUnitId", value: string) {
+    const previous = { customerId: parties.customerId ?? prefill?.customer?.customerId ?? "", undertakingUnitId: parties.undertakingUnitId ?? prefill?.undertakingUnitId ?? "" };
+    const next = { ...previous, [key]: value };
+    selectedPartiesRef.current=next;
+    setParties(next); setPartnerError(""); setLoading(true);
+    const id = ++requestId.current;
+    try {
+      const params = new URLSearchParams({ sourceType, sourceId, sourceIds: ids, ...next });
+      const response = await fetch(`/api/invoices/approval/prefill?${params}`, { cache: "no-store" });
+      const data = await response.json() as ApprovalPrefill & { error?: string };
+      if (id !== requestId.current) return;
+      if (!response.ok) throw new Error(data.error || "开票伙伴资料加载失败");
+      setPrefill(data);
+      setForm(current => ({ ...current, ...(key === "customerId" ? { customerName: data.customer?.name ?? "", taxId: data.customer?.taxId ?? "", taxRegime: data.customer?.taxRegime ?? "", address: data.customer?.address ?? "", postCode: data.customer?.postCode ?? "" } : { paymentTermDays: String(data.paymentTermDays), paymentReceivedTime: data.paymentReceivedTime }), }));
+      if (key === "customerId") setMaterials(current => ({ ...current, attachmentRefs: (current.attachmentRefs ?? []).filter(file => file.source !== "customer") }));
+    } catch (error) {
+      if (id === requestId.current) {
+        setParties(previous);
+        selectedPartiesRef.current=previous;
+        setPartnerError(error instanceof Error ? error.message : "资料加载失败，请重新选择");
+      }
+    }
+    finally { if (id === requestId.current) setLoading(false); }
+  }
 
   /** 金额联动：改「未税金额 / 税率」重算税金与含税；改「税金」重算含税；「含税金额」可直接改。 */
   function updateAmounts(patch: Partial<Record<"amountExcludingTax" | "taxRate" | "taxAmount" | "amountIncludingTax", string>>) {
@@ -191,7 +236,8 @@ export function InvoiceApprovalPanel({
   }
 
   const submit = useCallback(async () => {
-    if (!prefill || readingAttachments || submitLock.current) return;
+    if (!prefill || loading || partnerError || readingAttachments || submitLock.current) return;
+    if(allocationPlan){const error=validateInvoiceAllocationPlan(allocationPlan,{...form,amountIncludingTax:prefill.branch==="cl"?form.chileAmount:form.amountIncludingTax});if(error||allocationPlan.currency!==form.amountCurrency){notify(error||"请核对分摊币种","error");return;}}
     submitLock.current = true;
     setSubmitting(true);
     try {
@@ -201,10 +247,14 @@ export function InvoiceApprovalPanel({
         body: JSON.stringify({
           sourceType,
           sourceId,
+          customerId: parties.customerId ?? prefill.customer?.customerId,
+          undertakingUnitId: parties.undertakingUnitId ?? prefill.undertakingUnitId,
           sourceIds: sourceIds.length ? sourceIds : undefined,
+          allocationPlan,
           purpose: form.purpose,
           paymentReceivedTime: form.paymentReceivedTime,
-          invoiceContent: form.invoiceContent,
+          paymentTermDays: form.paymentTermDays,
+          invoiceContent: allocationPlan?.lineMode==="summary"?allocationPlan.description:form.invoiceContent,
           paymentMethodKey: form.paymentMethodKey,
           cfdiCodeKey: form.cfdiCodeKey,
           customerOverride: { name: form.customerName, taxId: form.taxId, taxRegime: form.taxRegime, address: form.address, postCode: form.postCode },
@@ -215,7 +265,7 @@ export function InvoiceApprovalPanel({
             ? {
               invoiceTypeKey: form.chileInvoiceTypeKey,
               amountIncludingTax: Number(form.chileAmount),
-              note1: form.chileNote1,
+              note1: allocationPlan?.lineMode==="summary"?allocationPlan.description:form.chileNote1,
               note2Key: form.chileNote2Key,
               note3: Number(form.chileNote3),
               note4: Number(form.chileNote4),
@@ -234,15 +284,15 @@ export function InvoiceApprovalPanel({
       submitLock.current = false;
       setSubmitting(false);
     }
-  }, [form, materials, readingAttachments, onClose, onSubmitted, prefill, sourceId, sourceIds, sourceType]);
+  }, [form, allocationPlan, parties, partnerError, loading, materials, readingAttachments, onClose, onSubmitted, prefill, sourceId, sourceIds, sourceType]);
 
-  const blocked = !prefill || prefill.blockers.length > 0 || prefill.branch === "br" || prefill.branch === null || Boolean(prefill.existingApproval);
+  const blocked = loading || Boolean(partnerError) || !prefill || prefill.blockers.length > 0 || prefill.branch === "br" || prefill.branch === null || Boolean(prefill.existingApproval) || !prefill.amountCurrencyOptions.includes(form.amountCurrency);
 
   useEffect(() => {
     onStateChange?.({ loading, blocked: blocked || readingAttachments, submitting, preparingAttachments: readingAttachments, submit });
   }, [blocked, loading, readingAttachments, onStateChange, submit, submitting]);
 
-  if (loading || !prefill) {
+  if (!prefill) {
     return (
       <div className="flex items-center justify-center gap-2 rounded border border-line-soft bg-surface-2 py-12 text-sm text-ink-3">
         <FileText size={16} />
@@ -252,12 +302,23 @@ export function InvoiceApprovalPanel({
   }
 
   const linesIndex = prefill.branch === "cl" ? 3 : 5;
+  let invoiceLines = prefill.lines;
+  if (allocationPlan) {
+    try { invoiceLines=allocationInvoiceLines(allocationPlan).map(line=>({date:line.periodLabel,desc:line.description,cost:line.amount})); }
+    catch { invoiceLines=[]; }
+  }
   /** 单据原币是否在飞书金额控件支持的币种里（不在就提醒，别把金额当成另一种币种提交） */
   const amountCurrencySupported = !prefill.currency
     || prefill.amountCurrencyOptions.includes(String(prefill.currency).toUpperCase());
 
   return (
     <div className="space-y-4">
+      <InvoiceApprovalPartners customerOptions={customerOptions} unitOptions={unitOptions}
+        customerId={parties.customerId ?? prefill.customer?.customerId ?? ""} undertakingUnitId={parties.undertakingUnitId ?? prefill.undertakingUnitId ?? ""}
+        disabled={loading || submitting || readingAttachments} onChange={(key,value)=>void changePartner(key,value)}/>
+      {loading ? <p className="text-sm text-ink-3">正在更新开票资料和审批主体…</p> : null}
+      {partnerError ? <p role="alert" className="text-sm text-danger">{partnerError}</p> : null}
+      {onAllocationChange?<InvoiceAllocationEditor sourceType={sourceType} sourceId={sourceId} currency={form.amountCurrency} totals={{...form,amountIncludingTax:prefill.branch==="cl"?form.chileAmount:form.amountIncludingTax}} value={allocationPlan} onChange={onAllocationChange} disabled={submitting||loading||Boolean(prefill.existingApproval)} onTotalsChange={totals=>setForm(current=>({...current,amountExcludingTax:String(totals.amountExcludingTax),taxAmount:String(totals.taxAmount),taxRate:String(totals.taxRate??""),amountIncludingTax:String(totals.amountIncludingTax),chileAmount:String(totals.amountIncludingTax)}))}/>:null}
       {prefill.existingApproval ? (
         <Notice tone="info">
           该账单已有一条审批：{prefill.existingApproval.status === "approved" ? "已通过（待出票）" : paymentApprovalStatusLabel(prefill.existingApproval.status) || prefill.existingApproval.status}
@@ -280,7 +341,7 @@ export function InvoiceApprovalPanel({
       ) : null}
 
       <div className="grid gap-3 rounded border border-line-soft bg-surface-2 p-4 sm:grid-cols-3">
-        <SummaryItem label="客户抬头" value={prefill.customer?.name ?? "—"} />
+        <SummaryItem label="客户抬头" value={form.customerName || "—"} />
         <SummaryItem label="开票主体（承接单位）" value={`${prefill.companyText || "—"}${prefill.branch ? `（${BRANCH_LABEL[prefill.branch] ?? prefill.branch}）` : ""}`} />
         <SummaryItem label="账期" value={prefill.period || "—"} />
         <SummaryItem label="来源账单" value={prefill.sourceNo} />
@@ -422,8 +483,9 @@ export function InvoiceApprovalPanel({
         disabled={submitting || blocked} requireCsf={prefill.branch === "mx"} onBusyChange={setReadingAttachments}
       /> : prefill.branch === "cl" ? <p role="status" className="text-sm text-warning-ink">飞书 Cloud 智利分支尚未配置附件栏，请管理员增加附件栏后重新打开申请。</p> : null}
 
-      <Section index={linesIndex} title="账期明细" subtitle="Invoice Lines" hint="明细来自来源账单，审批通过后与发票信息一并回填到该账单行。">
-        {prefill.lines.length ? (
+      {allocationPlan&&prefill.attachmentField?<p className="text-xs text-ink-3">系统会自动附上合并开票说明，其他审批材料最多选择 9 个。</p>:null}
+      <Section index={linesIndex} title="票面明细" subtitle="Invoice Lines" hint="以下为申请的票面展示方式。财务回票并经核对确认后，各账期登记本期分摊金额。">
+        {invoiceLines.length ? (
           <div className="overflow-hidden rounded border border-line-soft">
             <table className="w-full border-collapse text-sm">
               <thead className="bg-canvas">
@@ -434,18 +496,18 @@ export function InvoiceApprovalPanel({
                 </tr>
               </thead>
               <tbody>
-                {prefill.lines.map((line, index) => (
+                {invoiceLines.map((line, index) => (
                   <tr key={`${line.date}-${index}`}>
                     <td className="whitespace-nowrap border-b border-line-soft px-3 py-2">{line.date || "—"}</td>
                     <td className="border-b border-line-soft px-3 py-2">{line.desc || "—"}</td>
-                    <td className="whitespace-nowrap border-b border-line-soft px-3 py-2">{`${prefill.currency} ${line.cost}`}</td>
+                    <td className="whitespace-nowrap border-b border-line-soft px-3 py-2">{`${allocationPlan?.currency||prefill.currency} ${line.cost}`}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
         ) : (
-          <p className="rounded border border-dashed border-line bg-white px-3 py-4 text-sm text-ink-3">这张账单没有明细行，票面按金额开具。</p>
+          <p className="rounded border border-dashed border-line bg-white px-3 py-4 text-sm text-ink-3">{allocationPlan?"请先补齐各期分摊金额，再核对票面明细。":"这张账单没有明细行，票面按金额开具。"}</p>
         )}
       </Section>
 
@@ -455,13 +517,13 @@ export function InvoiceApprovalPanel({
           <span className="text-ink-4">→</span>
           <span className="rounded bg-white px-2 py-0.5 font-medium">审批</span>
           <span className="text-ink-4">→</span>
-          <span className="rounded bg-white px-2 py-0.5 font-medium">审批</span>
+          <span className="rounded bg-white px-2 py-0.5 font-medium">财务回票</span>
           <span className="text-ink-4">→</span>
-          <span className="rounded bg-white px-2 py-0.5 font-medium text-success">出票</span>
+          <span className="rounded bg-white px-2 py-0.5 font-medium text-success">核对登记</span>
         </div>
-        提交后会以<b className="text-ink-2">当前登录人的飞书身份</b>发起审批（审批流程 Cloud invoicing process · {prefill.approvalCode}），两级固定审批人。
-        系统预留票号 <b className="text-ink-2">{prefill.suggestedInvoiceNo || "保存时自动分配"}</b>（开票日期 {prefill.invoiceDate || "—"}）；
-        审批中不需要再操作，通过后系统按回传的真实发票自动出票并回填票号、开票日期与金额，票面挂到该行的开票附件下。
+        提交后会以<b className="text-ink-2">当前登录人的飞书身份</b>发起 Cloud Invoice 审批。
+        审批通过后继续跟踪财务上传的发票，识别后在“审批进度与回票”中核对确认。
+        登记时回填真实票号、开票日期和各期分摊金额，并将发票原件关联到各账单。
       </div>
     </div>
   );

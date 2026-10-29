@@ -16,16 +16,35 @@ const LINE_TOLERANCE = 2;
 /** 字间空隙超过这个值才补空格，否则会插进数字中间（742.57 被拆成 "742. 5 7"）。 */
 const SPACE_GAP = 1;
 
-type PdfTextItem = {
+export type PdfTextItem = {
   str: string;
   width: number;
   transform: number[];
 };
 
+export type PdfLayoutPage = { text: string; rows: Array<{ y: number; items: PdfTextItem[] }> };
+
 export async function extractPdfPages(bytes: Buffer | Uint8Array): Promise<string[]> {
+  return (await extractPdfLayoutPages(bytes)).map(page => page.text);
+}
+
+export function joinPdfTextItems(items: PdfTextItem[]) {
+  let text = "";
+  let endX: number | null = null;
+  for (const item of items) {
+    const startX = item.transform[4];
+    if (endX !== null && startX - endX > SPACE_GAP) text += " ";
+    text += item.str;
+    endX = startX + item.width;
+  }
+  return text.replace(/\s+/g, " ").trim();
+}
+
+/** 保留双栏票面的坐标，避免把销方地址和购方地址拼成一段。 */
+export async function extractPdfLayoutPages(bytes: Buffer | Uint8Array): Promise<PdfLayoutPage[]> {
   const document = await pdfjs.getDocument({ data: new Uint8Array(bytes), isEvalSupported: false, useSystemFonts: false }).promise;
   try {
-    const pages: string[] = [];
+    const pages: PdfLayoutPage[] = [];
     for (let index = 1; index <= document.numPages; index += 1) {
       const page = await document.getPage(index);
       const content = await page.getTextContent();
@@ -38,22 +57,9 @@ export async function extractPdfPages(bytes: Buffer | Uint8Array): Promise<strin
         if (row) row.items.push(item);
         else rows.push({ y, items: [item] });
       }
-      pages.push(rows
-        .sort((left, right) => right.y - left.y)
-        .map((row) => {
-          const items = row.items.sort((left, right) => left.transform[4] - right.transform[4]);
-          let text = "";
-          let endX: number | null = null;
-          for (const item of items) {
-            const startX = item.transform[4];
-            if (endX !== null && startX - endX > SPACE_GAP) text += " ";
-            text += item.str;
-            endX = startX + item.width;
-          }
-          return text.replace(/\s+/g, " ").trim();
-        })
-        .filter(Boolean)
-        .join("\n"));
+      rows.sort((left, right) => right.y - left.y);
+      for (const row of rows) row.items.sort((left, right) => left.transform[4] - right.transform[4]);
+      pages.push({ rows, text: rows.map(row => joinPdfTextItems(row.items)).filter(Boolean).join("\n") });
     }
     return pages;
   } finally {

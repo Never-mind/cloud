@@ -1,27 +1,18 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowUpRight, RefreshCw } from "lucide-react";
-import { buildServiceFeeChartSeries } from "@/lib/dashboard-workflow";
+import { buildServiceFeeChartSeries, buildServiceFeeView, buildCloudFinancialView, recentDashboardMonths, type DashboardServiceFeeSummary, type DashboardCloudFinancials } from "@/lib/dashboard-workflow";
+import { CloudFinancialTable, ServiceFeeMatrix, cloudAmountText } from "./dashboard-financial-tables";
 import { formatDisplayValue, formatMoneyValue } from "@/lib/display-format";
 import { Button, Panel, Select } from "./ui";
-import { TableStateContent } from "./table-state";
 import { postWorkspaceMessage } from "@/lib/tab-workspace";
-
-type ServiceFeeSummary = {
-  countryCode: string;
-  month: string;
-  currency: string;
-  serviceFeeTotal: number;
-};
 
 type NewInstanceSummary = {
   countryCode: string;
   month: string;
   instanceQuantity: number;
 };
-
-type GrossProfitSeries = { customer: string; values: number[]; total: number };
 
 /** 首页饼图数据：按国家 × 签收状态的设备台数（全部历史、仅设备类型） */
 type InstanceReceipt = {
@@ -54,7 +45,7 @@ type DomainPortfolio = {
     cloudRowCount: number;
     receivableUsd: number;
     payableUsd: number;
-    grossProfit: { months: string[]; totals: number[]; byCustomer: GrossProfitSeries[] };
+    financials: DashboardCloudFinancials;
   };
 };
 
@@ -67,9 +58,14 @@ const SETTLEMENT_STATUS_LABELS: Array<[string, string]> = [
   ["closed", "已完结"],
 ];
 
+const CLOUD_METRICS = [
+  { metric: "receivableNet", label: "客户营收（未税）" },
+  { metric: "profitNet", label: "毛利（未税）" },
+] as const;
+
 type DashboardData = {
   countries: string[];
-  serviceFees: ServiceFeeSummary[];
+  serviceFees: DashboardServiceFeeSummary[];
   newInstances: NewInstanceSummary[];
   instanceReceipt: InstanceReceipt[];
   portfolio: DomainPortfolio | null;
@@ -87,35 +83,50 @@ export function HomeDashboardPanel() {
   const [countryCode, setCountryCode] = useState("");
   const [data, setData] = useState<DashboardData>(emptyData);
   const [loading, setLoading] = useState(false);
-  // 华为云毛利趋势：全部客户 / 单个客户
-  const [grossProfitMode, setGrossProfitMode] = useState<"all" | "one">("all");
-  const [grossProfitCustomer, setGrossProfitCustomer] = useState("");
-  // 华为云账期范围（默认最近 6 个月；可下拉选起止月份或用快捷按钮）
-  const [grossProfitStart, setGrossProfitStart] = useState("");
-  const [grossProfitEnd, setGrossProfitEnd] = useState("");
+  const [loadError, setLoadError] = useState("");
+  const requestVersion = useRef(0);
+  // 华为云营收与毛利共用客户、账期筛选。
+  const [cloudMode, setCloudMode] = useState<"all" | "one">("all");
+  const [cloudCustomer, setCloudCustomer] = useState("");
+  // 默认最近 3 个连续自然月，保留历史范围选择。
+  const [cloudStart, setCloudStart] = useState("");
+  const [cloudEnd, setCloudEnd] = useState("");
 
   async function loadData(nextCountryCode = countryCode) {
+    const version = ++requestVersion.current;
     setLoading(true);
+    setLoadError("");
     const params = new URLSearchParams();
     if (nextCountryCode) params.set("countryCode", nextCountryCode);
-    const response = await fetch(`/api/dashboard/overview?${params.toString()}`);
-    const nextData = (await response.json()) as DashboardData;
-    setData({
-      countries: nextData.countries ?? [],
-      serviceFees: nextData.serviceFees ?? [],
-      newInstances: nextData.newInstances ?? [],
-      instanceReceipt: nextData.instanceReceipt ?? [],
-      portfolio: nextData.portfolio ?? null,
-    });
-    setLoading(false);
+    try {
+      const response = await fetch(`/api/dashboard/overview?${params.toString()}`);
+      if (!response.ok) throw new Error("经营数据加载失败，请刷新重试");
+      const nextData = (await response.json()) as DashboardData;
+      if (version !== requestVersion.current) return;
+      setData({
+        countries: nextData.countries ?? [],
+        serviceFees: nextData.serviceFees ?? [],
+        newInstances: nextData.newInstances ?? [],
+        instanceReceipt: nextData.instanceReceipt ?? [],
+        portfolio: nextData.portfolio ?? null,
+      });
+    } catch {
+      if (version === requestVersion.current) {
+        setData((previous) => ({ ...emptyData, countries: previous.countries }));
+        setLoadError("经营数据加载失败，请刷新重试");
+      }
+    } finally {
+      if (version === requestVersion.current) setLoading(false);
+    }
   }
 
   /** 快捷选「最近 N 个月」：把账期范围设成末尾 N 个月。 */
   function applyRecentMonths(count: number) {
-    const months = grossProfit?.months ?? [];
+    const months = financials?.months ?? [];
     if (!months.length) return;
-    setGrossProfitStart(months[Math.max(0, months.length - count)]);
-    setGrossProfitEnd(months[months.length - 1]);
+    const recent = recentDashboardMonths(months, count);
+    setCloudStart(recent[0] < months[0] ? months[0] : recent[0]);
+    setCloudEnd(months[months.length - 1]);
   }
 
   useEffect(() => {
@@ -126,55 +137,21 @@ export function HomeDashboardPanel() {
     () => buildServiceFeeChartSeries(data.serviceFees),
     [data.serviceFees],
   );
-  /** 图表只画最近 6 个月，所以「合计」也只合计图上这几个月，避免口径对不上。 */
-  const totalServiceFee = useMemo(
-    () => serviceFeeChart.series.reduce(
-      (total, line) => total + line.values.reduce<number>((sum, value) => sum + (value ?? 0), 0),
-      0,
-    ),
-    [serviceFeeChart],
+  const serviceFeeView = useMemo(() => buildServiceFeeView(data.serviceFees), [data.serviceFees]);
+  const financials = data.portfolio?.cloud.financials;
+  const selectedCustomer = financials?.byCustomer.find((row) => row.key === cloudCustomer) ?? financials?.byCustomer[0];
+  const cloudView = useMemo(
+    () => buildCloudFinancialView(financials, cloudStart, cloudEnd, cloudMode === "one" ? selectedCustomer?.key : ""),
+    [financials, cloudStart, cloudEnd, cloudMode, selectedCustomer?.key],
   );
-  const grossProfit = data.portfolio?.cloud.grossProfit;
-  // 复用服务费那张折线图：全部客户用月度合计，单个客户取该客户的月度序列。
-  const grossProfitRange = useMemo(() => {
-    const months = grossProfit?.months ?? [];
-    if (!months.length) return { months: [] as string[], from: 0, to: -1 };
-    const startIndex = grossProfitStart ? months.indexOf(grossProfitStart) : Math.max(0, months.length - 6);
-    const endIndex = grossProfitEnd ? months.indexOf(grossProfitEnd) : months.length - 1;
-    const from = Math.min(startIndex < 0 ? 0 : startIndex, endIndex < 0 ? months.length - 1 : endIndex);
-    const to = Math.max(startIndex < 0 ? 0 : startIndex, endIndex < 0 ? months.length - 1 : endIndex);
-    return { months: months.slice(from, to + 1), from, to };
-  }, [grossProfit, grossProfitStart, grossProfitEnd]);
-
-  const grossProfitChart = useMemo(() => {
-    if (!grossProfit) return { months: [] as string[], series: [] as Array<{ key: string; label: string; values: number[] }> };
-    const { months, from, to } = grossProfitRange;
-    const row = grossProfit.byCustomer.find((entry) => entry.customer === grossProfitCustomer) ?? grossProfit.byCustomer[0];
-    const series = grossProfitMode === "all"
-      ? [{ key: "all", label: "全部客户合计", values: grossProfit.totals.slice(from, to + 1) }]
-      : row ? [{ key: row.customer, label: row.customer, values: row.values.slice(from, to + 1) }] : [];
-    return { months, series };
-  }, [grossProfit, grossProfitCustomer, grossProfitMode, grossProfitRange]);
-
-  /** 客户 × 账期的毛利表（按所选账期切片，按区间合计倒序）。 */
-  const grossProfitTable = useMemo(() => {
-    if (!grossProfit) return null;
-    const { months, from, to } = grossProfitRange;
-    const rows = grossProfit.byCustomer.map((entry) => {
-      const values = entry.values.slice(from, to + 1);
-      return { customer: entry.customer, values, total: values.reduce((sum, value) => sum + Number(value ?? 0), 0) };
-    }).sort((left, right) => right.total - left.total);
-    const total = rows.reduce((sum, row) => sum + row.total, 0);
-    const monthTotals = months.map((_, index) => rows.reduce((sum, row) => sum + Number(row.values[index] ?? 0), 0));
-    return { months, rows, total, monthTotals };
-  }, [grossProfit, grossProfitRange]);
-
-  /** 服务费表只显示最近一个月（各国一行）。 */
-  const latestServiceFee = useMemo(() => {
-    const months = data.serviceFees.map((row) => String(row.month ?? "")).filter(Boolean).sort();
-    const latest = months.length ? months[months.length - 1] : "";
-    return { month: latest, rows: data.serviceFees.filter((row) => String(row.month ?? "") === latest) };
-  }, [data.serviceFees]);
+  const cloudChart = {
+    months: cloudView.months,
+    series: CLOUD_METRICS.map(({ metric, label }) => ({
+      key: metric,
+      label,
+      values: cloudView.monthTotals.map((value) => value?.[metric] ?? null),
+    })),
+  };
 
   /** 饼图：已签收 / 未签收，按国家统计设备台数（全部历史、仅设备类型）。 */
   const receiptPies = useMemo(() => {
@@ -197,10 +174,11 @@ export function HomeDashboardPanel() {
       <div className="flex flex-wrap items-center gap-3 border-b border-line-soft px-4 py-3">
         <div>
           <h2 className="text-base font-medium text-ink">经营汇总面板</h2>
-          <p className="mt-1 text-xs text-ink-3">按国家、月份查看服务费合计和新增实例数量。</p>
+          <p className="mt-1 text-xs text-ink-3">查看算力服务费、集采项目及华为云客户营收和毛利。</p>
         </div>
         <div className="ml-auto flex items-center gap-2">
           <Select
+            aria-label="算力国家"
             value={countryCode}
             onChange={(event) => {
               setCountryCode(event.target.value);
@@ -221,39 +199,29 @@ export function HomeDashboardPanel() {
         </div>
       </div>
 
-      <DomainCard accent="#409eff" hint="服务费、新增实例" title="算力系统">
-      <div className="grid gap-4 p-4 lg:grid-cols-[1.15fr_0.85fr]">
-        <div>
+      {loadError ? <p className="px-4 py-3 text-sm text-red-600" role="alert">{loadError}</p> : null}
+      <DomainCard accent="#409eff" hint="服务费 · 最近 3 个月" title="算力系统">
+      <div className="grid gap-4 p-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
+        <div className="min-w-0">
           <div className="mb-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
             <div className="font-medium text-ink">每月服务费合计</div>
-            <div className="text-xs text-ink-3">
-              {serviceFeeChart.months.length ? `近 ${serviceFeeChart.months.length} 个月合计` : "合计"}：{formatMoneyValue(totalServiceFee)}
-            </div>
+            <div className="text-xs text-ink-3">{serviceFeeChart.months.length ? serviceFeeChart.months[0] + " ~ " + serviceFeeChart.months[serviceFeeChart.months.length - 1] : "最近 3 个月"} · BR 统一 USD</div>
           </div>
-          <ServiceFeeLineChart chart={serviceFeeChart} loading={loading} />
-          <div className="mb-1 text-xs text-ink-3">最近一个月（{latestServiceFee.month || "-"}）各国服务费</div>
-          <SummaryTable
-            columns={[
-              { key: "countryCode", label: "国家" },
-              { key: "month", label: "月份" },
-              { key: "currency", label: "币种" },
-              { key: "serviceFeeTotal", label: "服务费合计", type: "number" },
-            ]}
-            emptyText=<TableStateContent empty="暂无服务费数据" loading={loading} />
-            rows={latestServiceFee.rows}
-          />
+          <ServiceFeeLineChart chart={serviceFeeChart} loading={loading} label="每月服务费趋势图" />
+          <ServiceFeeMatrix view={serviceFeeView} loading={loading} />
         </div>
 
         <div>
           <div className="mb-2 flex items-center justify-between">
             <div className="font-medium text-ink">设备签收情况</div>
-            <div className="text-xs text-ink-3">全部历史 · 仅设备类型 · 按国家/台数</div>
+            <div className="text-xs text-ink-3">全部历史 · 已生成物流 · 仅设备类型</div>
           </div>
           {/* 已签收 / 未签收上下摆放 */}
           <div className="grid gap-4">
             <CountryDonut color="#409eff" emptyText="暂无已签收设备" pie={receiptPies.received} title="已签收设备" />
             <CountryDonut color="#f56c6c" emptyText="暂无未签收设备" pie={receiptPies.unreceived} title="未签收设备" />
           </div>
+          <p className="mt-2 text-xs text-ink-3">按需求明细的设备台数统计；物流派送时间有值为已签收，未填为未签收。尚未生成物流的待下单设备不计入。</p>
         </div>
       </div>
       </DomainCard>
@@ -336,94 +304,53 @@ export function HomeDashboardPanel() {
 
       <DomainCard
         accent="#7c5cff"
-          className="lg:col-span-2"
         title="华为云业务"
-        hint={data.portfolio ? `共 ${data.portfolio.cloud.cloudRowCount} 条对账 · 应收 ${formatMoneyValue(data.portfolio.cloud.receivableUsd)} USD · 应付 ${formatMoneyValue(data.portfolio.cloud.payableUsd)} USD` : "加载中…"}
+        hint="客户营收（未税） / 毛利（未税） · USD"
       >
-        <div className="p-4">
-          <div className="mb-2 flex flex-wrap items-center gap-2">
-            <span className="text-sm font-medium text-ink">结算毛利 · 按月</span>
-            <span className="text-xs text-ink-3">数据源 settlementGrossProfit</span>
-            <div className="ml-auto flex items-center gap-2">
-              <Button
-                onClick={() => setGrossProfitMode("all")}
-                tone={grossProfitMode === "all" ? "primary" : "default"}
-              >
-                全部客户
-              </Button>
-              <Button
-                onClick={() => setGrossProfitMode("one")}
-                tone={grossProfitMode === "one" ? "primary" : "default"}
-              >
-                单个客户
-              </Button>
-              {grossProfitMode === "one" && grossProfit?.byCustomer.length ? (
-                <Select value={grossProfitCustomer || grossProfit.byCustomer[0].customer} onChange={(event) => setGrossProfitCustomer(event.target.value)}>
-                  {grossProfit.byCustomer.map((row) => (
-                    <option key={row.customer} value={row.customer}>{row.customer}</option>
-                  ))}
+        <div className="min-w-0 p-4">
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <span className="text-sm font-medium text-ink">客户月度经营情况</span>
+            <div className="ml-auto flex max-w-full flex-wrap items-center gap-2">
+              <Button onClick={() => setCloudMode("all")} tone={cloudMode === "all" ? "primary" : "default"}>全部客户</Button>
+              <Button onClick={() => setCloudMode("one")} tone={cloudMode === "one" ? "primary" : "default"}>单个客户</Button>
+              {cloudMode === "one" && financials?.byCustomer.length ? (
+                <Select aria-label="华为云客户" className="max-w-full" value={selectedCustomer?.key ?? ""} onChange={(event) => setCloudCustomer(event.target.value)}>
+                  {financials.byCustomer.map((row) => <option key={row.key} value={row.key}>{row.customer}</option>)}
                 </Select>
               ) : null}
-              <span className="ml-2 text-xs text-ink-3">账期</span>
-              <Select className="w-[104px]" value={grossProfitStart || (grossProfitRange.months[0] ?? "")} onChange={(event) => setGrossProfitStart(event.target.value)}>
-                {(grossProfit?.months ?? []).map((month) => <option key={month} value={month}>{month}</option>)}
-              </Select>
-              <span className="text-xs text-ink-3">~</span>
-              <Select className="w-[104px]" value={grossProfitEnd || (grossProfitRange.months[grossProfitRange.months.length - 1] ?? "")} onChange={(event) => setGrossProfitEnd(event.target.value)}>
-                {(grossProfit?.months ?? []).map((month) => <option key={month} value={month}>{month}</option>)}
-              </Select>
-              <Button onClick={() => applyRecentMonths(3)}>最近 3 个月</Button>
-              <Button onClick={() => applyRecentMonths(6)}>最近 6 个月</Button>
-              <Button onClick={() => applyRecentMonths(12)}>最近 12 个月</Button>
             </div>
           </div>
-          <ServiceFeeLineChart chart={grossProfitChart} loading={loading} />
-          {grossProfitTable && grossProfitTable.rows.length ? (
-            <div className="mt-4 border-t border-dashed border-line-soft pt-3">
-              <div className="mb-2 text-xs text-ink-3">
-                各客户毛利（USD）· {grossProfitTable.months[0]} ~ {grossProfitTable.months[grossProfitTable.months.length - 1]}
-                ，点击客户名可切换上方折线
-              </div>
-              <div className="overflow-x-auto border border-line-soft">
-                <table className="min-w-full border-collapse text-xs">
-                  <thead className="bg-canvas text-ink">
-                    <tr>
-                      <th className="sticky left-0 z-10 whitespace-nowrap border-b border-r border-line-soft bg-canvas px-3 py-2 text-left font-medium">客户</th>
-                      {grossProfitTable.months.map((month) => (
-                        <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-2 text-right font-medium" key={month}>{month}</th>
-                      ))}
-                      <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-2 text-right font-medium">合计</th>
-                      <th className="whitespace-nowrap border-b border-line-soft px-3 py-2 text-right font-medium">占比</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {grossProfitTable.rows.map((row) => (
-                      <tr className="hover:bg-surface-2" key={row.customer}>
-                        <td className="sticky left-0 z-10 max-w-[180px] truncate whitespace-nowrap border-b border-r border-line-soft bg-white px-3 py-2">
-                          <button className="text-primary hover:underline" onClick={() => { setGrossProfitCustomer(row.customer); setGrossProfitMode("one"); }} title={row.customer} type="button">{row.customer}</button>
-                        </td>
-                        {row.values.map((value, index) => (
-                          <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-2 text-right tabular-nums" key={index}>{formatMoneyValue(Number(value ?? 0))}</td>
-                        ))}
-                        <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-2 text-right font-medium tabular-nums text-ink">{formatMoneyValue(row.total)}</td>
-                        <td className="whitespace-nowrap border-b border-line-soft px-3 py-2 text-right tabular-nums text-ink-3">{grossProfitTable.total ? ((row.total / grossProfitTable.total) * 100).toFixed(1) + "%" : "-"}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                  <tfoot className="bg-surface-2 font-medium text-ink">
-                    <tr>
-                      <td className="sticky left-0 z-10 whitespace-nowrap border-r border-t border-line-soft bg-surface-2 px-3 py-2">合计</td>
-                      {grossProfitTable.monthTotals.map((value, index) => (
-                        <td className="whitespace-nowrap border-r border-t border-line-soft px-3 py-2 text-right tabular-nums" key={index}>{formatMoneyValue(value)}</td>
-                      ))}
-                      <td className="whitespace-nowrap border-r border-t border-line-soft px-3 py-2 text-right tabular-nums">{formatMoneyValue(grossProfitTable.total)}</td>
-                      <td className="whitespace-nowrap border-t border-line-soft px-3 py-2 text-right">100%</td>
-                    </tr>
-                  </tfoot>
-                </table>
-              </div>
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <span className="text-xs text-ink-3">账期</span>
+            <Select aria-label="华为云开始月份" className="w-[108px]" value={cloudView.months[0] ?? ""} onChange={(event) => {
+              setCloudStart(event.target.value);
+              if (event.target.value > (cloudView.months[cloudView.months.length - 1] ?? "")) setCloudEnd(event.target.value);
+            }}>
+              {(financials?.months ?? []).map((month) => <option key={month} value={month}>{month}</option>)}
+            </Select>
+            <span className="text-xs text-ink-3">~</span>
+            <Select aria-label="华为云结束月份" className="w-[108px]" value={cloudView.months[cloudView.months.length - 1] ?? ""} onChange={(event) => {
+              setCloudEnd(event.target.value);
+              if (event.target.value < (cloudView.months[0] ?? "")) setCloudStart(event.target.value);
+            }}>
+              {(financials?.months ?? []).map((month) => <option key={month} value={month}>{month}</option>)}
+            </Select>
+            {[3, 6, 12].map((count) => <Button key={count} onClick={() => applyRecentMonths(count)}>最近 {count} 个月</Button>)}
+          </div>
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-sm font-medium text-ink">营收与毛利趋势 · {cloudMode === "one" ? selectedCustomer?.customer ?? "客户" : "全部客户"}</h3>
+            <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-3">
+              {CLOUD_METRICS.map(({ metric, label }) => (
+                <span key={metric}>{label}合计：<strong className="font-medium text-ink">{cloudAmountText(cloudView.total, metric)}</strong> USD</span>
+              ))}
             </div>
-          ) : null}
+          </div>
+          <ServiceFeeLineChart chart={cloudChart} loading={loading} label="华为云营收与毛利（未税）趋势图" />
+          <p className="mb-2 text-xs text-ink-3">
+            {cloudView.months.length ? cloudView.months[0] + " ~ " + cloudView.months[cloudView.months.length - 1] + " · " : ""}
+            单位：USD · 点击客户名可查看该客户 · 无账单显示“—”
+          </p>
+          <CloudFinancialTable view={cloudView} loading={loading} onCustomerSelect={(key) => { setCloudCustomer(key); setCloudMode("one"); }} />
         </div>
       </DomainCard>
     </Panel>
@@ -448,8 +375,8 @@ function DomainCard({
 }) {
   const [open, setOpen] = useState(true);
   return (
-    <section className={`rounded-lg border border-line-soft bg-surface ${className}`}>
-      <button className="flex w-full items-center gap-2 px-4 py-3 text-left" onClick={() => setOpen((value) => !value)} type="button">
+    <section className={`min-w-0 rounded-lg border border-line-soft bg-surface ${className}`}>
+      <button className="flex w-full flex-wrap items-center gap-2 px-4 py-3 text-left" onClick={() => setOpen((value) => !value)} type="button">
         <span className="h-2 w-2 flex-none rounded-full" style={{ background: accent }} />
         <h2 className="text-sm font-medium text-ink">{title}</h2>
         <span className="text-xs text-ink-3">{hint}</span>
@@ -473,13 +400,23 @@ function DomainCard({
 function ServiceFeeLineChart({
   chart,
   loading,
+  label,
 }: {
   chart: ReturnType<typeof buildServiceFeeChartSeries>;
   loading: boolean;
+  label: string;
 }) {
-  const width = 760;
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [width, setWidth] = useState(640);
+  useEffect(() => {
+    const element = containerRef.current;
+    if (!element) return;
+    const observer = new ResizeObserver(([entry]) => setWidth(Math.max(200, Math.floor(entry.contentRect.width))));
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
   const height = 260;
-  const padding = { top: 20, right: 24, bottom: 42, left: 70 };
+  const padding = { top: 20, right: 24, bottom: 42, left: width < 400 ? 46 : 64 };
   const plotWidth = width - padding.left - padding.right;
   const plotHeight = height - padding.top - padding.bottom;
   const values = chart.series.flatMap((line) => line.values).filter((value): value is number => value !== null);
@@ -509,7 +446,7 @@ function ServiceFeeLineChart({
     return Math.min(Math.max(x(index) - 84, 4), width - 176);
   }
 
-  const yTicks = [maxValue, minValue + span / 2, minValue];
+  const yTicks = [...new Set([maxValue, minValue + span / 2, minValue])];
 
   /**
    * x 轴标签防重叠：
@@ -539,8 +476,8 @@ function ServiceFeeLineChart({
           </span>
         ))}
       </div>
-      <div className="overflow-x-auto">
-        <svg aria-label="每月服务费趋势图" className="min-w-[640px] w-full" role="img" viewBox={`0 0 ${width} ${height}`}>
+      <div className="min-w-0" ref={containerRef}>
+        <svg aria-label={label} className="block w-full" role="img" viewBox={`0 0 ${width} ${height}`}>
           <rect fill="#fff" height={height} width={width} />
           {values.length ? (
             <>
@@ -568,6 +505,7 @@ function ServiceFeeLineChart({
                     const tipY = Math.max(4, y(value) - 46);
                     return (
                       <g className="group" key={`${line.key}-${chart.months[pointIndex]}`}>
+                        <title>{chart.months[pointIndex]} · {line.label}：{formatMoneyValue(value)}</title>
                         <circle cx={x(pointIndex)} cy={y(value)} fill="transparent" r="12" />
                         <circle
                           cx={x(pointIndex)}
@@ -580,10 +518,10 @@ function ServiceFeeLineChart({
                         <g className="pointer-events-none opacity-0 transition-opacity group-hover:opacity-100">
                           <rect fill="#303133" height="36" rx="4" width="172" x={tooltipX(pointIndex)} y={tipY} />
                           <text fill="#fff" fontSize="11" x={tooltipX(pointIndex) + 8} y={tipY + 14}>
-                            {chart.months[pointIndex]}
+                            {`${chart.months[pointIndex]} · ${line.label}`}
                           </text>
                           <text fill="#fff" fontSize="11" x={tooltipX(pointIndex) + 8} y={tipY + 29}>
-                            {`${line.label} ${formatMoneyValue(value)}`}
+                            {formatMoneyValue(value)}
                           </text>
                         </g>
                       </g>
@@ -594,7 +532,7 @@ function ServiceFeeLineChart({
             </>
           ) : (
             <text fill="#909399" fontSize="14" textAnchor="middle" x={width / 2} y={height / 2}>
-              <TableStateContent empty="暂无服务费趋势数据" loading={loading} />
+              {loading ? "加载中…" : "暂无可展示的趋势数据"}
             </text>
           )}
         </svg>
@@ -707,50 +645,6 @@ function CountryDonut({
       ) : (
         <div className="py-6 text-center text-xs text-ink-3">{emptyText}</div>
       )}
-    </div>
-  );
-}
-
-function SummaryTable({
-  columns,
-  emptyText,
-  rows,
-}: {
-  columns: Array<{ key: string; label: string; type?: string }>;
-  emptyText: ReactNode;
-  rows: Array<Record<string, string | number>>;
-}) {
-  return (
-    <div className="max-h-[320px] overflow-auto border border-line-soft">
-      <table className="min-w-full border-collapse text-sm">
-        <thead className="bg-canvas text-ink">
-          <tr>
-            {columns.map((column) => (
-              <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium" key={column.key}>
-                {column.label}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row, index) => (
-            <tr className="hover:bg-surface-2" key={`${row.countryCode}-${row.month}-${row.currency ?? ""}-${index}`}>
-              {columns.map((column) => (
-                <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-2" key={column.key}>
-                  {formatDisplayValue(row[column.key], column.type)}
-                </td>
-              ))}
-            </tr>
-          ))}
-          {!rows.length ? (
-            <tr>
-              <td className="py-10 text-center text-ink-3" colSpan={columns.length}>
-                {emptyText}
-              </td>
-            </tr>
-          ) : null}
-        </tbody>
-      </table>
     </div>
   );
 }

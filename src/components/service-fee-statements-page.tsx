@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { InvoiceDraftModal, type InvoiceDraftMode } from "./invoice-draft-modal";
 import { CheckCircle2, ChevronDown, ChevronRight, FileDown, RefreshCw, Search, Trash2 } from "lucide-react";
 import { fetchAllEntityRows } from "@/lib/client-entity-fetch";
@@ -14,11 +14,15 @@ import { TableColumnMenu, type TableFilterOption, type TableSortOrder } from "./
 import { useRequestGuard } from "@/lib/table-query-client";
 import { Button, IconButton, Input, Panel, Select } from "./ui";
 import { NumberInput } from "./number-input";
+import { SearchSelect } from "./search-select";
+import { invoicePartnerOptions } from "@/lib/invoice-partner-options";
+import { prefillReceiptFromSource, receiptInvoiceCurrencyMismatch } from "@/lib/receipt-prefill";
 import { Modal } from "./modal";
 import { confirmDialog, notify } from "./app-dialog";
 import { TableStateContent } from "./table-state";
 import { useWorkspaceDataRefresh } from "@/lib/workspace-events";
 import { CloudAttachments } from "./cloud-attachments";
+import { StatementInvoiceSummary } from "./statement-invoice-summary";
 import {
   StatementFieldSettingsButton,
   StatementFieldSettingsModal,
@@ -27,16 +31,6 @@ import {
 } from "./statement-field-settings";
 
 type Row = Record<string, string | number | boolean | null>;
-function partyOptionLabel(row: Row, codeKeys: string[], nameKeys: string[]) {
-  const code = codeKeys.map((key) => String(row[key] ?? "").trim()).find(Boolean) ?? "";
-  const name = nameKeys.map((key) => String(row[key] ?? "").trim()).find(Boolean) ?? "";
-  return name && code ? `${code} - ${name}` : name || code;
-}
-function partyShortName(row: Row, nameKeys: string[], codeKeys: string[]) {
-  return nameKeys.map((key) => String(row[key] ?? "").trim()).find(Boolean)
-    ?? codeKeys.map((key) => String(row[key] ?? "").trim()).find(Boolean)
-    ?? "";
-}
 type ListResponse = { rows: Row[]; total: number; page: number; pageSize: number; totalPages: number };
 type RepaymentDraft = {
   snapshotNo: string;
@@ -48,6 +42,8 @@ type RepaymentDraft = {
   repaymentAmountExcludingTax: string;
   repaymentVatRate: string;
   repaymentDate: string;
+  sourceCurrency: string;
+  prefillSource: "开票信息" | "客户应收";
 };
 type InvoiceDraft = {
   invoiceDate: string;
@@ -64,6 +60,7 @@ type InvoiceDraft = {
 type ServiceFeeColumn = {
   key: string;
   label: string;
+  group?: string;
   defaultVisible?: boolean;
   sortable?: boolean;
   filterable?: boolean;
@@ -71,33 +68,54 @@ type ServiceFeeColumn = {
 
 const columns: ServiceFeeColumn[] = [
   { key: "snapshotNo", label: "对账单号", defaultVisible: true, sortable: true, filterable: true },
-  { key: "status", label: "确认状态", defaultVisible: true, sortable: true, filterable: true },
   { key: "writeOffMonth", label: "核销月份", defaultVisible: true, sortable: true, filterable: true },
   { key: "countryCode", label: "国家", defaultVisible: true, sortable: true, filterable: true },
   { key: "billingTotal", label: "月账单金额", defaultVisible: true, sortable: true, filterable: true },
   { key: "prepaymentTotal", label: "预付款金额", defaultVisible: true, sortable: true, filterable: true },
-  { key: "customerReceivable", label: "客户应收", defaultVisible: true, sortable: true, filterable: true },
+  { key: "customerReceivable", label: "客户应收（含税）", defaultVisible: true, sortable: true, filterable: true },
   { key: "serviceFeeCurrency", label: "服务费币种", defaultVisible: false, sortable: false, filterable: false },
-  { key: "serviceFeeTotalExcludingTax", label: "客户应收未税", defaultVisible: false, sortable: true, filterable: true },
+  { key: "serviceFeeTotalExcludingTax", label: "客户应收（未税）", defaultVisible: false, sortable: true, filterable: true },
   { key: "vatRate", label: "客户应收税率", defaultVisible: false, sortable: false, filterable: false },
+  { key: "receivableTaxAmount", label: "客户应收税金", defaultVisible: false, sortable: false, filterable: false },
+  { key: "receivablePayerName", label: "应收付款单位", defaultVisible: false, sortable: false, filterable: false },
+  { key: "receivablePayeeName", label: "应收收款单位", defaultVisible: false, sortable: false, filterable: false },
   { key: "customerReceived", label: "客户实收（含税）", defaultVisible: true, sortable: true, filterable: true },
-  { key: "repaymentStatus", label: "收款状态", defaultVisible: true, sortable: true, filterable: true },
   { key: "repaymentCurrency", label: "实收币种", defaultVisible: false, sortable: true, filterable: true },
-  { key: "repaymentAmountExcludingTax", label: "客户实收未税", defaultVisible: false, sortable: true, filterable: true },
+  { key: "repaymentAmountExcludingTax", label: "客户实收（未税）", defaultVisible: false, sortable: true, filterable: true },
   { key: "repaymentVatRate", label: "客户实收税率", defaultVisible: false, sortable: true, filterable: true },
+  { key: "repaymentTaxAmount", label: "客户实收税金", defaultVisible: false, sortable: false, filterable: false },
+  { key: "repaymentPayerName", label: "实收付款单位", defaultVisible: false, sortable: false, filterable: false },
+  { key: "repaymentPayeeName", label: "实收收款单位", defaultVisible: false, sortable: false, filterable: false },
   { key: "repaymentDate", label: "实收日期", defaultVisible: false, sortable: false, filterable: false },
   { key: "customerInvoice", label: "客户开票（含税）", defaultVisible: true, sortable: true, filterable: true },
-  { key: "invoiceStatus", label: "开票状态", defaultVisible: true, sortable: true, filterable: true },
   { key: "invoiceNo", label: "发票号", defaultVisible: false, sortable: true, filterable: true },
   { key: "invoiceCurrency", label: "开票币种", defaultVisible: false, sortable: true, filterable: true },
-  { key: "invoiceAmountExcludingTax", label: "客户开票未税", defaultVisible: false, sortable: true, filterable: true },
+  { key: "invoiceAmountExcludingTax", label: "客户开票（未税）", defaultVisible: false, sortable: true, filterable: true },
   { key: "invoiceVatRate", label: "客户开票税率", defaultVisible: false, sortable: true, filterable: true },
+  { key: "invoiceTaxAmount", label: "客户开票税金", defaultVisible: false, sortable: false, filterable: false },
+  { key: "invoicePayerName", label: "开票客户单位", defaultVisible: false, sortable: false, filterable: false },
+  { key: "invoicePayeeName", label: "开票承接单位", defaultVisible: false, sortable: false, filterable: false },
   { key: "receivableDate", label: "应收日期", defaultVisible: false, sortable: true, filterable: true },
   { key: "invoiceDate", label: "开票日期", defaultVisible: false, sortable: true, filterable: true },
   { key: "createdAt", label: "创建时间", defaultVisible: false, sortable: true, filterable: true },
   { key: "updatedAt", label: "更新时间", defaultVisible: false, sortable: true, filterable: true },
   { key: "confirmedAt", label: "确认时间", defaultVisible: false, sortable: true, filterable: true },
+  { key: "status", label: "确认状态", defaultVisible: true, sortable: true, filterable: true },
+  { key: "invoiceStatus", label: "开票状态", defaultVisible: true, sortable: true, filterable: true },
+  { key: "repaymentStatus", label: "收款状态", defaultVisible: true, sortable: true, filterable: true },
 ];
+// 仅用于字段设置的分组；保持原列键和主表顺序，兼容已保存的显示偏好。
+const fieldGroups: Record<string, string[]> = {
+  "基本信息": ["snapshotNo", "writeOffMonth", "countryCode"],
+  "金额": ["billingTotal", "prepaymentTotal"],
+  "客户应收": ["customerReceivable", "serviceFeeCurrency", "serviceFeeTotalExcludingTax", "vatRate", "receivableTaxAmount", "receivablePayerName", "receivablePayeeName"],
+  "客户实收": ["customerReceived", "repaymentCurrency", "repaymentAmountExcludingTax", "repaymentVatRate", "repaymentTaxAmount", "repaymentPayerName", "repaymentPayeeName", "repaymentDate"],
+  "客户开票": ["customerInvoice", "invoiceNo", "invoiceCurrency", "invoiceAmountExcludingTax", "invoiceVatRate", "invoiceTaxAmount", "invoicePayerName", "invoicePayeeName", "receivableDate", "invoiceDate"],
+  "审计": ["createdAt", "updatedAt", "confirmedAt"],
+  "状态": ["status", "invoiceStatus", "repaymentStatus"],
+};
+for (const column of columns) column.group = Object.entries(fieldGroups).find(([, keys]) => keys.includes(column.key))?.[0];
+const statusColumnKeys = ["status", "invoiceStatus", "repaymentStatus"];
 
 export function ServiceFeeStatementsPage() {
   const [rows, setRows] = useState<Row[]>([]);
@@ -109,6 +127,8 @@ export function ServiceFeeStatementsPage() {
   const [repaymentStatus, setRepaymentStatus] = useState("");
   const [undertakingUnits, setUndertakingUnits] = useState<Row[]>([]);
   const [customers, setCustomers] = useState<Row[]>([]);
+  const unitOptions = useMemo(() => invoicePartnerOptions(undertakingUnits, "undertakingUnits"), [undertakingUnits]);
+  const customerOptions = useMemo(() => invoicePartnerOptions(customers, "customers"), [customers]);
   const [repaymentDraft, setRepaymentDraft] = useState<RepaymentDraft | null>(null);
   const [invoiceDraft, setInvoiceDraft] = useState<InvoiceDraft | null>(null);
   /** 开票弹层：sourceId 是对账单号（服务费对账单以 snapshotNo 为主键）。 */
@@ -206,16 +226,35 @@ export function ServiceFeeStatementsPage() {
   }
 
   function openRepayment(row: Row) {
+    const invoiceIssued = isInvoiceIssued(row.invoiceStatus);
+    const source = invoiceIssued ? {
+      currency: row.invoiceCurrency,
+      net: row.invoiceAmountExcludingTax,
+      rate: row.invoiceVatRate,
+      total: row.invoiceAmountIncludingTax,
+    } : {
+      currency: row.serviceFeeCurrency ?? row.defaultBillingCurrency ?? row.defaultRepaymentCurrency,
+      net: row.serviceFeeTotalExcludingTax,
+      rate: row.vatRate,
+      total: row.serviceFeeTotal,
+      tax: differenceAmount(row.serviceFeeTotal, row.serviceFeeTotalExcludingTax),
+    };
+    const amounts = prefillReceiptFromSource({
+      currency: row.repaymentCurrency, net: row.repaymentAmountExcludingTax,
+      rate: row.repaymentVatRate, total: row.repaymentAmount,
+    }, source);
     setRepaymentDraft({
       snapshotNo: String(row.snapshotNo ?? ""),
       repaymentStatus: String(row.repaymentStatus ?? "未回款") === "已回款" ? "已回款" : "未回款",
       receivingUnitId: firstNonBlankValue(row.receivingUnitId, row.defaultReceivingUnitId),
       payerCustomerId: firstNonBlankValue(row.payerCustomerId, row.defaultPayerCustomerId),
-      repaymentCurrency: String(row.repaymentCurrency ?? row.defaultRepaymentCurrency ?? ""),
-      repaymentAmount: String(row.repaymentAmount ?? row.defaultRepaymentAmount ?? row.serviceFeeTotal ?? ""),
-      repaymentAmountExcludingTax: String(row.repaymentAmountExcludingTax ?? ""),
-      repaymentVatRate: formatRateInput(row.repaymentVatRate),
+      repaymentCurrency: amounts.currency,
+      repaymentAmount: amounts.total,
+      repaymentAmountExcludingTax: amounts.net,
+      repaymentVatRate: formatRateInput(amounts.rate),
       repaymentDate: String(row.repaymentDate ?? "").slice(0, 10),
+      sourceCurrency: String(source.currency ?? ""),
+      prefillSource: invoiceIssued ? "开票信息" : "客户应收",
     });
   }
 
@@ -270,13 +309,14 @@ export function ServiceFeeStatementsPage() {
 
   async function saveRepayment() {
     if (!repaymentDraft) return;
+    const { sourceCurrency: _sourceCurrency, prefillSource: _prefillSource, ...draft } = repaymentDraft;
     setBusyNo(repaymentDraft.snapshotNo);
     try {
       const response = await fetch(`/api/service-fees/snapshots/${encodeURIComponent(repaymentDraft.snapshotNo)}/repayment`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          ...repaymentDraft,
+          ...draft,
           repaymentAmount: nullableNumber(repaymentDraft.repaymentAmount),
           repaymentAmountExcludingTax: nullableNumber(repaymentDraft.repaymentAmountExcludingTax),
           repaymentVatRate: parseRateInput(repaymentDraft.repaymentVatRate),
@@ -323,7 +363,7 @@ export function ServiceFeeStatementsPage() {
 
   async function postAction(snapshotNo: string, action: "confirm" | "delete") {
     const prompt = action === "confirm"
-      ? "确认该服务费对账单？确认后金额和明细将冻结，不能删除或退回。"
+      ? "确认该服务费对账单？确认后，账单金额及明细将锁定，不能删除或退回；开票、实收和相关附件仍可继续维护。"
       : "确认删除该未确认服务费对账单？对账单明细和已上传附件将同时删除。";
     if (!await confirmDialog(prompt)) return;
     setBusyNo(snapshotNo);
@@ -489,6 +529,16 @@ export function ServiceFeeStatementsPage() {
     if (key === "serviceFeeTotalExcludingTax") return formatAmountWithCurrency(row.serviceFeeTotalExcludingTax, serviceFeeCurrency);
     if (key === "repaymentAmountExcludingTax") return formatAmountWithCurrency(row.repaymentAmountExcludingTax, row.repaymentCurrency);
     if (key === "invoiceAmountExcludingTax") return formatAmountWithCurrency(row.invoiceAmountExcludingTax, row.invoiceCurrency);
+    if (key === "serviceFeeCurrency") return serviceFeeCurrency;
+    if (key === "receivableTaxAmount") return formatAmountWithCurrency(differenceAmount(row.serviceFeeTotal, row.serviceFeeTotalExcludingTax), serviceFeeCurrency);
+    if (key === "repaymentTaxAmount") return formatAmountWithCurrency(differenceAmount(row.repaymentAmount, row.repaymentAmountExcludingTax), row.repaymentCurrency);
+    if (key === "invoiceTaxAmount") return formatAmountWithCurrency(differenceAmount(row.invoiceAmountIncludingTax, row.invoiceAmountExcludingTax), row.invoiceCurrency);
+    if (key === "receivablePayerName") return String(row.customerName ?? row.payerCustomerCode ?? "客户");
+    if (key === "receivablePayeeName") return String(row.undertakingUnitName ?? row.receivingUnitCode ?? "承接单位");
+    if (key === "repaymentPayerName") return firstNonBlankValue(row.payerCustomerCode, row.customerName) || "客户";
+    if (key === "repaymentPayeeName") return firstNonBlankValue(row.receivingUnitCode, row.undertakingUnitName) || "承接单位";
+    if (key === "invoicePayerName") return firstNonBlankValue(row.invoicePayerCustomerCode, row.customerName) || "客户";
+    if (key === "invoicePayeeName") return firstNonBlankValue(row.invoiceReceivingUnitCode, row.undertakingUnitName) || "承接单位";
     if (key === "vatRate" || key === "repaymentVatRate" || key === "invoiceVatRate") return formatPercent(row[key]);
     if (key === "writeOffMonth") return formatValue(row[key], "month");
     if (key === "repaymentDate" || key === "receivableDate" || key === "invoiceDate") return formatValue(row[key], "date");
@@ -554,17 +604,6 @@ export function ServiceFeeStatementsPage() {
         { label: "客户开票税金", value: formatAmountWithCurrency(invoiceTax, row.invoiceCurrency) },
         { label: "客户开票含税", value: formatAmountWithCurrency(row.invoiceAmountIncludingTax, row.invoiceCurrency) },
       ] },
-      { title: "收款信息", fields: [
-        { label: "收款状态", value: String(row.repaymentStatus ?? "未回款") },
-        { label: "实收币种", value: String(row.repaymentCurrency ?? "-") },
-        { label: "实收日期", value: formatValue(row.repaymentDate) || "-" },
-      ] },
-      { title: "发票信息", fields: [
-        { label: "发票号", value: String(row.invoiceNo ?? "-") },
-        { label: "开票币种", value: String(row.invoiceCurrency ?? "-") },
-        { label: "应收日期", value: formatValue(row.receivableDate) || "-" },
-        { label: "开票状态", value: issued ? "已开票" : "未开票" },
-      ] },
       { title: "审计", fields: [
         { label: "创建时间", value: formatValue(row.createdAt, "datetime") },
         { label: "更新时间", value: formatValue(row.updatedAt, "datetime") },
@@ -603,6 +642,7 @@ export function ServiceFeeStatementsPage() {
           showLabel
         />
       </div>
+      <StatementInvoiceSummary invoiceNo={row.invoiceNo} invoiceDate={row.invoiceDate} receivableDate={row.receivableDate} collectionDate={row.repaymentDate} />
       {groups.map((group) => <section className="overflow-hidden rounded border border-line-soft" key={group.title}>
         <div className="border-b border-line-soft bg-canvas px-3 py-2 text-xs font-medium text-ink-2">{group.title}</div>
         <StatementDetailGrid fields={group.fields} flow={group.flow} singleRow={group.title === "基本信息"} />
@@ -618,7 +658,7 @@ export function ServiceFeeStatementsPage() {
     <div className="space-y-5">
       <div>
         <h1 className="text-xl font-medium text-ink">服务费对账单</h1>
-        <p className="mt-1 text-sm text-ink-3">按国家和核销月份保存服务费对账结果；确认后金额及明细冻结，发票和开票状态仍可维护。</p>
+        <p className="mt-1 text-sm text-ink-3">按国家和核销月份保存服务费对账结果；确认后账单金额及明细锁定，开票、实收和相关附件仍可维护。</p>
       </div>
 
       <Panel>
@@ -687,16 +727,21 @@ export function ServiceFeeStatementsPage() {
             return <article className="mb-3 overflow-hidden rounded border border-line-soft bg-white" key={snapshotNo}>
               <div className="flex items-start gap-3 border-b border-line-soft p-3">
                 <div className="min-w-0 flex-1">
-                  <div className="truncate font-medium text-primary">{renderCell(row, "snapshotNo")}</div>
-                  <div className="mt-0.5 text-xs text-ink-3">{String(row.countryCode ?? "-")} · {formatValue(row.writeOffMonth, "month") || "-"}</div>
+                  {visibleColumns.some((column) => column.key === "snapshotNo") ? <div className="truncate font-medium text-primary">{renderCell(row, "snapshotNo")}</div> : null}
+                  {visibleColumns.some((column) => column.key === "countryCode") || visibleColumns.some((column) => column.key === "writeOffMonth") ? <div className="mt-0.5 text-xs text-ink-3">{visibleColumns.some((column) => column.key === "countryCode") ? String(row.countryCode ?? "-") : ""}{visibleColumns.some((column) => column.key === "countryCode") && visibleColumns.some((column) => column.key === "writeOffMonth") ? " · " : ""}{visibleColumns.some((column) => column.key === "writeOffMonth") ? formatValue(row.writeOffMonth, "month") || "-" : ""}</div> : null}
                 </div>
-                {renderCell(row, "status")}
               </div>
               <div className="grid grid-cols-2 gap-px bg-line-soft">
-                {visibleColumns.filter((column) => !["snapshotNo", "status"].includes(column.key)).map((column) => <div className="min-w-0 bg-white px-3 py-2" key={column.key}>
+                {visibleColumns.filter((column) => column.key !== "snapshotNo" && !statusColumnKeys.includes(column.key)).map((column) => <div className="min-w-0 bg-white px-3 py-2" key={column.key}>
                   <div className="text-[11px] text-ink-3">{column.label}</div>
                   <div className="mt-0.5 truncate text-xs text-ink">{renderCell(row, column.key)}</div>
                 </div>)}
+                {visibleColumns.some((column) => statusColumnKeys.includes(column.key)) ? <div aria-label="账单状态" className="col-span-full grid grid-cols-3 gap-px" role="group">
+                  {visibleColumns.filter((column) => statusColumnKeys.includes(column.key)).map((column) => <div className="min-w-0 bg-white px-3 py-2" key={column.key}>
+                    <div className="text-[11px] text-ink-3">{column.label}</div>
+                    <div className="mt-0.5 text-xs text-ink">{renderCell(row, column.key)}</div>
+                  </div>)}
+                </div> : null}
               </div>
               <div className="flex flex-wrap items-center gap-2 border-t border-line-soft bg-surface-2 px-3 py-2">
                 <Button size="sm" onClick={() => toggleExpanded(snapshotNo)}>{open ? "收起" : "展开"}</Button>
@@ -708,7 +753,7 @@ export function ServiceFeeStatementsPage() {
         </div>
 
         <div className="hidden w-full min-w-0 max-w-full flex-col md:flex">
-          <div className="min-w-0 max-w-full">
+          <div className="min-w-0 max-w-full [container-type:inline-size]">
           <StickyTable className="table-scroll table-viewport overflow-auto" tableKey="service-fee-statements">
             <table className="w-full border-collapse text-sm" style={{ minWidth: Math.max(1320, visibleColumns.length * 138 + 130) }}>
               <thead className="bg-canvas text-ink">
@@ -723,12 +768,12 @@ export function ServiceFeeStatementsPage() {
                   const open = Boolean(expanded[snapshotNo]);
                   return <Fragment key={snapshotNo}>
                     <tr className="hover:bg-surface-2">
-                      {visibleColumns.map((column) => <td className="max-w-[280px] whitespace-nowrap border-b border-r border-line-soft px-3 py-3 align-top" key={column.key} title={String(row[column.key] ?? "")}>
-                        {column.key === "snapshotNo" ? <div className="flex items-center gap-2"><button aria-label={open ? "收起明细" : "展开明细"} className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded border border-line bg-white text-ink-2 hover:border-primary hover:text-primary" title={open ? "收起明细" : "展开明细"} type="button" onClick={() => toggleExpanded(snapshotNo)}>{open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</button>{renderCell(row, column.key)}</div> : <span className="block max-w-[260px] truncate">{renderCell(row, column.key)}</span>}
+                      {visibleColumns.map((column, index) => <td className="max-w-[280px] whitespace-nowrap border-b border-r border-line-soft px-3 py-3 align-top" key={column.key} title={String(row[column.key] ?? "")}>
+                        {index === 0 ? <div className="flex items-center gap-2"><button aria-label={open ? "收起明细" : "展开明细"} className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded border border-line bg-white text-ink-2 hover:border-primary hover:text-primary" title={open ? "收起明细" : "展开明细"} type="button" onClick={() => toggleExpanded(snapshotNo)}>{open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</button>{renderCell(row, column.key)}</div> : <span className="block max-w-[260px] truncate">{renderCell(row, column.key)}</span>}
                       </td>)}
                       <td className="sticky right-0 whitespace-nowrap border-b border-line-soft bg-white px-3 py-3">{renderActions(row)}</td>
                     </tr>
-                    {open ? <tr><td className="border-b border-line-soft bg-canvas p-3" colSpan={visibleColumns.length + 1}>{renderDetails(row)}</td></tr> : null}
+                    {open ? <tr><td className="border-b border-line-soft bg-canvas p-3" colSpan={visibleColumns.length + 1}><div className="sticky left-3 w-[calc(100cqw-1.5rem)] max-w-4xl">{renderDetails(row)}</div></td></tr> : null}
                   </Fragment>;
                 })}
                 {!rows.length ? <tr><td className="py-12 text-center text-ink-3" colSpan={visibleColumns.length + 1}><TableStateContent empty="暂无服务费对账单" loading={loading} /></td></tr> : null}
@@ -755,17 +800,18 @@ export function ServiceFeeStatementsPage() {
       />
       {repaymentDraft ? (
         <Modal
-          description={repaymentDraft.snapshotNo}
+          description={`${repaymentDraft.snapshotNo} · 空白的币种、未税金额、税率和含税金额按${repaymentDraft.prefillSource}补充，可修改后确认保存。`}
           footer={
             <>
               <Button onClick={() => setRepaymentDraft(null)}>取消</Button>
-              <Button tone="primary" disabled={busyNo === repaymentDraft.snapshotNo} onClick={() => void saveRepayment()}>保存回款信息</Button>
+              <Button tone="primary" disabled={busyNo === repaymentDraft.snapshotNo} onClick={() => void saveRepayment()}>确认保存</Button>
             </>
           }
           onClose={() => setRepaymentDraft(null)}
           title="登记回款信息"
           widthClass="max-w-[680px]"
         >
+          {receiptInvoiceCurrencyMismatch(repaymentDraft.repaymentCurrency, repaymentDraft.sourceCurrency) ? <p className="mb-3 text-xs text-warning-ink">实收币种与{repaymentDraft.prefillSource}币种不同，请按实际收款币种核对金额；系统不自动换算。</p> : null}
           <div className="grid grid-cols-2 gap-4">
               <RepaymentField label="是否回款">
                 <button
@@ -788,20 +834,14 @@ export function ServiceFeeStatementsPage() {
               </RepaymentField>
               <div />
               <RepaymentField label="收款单位">
-                <Select className="w-full" value={repaymentDraft.receivingUnitId} onChange={(event) => setRepaymentDraft((current) => current ? { ...current, receivingUnitId: event.target.value } : current)}>
-                  <option value="">请选择承接单位</option>
-                  {undertakingUnits.map((row) => <option key={String(row.undertakingUnitId)} value={String(row.undertakingUnitId)}>{partyOptionLabel(row, ["undertakingUnitCode", "entityCode"], ["shortName", "entityName", "name"])}</option>)}
-                </Select>
+                <SearchSelect className="w-full" clearable options={unitOptions} placeholder="搜索承接单位名称、编码或税号" value={repaymentDraft.receivingUnitId} onChange={(value) => setRepaymentDraft((current) => current ? { ...current, receivingUnitId: value } : current)} />
               </RepaymentField>
               <RepaymentField label="付款单位">
-                <Select className="w-full" value={repaymentDraft.payerCustomerId} onChange={(event) => setRepaymentDraft((current) => current ? { ...current, payerCustomerId: event.target.value } : current)}>
-                  <option value="">请选择客户</option>
-                  {customers.map((row) => <option key={String(row.customerId)} value={String(row.customerId)}>{partyOptionLabel(row, ["customerCode"], ["shortName", "nameCn", "name"])}</option>)}
-                </Select>
+                <SearchSelect className="w-full" clearable options={customerOptions} placeholder="搜索客户名称、编码或税号" value={repaymentDraft.payerCustomerId} onChange={(value) => setRepaymentDraft((current) => current ? { ...current, payerCustomerId: value } : current)} />
               </RepaymentField>
               <RepaymentField label="回款币种">
                 <Select className="w-full" value={repaymentDraft.repaymentCurrency} onChange={(event) => setRepaymentDraft((current) => current ? { ...current, repaymentCurrency: event.target.value } : current)}>
-                  <option value="">请选择币种</option>{["CNY", "MXN", "CLP", "USD", "BRL"].map((currency) => <option key={currency} value={currency}>{currency}</option>)}
+                  <option value="">请选择币种</option>{Array.from(new Set(["CNY", "MXN", "CLP", "USD", "BRL", repaymentDraft.repaymentCurrency, repaymentDraft.sourceCurrency].filter(Boolean))).map((currency) => <option key={currency} value={currency}>{currency}</option>)}
                 </Select>
               </RepaymentField>
               <RepaymentField label="回款未税金额">
@@ -834,16 +874,10 @@ export function ServiceFeeStatementsPage() {
         >
           <div className="grid grid-cols-2 gap-4">
               <RepaymentField label="承接单位">
-                <Select className="w-full" value={invoiceDraft.invoiceReceivingUnitId} onChange={(event) => setInvoiceDraft((current) => current ? { ...current, invoiceReceivingUnitId: event.target.value } : current)}>
-                  <option value="">请选择承接单位</option>
-                  {undertakingUnits.map((row) => <option key={String(row.undertakingUnitId)} value={String(row.undertakingUnitId)}>{partyShortName(row, ["shortName", "entityName", "name"], ["undertakingUnitCode", "entityCode"])}</option>)}
-                </Select>
+                <SearchSelect className="w-full" clearable options={unitOptions} placeholder="搜索承接单位名称、编码或税号" value={invoiceDraft.invoiceReceivingUnitId} onChange={(value) => setInvoiceDraft((current) => current ? { ...current, invoiceReceivingUnitId: value } : current)} />
               </RepaymentField>
               <RepaymentField label="客户">
-                <Select className="w-full" value={invoiceDraft.invoicePayerCustomerId} onChange={(event) => setInvoiceDraft((current) => current ? { ...current, invoicePayerCustomerId: event.target.value } : current)}>
-                  <option value="">请选择客户</option>
-                  {customers.map((row) => <option key={String(row.customerId)} value={String(row.customerId)}>{partyShortName(row, ["shortName", "nameCn", "name"], ["customerCode"])}</option>)}
-                </Select>
+                <SearchSelect className="w-full" clearable options={customerOptions} placeholder="搜索客户名称、编码或税号" value={invoiceDraft.invoicePayerCustomerId} onChange={(value) => setInvoiceDraft((current) => current ? { ...current, invoicePayerCustomerId: value } : current)} />
               </RepaymentField>
               <RepaymentField label="发票号">
                 <Input className="w-full min-w-0" value={invoiceDraft.invoiceNo} onChange={(event) => setInvoiceDraft((current) => current ? { ...current, invoiceNo: event.target.value } : current)} />
@@ -916,6 +950,10 @@ function formatPercent(value: unknown) {
 
 function firstNonBlankValue(...values: unknown[]) {
   return String(values.find((value) => value !== null && value !== undefined && String(value).trim() !== "") ?? "").trim();
+}
+
+function isInvoiceIssued(value: unknown) {
+  return ["已开票", "issued", "1"].includes(String(value ?? "").trim().toLowerCase());
 }
 
 function nullableNumber(value: unknown) {

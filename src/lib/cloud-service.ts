@@ -1,7 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
 import * as XLSX from "xlsx";
-import { executeRaw, queryRows, queryRowsRaw, type Row } from "./db";
-import { calculateCloudTaxGroup, confirmedCloudInvoiceAmounts, CLOUD_TAX_GROUPS, type CloudTaxGroup } from "./cloud-tax";
+import { executeRaw, queryRows, queryRowsRaw, withTransaction, queryRowsInTransaction, executeInTransaction, type Row } from "./db";
+import { assertCloudRowEditable, isCloudFinancialField, isCloudRowConfirmed } from "./cloud-row-edit-policy";
+import { calculateCloudTaxGroup, confirmedCloudInvoiceAmounts, confirmedCloudCollectionAmounts, CLOUD_TAX_GROUPS, type CloudTaxGroup } from "./cloud-tax";
 import {
   buildCloudImportFieldMap,
   normalizeCloudImportHeader,
@@ -19,7 +20,7 @@ const CLOUD_ROW_COLUMNS = [
   "supplierTaxRate", "supplierTaxAmount", "supplierPayableTotalAmount", "supplierPayable", "customerReceivablePayer", "customerReceivablePayee",
   "customerReceivableNetAmount", "customerTaxRate", "customerReceivableTaxAmount", "customerReceivableTotalAmount", "customerReceivable",
   "theoreticalGrossProfit", "settlementGrossProfit", "grossProfit", "calculationLogic", "customerDiscount", "remark", "collectionInvoice",
-  "collected", "confirmed", "paymentDate", "collectionPayer", "collectionPayee", "collectionCurrency", "collectionExchangeRate",
+  "collected", "paymentDate", "collectionPayer", "collectionPayee", "collectionCurrency", "collectionExchangeRate",
   "collectionPayerCustomerId", "collectionPayeeUndertakingUnitId",
   "collectionNetAmount", "collectionTaxRate", "collectionTaxAmount", "collectionTotalAmount", "collectionDate", "invoiceNo", "invoiceCurrency",
   "invoicePayer", "invoicePayee", "invoicePayerCustomerId", "invoicePayeeUndertakingUnitId",
@@ -118,8 +119,9 @@ const CLOUD_ROW_FILTER_EXPRESSIONS: Record<string, string> = {
   collectionTotalAmount: "collectionTotalAmount",
   collectionDate: formatTableDateExpression("collectionDate"),
   receivableDate: formatTableDateExpression("receivableDate"),
-  collectionInvoice: "collectionInvoice",
-  collected: "CASE WHEN collected = 1 THEN '是' ELSE '否' END",
+  status: "CASE WHEN confirmed = 1 THEN '已确认' ELSE '未确认' END",
+  collectionInvoice: "CASE WHEN collectionInvoice = 'issued' THEN '已开票' ELSE '未开票' END",
+  collected: "CASE WHEN collected = 1 THEN '已收款' ELSE '未收款' END",
   confirmed: "CASE WHEN confirmed = 1 THEN '是' ELSE '否' END",
   invoiceNo: "invoiceNo",
   invoiceCurrency: "invoiceCurrency",
@@ -295,7 +297,7 @@ const CLOUD_SUPPLIER_PAYMENT_FROM_V2 = `(SELECT
     g.*,
     p.id AS paymentRecordId, p.payerUnitId, p.payerUnitName, p.currency, p.paymentExchangeRate,
     p.paymentNetAmount, p.paymentTaxRate, p.paymentTaxAmount, p.paymentTotalAmount, p.paymentDate, p.receivableDate,
-    p.invoiceNo, p.invoiceCurrency, p.invoiceExchangeRate, p.invoiceNetAmount, p.invoiceTaxRate,
+    p.invoiceSupplierId, p.invoiceSupplierName, p.invoiceNo, p.invoiceCurrency, p.invoiceExchangeRate, p.invoiceNetAmount, p.invoiceTaxRate,
     p.invoiceTaxAmount, p.invoiceTotalAmount, p.invoiceDate, COALESCE(p.invoiceStatus, 'not_issued') AS invoiceStatus,
     COALESCE(p.paid, 0) AS paid,
     p.paymentApprovalId, paymentApproval.status AS paymentApprovalStatus,
@@ -822,23 +824,36 @@ export async function listCloudRows(params: URLSearchParams) {
             ROUND(SUM(COALESCE(partnerAmount, 0)), 4) AS partnerAmount,
             ROUND(SUM(COALESCE(voucherCustomerAmount, 0)), 4) AS voucherCustomerAmount,
             ROUND(SUM(COALESCE(voucherSupplierAmount, 0)), 4) AS voucherSupplierAmount,
+            ROUND(SUM(COALESCE(supplierPayableNetAmount, supplierPayable, 0)), 4) AS supplierPayableNetAmount,
+            ROUND(SUM(COALESCE(supplierTaxAmount, COALESCE(supplierPayableNetAmount, supplierPayable) * supplierTaxRate, 0)), 4) AS supplierTaxAmount,
             ROUND(SUM(COALESCE(supplierPayableTotalAmount, 0)), 4) AS supplierPayableTotalAmount,
+            ROUND(SUM(COALESCE(customerReceivableNetAmount, customerReceivable, 0)), 4) AS customerReceivableNetAmount,
+            ROUND(SUM(COALESCE(customerReceivableTaxAmount, COALESCE(customerReceivableNetAmount, customerReceivable) * customerTaxRate, 0)), 4) AS customerReceivableTaxAmount,
             ROUND(SUM(COALESCE(customerReceivableTotalAmount, customerReceivable, 0)), 4) AS customerReceivableTotalAmount,
+            NULL AS collectionNetAmount, NULL AS collectionTaxAmount,
             NULL AS collectionTotalAmount,
+            NULL AS invoiceNetAmount, NULL AS invoiceTaxAmount,
             NULL AS invoiceTotalAmount,
             ROUND(SUM(COALESCE(theoreticalGrossProfit, 0)), 4) AS theoreticalGrossProfit
        FROM merge_cloud_rows ${where}`;
   const collectionTotalsSql = `SELECT COALESCE(NULLIF(collectionCurrency, ''), 'USD') AS currency,
             NULL AS catalogAmount, NULL AS partnerAmount, NULL AS voucherCustomerAmount, NULL AS voucherSupplierAmount,
-            NULL AS supplierPayableTotalAmount, NULL AS customerReceivableTotalAmount,
+            NULL AS supplierPayableNetAmount, NULL AS supplierTaxAmount, NULL AS supplierPayableTotalAmount,
+            NULL AS customerReceivableNetAmount, NULL AS customerReceivableTaxAmount, NULL AS customerReceivableTotalAmount,
+            ROUND(SUM(COALESCE(collectionNetAmount, 0)), 4) AS collectionNetAmount,
+            ROUND(SUM(COALESCE(collectionTaxAmount, 0)), 4) AS collectionTaxAmount,
             ROUND(SUM(COALESCE(collectionTotalAmount, 0)), 4) AS collectionTotalAmount,
+            NULL AS invoiceNetAmount, NULL AS invoiceTaxAmount,
             NULL AS invoiceTotalAmount, NULL AS theoreticalGrossProfit
        FROM merge_cloud_rows ${where}
       GROUP BY currency`;
   const invoiceTotalsSql = `SELECT COALESCE(NULLIF(invoiceCurrency, ''), 'USD') AS currency,
             NULL AS catalogAmount, NULL AS partnerAmount, NULL AS voucherCustomerAmount, NULL AS voucherSupplierAmount,
-            NULL AS supplierPayableTotalAmount, NULL AS customerReceivableTotalAmount,
-            NULL AS collectionTotalAmount,
+            NULL AS supplierPayableNetAmount, NULL AS supplierTaxAmount, NULL AS supplierPayableTotalAmount,
+            NULL AS customerReceivableNetAmount, NULL AS customerReceivableTaxAmount, NULL AS customerReceivableTotalAmount,
+            NULL AS collectionNetAmount, NULL AS collectionTaxAmount, NULL AS collectionTotalAmount,
+            ROUND(SUM(COALESCE(invoiceNetAmount, 0)), 4) AS invoiceNetAmount,
+            ROUND(SUM(COALESCE(invoiceTaxAmount, 0)), 4) AS invoiceTaxAmount,
             ROUND(SUM(COALESCE(invoiceTotalAmount, 0)), 4) AS invoiceTotalAmount,
             NULL AS theoreticalGrossProfit
        FROM merge_cloud_rows ${where}
@@ -894,14 +909,15 @@ async function attachCloudRowApprovalStatus(rows: Row[]) {
     const ids = Array.from(new Set(rows.map((row) => String(row.id ?? "").trim()).filter(Boolean)));
     if (!ids.length) return rows;
     // 这里直接查审批台账，避免 cloud-service 与 feishu-approval-service 互相 import
-    const approvals = await queryRows<{ ownerId: string; status: string; serialNumber: string; instanceCode: string; submittedAt: string }>(
-      `SELECT ownerId, status, serialNumber, instanceCode, DATE_FORMAT(submittedAt, '%Y-%m-%d %H:%i') AS submittedAt
+    const approvals = await queryRows<{ ownerId: string; allocationSourceIds?:string; status: string; serialNumber: string; instanceCode: string; submittedAt: string }>(
+      `SELECT ownerId, allocationSourceIds, status, serialNumber, instanceCode, DATE_FORMAT(submittedAt, '%Y-%m-%d %H:%i') AS submittedAt
          FROM merge_common_feishu_approvals
-        WHERE ownerType = 'cloud_row' AND ownerId IN (:ids) AND status IN ('pending', 'approved')
+        WHERE ownerType = 'cloud_row' AND (ownerId IN (:ids) OR allocationSourceIds IS NOT NULL) AND status IN ('pending', 'returned', 'approved')
         ORDER BY submittedAt ASC`,
       { ids },
     );
-    const map = new Map(approvals.map((approval) => [String(approval.ownerId), approval]));
+    const map = new Map<string,(typeof approvals)[number]>();
+    for(const approval of approvals)for(const id of [approval.ownerId,...String(approval.allocationSourceIds??"").split(",")])if(ids.includes(id))map.set(id,approval);
     for (const row of rows) {
       const approval = map.get(String(row.id ?? ""));
       if (!approval) continue;
@@ -917,7 +933,10 @@ async function attachCloudRowApprovalStatus(rows: Row[]) {
 }
 
 async function listCloudRowFilterOptions(params: URLSearchParams) {
-  const base = cloudBaseWhere(params);
+  // 表头关键字只搜索本列候选值；页面搜索仍限定候选值所属的账单范围。
+  const baseParams = new URLSearchParams(params);
+  baseParams.set("keyword", params.get("listKeyword") ?? "");
+  const base = cloudBaseWhere(baseParams);
   return listSqlFilterOptions({
     from: "merge_cloud_rows",
     expressions: Object.fromEntries(Object.keys(CLOUD_ROW_FILTER_EXPRESSIONS).map((field) => [field, cloudRowFilterExpression(field)])),
@@ -1045,62 +1064,70 @@ export async function createCloudRow(body: Row, actor: OperationActor | null) {
 }
 
 export async function updateCloudRow(id: string, body: Row, actor: OperationActor | null) {
-  const existing = (await queryRowsRaw<Row>("SELECT * FROM merge_cloud_rows WHERE id = :id", { id }))[0];
-  if (!existing) throw new Error("对账单不存在");
-  if (existing.confirmed) throw new Error("对账单已确认，不能修改");
-  const accountMapping = Object.prototype.hasOwnProperty.call(body, "account")
-    ? getCloudAccountMapping(await findCloudAccountMappings([text(body.account)]), body.account)
-    : undefined;
-  const mappedBody = accountMapping ? applyCloudAccountMapping(body, accountMapping) : { ...body };
-  if (Object.prototype.hasOwnProperty.call(mappedBody, "supplierPayable") && !Object.prototype.hasOwnProperty.call(mappedBody, "supplierPayableNetAmount")) {
-    mappedBody.supplierPayableNetAmount = mappedBody.supplierPayable;
-  }
-  if (Object.prototype.hasOwnProperty.call(mappedBody, "customerReceivable") && !Object.prototype.hasOwnProperty.call(mappedBody, "customerReceivableNetAmount")) {
-    mappedBody.customerReceivableNetAmount = mappedBody.customerReceivable;
-  }
-  const fields: string[] = CLOUD_ROW_COLUMNS.filter((key) => Object.prototype.hasOwnProperty.call(mappedBody, key));
-  if (accountMapping) {
-    for (const key of ["mappingId", "supplierId", "supplierName", "undertakingUnitId", "customerId", "customer", "cloudReconciler", "supplierPayablePayer", "supplierPayablePayee", "customerReceivablePayer", "customerReceivablePayee"] as const) {
-      if (!fields.includes(key)) fields.push(key);
+  const result = await withTransaction(async (connection) => {
+    const existing = (await queryRowsInTransaction<Row>(connection, "SELECT * FROM merge_cloud_rows WHERE id = :id FOR UPDATE", { id }))[0];
+    if (!existing) throw new Error("对账单不存在");
+    assertCloudRowEditable(existing.confirmed, body);
+    const accountMapping = Object.prototype.hasOwnProperty.call(body, "account")
+      ? getCloudAccountMapping(await findCloudAccountMappings([text(body.account)]), body.account)
+      : undefined;
+    const mappedBody = accountMapping ? applyCloudAccountMapping(body, accountMapping) : { ...body };
+    if (Object.prototype.hasOwnProperty.call(mappedBody, "supplierPayable") && !Object.prototype.hasOwnProperty.call(mappedBody, "supplierPayableNetAmount")) {
+      mappedBody.supplierPayableNetAmount = mappedBody.supplierPayable;
     }
-  }
-  if (!fields.length) throw new Error("没有可保存的字段");
-  const merged = { ...existing, ...mappedBody };
-  const assignmentFields = new Set(fields);
-  const assignments = fields.map((key) => `${key} = :${key}`);
-  const values: Row = { id };
-  for (const key of fields) {
-    values[key] = key.endsWith("TaxRate") ? rate(merged[key]) : ["collectionDate", "receivableDate", "invoiceDate"].includes(key) ? dateOnly(merged[key]) : CLOUD_NUMERIC_COLUMNS.has(key) ? nullableNumber(merged[key]) : merged[key];
-  }
-  const setDerivedValue = (key: string, value: number | null) => {
-    if (!assignmentFields.has(key)) { assignmentFields.add(key); assignments.push(`${key} = :${key}`); }
-    values[key] = value;
-  };
-  for (const group of Object.keys(CLOUD_TAX_GROUPS) as CloudTaxGroup[]) {
-    const changedFields = changedCloudTaxFields(existing, merged, fields, group);
-    if (!changedFields.length) continue;
-    const calculation = (group === "invoice" ? confirmedCloudInvoiceAmounts(merged, fields) : null) ?? calculateCloudTaxGroup(merged, group, changedFields);
-    const keys = CLOUD_TAX_GROUPS[group];
-    if (calculation.source === "net-rate") {
-      setDerivedValue(keys.taxKey, calculation.tax);
-      setDerivedValue(keys.totalKey, calculation.total);
-    } else if (calculation.source === "total") {
-      setDerivedValue(keys.netKey, calculation.net);
-      setDerivedValue(keys.taxKey, calculation.tax);
-    } else if (calculation.source === "tax") {
-      setDerivedValue(keys.totalKey, calculation.total);
+    if (Object.prototype.hasOwnProperty.call(mappedBody, "customerReceivable") && !Object.prototype.hasOwnProperty.call(mappedBody, "customerReceivableNetAmount")) {
+      mappedBody.customerReceivableNetAmount = mappedBody.customerReceivable;
     }
-    const legacyKey = group === "supplierPayable" ? "supplierPayable" : group === "customerReceivable" ? "customerReceivable" : null;
-    if (legacyKey && calculation.source) setDerivedValue(legacyKey, calculation.net);
-  }
-  if (actor) {
-    assignments.push("updatedByUserId = :updatedByUserId", "updatedByName = :updatedByName");
-    values.updatedByUserId = actor.userId;
-    values.updatedByName = actor.displayName;
-  }
-  await executeRaw(`UPDATE merge_cloud_rows SET ${assignments.join(", ")} WHERE id = :id`, values);
-  await syncCloudSupplierPaymentPeriods([text(existing.period), text(merged.period)]);
-  return (await queryRowsRaw<Row>("SELECT * FROM merge_cloud_rows WHERE id = :id", { id }))[0] ?? null;
+    const fields: string[] = CLOUD_ROW_COLUMNS.filter((key) => Object.prototype.hasOwnProperty.call(mappedBody, key));
+    if (accountMapping) {
+      for (const key of ["mappingId", "supplierId", "supplierName", "undertakingUnitId", "customerId", "customer", "cloudReconciler", "supplierPayablePayer", "supplierPayablePayee", "customerReceivablePayer", "customerReceivablePayee"] as const) {
+        if (!fields.includes(key)) fields.push(key);
+      }
+    }
+    if (!fields.length) throw new Error("没有可保存的字段");
+    const merged = { ...existing, ...mappedBody };
+    const assignmentFields = new Set(fields);
+    const assignments = fields.map((key) => `${key} = :${key}`);
+    const values: Row = { id };
+    for (const key of fields) {
+      values[key] = key.endsWith("TaxRate") ? rate(merged[key]) : ["collectionDate", "receivableDate", "invoiceDate"].includes(key) ? dateOnly(merged[key]) : CLOUD_NUMERIC_COLUMNS.has(key) ? nullableNumber(merged[key]) : merged[key];
+    }
+    const setDerivedValue = (key: string, value: number | null) => {
+      if (!assignmentFields.has(key)) { assignmentFields.add(key); assignments.push(`${key} = :${key}`); }
+      values[key] = value;
+    };
+    for (const group of Object.keys(CLOUD_TAX_GROUPS) as CloudTaxGroup[]) {
+      const changedFields = changedCloudTaxFields(existing, merged, fields, group);
+      if (!changedFields.length) continue;
+      const calculation = (group === "invoice" ? confirmedCloudInvoiceAmounts(merged, fields)
+        : group === "collection" ? confirmedCloudCollectionAmounts(merged, fields) : null) ?? calculateCloudTaxGroup(merged, group, changedFields);
+      const keys = CLOUD_TAX_GROUPS[group];
+      if (calculation.source === "net-rate") {
+        setDerivedValue(keys.taxKey, calculation.tax);
+        setDerivedValue(keys.totalKey, calculation.total);
+      } else if (calculation.source === "total") {
+        setDerivedValue(keys.netKey, calculation.net);
+        setDerivedValue(keys.taxKey, calculation.tax);
+      } else if (calculation.source === "tax") {
+        setDerivedValue(keys.totalKey, calculation.total);
+      }
+      const legacyKey = group === "supplierPayable" ? "supplierPayable" : group === "customerReceivable" ? "customerReceivable" : null;
+      if (legacyKey && calculation.source) setDerivedValue(legacyKey, calculation.net);
+    }
+    if (actor) {
+      assignments.push("updatedByUserId = :updatedByUserId", "updatedByName = :updatedByName");
+      values.updatedByUserId = actor.userId;
+      values.updatedByName = actor.displayName;
+    }
+    await executeInTransaction(connection, `UPDATE merge_cloud_rows SET ${assignments.join(", ")} WHERE id = :id`, values);
+    return {
+      row: (await queryRowsInTransaction<Row>(connection, "SELECT * FROM merge_cloud_rows WHERE id = :id", { id }))[0] ?? null,
+      // 实收和开票变更不触发应付汇总重建。
+      payablePeriods: fields.some((field) => !isCloudFinancialField(field)) ? [text(existing.period), text(merged.period)] : [],
+    };
+  });
+  if (result.payablePeriods.length) await syncCloudSupplierPaymentPeriods(result.payablePeriods);
+  return result.row;
 }
 
 export async function confirmCloudRow(id: string, confirmed: boolean, actor: OperationActor | null) {
@@ -1114,11 +1141,15 @@ export async function confirmCloudRow(id: string, confirmed: boolean, actor: Ope
 }
 
 export async function deleteCloudRow(id: string) {
-  const existing = (await queryRowsRaw<Row>("SELECT id, period FROM merge_cloud_rows WHERE id = :id", { id }))[0];
-  if (!existing) throw new Error("对账单不存在");
-  await executeRaw("DELETE FROM merge_cloud_attachments WHERE ownerType IN ('reconciliation', 'collection', 'invoice') AND ownerId = :id", { id });
-  await executeRaw("DELETE FROM merge_cloud_rows WHERE id = :id", { id });
-  await syncCloudSupplierPaymentPeriods([text(existing.period)]);
+  const period = await withTransaction(async (connection) => {
+    const existing = (await queryRowsInTransaction<Row>(connection, "SELECT id, period, confirmed FROM merge_cloud_rows WHERE id = :id FOR UPDATE", { id }))[0];
+    if (!existing) throw new Error("对账单不存在");
+    if (isCloudRowConfirmed(existing.confirmed)) throw new Error("对账单已确认，不能删除；请先取消确认");
+    await executeInTransaction(connection, "DELETE FROM merge_cloud_attachments WHERE ownerType IN ('reconciliation', 'collection', 'invoice') AND ownerId = :id", { id });
+    await executeInTransaction(connection, "DELETE FROM merge_cloud_rows WHERE id = :id", { id });
+    return text(existing.period);
+  });
+  await syncCloudSupplierPaymentPeriods([period]);
   return { ok: true };
 }
 
@@ -1196,9 +1227,9 @@ export async function deleteCloudMapping(id: string) {
 export async function cloudMasterData(keyword = "") {
   const like = `%${keyword}%`;
   const [suppliers, undertakingUnits, customers] = await Promise.all([
-    queryRowsRaw<Row>("SELECT supplierId AS id, supplierCode AS code, nameCn AS name, shortName FROM merge_common_suppliers WHERE status='active' AND (supplierCode LIKE :like OR nameCn LIKE :like OR shortName LIKE :like) ORDER BY COALESCE(NULLIF(shortName, ''), nameCn) LIMIT 100", { like }),
-    queryRowsRaw<Row>("SELECT undertakingUnitId AS id, undertakingUnitCode AS code, COALESCE(NULLIF(shortName, ''), NULLIF(entityName, ''), name) AS name, shortName FROM merge_common_undertaking_units WHERE status='active' AND (undertakingUnitCode LIKE :like OR name LIKE :like OR shortName LIKE :like OR entityName LIKE :like) ORDER BY COALESCE(NULLIF(shortName, ''), NULLIF(entityName, ''), name) LIMIT 100", { like }),
-    queryRowsRaw<Row>("SELECT customerId AS id, customerCode AS code, COALESCE(NULLIF(shortName, ''), NULLIF(nameCn, ''), name) AS name, shortName FROM merge_common_customers WHERE status='active' AND (customerCode LIKE :like OR name LIKE :like OR nameCn LIKE :like OR shortName LIKE :like) ORDER BY COALESCE(NULLIF(shortName, ''), NULLIF(nameCn, ''), name) LIMIT 100", { like }),
+    queryRowsRaw<Row>("SELECT supplierId AS id, supplierCode AS code, nameCn AS name, shortName, nameEn, taxNumber FROM merge_common_suppliers WHERE status='active' AND (supplierCode LIKE :like OR nameCn LIKE :like OR shortName LIKE :like OR nameEn LIKE :like OR taxNumber LIKE :like) ORDER BY COALESCE(NULLIF(shortName, ''), nameCn) LIMIT 100", { like }),
+    queryRowsRaw<Row>("SELECT undertakingUnitId AS id, undertakingUnitCode AS code, COALESCE(NULLIF(shortName, ''), NULLIF(entityName, ''), name) AS name, shortName, nameEn, nameCn, entityName, taxNumber FROM merge_common_undertaking_units WHERE status='active' AND (undertakingUnitCode LIKE :like OR name LIKE :like OR shortName LIKE :like OR entityName LIKE :like OR nameCn LIKE :like OR nameEn LIKE :like OR taxNumber LIKE :like) ORDER BY COALESCE(NULLIF(shortName, ''), NULLIF(entityName, ''), name) LIMIT 100", { like }),
+    queryRowsRaw<Row>("SELECT customerId AS id, customerCode AS code, COALESCE(NULLIF(shortName, ''), NULLIF(nameCn, ''), name) AS name, shortName, nameEn, nameCn, taxNumber FROM merge_common_customers WHERE status='active' AND (customerCode LIKE :like OR name LIKE :like OR nameCn LIKE :like OR shortName LIKE :like OR nameEn LIKE :like OR taxNumber LIKE :like) ORDER BY COALESCE(NULLIF(shortName, ''), NULLIF(nameCn, ''), name) LIMIT 100", { like }),
   ]);
   return { suppliers, undertakingUnits, customers };
 }
@@ -1259,7 +1290,16 @@ async function listCloudSupplierPaymentFilterOptions(params: URLSearchParams) {
 }
 
 export async function updateCloudSupplierPayment(id: string, body: Row, actor: OperationActor | null) {
-  const allowed = ["payerUnitId", "payerUnitName", "currency", "paymentExchangeRate", "paymentNetAmount", "paymentTaxRate", "paymentTaxAmount", "paymentTotalAmount", "paymentDate", "receivableDate", "invoiceNo", "invoiceCurrency", "invoiceExchangeRate", "invoiceNetAmount", "invoiceTaxRate", "invoiceTaxAmount", "invoiceTotalAmount", "invoiceDate", "invoiceStatus", "paid"];
+  const allowed = ["invoiceSupplierId", "invoiceSupplierName", "payerUnitId", "payerUnitName", "currency", "paymentExchangeRate", "paymentNetAmount", "paymentTaxRate", "paymentTaxAmount", "paymentTotalAmount", "paymentDate", "receivableDate", "invoiceNo", "invoiceCurrency", "invoiceExchangeRate", "invoiceNetAmount", "invoiceTaxRate", "invoiceTaxAmount", "invoiceTotalAmount", "invoiceDate", "invoiceStatus", "paid"];
+  body = { ...body };
+  if (Object.prototype.hasOwnProperty.call(body, "invoiceSupplierId")) {
+    const supplier = await findCloudPartyMaster("supplier", body.invoiceSupplierId);
+    if (text(body.invoiceSupplierId) && !supplier) throw new Error("所选实际开票供应商不存在，请重新选择");
+    body.invoiceSupplierId = supplier?.id ?? null;
+    body.invoiceSupplierName = supplier?.name ?? null;
+  } else if (Object.prototype.hasOwnProperty.call(body, "invoiceSupplierName")) {
+    delete body.invoiceSupplierName;
+  }
   const fields = allowed.filter((key) => Object.prototype.hasOwnProperty.call(body, key));
   if (!fields.length) throw new Error("没有可保存的付款字段");
   const target = (await queryRowsRaw<Row>("SELECT * FROM merge_cloud_supplier_payments WHERE id = :id", { id }))[0]
@@ -1269,9 +1309,20 @@ export async function updateCloudSupplierPayment(id: string, body: Row, actor: O
       { period: normalizeCloudPeriod(body.period), supplierId: text(body.supplierId), supplierName: text(body.supplierName) },
     ))[0] : undefined);
   const values: Row = { id: target?.id ?? randomUUID() };
+  // 首次登记时也固化默认开票方，后续修改业务档案不会改变这次发票的主体名称。
+  if (!Object.prototype.hasOwnProperty.call(body, "invoiceSupplierId") && !text(target?.invoiceSupplierId)
+    && (text(body.invoiceNo) || text(body.invoiceDate) || body.invoiceStatus === "issued")) {
+    const supplier = await findCloudPartyMaster("supplier", target?.supplierId ?? body.supplierId);
+    if (supplier) {
+      body.invoiceSupplierId = supplier.id;
+      body.invoiceSupplierName = supplier.name;
+      fields.push("invoiceSupplierId", "invoiceSupplierName");
+    }
+  }
+  if (target && text(body.invoiceSupplierId) === text(target.invoiceSupplierId) && text(target.invoiceSupplierName)) body.invoiceSupplierName = target.invoiceSupplierName;
   const merged = { ...(target ?? {}), ...body };
-  if (text(body.invoiceNo) && text(merged.supplierId)) {
-    const duplicate = await queryRowsRaw("SELECT id FROM merge_cloud_supplier_payments WHERE supplierId = :supplierId AND invoiceNo = :invoiceNo AND id <> :id LIMIT 1", { supplierId: text(merged.supplierId), invoiceNo: text(body.invoiceNo), id: values.id });
+  if ((fields.includes("invoiceNo") || fields.includes("invoiceSupplierId")) && text(merged.invoiceNo) && text(merged.invoiceSupplierId || merged.supplierId)) {
+    const duplicate = await queryRowsRaw("SELECT id FROM merge_cloud_supplier_payments WHERE COALESCE(NULLIF(invoiceSupplierId, ''), supplierId) = :supplierId AND invoiceNo = :invoiceNo AND id <> :id LIMIT 1", { supplierId: text(merged.invoiceSupplierId || merged.supplierId), invoiceNo: text(merged.invoiceNo), id: values.id });
     if (duplicate.length) throw new Error("该供应商发票已在其他账期登记，请核对或分摊，不能重复登记整票金额");
   }
   const assignmentFields = new Set(fields);
@@ -1304,12 +1355,13 @@ export async function updateCloudSupplierPayment(id: string, body: Row, actor: O
     await executeRaw(`UPDATE merge_cloud_supplier_payments SET ${assignments.join(", ")} WHERE id = :id`, values);
   } else {
     await executeRaw(`INSERT INTO merge_cloud_supplier_payments
-      (id,period,supplierId,supplierName,payerUnitId,payerUnitName,currency,paymentExchangeRate,paymentNetAmount,paymentTaxRate,paymentTaxAmount,paymentTotalAmount,paymentDate,receivableDate,
+      (id,period,supplierId,supplierName,invoiceSupplierId,invoiceSupplierName,payerUnitId,payerUnitName,currency,paymentExchangeRate,paymentNetAmount,paymentTaxRate,paymentTaxAmount,paymentTotalAmount,paymentDate,receivableDate,
        invoiceNo,invoiceCurrency,invoiceExchangeRate,invoiceNetAmount,invoiceTaxRate,invoiceTaxAmount,invoiceTotalAmount,invoiceDate,invoiceStatus,paid,createdByUserId,createdByName,updatedByUserId,updatedByName)
-      VALUES (:id,:period,:supplierId,:supplierName,:payerUnitId,:payerUnitName,:currency,:paymentExchangeRate,:paymentNetAmount,:paymentTaxRate,:paymentTaxAmount,:paymentTotalAmount,:paymentDate,:receivableDate,
+      VALUES (:id,:period,:supplierId,:supplierName,:invoiceSupplierId,:invoiceSupplierName,:payerUnitId,:payerUnitName,:currency,:paymentExchangeRate,:paymentNetAmount,:paymentTaxRate,:paymentTaxAmount,:paymentTotalAmount,:paymentDate,:receivableDate,
        :invoiceNo,:invoiceCurrency,:invoiceExchangeRate,:invoiceNetAmount,:invoiceTaxRate,:invoiceTaxAmount,:invoiceTotalAmount,:invoiceDate,:invoiceStatus,:paid,:createdByUserId,:createdByName,:updatedByUserId,:updatedByName)`, {
       ...values,
       period: normalizeCloudPeriod(body.period), supplierId: text(body.supplierId) || null, supplierName: text(body.supplierName) || "未匹配供应商",
+      invoiceSupplierId: text(merged.invoiceSupplierId) || null, invoiceSupplierName: text(merged.invoiceSupplierName) || null,
       payerUnitId: text(merged.payerUnitId) || null, payerUnitName: text(merged.payerUnitName) || null, currency: text(merged.currency) || null,
       paymentExchangeRate: nullableNumber(merged.paymentExchangeRate), paymentNetAmount: nullableNumber(merged.paymentNetAmount), paymentTaxRate: rate(merged.paymentTaxRate),
       paymentTaxAmount: paymentTaxValues.tax, paymentTotalAmount: paymentTaxValues.total, paymentDate: dateOnly(merged.paymentDate), receivableDate: dateOnly(merged.receivableDate),
@@ -1333,6 +1385,7 @@ export const CLOUD_SUPPLIER_PAYABLE_COLUMNS = [
 ] as const;
 
 const CLOUD_SUPPLIER_PAYMENT_USER_COLUMNS = [
+  "invoiceSupplierId", "invoiceSupplierName",
   "payerUnitId", "payerUnitName", "currency", "paymentExchangeRate", "paymentNetAmount", "paymentTaxRate",
   "paymentTaxAmount", "paymentTotalAmount", "paymentDate", "receivableDate", "invoiceNo", "invoiceCurrency",
   "invoiceExchangeRate", "invoiceNetAmount", "invoiceTaxRate", "invoiceTaxAmount", "invoiceTotalAmount", "invoiceDate",
@@ -1609,7 +1662,7 @@ export async function importCloudWorkbook(buffer: Buffer, fileName: string, peri
   ));
   const existingRows = targetPeriods.length
     ? await queryRowsRaw<Row>(
-      `SELECT id, period, account FROM merge_cloud_rows WHERE ${CLOUD_PERIOD_SQL("period")} IN (:periods)`,
+      `SELECT id, period, account, confirmed FROM merge_cloud_rows WHERE ${CLOUD_PERIOD_SQL("period")} IN (:periods)`,
       { periods: targetPeriods },
     )
     : [];
@@ -1619,8 +1672,14 @@ export async function importCloudWorkbook(buffer: Buffer, fileName: string, peri
   }
   let createdRows = 0;
   let updatedRows = 0;
+  const skippedConfirmed: { period: string; account: string }[] = [];
   for (const source of normalized) {
     const account = text(source.account);
+    const sourcePeriod = normalizeCloudPeriod(text(source.period) || resolvedPeriod);
+    if (isCloudRowConfirmed(existingByKey.get(`${sourcePeriod}|${account}`)?.confirmed)) {
+      skippedConfirmed.push({ period: sourcePeriod, account });
+      continue;
+    }
     const accountMapping = getCloudAccountMapping(accountMappings, account);
     const mappedSource = applyCloudAccountMapping(source, accountMapping);
     const supplierNet = nullableNumber(source.supplierPayableNetAmount) ?? 0;
@@ -1696,7 +1755,18 @@ export async function importCloudWorkbook(buffer: Buffer, fileName: string, peri
         updateValues.userId = actor.userId;
         updateValues.userName = actor.displayName;
       }
-      await executeRaw(`UPDATE merge_cloud_rows SET ${assignments.join(", ")} WHERE id = :id`, updateValues);
+      const updated = await withTransaction(async (connection) => {
+        // 导入期间可能有人确认账单；锁定行后再检查，防止覆盖刚确认的数据。
+        const current = (await queryRowsInTransaction<Row>(connection, "SELECT confirmed FROM merge_cloud_rows WHERE id = :id FOR UPDATE", { id: existingRow.id }))[0];
+        if (!current) throw new Error(`账单 ${text(row.period)} / ${account} 已被删除，请刷新后重试`);
+        if (isCloudRowConfirmed(current.confirmed)) return false;
+        await executeInTransaction(connection, `UPDATE merge_cloud_rows SET ${assignments.join(", ")} WHERE id = :id`, updateValues);
+        return true;
+      });
+      if (!updated) {
+        skippedConfirmed.push({ period: text(row.period), account });
+        continue;
+      }
       updatedRows += 1;
       affectedPeriods.add(text(row.period));
       continue;
@@ -1727,6 +1797,7 @@ export async function importCloudWorkbook(buffer: Buffer, fileName: string, peri
     rowCount: normalized.length,
     created: createdRows,
     updated: updatedRows,
+    skippedConfirmed,
     unmappedHeaders: [...unmappedHeaders],
   };
 }

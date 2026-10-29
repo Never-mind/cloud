@@ -33,6 +33,20 @@ describe("invoice return API authorization and confirmation", () => {
     expect((await POST(request())).status).toBe(200);
     expect(mocks.save).toHaveBeenCalledWith(expect.objectContaining({ invoiceNo: "EDITED", sourceId: "source", sourceType: "cloud_row", allocationSourceIds: [], file: expect.objectContaining({ fileName: "invoice.pdf" }) }), expect.anything(), { fileId: "file", instanceCode: "instance", relatedFileIds: ["file"] });
   });
+  it.each([false, true])("keeps the application party snapshot on confirmation unless OCR provides the matching party: %s", async recognized => {
+    const data = review();
+    const partySnapshot = { customerId: "actual-customer", undertakingUnitId: "actual-unit", customer: { name: "Approved Customer", taxId: "APPROVED-TAX", address: "Approved Address" }, sellerName: "Approved Seller", paymentTermDays: 30 };
+    mocks.review.mockResolvedValue({ ...data, partySnapshot, group: { ...data.group, primary: { recognition: recognized ? { matches: { receiverCustomerId: "actual-customer", issuerUnitId: "actual-unit" }, facts: { receiverName: "Printed Customer", receiverTaxNumber: "PRINTED-TAX", issuerName: "Printed Seller" } } : null } } });
+    const response = await POST(new NextRequest("http://localhost/api/invoices/approval/returns", { method: "POST", body: JSON.stringify({ fileId: "file", draft: { ...body.draft, customerId: "actual-customer", undertakingUnitId: "actual-unit" } }) }));
+    expect(response.status).toBe(200);
+    expect(mocks.save.mock.calls[0][0]).toMatchObject({ customerName: recognized ? "Printed Customer" : "Approved Customer", customerTaxNumber: recognized ? "PRINTED-TAX" : "APPROVED-TAX", customerAddress: "Approved Address", sellerName: recognized ? "Printed Seller" : "Approved Seller" });
+  });
+  it("does not attach an old party snapshot to newly selected return parties", async () => {
+    mocks.review.mockResolvedValue({ ...review(), partySnapshot: { customerId: "old-customer", undertakingUnitId: "old-unit", customer: { name: "Old Customer" }, sellerName: "Old Seller", paymentTermDays: 30 } });
+    expect((await POST(new NextRequest("http://localhost/api/invoices/approval/returns", { method: "POST", body: JSON.stringify({ fileId: "file", draft: { ...body.draft, customerId: "new-customer", undertakingUnitId: "new-unit" } }) }))).status).toBe(200);
+    expect(mocks.save.mock.calls[0][0]).not.toHaveProperty("customerName");
+    expect(mocks.save.mock.calls[0][0]).not.toHaveProperty("sellerName");
+  });
   it("accepts CNY VAT returns from USD statements", async () => {
     mocks.review.mockResolvedValue({ ...review(), base: { currency: "USD", sourceNo: "source-no", period: "202603", amountIncludingTax: "106" }, expectedInvoice: { currency: "CNY", amountIncludingTax: "742" } });
     const response = await POST(new NextRequest("http://localhost/api/invoices/approval/returns", { method: "POST", body: JSON.stringify({ fileId: "file", draft: { ...body.draft, currency: "CNY", amountIncludingTax: "742" } }) }));

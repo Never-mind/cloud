@@ -6,6 +6,7 @@ import type { InvoicePartyMatch, InvoiceRecognition } from "@/lib/invoice-recogn
 
 const LABELS: Record<string, string> = {
   invoiceNo: "发票号码", invoiceDate: "开票日期", currency: "币种", exchangeRate: "汇率",
+  dueDate: "到期日", paymentTermDays: "账期天数",
   amountExcludingTax: "未税金额", taxRate: "税率（%）", taxAmount: "税金", amountIncludingTax: "含税金额", taxUuid: "税务 UUID",
 };
 
@@ -44,7 +45,7 @@ export function InvoiceRecognitionReview({ recognition, file, values, direction 
             const raw = String((original as Record<string, unknown>)[key] ?? "");
             const current = String(values[key] ?? "");
             const same = raw === current || (raw !== "" && current !== "" && Number.isFinite(Number(raw)) && Number(raw) === Number(current));
-            const status = !current ? "待补充" : same ? "已识别" : raw ? "人工修改" : "补充 / 推算";
+            const status = !current ? "待补充" : same ? recognition?.taxTreatment === "template_no_tax" && ["amountExcludingTax", "taxRate", "taxAmount"].includes(key) ? "按模板无税规则" : "已识别" : raw ? "人工修改" : "补充 / 推算";
             return <tr className="border-t border-line-soft" key={key}><td className="px-2 py-1">{label}</td><td className="max-w-48 break-all px-2 py-1">{raw || "-"}</td><td className="max-w-48 break-all px-2 py-1">{current || "-"}</td><td className="whitespace-nowrap px-2 py-1 text-ink-3">{status}</td></tr>;
           })}</tbody></table>
       </div>
@@ -53,6 +54,7 @@ export function InvoiceRecognitionReview({ recognition, file, values, direction 
       <p className="break-words">销方：{recognition.facts.issuerName || "未识别"} · {recognition.facts.issuerTaxNumber || "税号未识别"}</p>
       <p className="break-words">购方：{recognition.facts.receiverName || "未识别"} · {recognition.facts.receiverTaxNumber || "税号未识别"}</p>
     </div> : null}
+    {recognition?.lines?.length ? <details className="text-xs text-ink-2"><summary className="cursor-pointer">票面明细（{recognition.lines.length} 行）</summary><div className="mt-2 overflow-x-auto"><table className="w-full text-left"><thead><tr>{["服务月份", "描述", "数量", "单价", "小计"].map(label => <th className="px-2 py-1" key={label}>{label}</th>)}</tr></thead><tbody>{recognition.lines.map((line, index) => <tr key={index}>{[line.periodLabel, line.description || "—", line.quantity, line.unitPrice, line.amount].map((value, column) => <td className="px-2 py-1" key={column}>{value}</td>)}</tr>)}</tbody></table></div></details> : null}
     {matches && type ? <div className="grid gap-1 text-xs text-ink-2 sm:grid-cols-2">
       <p className="break-words">销方档案：{matchText(type === "income" ? matches.issuerUnit : matches.issuerSupplier)}</p>
       <p className="break-words">购方档案：{matchText(type === "income" ? matches.receiverCustomer : matches.receiverUnit)}</p>

@@ -35,6 +35,7 @@
     "schema:crm-invoices": "tsx scripts/migrate-crm-invoices.ts",
     "schema:invoices": "tsx scripts/migrate-invoices.ts",
     "schema:invoice-review": "tsx scripts/migrate-invoice-review.ts",
+    "schema:invoice-allocations": "tsx scripts/migrate-invoice-allocations.ts",
     "invoices:refresh": "tsx scripts/refresh-invoice-files.ts",
     "schema:obs-storage": "tsx scripts/migrate-obs-storage.ts",
     "schema:requestitem-batch": "tsx scripts/migrate-requestitem-batch.ts",

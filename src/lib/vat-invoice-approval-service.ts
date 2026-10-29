@@ -3,6 +3,8 @@ import { buildInvoicePrefill, type InvoiceSourceType } from "./invoice-service";
 import { callFeishu, findActiveInvoiceApproval, submitInvoiceApproval, uploadApprovalAttachment } from "./feishu-approval-service";
 import { listInvoiceApprovalAttachments, prepareInvoiceApprovalAttachments } from "./invoice-approval-attachment-service";
 import { defaultInvoicePaymentTermDays } from "./invoice-payment-terms";
+import {servicePeriodLabel,validateInvoiceAllocationPlan,type InvoiceAllocationPlan} from "./invoice-allocation";
+import {prepareInvoiceAllocationPlan,invoiceAllocationAttachment} from "./invoice-allocation-service";
 import { VAT_APPROVAL_CODE, buildVatApprovalForm, vatOptions, type VatDefinition, type VatDraft } from "./vat-invoice-approval";
 
 export const getVatApprovalCode = () => process.env.FEISHU_VAT_INVOICE_APPROVAL_CODE?.trim() || VAT_APPROVAL_CODE;
@@ -17,15 +19,19 @@ export function vatNodeApprovers(definition: VatDefinition, starterOpenId: strin
   return nodes.map(node => ({ key: node.node_id, value: [handlerOpenId] }));
 }
 
-export async function buildVatApprovalPrefill(params: { sourceType: InvoiceSourceType; sourceId?: string | null; sourceIds?: string[] | null; starterOpenId: string }) {
+export async function buildVatApprovalPrefill(params: { sourceType: InvoiceSourceType; sourceId?: string | null; sourceIds?: string[] | null; starterOpenId: string; customerId?: string; undertakingUnitId?: string }) {
   const base = await buildInvoicePrefill(params);
   const definition = await loadVatDefinition();
   const options = vatOptions(definition);
-  const [unit] = await queryRows<Row>("SELECT * FROM merge_common_undertaking_units WHERE undertakingUnitId = :id LIMIT 1", { id: base.undertakingUnitId });
-  const [customer] = await queryRows<Row>("SELECT * FROM merge_common_customers WHERE customerId = :id LIMIT 1", { id: base.customerId });
-  const banks = await queryRows<Row>("SELECT bankName, bankAccount, isDefault FROM merge_common_customer_bank_accounts WHERE customerId = :id ORDER BY isDefault DESC, accountId", { id: base.customerId });
-  const contacts = await queryRows<Row>("SELECT phone, isPrimary FROM merge_common_customer_contacts WHERE customerId = :id ORDER BY isPrimary DESC, contactId", { id: base.customerId });
-  const attachmentOptions = await listInvoiceApprovalAttachments({ ...params, customerId: String(base.customerId ?? "") });
+  const customerId = params.customerId ?? String(base.customerId ?? "");
+  const undertakingUnitId = params.undertakingUnitId ?? String(base.undertakingUnitId ?? "");
+  const [unit] = await queryRows<Row>("SELECT * FROM merge_common_undertaking_units WHERE undertakingUnitId = :id LIMIT 1", { id: undertakingUnitId });
+  const [customer] = await queryRows<Row>("SELECT * FROM merge_common_customers WHERE customerId = :id LIMIT 1", { id: customerId });
+  if (params.customerId !== undefined && !customer) throw new Error("所选客户不存在，请重新选择");
+  if (params.undertakingUnitId !== undefined && !unit) throw new Error("所选承接单位不存在，请重新选择");
+  const banks = await queryRows<Row>("SELECT bankName, bankAccount, isDefault FROM merge_common_customer_bank_accounts WHERE customerId = :id ORDER BY isDefault DESC, accountId", { id: customerId });
+  const contacts = await queryRows<Row>("SELECT phone, isPrimary FROM merge_common_customer_contacts WHERE customerId = :id ORDER BY isPrimary DESC, contactId", { id: customerId });
+  const attachmentOptions = await listInvoiceApprovalAttachments({ ...params, sourceCustomerId: String(base.customerId ?? ""), customerId });
   const attachments = attachmentOptions.filter(file => file.source === "customer");
   const normalize = (value: unknown) => String(value ?? "").normalize("NFKC").replace(/\s/g, "").toUpperCase();
   const names = [unit?.name, unit?.nameCn, unit?.entityName].map(normalize).filter(Boolean);
@@ -42,6 +48,7 @@ export async function buildVatApprovalPrefill(params: { sourceType: InvoiceSourc
   const sourceCurrency = String(base.currency).trim().toUpperCase();
   const sameCurrency = sourceCurrency === "CNY";
   const draft: VatDraft = {
+    customerId, undertakingUnitId,
     companyKey: company?.value ?? "", invoiceType: "special",
     customerName: String(customer?.nameCn || customer?.name || ""), taxId: String(customer?.taxNumber ?? ""),
     address: String(customer?.address ?? ""), phone: String(customer?.contactPhone || contact?.phone || ""),
@@ -56,34 +63,49 @@ export async function buildVatApprovalPrefill(params: { sourceType: InvoiceSourc
   };
   return { approvalCode: getVatApprovalCode(), sourceNo: base.sourceNo, period: base.period,
     sourceCurrency, sourceAmountIncludingTax: String(base.amountIncludingTax ?? ""), currency: "CNY" as const,
-    draft, options, attachments, attachmentOptions, customerId: String(base.customerId ?? ""),
+    draft, options, attachments, attachmentOptions, customerId, sourceCustomerId: String(base.customerId ?? ""),
     existingApproval: await findActiveInvoiceApproval(params.sourceType, String(base.sourceId ?? params.sourceId ?? "")), blockers };
 }
 
 export async function submitVatInvoiceApproval(input: {
+  allocationPlan?:InvoiceAllocationPlan|null;
   sourceType: InvoiceSourceType; sourceId: string; sourceIds?: string[];
   starterOpenId: string; starterUserId?: string; starterName?: string; draft: VatDraft;
 }) {
-  const prefill = await buildVatApprovalPrefill(input);
+  if(input.allocationPlan){const error=validateInvoiceAllocationPlan(input.allocationPlan,input.draft);if(error)throw new Error(error);if(input.allocationPlan.sourceType!==input.sourceType||!input.allocationPlan.allocations.some(row=>row.sourceId===input.sourceId))throw new Error("关联账期与来源不一致");input.sourceIds=input.allocationPlan.allocations.map(row=>row.sourceId);}
+  const prefill = await buildVatApprovalPrefill({ ...input, customerId: input.draft.customerId, undertakingUnitId: input.draft.undertakingUnitId });
   if (prefill.blockers.length) throw new Error(prefill.blockers.join("；"));
   if (prefill.existingApproval) throw new Error("该单据已有生效审批，请查看审批进度及回票，不要重复发起");
+  let allocationPlan:InvoiceAllocationPlan|null=null;
+  if(input.allocationPlan){
+    if(input.allocationPlan.sourceType!==input.sourceType||!input.allocationPlan.allocations.some(row=>row.sourceId===input.sourceId))throw new Error("关联账期与当前来源不一致");
+    allocationPlan=await prepareInvoiceAllocationPlan(input.allocationPlan,input.draft);
+    if(allocationPlan.currency!=="CNY")throw new Error("国内增值税开票分摊币种应为 CNY");
+    input.sourceIds=allocationPlan.allocations.map(row=>row.sourceId);
+    await queryRows("SELECT allocationPlanJson FROM merge_common_feishu_approvals LIMIT 0");
+  }
   const definition = await loadVatDefinition();
+  if (input.draft.undertakingUnitId && input.draft.companyKey !== prefill.draft.companyKey) throw new Error("所选承接单位与飞书开票主体不匹配，请重新选择对应的主体");
   // Validate before any attachment upload; all option keys are checked against the current definition.
   buildVatApprovalForm(input.draft, definition, input.starterOpenId);
   const nodeApprovers = vatNodeApprovers(definition, input.starterOpenId);
   if (input.draft.attachmentIds !== undefined && !Array.isArray(input.draft.attachmentIds)) throw new Error("附件材料格式不正确");
-  const files = await prepareInvoiceApprovalAttachments({ ...input, customerId: prefill.customerId }, {
+  const files = await prepareInvoiceApprovalAttachments({ ...input, sourceCustomerId: prefill.sourceCustomerId, customerId: prefill.customerId }, {
     attachmentRefs: [...(input.draft.attachmentRefs ?? []), ...(input.draft.attachmentIds ?? []).map(attachmentId => ({ source: "customer" as const, attachmentId }))],
     attachments: input.draft.attachments,
   });
   const tokens: string[] = [];
+  if(allocationPlan)files.push(await invoiceAllocationAttachment(allocationPlan));
+  if(files.length>10)throw new Error("合并开票说明占用一个附件，请将其他审批材料控制在 9 个以内");
   for (const file of files) tokens.push(await uploadApprovalAttachment(file));
   return submitInvoiceApproval({
     ownerType: input.sourceType as "cloud_row" | "billing_statement" | "service_fee" | "settlement_invoice",
     ownerId: input.sourceId, allocationSourceIds: input.sourceIds, ownerNo: prefill.sourceNo,
+    allocationPlan,
     period: prefill.period, starterOpenId: input.starterOpenId, starterUserId: input.starterUserId, starterName: input.starterName,
-    title: String(prefill.period ?? "") + " · " + input.draft.customerName + " · 增值税开票",
+    title: (allocationPlan?servicePeriodLabel(allocationPlan.allocations.map(row=>row.period)):String(prefill.period ?? "")) + " · " + input.draft.customerName + " · 增值税开票",
     approvalCode: getVatApprovalCode(), nodeApprovers,
+    partySnapshot: { customerId: prefill.customerId, undertakingUnitId: prefill.draft.undertakingUnitId ?? "", customer: { name: input.draft.customerName, taxId: input.draft.taxId, address: input.draft.address, phone: input.draft.phone, bankName: input.draft.bankName, bankAccount: input.draft.bankAccount }, sellerName: prefill.options.companies.find(option => option.value === input.draft.companyKey)?.label ?? "", paymentTermDays: Number(input.draft.paymentTermDays) },
     form: buildVatApprovalForm(input.draft, definition, input.starterOpenId, tokens),
   });
 }
