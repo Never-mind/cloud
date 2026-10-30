@@ -3,6 +3,7 @@ import * as XLSX from "xlsx";
 import { queryRowsRaw } from "@/lib/db";
 import { CLOUD_COLLECTION_PAID_SQL, resolveCloudRowsDisplayNames } from "@/lib/cloud-service";
 import { collectionAmount, collectionCurrency, collectionStatus, collectionUsdAmount } from "@/lib/cloud-collection";
+import { appendCloudPeriodConditions, CloudPeriodFilterError } from "@/lib/cloud-period-filter";
 
 function collectionExportRow(row: Record<string, unknown>) {
   const receivable = Number(row.customerReceivableTotalAmount ?? row.customerReceivable ?? 0) || 0;
@@ -30,13 +31,16 @@ function collectionExportRow(row: Record<string, unknown>) {
 export async function GET(request: NextRequest) {
   const params = request.nextUrl.searchParams;
   const keyword = params.get("keyword")?.trim() ?? "";
-  const period = params.get("period")?.trim() ?? "";
   const collected = params.get("collected")?.trim() ?? "";
   const collectionStatusParam = params.get("collectionStatus")?.trim() ?? "";
   const collectionView = params.get("view")?.trim() === "collection";
   const conditions: string[] = [];
   const values: Record<string, unknown> = {};
-  if (period) { conditions.push("period = :period"); values.period = period; }
+  try { appendCloudPeriodConditions(params, conditions, values); }
+  catch (error) {
+    if (error instanceof CloudPeriodFilterError) return NextResponse.json({ error: error.message }, { status: 400 });
+    throw error;
+  }
   if (collected === "0" || collected === "1") {
     conditions.push("collected = :collected");
     values.collected = Number(collected);

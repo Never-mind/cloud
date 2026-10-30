@@ -10,6 +10,7 @@ import {
   resolveCloudImportField,
 } from "./cloud-import-headers";
 import { computeCloudSettlementGrossProfit } from "./cloud-gross-profit";
+import { appendCloudPeriodConditions } from "./cloud-period-filter";
 import { formatDisplayValue } from "./display-format";
 import type { OperationActor } from "./operation-actor";
 import { appendTableInFilter, formatTableDateExpression, getTableSort, listSqlFilterOptions } from "./table-query";
@@ -500,13 +501,12 @@ function cloudBaseWhere(params: URLSearchParams) {
           AND (u.shortName LIKE :keyword OR u.entityName LIKE :keyword OR u.name LIKE :keyword OR u.nameCn LIKE :keyword OR u.undertakingUnitCode LIKE :keyword)))`);
     values.keyword = `%${keyword}%`;
   }
-  for (const key of ["period", "confirmed", "collected", "collectionInvoice"] as const) {
+  appendCloudPeriodConditions(params, conditions, values);
+  for (const key of ["confirmed", "collected", "collectionInvoice"] as const) {
     const value = text(params.get(key));
     if (value && value !== "all") {
-      conditions.push(`${key === "period" ? CLOUD_PERIOD_SQL("period") : key} = :${key}`);
-      values[key] = key === "period"
-        ? normalizeCloudPeriod(value)
-        : key === "confirmed" || key === "collected" ? (value === "true" || value === "1" ? 1 : 0) : value;
+      conditions.push(`${key} = :${key}`);
+      values[key] = key === "confirmed" || key === "collected" ? (value === "true" || value === "1" ? 1 : 0) : value;
     }
   }
   if (text(params.get("collectionStatus")) === "open") {
@@ -834,7 +834,8 @@ export async function listCloudRows(params: URLSearchParams) {
             NULL AS collectionTotalAmount,
             NULL AS invoiceNetAmount, NULL AS invoiceTaxAmount,
             NULL AS invoiceTotalAmount,
-            ROUND(SUM(COALESCE(theoreticalGrossProfit, 0)), 4) AS theoreticalGrossProfit
+            ROUND(SUM(COALESCE(theoreticalGrossProfit, 0)), 4) AS theoreticalGrossProfit,
+            ROUND(SUM(COALESCE(settlementGrossProfit, grossProfit, 0)), 4) AS settlementGrossProfit
        FROM merge_cloud_rows ${where}`;
   const collectionTotalsSql = `SELECT COALESCE(NULLIF(collectionCurrency, ''), 'USD') AS currency,
             NULL AS catalogAmount, NULL AS partnerAmount, NULL AS voucherCustomerAmount, NULL AS voucherSupplierAmount,
@@ -844,7 +845,7 @@ export async function listCloudRows(params: URLSearchParams) {
             ROUND(SUM(COALESCE(collectionTaxAmount, 0)), 4) AS collectionTaxAmount,
             ROUND(SUM(COALESCE(collectionTotalAmount, 0)), 4) AS collectionTotalAmount,
             NULL AS invoiceNetAmount, NULL AS invoiceTaxAmount,
-            NULL AS invoiceTotalAmount, NULL AS theoreticalGrossProfit
+            NULL AS invoiceTotalAmount, NULL AS theoreticalGrossProfit, NULL AS settlementGrossProfit
        FROM merge_cloud_rows ${where}
       GROUP BY currency`;
   const invoiceTotalsSql = `SELECT COALESCE(NULLIF(invoiceCurrency, ''), 'USD') AS currency,
@@ -855,7 +856,7 @@ export async function listCloudRows(params: URLSearchParams) {
             ROUND(SUM(COALESCE(invoiceNetAmount, 0)), 4) AS invoiceNetAmount,
             ROUND(SUM(COALESCE(invoiceTaxAmount, 0)), 4) AS invoiceTaxAmount,
             ROUND(SUM(COALESCE(invoiceTotalAmount, 0)), 4) AS invoiceTotalAmount,
-            NULL AS theoreticalGrossProfit
+            NULL AS theoreticalGrossProfit, NULL AS settlementGrossProfit
        FROM merge_cloud_rows ${where}
       GROUP BY currency`;
   const currencyTotals = await queryRowsRaw<Row>(
@@ -1247,11 +1248,10 @@ export async function listCloudSupplierPayments(params: URLSearchParams) {
   if (params.get("field")) return listCloudSupplierPaymentFilterOptions(params);
   const { page, pageSize, offset } = pageParams(params);
   const keyword = text(params.get("keyword"));
-  const period = normalizeCloudPeriod(params.get("period"));
   const conditions = ["1=1"];
   const values: Row = { limit: pageSize, offset };
   if (keyword) { conditions.push("(supplierName LIKE :keyword OR searchText LIKE :keyword)"); values.keyword = `%${keyword}%`; }
-  if (period) { conditions.push("period = :period"); values.period = period; }
+  appendCloudPeriodConditions(params, conditions, values);
   for (const [field, expression] of Object.entries(CLOUD_PAYMENT_FILTER_EXPRESSIONS)) appendTableInFilter(conditions, values, expression, field, params, "paymentFilter");
   const where = `WHERE ${conditions.join(" AND ")}`;
   const requestedSort = getTableSort(params, CLOUD_PAYMENT_FILTER_EXPRESSIONS);
@@ -1286,9 +1286,8 @@ async function listCloudSupplierPaymentFilterOptions(params: URLSearchParams) {
   const conditions: string[] = ["1=1"];
   const values: Row = {};
   const keyword = text(params.get("keyword"));
-  const period = normalizeCloudPeriod(params.get("period"));
   if (keyword) { conditions.push("(supplierName LIKE :keyword OR searchText LIKE :keyword)"); values.keyword = `%${keyword}%`; }
-  if (period) { conditions.push("period = :period"); values.period = period; }
+  appendCloudPeriodConditions(params, conditions, values);
   return listSqlFilterOptions({ from: CLOUD_SUPPLIER_PAYMENT_FROM_V2, expressions: CLOUD_PAYMENT_FILTER_EXPRESSIONS, searchParams: params, conditions, params: values });
 }
 

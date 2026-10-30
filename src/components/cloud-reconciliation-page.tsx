@@ -34,6 +34,7 @@ import { CrmInvoicePicker } from "./crm-invoice-picker";
 import { CrmInvoiceAllocationModal } from "./crm-invoice-allocation-modal";
 import { InvoiceDraftModal, type InvoiceDraftMode } from "./invoice-draft-modal";
 import { StatementInvoiceSummary } from "./statement-invoice-summary";
+import { getCloudPeriodRangeError } from "@/lib/cloud-period-filter";
 import {
   StatementFieldSettingsButton,
   StatementFieldSettingsModal,
@@ -177,7 +178,11 @@ export function CloudReconciliationPage() {
   }, []);
   const [masters, setMasters] = useState<MasterSet>({ suppliers: [], undertakingUnits: [], customers: [] });
   const [keyword, setKeyword] = useState("");
-  const [period, setPeriod] = useState("");
+  const [periodFrom, setPeriodFrom] = useState("");
+  const [periodTo, setPeriodTo] = useState("");
+  const [importPeriod, setImportPeriod] = useState("");
+  const periodError = getCloudPeriodRangeError(periodFrom, periodTo);
+  const singlePeriod = periodFrom && periodFrom === periodTo ? periodFrom : "";
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [total, setTotal] = useState(0);
@@ -204,6 +209,7 @@ export function CloudReconciliationPage() {
   });
 
   const activeQuery = queries[tab];
+  const latestLoad = useRef(0);
   const ledgerFieldState = usePersistentColumnVisibility("cloud-reconciliation-ledger-v2", columns);
   const allLedgerExpanded = rows.length > 0 && rows.every((row) => ledgerExpanded[String(row.id ?? "")]);
 
@@ -217,25 +223,28 @@ export function CloudReconciliationPage() {
   }
 
   async function load(options?: { query?: QueryState; targetTab?: Tab; targetPage?: number }) {
+    const loadId = ++latestLoad.current;
     const targetTab = options?.targetTab ?? tab;
     const targetQuery = options?.query ?? queries[targetTab];
     const targetPage = options?.targetPage ?? page;
     // 「账期发票（CRM）」有自己的数据源与状态，走组件内部加载，不走这里的实时计算列表
-    if (targetTab === "crm-invoices") return;
+    if (targetTab === "crm-invoices" || (targetTab !== "mapping" && periodError)) { setBusy(false); return; }
     setBusy(true);
     try {
       if (targetTab === "mapping") {
         const params = new URLSearchParams({ keyword, page: String(targetPage), pageSize: String(pageSize) });
         appendQueryParams(params, targetQuery);
         const data = await requestJson<{ items: Row[]; total: number }>(`/api/cloud/mappings?${params}`);
+        if (loadId !== latestLoad.current) return;
         setMappings(data.items); setTotal(Number(data.total ?? 0));
       } else if (targetTab === "supplier-payments") {
-        const params = new URLSearchParams({ keyword, period, page: String(targetPage), pageSize: String(pageSize) });
+        const params = new URLSearchParams({ keyword, periodFrom, periodTo, page: String(targetPage), pageSize: String(pageSize) });
         appendQueryParams(params, targetQuery);
         const data = await requestJson<{ items: Row[]; total: number }>(`/api/cloud/supplier-payments?${params}`);
+        if (loadId !== latestLoad.current) return;
         setPayments(data.items); setTotal(data.total);
       } else {
-        const params = new URLSearchParams({ keyword, period, page: String(targetPage), pageSize: String(pageSize) });
+        const params = new URLSearchParams({ keyword, periodFrom, periodTo, page: String(targetPage), pageSize: String(pageSize) });
         if (targetTab === "reconciliation" && ledgerView === "collection" && collectionFilter === "open") params.set("collectionStatus", "open");
         appendQueryParams(params, targetQuery);
         const data = await requestJson<{
@@ -252,6 +261,7 @@ export function CloudReconciliationPage() {
           };
           collectionCounts?: { total: number; open: number; paid: number };
         }>(`/api/cloud/rows?${params}`);
+        if (loadId !== latestLoad.current) return;
         setRows(data.items); setTotal(data.total); setCurrencyTotals(Array.isArray(data.currencyTotals) ? data.currencyTotals : []);
         setCollectionSummary(data.summary ? {
           ...data.summary,
@@ -260,11 +270,11 @@ export function CloudReconciliationPage() {
         } : { receivable: 0, collected: 0, outstanding: 0, overdueCount: 0, collectionByCurrency: [], missingRateCount: 0 });
         setCollectionCounts(data.collectionCounts ?? { total: data.total, open: 0, paid: 0 });
       }
-    } catch (error) { setNotice(error instanceof Error ? error.message : "加载失败"); }
-    finally { setBusy(false); }
+    } catch (error) { if (loadId === latestLoad.current) setNotice(error instanceof Error ? error.message : "加载失败"); }
+    finally { if (loadId === latestLoad.current) setBusy(false); }
   }
 
-  useEffect(() => { void load(); }, [tab, page, pageSize, period, queries, ledgerView, collectionFilter]);
+  useEffect(() => { void load(); }, [tab, page, pageSize, periodFrom, periodTo, queries, ledgerView, collectionFilter]);
 
   /**
    * 基础资料（供应商 / 承接单位 / 客户）是弹层下拉的选项来源。
@@ -300,7 +310,7 @@ export function CloudReconciliationPage() {
 
   async function importWorkbook() {
     if (!importFile) return;
-    const form = new FormData(); form.set("file", importFile); form.set("period", period);
+    const form = new FormData(); form.set("file", importFile); form.set("period", importPeriod);
     setBusy(true);
     try {
       const response = await fetch("/api/cloud/import", { method: "POST", body: form });
@@ -435,7 +445,8 @@ export function CloudReconciliationPage() {
   }
 
   function columnOptions(endpoint: string, field: string, optionKeyword: string) {
-    const extra: Record<string, string> = tab === "mapping" ? {} : { period };
+    if (tab !== "mapping" && periodError) return Promise.resolve([]);
+    const extra: Record<string, string> = tab === "mapping" ? {} : { periodFrom, periodTo };
     if (endpoint === "/api/cloud/rows" && keyword.trim()) extra.listKeyword = keyword.trim();
     return fetchTableFilterOptions(endpoint, field, optionKeyword, extra, activeQuery.filters);
   }
@@ -478,12 +489,12 @@ export function CloudReconciliationPage() {
   return <div className="flex h-[calc(var(--app-viewport-height)-40px)] flex-col gap-4">
     <header className="flex flex-wrap items-start justify-between gap-3">
       <div><div className="flex items-center gap-2"><Cloud size={22} className="text-primary" /><h1 className="text-2xl font-medium text-ink">华为云业务</h1></div><p className="mt-2 text-sm text-ink-3">月度账单、服务映射、跨月收款和供应商付款</p>{tab === "reconciliation" ? <p className="mt-1 text-xs text-ink-3">确认后账单金额及明细锁定，开票、实收和相关附件仍可维护。</p> : null}</div>
-      {tab === "crm-invoices" ? null : <div className="flex flex-wrap gap-2">{tab === "reconciliation" && ledgerView === "ledger" ? <Button tone="primary" onClick={() => setRowForm({ period: period || new Date().toISOString().slice(0, 7).replace("-", ""), batchCode: "", customer: "", account: "", cloudReconciler: "", catalogAmount: "", partnerAmount: "", voucherCustomerAmount: "", voucherSupplierAmount: "", supplierPayablePayer: "", supplierPayablePayee: "", supplierPayableNetAmount: "", supplierTaxRate: "0.16", supplierTaxAmount: "", supplierPayableTotalAmount: "", customerReceivablePayer: "", customerReceivablePayee: "", customerReceivableNetAmount: "", customerTaxRate: "", customerReceivableTaxAmount: "", customerReceivableTotalAmount: "", theoreticalGrossProfit: "", settlementGrossProfit: "", customerDiscount: "", remark: "" })}><Plus size={15} />手动新增</Button> : null}<label className="inline-flex h-9 cursor-pointer items-center gap-1 rounded border border-line bg-white px-3 text-sm text-ink-2"><FileUp size={15} />导入账单<input className="hidden" type="file" accept=".xlsx,.xls" onChange={(event) => setImportFile(event.target.files?.[0] ?? null)} /></label><a href="/api/cloud/template"><Button type="button"><Download size={15} />下载导入模板</Button></a>{importFile ? <Button tone="primary" disabled={busy} onClick={() => void importWorkbook()}>确认导入</Button> : null}<Button onClick={() => window.open(`/api/cloud/rows/export?keyword=${encodeURIComponent(keyword)}&period=${encodeURIComponent(period)}`, "_blank")}><Download size={15} />导出数据</Button><Button disabled={busy} onClick={() => void syncApprovalStatus()}><RefreshCw size={15} />同步审批状态</Button></div>}
+      {tab === "crm-invoices" ? null : <div className="flex flex-wrap gap-2">{tab === "reconciliation" && ledgerView === "ledger" ? <Button tone="primary" onClick={() => setRowForm({ period: singlePeriod || new Date().toISOString().slice(0, 7).replace("-", ""), batchCode: "", customer: "", account: "", cloudReconciler: "", catalogAmount: "", partnerAmount: "", voucherCustomerAmount: "", voucherSupplierAmount: "", supplierPayablePayer: "", supplierPayablePayee: "", supplierPayableNetAmount: "", supplierTaxRate: "0.16", supplierTaxAmount: "", supplierPayableTotalAmount: "", customerReceivablePayer: "", customerReceivablePayee: "", customerReceivableNetAmount: "", customerTaxRate: "", customerReceivableTaxAmount: "", customerReceivableTotalAmount: "", theoreticalGrossProfit: "", settlementGrossProfit: "", customerDiscount: "", remark: "" })}><Plus size={15} />手动新增</Button> : null}<label className="inline-flex h-9 cursor-pointer items-center gap-1 rounded border border-line bg-white px-3 text-sm text-ink-2"><FileUp size={15} />导入账单<input className="hidden" type="file" accept=".xlsx,.xls" onChange={(event) => { setImportFile(event.target.files?.[0] ?? null); setImportPeriod(singlePeriod); }} /></label><a href="/api/cloud/template"><Button type="button"><Download size={15} />下载导入模板</Button></a>{importFile ? <><label className="flex items-center gap-2 text-sm text-ink-2">导入默认账期<Input type="month" aria-label="导入默认账期" title="文件缺少账期时使用；留空沿用文件账期或当前月份" value={importPeriod} onChange={(event) => setImportPeriod(event.target.value)} /></label><Button tone="primary" disabled={busy} onClick={() => void importWorkbook()}>确认导入</Button></> : null}<Button disabled={Boolean(periodError)} onClick={() => window.open(`/api/cloud/rows/export?keyword=${encodeURIComponent(keyword)}&periodFrom=${encodeURIComponent(periodFrom)}&periodTo=${encodeURIComponent(periodTo)}`, "_blank")}><Download size={15} />导出数据</Button><Button disabled={busy} onClick={() => void syncApprovalStatus()}><RefreshCw size={15} />同步审批状态</Button></div>}
     </header>
     {notice ? <div className="flex items-center justify-between border border-info-border bg-info-soft px-3 py-2 text-sm text-primary">{notice}<button type="button" title="关闭提示" onClick={() => setNotice("")}><X size={15} /></button></div> : null}
     <Panel className="flex min-h-0 flex-1 flex-col">
       <div className="flex flex-wrap items-center gap-2 border-b border-line-soft p-3">{tabs.map(([key, label]) => <button className={`border-b-2 px-3 py-2 text-sm ${tab === key ? "border-primary text-primary" : "border-transparent text-ink-2"}`} key={key} type="button" onClick={() => { setTab(key); setPage(1); }}>{label}{key === "reconciliation" ? <span className="ml-1 rounded bg-info-soft px-1.5 py-0.5 text-[10px] font-normal text-primary">含收款</span> : null}</button>)}{/* items-end：这一排里「默认付款单位」是标签在上+输入框在下两行高，底部对齐才不会显得错位 */}
-        {tab === "crm-invoices" ? null : <div className="ml-auto flex flex-wrap items-end gap-2">{tab === "supplier-payments" ? <div className="w-[260px]"><PartnerSelect kind="undertakingUnits" label="默认付款单位" idValue={defaultPayerUnit?.id} nameValue={defaultPayerUnit?.name} masters={masters} onChange={(selected) => void saveDefaultPayerUnit(selected.id)} /></div> : null}<Input placeholder="搜索客户、账号、批次或供应商" value={keyword} onChange={(event) => setKeyword(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { setPage(1); void load({ targetPage: 1 }); } }} /><Input className="min-w-[130px]" placeholder="账期 YYYY-MM" value={period} onChange={(event) => setPeriod(event.target.value)} /><Button tone="secondary" onClick={() => { setPage(1); void load({ targetPage: 1 }); }}><Search size={15} />查询</Button>{tab === "mapping" ? <Button tone="primary" onClick={() => setMappingForm({ accounts: "", calculationLogic: "catalog" })}><Plus size={15} />新增服务映射</Button> : null}</div>}</div>
+        {tab === "crm-invoices" ? null : <div className="ml-auto flex flex-wrap items-end gap-2">{tab === "supplier-payments" ? <div className="w-[260px]"><PartnerSelect kind="undertakingUnits" label="默认付款单位" idValue={defaultPayerUnit?.id} nameValue={defaultPayerUnit?.name} masters={masters} onChange={(selected) => void saveDefaultPayerUnit(selected.id)} /></div> : null}<Input placeholder="搜索客户、账号、批次或供应商" value={keyword} onChange={(event) => setKeyword(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { setPage(1); void load({ targetPage: 1 }); } }} /><div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="账期范围"><Input aria-label="开始账期" title="开始账期（含当月）" type="month" className="w-[150px] min-w-0" value={periodFrom} max={periodTo || undefined} onChange={(event) => { setPeriodFrom(event.target.value); setPage(1); }} /><span className="text-sm text-ink-3">至</span><Input aria-label="结束账期" title="结束账期（含当月）" type="month" className="w-[150px] min-w-0" value={periodTo} min={periodFrom || undefined} onChange={(event) => { setPeriodTo(event.target.value); setPage(1); }} />{periodFrom || periodTo ? <IconButton icon={<X size={14} />} label="清除账期范围" onClick={() => { setPeriodFrom(""); setPeriodTo(""); setPage(1); }} /> : null}{periodError ? <span className="text-xs text-danger" role="alert">{periodError}</span> : null}</div><Button tone="secondary" disabled={tab !== "mapping" && Boolean(periodError)} onClick={() => { setPage(1); void load({ targetPage: 1 }); }}><Search size={15} />查询</Button>{tab === "mapping" ? <Button tone="primary" onClick={() => setMappingForm({ accounts: "", calculationLogic: "catalog" })}><Plus size={15} />新增服务映射</Button> : null}</div>}</div>
       {tab === "reconciliation" ? (
         <div className="flex flex-wrap items-center gap-2 border-b border-line-soft bg-surface-2 px-3 py-2">
           <div className="inline-flex rounded border border-line bg-white p-0.5">
@@ -523,7 +534,7 @@ export function CloudReconciliationPage() {
           ) : null}
           <div className="ml-auto flex flex-wrap items-center gap-2">
             {ledgerView === "collection" ? (
-              <Button onClick={() => window.open(`/api/cloud/rows/export?keyword=${encodeURIComponent(keyword)}&period=${encodeURIComponent(period)}&view=collection${collectionFilter === "open" ? "&collectionStatus=open" : ""}`, "_blank")} title="按当前筛选导出收款清单">
+              <Button disabled={Boolean(periodError)} onClick={() => window.open(`/api/cloud/rows/export?keyword=${encodeURIComponent(keyword)}&periodFrom=${encodeURIComponent(periodFrom)}&periodTo=${encodeURIComponent(periodTo)}&view=collection${collectionFilter === "open" ? "&collectionStatus=open" : ""}`, "_blank")} title="按当前筛选导出收款清单">
                 <Download size={15} />导出收款清单
               </Button>
             ) : <>
