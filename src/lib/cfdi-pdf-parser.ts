@@ -2,7 +2,7 @@
  * 墨西哥 CFDI 发票 PDF（文字层）解析。
  *
  * 两条路：
- *   1. 票面带 CFDI 4.0 的"原串"（||4.0|Serie|Folio|Fecha|… 竖线分隔）→ 按位置精确取值，
+ *   1. 票面带 CFDI 4.0 的"原串"（||4.0|Serie|Folio|Fecha|… 竖线分隔）→ 按结构解析可选字段，
  *      这是最稳的，PDF 换模板也认；
  *   2. 没有原串的模板（比如华为自己出的 PDF）→ 按 Fecha / Emisor / Receptor / SubTotal 等标签兜底。
  *
@@ -39,6 +39,7 @@ function text(value: unknown) {
 }
 
 function number(value: unknown) {
+  if (!text(value)) return null;
   const parsed = Number(text(value).replace(/[,\s$]/g, ""));
   return Number.isFinite(parsed) ? parsed : null;
 }
@@ -56,8 +57,67 @@ function readCadenaParts(source: string) {
   const start = source.indexOf("||4.0|");
   if (start < 0) return null;
   const end = source.indexOf("||", start + 5);
-  const parts = source.slice(start, end < 0 ? start + 900 : end).replace(/\s*\n\s*/g, " ").split("|");
-  return parts.length > 23 && parts[2] === "4.0" ? parts : null;
+  if (end < 0) throw new Error("CFDI 原串不完整，请核对 PDF 原件或上传 XML 发票");
+  return source.slice(start, end).replace(/\s*\n\s*/g, " ").split("|").map(text);
+}
+
+/** 原串省略未提供的可选字段，不能用固定下标读取折扣后面的金额和主体。 */
+function parseCadenaHeader(parts: string[], content: string) {
+  const fail = () => new Error("CFDI 原串结构或金额与票面不一致，请核对 PDF 原件或上传 XML 发票");
+  const decimal = (value: string | undefined) => /^\d+(?:\.\d+)?$/.test(value ?? "");
+  const dateIndex = parts.findIndex((part, index) => index >= 3 && index <= 5 && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(part));
+  if (dateIndex < 0) throw fail();
+  const certificateIndex = parts.findIndex((part, index) => index > dateIndex && index <= dateIndex + 2 && /^\d{20}$/.test(part));
+  if (certificateIndex < 0) throw fail();
+  // Moneda 后是 [TipoCambio]、Total、TipoDeComprobante；以票种作为边界。
+  const currencyIndex = parts.findIndex((part, index) => index > certificateIndex && index <= certificateIndex + 4
+    && /^[A-Z]{3}$/.test(part) && decimal(parts[index + 1])
+    && (/^[IEPTN]$/.test(parts[index + 2] ?? "") || (decimal(parts[index + 2]) && /^[IEPTN]$/.test(parts[index + 3] ?? ""))));
+  if (currencyIndex < 0) throw fail();
+  const hasExchangeRate = !/^[IEPTN]$/.test(parts[currencyIndex + 2]);
+  const totalIndex = currencyIndex + (hasExchangeRate ? 2 : 1);
+  const total = number(parts[totalIndex])!;
+  const visibleSubtotal = number(/\bSUBTOTAL\s*[:：]?\s*\$?\s*([\d,]+\.\d{2})\b/i.exec(content)?.[1]);
+  const visibleDiscount = number(/\bDESCUENTO\s*[:：]?\s*\$?\s*([\d,]+\.\d{2})\b/i.exec(content)?.[1]);
+  const visibleTotal = number(/\bTOTAL A PAGAR\s*[:：]?\s*\$?\s*([\d,]+\.\d{2})\b/i.exec(content)?.[1]);
+  const visibleCurrency = /Moneda\s*[:：]\s*([A-Z]{3})/i.exec(content)?.[1].toUpperCase();
+  if ((visibleTotal !== null && Math.abs(visibleTotal - total) > 0.010001)
+    || (visibleCurrency && visibleCurrency !== parts[currencyIndex])) throw fail();
+
+  // Certificado 后是 [CondicionesDePago]、SubTotal、[Descuento]。
+  // 若数字付款条件与折扣产生歧义，使用票面小计核对；无法唯一确定时不猜值。
+  const candidates = [false, true].flatMap(hasDiscount => {
+    const subtotalIndex = currencyIndex - (hasDiscount ? 2 : 1);
+    const conditionCount = subtotalIndex - certificateIndex - 1;
+    if (conditionCount < 0 || conditionCount > 1 || !decimal(parts[subtotalIndex])) return [];
+    const subtotal = number(parts[subtotalIndex])!;
+    if (hasDiscount && !decimal(parts[currencyIndex - 1])) return [];
+    const discount = hasDiscount ? number(parts[currencyIndex - 1])! : 0;
+    if (discount > subtotal || (visibleSubtotal !== null && Math.abs(subtotal - visibleSubtotal) > 0.010001)
+      || (visibleDiscount !== null && Math.abs(discount - visibleDiscount) > 0.010001)) return [];
+    return [{ subtotal, discount }];
+  });
+  if (candidates.length !== 1) throw fail();
+  const { subtotal, discount } = candidates[0];
+
+  // 双方 RFC 均有独立格式，且紧随名称和税制；避免将邮编/税制代码误认为税号。
+  const rfc = new RegExp(`^${RFC_PATTERN}$`);
+  const issuerIndex = parts.findIndex((part, index) => index > totalIndex && index <= totalIndex + 7
+    && rfc.test(part) && Boolean(parts[index + 1]) && /^\d{3}$/.test(parts[index + 2] ?? ""));
+  if (issuerIndex < 0) throw fail();
+  const receiverIndex = parts.findIndex((part, index) => index >= issuerIndex + 3 && index <= issuerIndex + 4
+    && rfc.test(part) && Boolean(parts[index + 1]) && /^\d{5}$/.test(parts[index + 2] ?? ""));
+  if (receiverIndex < 0) throw fail();
+  const identifiers = parts.slice(3, dateIndex);
+  return {
+    version: parts[2], serie: identifiers.length === 2 ? identifiers[0] : "", folio: identifiers.at(-1) ?? "",
+    invoiceDate: parts[dateIndex].slice(0, 10), currency: parts[currencyIndex],
+    exchangeRate: hasExchangeRate ? parts[currencyIndex + 1] : "",
+    amountExcludingTax: Math.round((subtotal - discount + Number.EPSILON) * 100) / 100,
+    totalIncludingTax: total,
+    issuerTaxNumber: parts[issuerIndex], issuerName: cleanupName(parts[issuerIndex + 1]),
+    receiverTaxNumber: parts[receiverIndex], receiverName: cleanupName(parts[receiverIndex + 1]),
+  };
 }
 
 /**
@@ -116,26 +176,14 @@ export function parseCfdiInvoiceText(source: string): CfdiPdfInvoice {
   const currency = (/Moneda\s*[:：]\s*([A-Z]{3})/i.exec(content)?.[1] ?? "").toUpperCase();
 
   if (parts) {
-    // 原串位置（CFDI 4.0）：2=版本 3=Serie 4=Folio 5=开票时间 8=小计 9=币种 10=汇率 11=总额 16/17=开票方 19/20=收票方
-    const [, , version, serie, folio, issuedAt, , , subtotal, currencyCode, cadenaRate, total, , , , , issuerRfc, issuerName, , receiverRfc, receiverName] = parts;
+    const header = parseCadenaHeader(parts, content);
     const taxAmount = /TRASLADO IVA\s*([\d,]+\.\d{2})/.exec(content)?.[1] ?? "";
     return {
-      version,
-      serie,
-      folio,
-      fullNumber: buildCfdiInvoiceNumber(serie, folio),
+      ...header,
+      fullNumber: buildCfdiInvoiceNumber(header.serie, header.folio),
       uuid,
-      invoiceDate: text(issuedAt).slice(0, 10),
-      issuerName: cleanupName(issuerName),
-      issuerTaxNumber: issuerRfc,
-      receiverName: cleanupName(receiverName),
-      receiverTaxNumber: receiverRfc,
-      currency: currencyCode || currency,
-      exchangeRate: cadenaRate ?? "",
-      amountExcludingTax: number(subtotal),
       taxAmount: number(taxAmount),
-      totalIncludingTax: number(total),
-      taxRate: resolveTaxRate(content, number(subtotal), number(taxAmount)),
+      taxRate: resolveTaxRate(content, header.amountExcludingTax, number(taxAmount)),
       exact: true,
     };
   }

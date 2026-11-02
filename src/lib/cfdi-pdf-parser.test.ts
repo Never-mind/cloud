@@ -108,6 +108,52 @@ describe("CFDI PDF 解析", () => {
     expect(invoice.fullNumber).toBe("F-200");
   });
 
+  it.each(["", "30 días|"])("原串含零折扣和可选付款条件（%s）时不把金额、币种、双方错位", conditions => {
+    const source = CADENA_TEMPLATE.replace("|13515.90|USD|", `|${conditions}13515.90|0.00|USD|`);
+    expect(parseCfdiInvoiceText(source)).toMatchObject({
+      fullNumber: "F200", invoiceDate: "2026-09-29", currency: "USD", exchangeRate: "17.8413",
+      amountExcludingTax: 13515.9, taxAmount: 2162.54, totalIncludingTax: 15678.44, taxRate: 16,
+      issuerName: "DEMO ISSUER SA", issuerTaxNumber: "AAA010101AAA",
+      receiverName: "DEMO CUSTOMER MEXICO", receiverTaxNumber: "BBB020202BBB", exact: true,
+    });
+  });
+
+  it("有实际折扣时未税金额扣除折扣，含税金额仍取整票总额", () => {
+    const source = CADENA_TEMPLATE.replace("|13515.90|USD|", "|13515.90|15.90|USD|")
+      .replaceAll("2162.54", "2160.00").replaceAll("2,162.54", "2,160.00")
+      .replaceAll("15678.44", "15660.00").replaceAll("15,678.44", "15,660.00");
+    expect(parseCfdiInvoiceText(source)).toMatchObject({
+      amountExcludingTax: 13500, taxAmount: 2160, totalIncludingTax: 15660, taxRate: 16,
+    });
+  });
+
+  it("本币票可省略汇率，仍读取总额及双方", () => {
+    const source = CADENA_TEMPLATE.replace("Moneda: USD", "Moneda: MXN").replace("|USD|17.8413|", "|MXN|");
+    expect(parseCfdiInvoiceText(source)).toMatchObject({
+      currency: "MXN", exchangeRate: "", totalIncludingTax: 15678.44,
+      issuerTaxNumber: "AAA010101AAA", receiverTaxNumber: "BBB020202BBB",
+    });
+  });
+
+  it("原串可省略系列号并保留 Folio", () => {
+    expect(parseCfdiInvoiceText(CADENA_TEMPLATE.replace("|F|F200|", "|F200|"))).toMatchObject({
+      serie: "", folio: "F200", fullNumber: "F200", invoiceDate: "2026-09-29",
+      currency: "USD", totalIncludingTax: 15678.44,
+    });
+  });
+
+  it("未读到税金时不把空字符串识别为零税金", () => {
+    expect(parseCfdiInvoiceText(CADENA_TEMPLATE.replace("TRASLADO IVA 2,162.54", ""))).toMatchObject({ taxAmount: null });
+  });
+
+  it("原串金额与票面总额冲突时拒绝自动回填", () => {
+    expect(() => parseCfdiInvoiceText(CADENA_TEMPLATE.replace("|15678.44|", "|17.8413|"))).toThrow(/原串.*票面/);
+  });
+
+  it("截断原串不作为精确数据返回", () => {
+    expect(() => parseCfdiInvoiceText(CADENA_TEMPLATE.slice(0, -2))).toThrow(/原串/);
+  });
+
   it("华为云 CFDI：Serie H + Folio 6645 识别为 H-6645，汇率取 exchange rate", () => {
     const invoice = parseCfdiInvoiceText(`Fecha: 11/09/2026 04:12:27 Serie:
 H

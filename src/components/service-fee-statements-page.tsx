@@ -23,6 +23,7 @@ import { TableStateContent } from "./table-state";
 import { useWorkspaceDataRefresh } from "@/lib/workspace-events";
 import { CloudAttachments } from "./cloud-attachments";
 import { StatementInvoiceSummary } from "./statement-invoice-summary";
+import { StatementInvoiceList } from "./statement-invoice-list";
 import {
   StatementFieldSettingsButton,
   StatementFieldSettingsModal,
@@ -259,6 +260,10 @@ export function ServiceFeeStatementsPage() {
   }
 
   function openInvoiceInfo(row: Row) {
+    if (Array.isArray(row.registeredInvoices) && row.registeredInvoices.length > 1) {
+      setInvoiceModal({ mode: "external", sourceId: String(row.snapshotNo) });
+      return;
+    }
     setInvoiceDraft({
       invoiceDate: String(row.invoiceDate ?? "").slice(0, 10),
       snapshotNo: String(row.snapshotNo ?? ""),
@@ -618,11 +623,11 @@ export function ServiceFeeStatementsPage() {
           {row.repaymentStatus === "已回款" ? "已回款" : "未回款"}
         </button>
         <Button disabled={busyNo === snapshotNo} size="sm" onClick={() => openRepayment(row)}>编辑实收</Button>
-        <button aria-checked={issued} className="inline-flex h-7 items-center gap-1 rounded border border-line bg-white px-2 text-xs text-ink-2 disabled:opacity-50" disabled={busyNo === snapshotNo} role="switch" type="button" onClick={() => void setInvoiceState(snapshotNo, issued ? "未开票" : "已开票")}>
+        <button aria-checked={issued} className="inline-flex h-7 items-center gap-1 rounded border border-line bg-white px-2 text-xs text-ink-2 disabled:opacity-50" disabled={busyNo === snapshotNo || (Array.isArray(row.registeredInvoices) && row.registeredInvoices.length > 0)} role="switch" type="button" title="已登记发票的状态由有效发票自动计算" onClick={() => void setInvoiceState(snapshotNo, issued ? "未开票" : "已开票")}>
           <span className={`relative inline-flex h-4 w-7 rounded-full ${issued ? "bg-success" : "bg-ink-4"}`}><span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white shadow ${issued ? "translate-x-[15px]" : "translate-x-0.5"}`} /></span>
           {issued ? "已开票" : "未开票"}
         </button>
-        <Button disabled={busyNo === snapshotNo} size="sm" onClick={() => openInvoiceInfo(row)}>编辑开票</Button>
+        <Button disabled={busyNo === snapshotNo} size="sm" onClick={() => openInvoiceInfo(row)}>{Array.isArray(row.registeredInvoices) && row.registeredInvoices.length > 1 ? "查看／追加发票" : "编辑开票"}</Button>
         <Button disabled={busyNo === snapshotNo} size="sm" onClick={() => setInvoiceModal({ mode: "generated", sourceId: snapshotNo })}>开票</Button>
         <Button disabled={busyNo === snapshotNo} size="sm" onClick={() => setInvoiceModal({ mode: "external", sourceId: snapshotNo })}>上传并识别</Button>
         <Button disabled={busyNo === snapshotNo} size="sm" onClick={() => chooseInvoice(row)}>上传附件</Button>
@@ -643,6 +648,7 @@ export function ServiceFeeStatementsPage() {
         />
       </div>
       <StatementInvoiceSummary invoiceNo={row.invoiceNo} invoiceDate={row.invoiceDate} receivableDate={row.receivableDate} collectionDate={row.repaymentDate} />
+      {Array.isArray(row.registeredInvoices) && row.registeredInvoices.length ? <StatementInvoiceList sourceId={snapshotNo} entries={row.registeredInvoices} onChanged={() => { setAttachmentVersion(current => current + 1); void loadData(page, pageSizeRef.current); }} /> : null}
       {groups.map((group) => <section className="overflow-hidden rounded border border-line-soft" key={group.title}>
         <div className="border-b border-line-soft bg-canvas px-3 py-2 text-xs font-medium text-ink-2">{group.title}</div>
         <StatementDetailGrid fields={group.fields} flow={group.flow} singleRow={group.title === "基本信息"} />

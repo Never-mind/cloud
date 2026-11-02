@@ -11,6 +11,8 @@ import {
 } from "./cloud-import-headers";
 import { computeCloudSettlementGrossProfit } from "./cloud-gross-profit";
 import { appendCloudPeriodConditions } from "./cloud-period-filter";
+import { statementInvoiceEntries } from "./statement-invoice-ledger";
+import { CLOUD_INVOICE_EDIT_FIELDS } from "./cloud-row-edit-policy";
 import { formatDisplayValue } from "./display-format";
 import type { OperationActor } from "./operation-actor";
 import { appendTableInFilter, formatTableDateExpression, getTableSort, listSqlFilterOptions } from "./table-query";
@@ -878,7 +880,7 @@ export async function listCloudRows(params: URLSearchParams) {
     String(left.currency).localeCompare(String(right.currency)),
   );
   return {
-    items: await attachCloudRowApprovalStatus((await resolveCloudRowsDisplayNames(rows)).map(normalizeCloudDateFields)),
+    items: await attachCloudRowApprovalStatus(await attachCloudInvoices((await resolveCloudRowsDisplayNames(rows)).map(normalizeCloudDateFields))),
     total: Number(count[0]?.total ?? 0),
     page,
     pageSize,
@@ -904,6 +906,11 @@ export async function listCloudRows(params: URLSearchParams) {
  * 给对账行挂上飞书开票审批状态（供「客户开票」列展示）。
  * 只有审批中 / 已通过的会带上，字段名以 invoiceApproval 开头，不参与筛选排序。
  */
+async function attachCloudInvoices(rows: Row[]) {
+  const entries = await statementInvoiceEntries("cloud_row", rows.map(row => String(row.id)));
+  return rows.map(row => ({ ...row, registeredInvoices: entries.filter(invoice => invoice.sourceId === row.id) }));
+}
+
 async function attachCloudRowApprovalStatus(rows: Row[]) {
   if (!rows.length) return rows;
   try {
@@ -1072,6 +1079,11 @@ export async function updateCloudRow(id: string, body: Row, actor: OperationActo
     const existing = (await queryRowsInTransaction<Row>(connection, "SELECT * FROM merge_cloud_rows WHERE id = :id FOR UPDATE", { id }))[0];
     if (!existing) throw new Error("对账单不存在");
     assertCloudRowEditable(existing.confirmed, body);
+    if (CLOUD_INVOICE_EDIT_FIELDS.some(key => Object.prototype.hasOwnProperty.call(body, key))) {
+      const invoices = await statementInvoiceEntries("cloud_row", [id], connection);
+      if (invoices.length > 1) throw new Error("该账期关联多张发票，开票合计由发票台账自动计算，请逐张核对或调整分摊，不能覆盖合计");
+      if (invoices.length && body.collectionInvoice === "not_issued") throw new Error("该账期仍有有效发票，请先在发票管理中核对并作废对应发票");
+    }
     const accountMapping = Object.prototype.hasOwnProperty.call(body, "account")
       ? getCloudAccountMapping(await findCloudAccountMappings([text(body.account)]), body.account)
       : undefined;
@@ -1762,6 +1774,9 @@ export async function importCloudWorkbook(buffer: Buffer, fileName: string, peri
         const current = (await queryRowsInTransaction<Row>(connection, "SELECT confirmed FROM merge_cloud_rows WHERE id = :id FOR UPDATE", { id: existingRow.id }))[0];
         if (!current) throw new Error(`账单 ${text(row.period)} / ${account} 已被删除，请刷新后重试`);
         if (isCloudRowConfirmed(current.confirmed)) return false;
+        if (CLOUD_INVOICE_EDIT_FIELDS.some(field => providedFields.has(field)) && (await statementInvoiceEntries("cloud_row", [String(existingRow.id)], connection)).length > 1) {
+          throw new Error(`账单 ${text(row.period)} / ${account} 关联多张发票，请去掉导入文件的开票字段，避免覆盖发票合计`);
+        }
         await executeInTransaction(connection, `UPDATE merge_cloud_rows SET ${assignments.join(", ")} WHERE id = :id`, updateValues);
         return true;
       });

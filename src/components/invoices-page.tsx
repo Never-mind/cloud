@@ -83,7 +83,7 @@ export function InvoicesPage() {
   }, []);
 
   const voidOne = useCallback(async (row: InvoiceRow) => {
-    if (!(await confirmDialog(`作废发票 ${text(row.invoiceNo)}？票面会保留，来源账单回到未开票。`))) return;
+    if (!(await confirmDialog(`作废发票 ${text(row.invoiceNo)} 的本地登记？票面会保留，所有关联账期的开票合计将重新计算；仍有其他有效发票的账单保持已开票。`))) return;
     try {
       const response = await fetch(`/api/invoices/${encodeURIComponent(text(row.id))}/void`, {
         method: "POST",

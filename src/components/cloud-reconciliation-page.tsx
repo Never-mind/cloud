@@ -33,6 +33,7 @@ import { CloudCrmInvoicesPanel } from "./cloud-crm-invoices-panel";
 import { CrmInvoicePicker } from "./crm-invoice-picker";
 import { CrmInvoiceAllocationModal } from "./crm-invoice-allocation-modal";
 import { InvoiceDraftModal, type InvoiceDraftMode } from "./invoice-draft-modal";
+import { StatementInvoiceList } from "./statement-invoice-list";
 import { StatementInvoiceSummary } from "./statement-invoice-summary";
 import { getCloudPeriodRangeError } from "@/lib/cloud-period-filter";
 import {
@@ -333,6 +334,12 @@ export function CloudReconciliationPage() {
     } catch (error) { setNotice(error instanceof Error ? error.message : "新增对账单失败"); }
   }
 
+  function openInvoiceInfo(row: Row) {
+    if (Array.isArray(row.registeredInvoices) && row.registeredInvoices.length > 1) {
+      setInvoiceModal({ mode: "external", sourceId: String(row.id) });
+    } else setInvoiceForm(amountFormDefaults(row, "invoice"));
+  }
+
   async function saveCollection() {
     if (!collectionForm?.id) return;
     const patch = pickCloudFinancialFields(collectionForm, "collection");
@@ -551,7 +558,7 @@ export function CloudReconciliationPage() {
             <div className="grid min-h-0 flex-1 grid-rows-1">
               <CollectionTable
                 onEditCollection={(row) => setCollectionForm(amountFormDefaults(row, "collection"))}
-                onEditInvoice={(row) => setInvoiceForm(amountFormDefaults(row, "invoice"))}
+                onEditInvoice={openInvoiceInfo}
                 onIssueInvoice={(row) => setInvoiceModal({ mode: "generated", sourceId: String(row.id ?? "") })}
                 onUploadInvoice={(row) => setInvoiceModal({ mode: "external", sourceId: String(row.id ?? "") })}
                 rows={rows}
@@ -559,7 +566,7 @@ export function CloudReconciliationPage() {
             </div>
           </>
         ) : (
-          <div className="grid min-h-0 flex-1 grid-rows-1">{tab === "mapping" ? <MappingTable rows={mappings} onEdit={setMappingForm} query={activeQuery} onQueryChange={updateQuery} loadOptions={(field, optionKeyword) => columnOptions("/api/cloud/mappings", field, optionKeyword)} /> : tab === "supplier-payments" ? <PaymentTable attachmentVersion={attachmentVersion} rows={payments} onAttach={attachSupplierPaymentInvoice} onPay={(row) => setPaymentApprovalOwnerIds([String(row.id ?? "")])} onUpdate={(row) => setSupplierPaymentForm(row)} onTogglePaid={(row) => void updatePayment(row, { paid: row.paid ? 0 : 1 })} onToggleInvoice={(row) => void updatePayment(row, { invoiceStatus: row.invoiceStatus === "issued" ? "not_issued" : "issued" })} query={activeQuery} onQueryChange={updateQuery} loadOptions={(field, optionKeyword) => columnOptions("/api/cloud/supplier-payments", field, optionKeyword)} /> : <RowTable attachmentVersion={attachmentVersion} currencyTotals={currencyTotals} expanded={ledgerExpanded} onToggleExpanded={toggleLedgerRow} rows={rows} visibleColumns={ledgerFieldState.visibleColumns} onAttach={attachRow} onConfirm={confirmRow} onDelete={deleteRow} onToggleCollection={toggleCollection} onToggleInvoice={toggleInvoice} onEditRow={setRowForm} onEditCollection={(row) => setCollectionForm(amountFormDefaults(row, "collection"))} onEditInvoice={(row) => setInvoiceForm(amountFormDefaults(row, "invoice"))} onIssueInvoice={(row) => setInvoiceModal({ mode: "generated", sourceId: String(row.id ?? "") })} onUploadInvoice={(row) => setInvoiceModal({ mode: "external", sourceId: String(row.id ?? "") })} query={activeQuery} onQueryChange={updateQuery} loadOptions={(field, optionKeyword) => columnOptions("/api/cloud/rows", field, optionKeyword)} />}</div>
+          <div className="grid min-h-0 flex-1 grid-rows-1">{tab === "mapping" ? <MappingTable rows={mappings} onEdit={setMappingForm} query={activeQuery} onQueryChange={updateQuery} loadOptions={(field, optionKeyword) => columnOptions("/api/cloud/mappings", field, optionKeyword)} /> : tab === "supplier-payments" ? <PaymentTable attachmentVersion={attachmentVersion} rows={payments} onAttach={attachSupplierPaymentInvoice} onPay={(row) => setPaymentApprovalOwnerIds([String(row.id ?? "")])} onUpdate={(row) => setSupplierPaymentForm(row)} onTogglePaid={(row) => void updatePayment(row, { paid: row.paid ? 0 : 1 })} onToggleInvoice={(row) => void updatePayment(row, { invoiceStatus: row.invoiceStatus === "issued" ? "not_issued" : "issued" })} query={activeQuery} onQueryChange={updateQuery} loadOptions={(field, optionKeyword) => columnOptions("/api/cloud/supplier-payments", field, optionKeyword)} /> : <RowTable onInvoicesChanged={() => { setAttachmentVersion(value => value + 1); void load(); }} attachmentVersion={attachmentVersion} currencyTotals={currencyTotals} expanded={ledgerExpanded} onToggleExpanded={toggleLedgerRow} rows={rows} visibleColumns={ledgerFieldState.visibleColumns} onAttach={attachRow} onConfirm={confirmRow} onDelete={deleteRow} onToggleCollection={toggleCollection} onToggleInvoice={toggleInvoice} onEditRow={setRowForm} onEditCollection={(row) => setCollectionForm(amountFormDefaults(row, "collection"))} onEditInvoice={openInvoiceInfo} onIssueInvoice={(row) => setInvoiceModal({ mode: "generated", sourceId: String(row.id ?? "") })} onUploadInvoice={(row) => setInvoiceModal({ mode: "external", sourceId: String(row.id ?? "") })} query={activeQuery} onQueryChange={updateQuery} loadOptions={(field, optionKeyword) => columnOptions("/api/cloud/rows", field, optionKeyword)} />}</div>
         )}
         <PaginationBar page={page} pageSize={pageSize} total={total} onPageChange={setPage} onPageSizeChange={(next) => { setPageSize(next); setPage(1); }} />
       </>}
@@ -599,7 +606,7 @@ export function CloudReconciliationPage() {
       onSaved={() => {
         // 开票会回填本行开票字段，并把票面挂到本行开票附件下，所以行和附件都要刷新
         setAttachmentVersion((current) => current + 1);
-        setNotice("已开票，本行开票信息已回填");
+        setNotice("发票登记已更新，本行开票金额已重新汇总");
         void load();
       }}
       open={Boolean(invoiceModal)}
@@ -781,7 +788,7 @@ function CollectionTable({ rows, onEditCollection, onEditInvoice, onIssueInvoice
   </StickyTable>;
 }
 
-function RowTable({ attachmentVersion, currencyTotals, expanded, onToggleExpanded, rows, visibleColumns, onAttach, onConfirm, onDelete, onToggleCollection, onToggleInvoice, onEditRow, onEditCollection, onEditInvoice, onIssueInvoice, onUploadInvoice, query, onQueryChange, loadOptions }: { rows: Row[]; visibleColumns: LedgerColumn[]; expanded: Record<string, boolean>; onToggleExpanded: (row: Row) => void; onAttach: (row: Row, file: File) => void; onConfirm: (row: Row) => void; onDelete: (row: Row) => void; onToggleCollection: (row: Row) => void; onToggleInvoice: (row: Row) => void; onEditRow: (row: Row) => void; onEditCollection: (row: Row) => void; onEditInvoice: (row: Row) => void; onIssueInvoice: (row: Row) => void; onUploadInvoice: (row: Row) => void; query: QueryState; onQueryChange: (patch: Partial<QueryState>) => void; loadOptions: (field: string, keyword: string) => Promise<TableFilterOption[]>; currencyTotals?: Row[]; attachmentVersion?: number }) {
+function RowTable({ onInvoicesChanged, attachmentVersion, currencyTotals, expanded, onToggleExpanded, rows, visibleColumns, onAttach, onConfirm, onDelete, onToggleCollection, onToggleInvoice, onEditRow, onEditCollection, onEditInvoice, onIssueInvoice, onUploadInvoice, query, onQueryChange, loadOptions }: { onInvoicesChanged: () => void; rows: Row[]; visibleColumns: LedgerColumn[]; expanded: Record<string, boolean>; onToggleExpanded: (row: Row) => void; onAttach: (row: Row, file: File) => void; onConfirm: (row: Row) => void; onDelete: (row: Row) => void; onToggleCollection: (row: Row) => void; onToggleInvoice: (row: Row) => void; onEditRow: (row: Row) => void; onEditCollection: (row: Row) => void; onEditInvoice: (row: Row) => void; onIssueInvoice: (row: Row) => void; onUploadInvoice: (row: Row) => void; query: QueryState; onQueryChange: (patch: Partial<QueryState>) => void; loadOptions: (field: string, keyword: string) => Promise<TableFilterOption[]>; currencyTotals?: Row[]; attachmentVersion?: number }) {
 
   function cell(row: Row, key: string) {
     const cellRow = cloudRowWithAmounts(row);
@@ -846,7 +853,7 @@ function RowTable({ attachmentVersion, currencyTotals, expanded, onToggleExpande
             <Button size="sm" onClick={() => onToggleExpanded(row)}>{open ? "收起" : "展开"}</Button>
             <div className="ml-auto">{actionButtons(row)}</div>
           </div>
-          {open ? <div className="border-t border-line-soft bg-canvas p-3"><CloudLedgerDetails row={row} attachmentVersion={attachmentVersion} onAttach={onAttach} onToggleCollection={onToggleCollection} onToggleInvoice={onToggleInvoice} onEditCollection={onEditCollection} onEditInvoice={onEditInvoice} onIssueInvoice={onIssueInvoice} onUploadInvoice={onUploadInvoice} /></div> : null}
+          {open ? <div className="border-t border-line-soft bg-canvas p-3"><CloudLedgerDetails onInvoicesChanged={onInvoicesChanged} row={row} attachmentVersion={attachmentVersion} onAttach={onAttach} onToggleCollection={onToggleCollection} onToggleInvoice={onToggleInvoice} onEditCollection={onEditCollection} onEditInvoice={onEditInvoice} onIssueInvoice={onIssueInvoice} onUploadInvoice={onUploadInvoice} /></div> : null}
         </article>;
       }) : <EmptyState title="暂无数据" />}
     </div>
@@ -874,7 +881,7 @@ function RowTable({ attachmentVersion, currencyTotals, expanded, onToggleExpande
                   </td>)}
                   <td className="sticky right-0 whitespace-nowrap border-b border-line-soft bg-white px-3 py-2 align-top">{actionButtons(row)}</td>
                 </tr>
-                {open ? <tr><td className="border-b border-line-soft bg-canvas p-3" colSpan={visibleColumns.length + 1}><div className="sticky left-3 w-[calc(100cqw-1.5rem)] max-w-4xl"><CloudLedgerDetails row={row} attachmentVersion={attachmentVersion} onAttach={onAttach} onToggleCollection={onToggleCollection} onToggleInvoice={onToggleInvoice} onEditCollection={onEditCollection} onEditInvoice={onEditInvoice} onIssueInvoice={onIssueInvoice} onUploadInvoice={onUploadInvoice} /></div></td></tr> : null}
+                {open ? <tr><td className="border-b border-line-soft bg-canvas p-3" colSpan={visibleColumns.length + 1}><div className="sticky left-3 w-[calc(100cqw-1.5rem)] max-w-4xl"><CloudLedgerDetails onInvoicesChanged={onInvoicesChanged} row={row} attachmentVersion={attachmentVersion} onAttach={onAttach} onToggleCollection={onToggleCollection} onToggleInvoice={onToggleInvoice} onEditCollection={onEditCollection} onEditInvoice={onEditInvoice} onIssueInvoice={onIssueInvoice} onUploadInvoice={onUploadInvoice} /></div></td></tr> : null}
               </Fragment>;
             })}
             {!rows.length ? <tr><td className="py-12 text-center text-ink-3" colSpan={visibleColumns.length + 1}><EmptyState title="暂无数据" /></td></tr> : null}
@@ -911,8 +918,9 @@ function cloudRowWithAmounts(row: Row): Row {
   };
 }
 
-function CloudLedgerDetails({ row, attachmentVersion, onAttach, onToggleCollection, onToggleInvoice, onEditCollection, onEditInvoice, onIssueInvoice, onUploadInvoice }: {
+function CloudLedgerDetails({ onInvoicesChanged, row, attachmentVersion, onAttach, onToggleCollection, onToggleInvoice, onEditCollection, onEditInvoice, onIssueInvoice, onUploadInvoice }: {
   row: Row;
+  onInvoicesChanged: () => void;
   attachmentVersion?: number;
   onAttach: (row: Row, file: File) => void;
   onToggleCollection: (row: Row) => void;
@@ -987,8 +995,8 @@ function CloudLedgerDetails({ row, attachmentVersion, onAttach, onToggleCollecti
       <span className="text-xs font-medium text-ink-2">本行操作</span>
       <button aria-checked={Boolean(row.collected)} className="inline-flex h-7 items-center gap-1 rounded border border-line bg-white px-2 text-xs text-ink-2 disabled:opacity-50" role="switch" type="button" onClick={() => onToggleCollection(row)}><span className={`relative inline-flex h-4 w-7 rounded-full ${row.collected ? "bg-success" : "bg-ink-4"}`}><span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white shadow ${row.collected ? "translate-x-[15px]" : "translate-x-0.5"}`} /></span>{row.collected ? "已收款" : "未收款"}</button>
       <Button size="sm" onClick={() => onEditCollection(row)}>编辑实收</Button>
-      <button aria-checked={row.collectionInvoice === "issued"} className="inline-flex h-7 items-center gap-1 rounded border border-line bg-white px-2 text-xs text-ink-2 disabled:opacity-50" role="switch" type="button" onClick={() => onToggleInvoice(row)}><span className={`relative inline-flex h-4 w-7 rounded-full ${row.collectionInvoice === "issued" ? "bg-success" : "bg-ink-4"}`}><span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white shadow ${row.collectionInvoice === "issued" ? "translate-x-[15px]" : "translate-x-0.5"}`} /></span>{row.collectionInvoice === "issued" ? "已开票" : "未开票"}</button>
-      <Button size="sm" onClick={() => onEditInvoice(row)}>编辑开票</Button>
+      <button disabled={Array.isArray(row.registeredInvoices) && row.registeredInvoices.length > 0} title="已登记发票的状态由有效发票自动计算" aria-checked={row.collectionInvoice === "issued"} className="inline-flex h-7 items-center gap-1 rounded border border-line bg-white px-2 text-xs text-ink-2 disabled:opacity-50" role="switch" type="button" onClick={() => onToggleInvoice(row)}><span className={`relative inline-flex h-4 w-7 rounded-full ${row.collectionInvoice === "issued" ? "bg-success" : "bg-ink-4"}`}><span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white shadow ${row.collectionInvoice === "issued" ? "translate-x-[15px]" : "translate-x-0.5"}`} /></span>{row.collectionInvoice === "issued" ? "已开票" : "未开票"}</button>
+      <Button size="sm" onClick={() => onEditInvoice(row)}>{Array.isArray(row.registeredInvoices) && row.registeredInvoices.length > 1 ? "查看／追加发票" : "编辑开票"}</Button>
       <Button size="sm" onClick={() => onIssueInvoice(row)}>开票</Button>
       <Button size="sm" onClick={() => onUploadInvoice(row)}>上传并识别</Button>
       <UploadIconButton icon={<FileUp size={13} />} label="上传客户发票附件" onFile={(event) => { const file = event.target.files?.[0]; if (file) onAttach(row, file); event.target.value = ""; }} />
@@ -996,6 +1004,7 @@ function CloudLedgerDetails({ row, attachmentVersion, onAttach, onToggleCollecti
       <InvoiceApprovalBadge row={row} />
     </div>
     <StatementInvoiceSummary invoiceNo={row.invoiceNo} invoiceDate={row.invoiceDate} receivableDate={row.receivableDate} collectionDate={row.collectionDate} />
+    {Array.isArray(row.registeredInvoices) && row.registeredInvoices.length ? <StatementInvoiceList sourceType="cloud_row" sourceId={String(row.id)} entries={row.registeredInvoices} onChanged={onInvoicesChanged} /> : null}
     {groups.map((group) => <section className="overflow-hidden rounded border border-line-soft" key={group.title}>
       <div className="border-b border-line-soft bg-canvas px-3 py-2 text-xs font-medium text-ink-2">{group.title}</div>
       <StatementDetailGrid fields={group.fields} flow={group.flow} singleRow={group.title === "基本信息"} />

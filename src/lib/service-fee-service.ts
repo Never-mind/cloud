@@ -11,6 +11,7 @@ import {
   type Row,
 } from "./db";
 import { attachPartyCodes } from "./party-display";
+import { serviceFeeInvoiceEntries } from "./service-fee-invoice-ledger";
 import { ensureMonthlyBillingRows } from "./billing-service";
 import { firstDayOfMonth } from "./billing-workflow";
 import { DEFAULT_PAGE_SIZE, normalizePageSize } from "./pagination";
@@ -1104,10 +1105,12 @@ export async function listServiceFeeStatements(searchParams: URLSearchParams) {
     );
     defaults.forEach((row) => defaultsBySnapshot.set(String(row.snapshotNo), row));
   }
+  const registeredInvoices = await serviceFeeInvoiceEntries(rows.map(row => String(row.snapshotNo)));
   const rowsWithDefaults = rows.map((row) => ({
     ...defaultsBySnapshot.get(String(row.snapshotNo)),
     ...row,
     defaultRepaymentAmount: Number(row.serviceFeeTotal ?? 0),
+    registeredInvoices: registeredInvoices.filter(invoice => invoice.sourceId === row.snapshotNo),
   }));
   return { rows: await attachRepaymentPartyCodes(rowsWithDefaults), total, page, pageSize, totalPages };
 }
@@ -1251,6 +1254,11 @@ export async function updateServiceFeeRepayment(snapshotNo: string, input: Row) 
 }
 
 export async function updateServiceFeeInvoiceInfo(snapshotNo: string, input: Row) {
+  return withTransaction(async connection => {
+  const queryRows = <T extends Row>(sql: string, values: Row) => queryRowsInTransaction<T>(connection, sql, values);
+  const execute = (sql: string, values: Row) => executeInTransaction(connection, sql, values);
+  await queryRows("SELECT snapshotNo FROM servicefeesnapshots WHERE snapshotNo=:snapshotNo FOR UPDATE", { snapshotNo });
+  if ((await serviceFeeInvoiceEntries([snapshotNo], connection)).length > 1) throw new Error("该账期关联多张发票，合计由发票台账自动计算，请逐张核对或调整分摊，不能覆盖合计");
   const invoiceDate = String(input.invoiceDate ?? "").slice(0, 10);
   const invoiceNo = String(input.invoiceNo ?? "").trim();
   const invoiceCurrency = String(input.invoiceCurrency ?? "").trim();
@@ -1291,6 +1299,7 @@ export async function updateServiceFeeInvoiceInfo(snapshotNo: string, input: Row
     },
   );
   return { snapshotNo, invoiceNo, invoiceCurrency, invoiceReceivingUnitId, invoicePayerCustomerId, invoiceAmountExcludingTax, invoiceVatRate, invoiceAmountIncludingTax, invoiceDate, receivableDate };
+  });
 }
 
 export async function confirmServiceFeeStatement(snapshotNo: string) {
@@ -1355,7 +1364,12 @@ export async function deleteServiceFeeStatementDraft(snapshotNo: string) {
 }
 
 export async function updateServiceFeeInvoiceStatus(snapshotNo: string, invoiceStatus: string) {
+  return withTransaction(async connection => {
+  const queryRows = <T extends Row>(sql: string, values: Row) => queryRowsInTransaction<T>(connection, sql, values);
+  const execute = (sql: string, values: Row) => executeInTransaction(connection, sql, values);
   if (!new Set(["未开票", "已开票"]).has(invoiceStatus)) throw new Error("开票状态无效");
+  await queryRows("SELECT snapshotNo FROM servicefeesnapshots WHERE snapshotNo=:snapshotNo FOR UPDATE", { snapshotNo });
+  if (invoiceStatus === "未开票" && (await serviceFeeInvoiceEntries([snapshotNo], connection)).length) throw new Error("该账期仍有有效发票，请先在发票管理中核对并作废对应发票");
   const rows = await queryRows<{ snapshotNo: string }>(
     "SELECT snapshotNo FROM servicefeesnapshots WHERE snapshotNo = :snapshotNo LIMIT 1",
     { snapshotNo },
@@ -1366,6 +1380,7 @@ export async function updateServiceFeeInvoiceStatus(snapshotNo: string, invoiceS
     { snapshotNo, invoiceStatus },
   );
   return { snapshotNo, invoiceStatus };
+  });
 }
 
 export async function saveServiceFeeInvoice({

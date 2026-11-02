@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { executeRaw, queryRowsRaw, type Row } from "./db";
+import { statementInvoiceEntries } from "./statement-invoice-ledger";
 import { addCloudAttachment, findCloudAttachment, storeCloudAttachment } from "./cloud-service";
 import {
   resolveCrmBusinessLineId,
@@ -514,6 +515,9 @@ async function backfillInvoice(
   if (!rows.length) return { status: "unmatched", note: `本地 ${period} 账期没有该客户的对账行`, rowId: null };
   const target = pickTargetRow(rows, invoice.amountTaxIncluded, invoice.invoiceNo);
   if (!target) return { status: "unmatched", note: `本地 ${period} 账期没有该客户的对账行`, rowId: null };
+  if ((await statementInvoiceEntries("cloud_row", [text(target.id)])).length) {
+    return { status: "mismatch", note: "本账期已通过发票管理登记，开票合计由发票台账计算，CRM 未覆盖", rowId: text(target.id) };
+  }
 
   const assignments: string[] = [];
   const values: Row = { rowId: text(target.id) };
@@ -1221,6 +1225,7 @@ export async function matchCrmInvoiceToRow(options: { crmInvoiceId: unknown; row
     { rowId },
   ))[0];
   if (!row) throw new Error("对账明细不存在或已被删除");
+  if ((await statementInvoiceEntries("cloud_row", [rowId])).length) throw new Error("本账期已有已登记发票，请通过上传并识别追加或调整原票分摊，CRM 匹配不能覆盖开票合计");
 
   if (options.applyFields !== false) {
     await executeRaw(
@@ -1531,6 +1536,7 @@ export async function allocateInvoiceToRows(options: {
     }
   }
   if (!targets.length) throw new Error("没有可分摊的对账行：这些行可能已经开了别的发票");
+  if ((await statementInvoiceEntries("cloud_row", targets.map(row => row.rowId))).length) throw new Error("所选账期已有已登记发票，请在原发票的分摊中调整，CRM 分摊不能覆盖开票合计");
 
   // 计算分摊金额：默认按各行应收含税占比；调用方给了金额就按给定的算，尾差落到最大的一行
   const weights = (() => {
@@ -1625,6 +1631,7 @@ export async function clearInvoiceAllocation(options: { crmInvoiceId: unknown })
   let cleared = 0;
   for (const allocation of allocations) {
     const rowId = text(allocation.rowId);
+    if ((await statementInvoiceEntries("cloud_row", [rowId])).length) continue;
     const result = await executeRaw(
       `UPDATE merge_cloud_rows SET invoiceNo = NULL, invoiceCurrency = NULL, invoiceNetAmount = NULL,
          invoiceTaxAmount = NULL, invoiceTotalAmount = NULL, invoiceDate = NULL,

@@ -3,6 +3,7 @@ import { queryRowsRaw, queryRowsInTransaction, executeInTransaction, withTransac
 import { readInvoiceAllocationPlan, suggestInvoiceAllocations, type InvoiceAllocationPlan, type AllocationSourceType } from "./invoice-allocation";
 import { loadAllocationSources, lockInvoiceAllocationSources, prepareInvoiceAllocationPlan, writeInvoiceAllocations } from "./invoice-allocation-service";
 import { attachInvoiceFileToSource, backfillInvoiceSourceFields, type InvoiceActor } from "./invoice-service";
+import { refreshStatementInvoiceSummary, removeStatementInvoiceAttachment, statementInvoiceEntries } from "./statement-invoice-ledger";
 const text = (value: unknown) => String(value ?? "").trim();
 const sqlDate=(value:unknown)=>value instanceof Date?`${value.getFullYear()}-${String(value.getMonth()+1).padStart(2,"0")}-${String(value.getDate()).padStart(2,"0")}`:text(value).slice(0,10);
 const revision = (invoice:Row,allocations:Row[]) => createHash("sha256").update(JSON.stringify([invoice.id,invoice.updatedAt,invoice.allocationPlanJson,allocations])).digest("hex");
@@ -43,14 +44,19 @@ export async function replaceInvoiceAllocations(id:string,raw:InvoiceAllocationP
     before=await queryRowsInTransaction<Row>(connection,allocationSql,{id});
     if(!locked||locked.status!=="issued"||!expectedRevision||revision(locked,before)!==expectedRevision) throw new Error("发票分摊已变化，请重新打开后核对");
     await lockInvoiceAllocationSources(connection,plan,{invoiceId:id,instanceCode:text(invoice.approvalInstanceCode)});
+    {
+      const others = await statementInvoiceEntries(plan.sourceType, plan.allocations.map(row => row.sourceId), connection);
+      if (others.some(row => row.id !== id && row.currency !== plan.currency)) throw new Error("该账期已有其他币种的发票，不能直接累加");
+    }
     const retained=new Set(plan.allocations.map(row=>row.sourceId));
     for(const old of before.filter(row=>!retained.has(text(row.sourceId)))) {
-      if(old.sourceType==="cloud_row") await executeInTransaction(connection,`UPDATE merge_cloud_rows SET invoiceNo=NULL,invoiceNetAmount=NULL,invoiceTaxAmount=NULL,invoiceTotalAmount=NULL,invoiceTaxRate=NULL,invoiceDate=NULL,collectionInvoice='not_issued' WHERE id=:sourceId AND invoiceNo=:invoiceNo`,{sourceId:old.sourceId,invoiceNo:invoice.invoiceNo});
-      else await executeInTransaction(connection,`UPDATE merge_power_servicefeesnapshots SET invoiceNo=NULL,invoiceAmountExcludingTax=NULL,invoiceAmountIncludingTax=NULL,invoiceVatRate=NULL,invoiceDate=NULL,invoiceStatus='未开票' WHERE snapshotNo=:sourceId AND invoiceNo=:invoiceNo`,{sourceId:old.sourceId,invoiceNo:invoice.invoiceNo});
-      await executeInTransaction(connection,"DELETE FROM merge_cloud_attachments WHERE ownerType=:ownerType AND ownerId=:sourceId AND fileName=:fileName AND COALESCE(storageKey,'')=COALESCE(:storageKey,'')",{ownerType:old.sourceType==="cloud_row"?"invoice":"service_fee_invoice",sourceId:old.sourceId,fileName:invoice.fileName,storageKey:invoice.storageKey});
+      await removeStatementInvoiceAttachment(plan.sourceType, invoice, text(old.sourceId), connection);
     }
     await executeInTransaction(connection,"DELETE FROM merge_common_invoice_allocations WHERE invoiceId=:id",{id});
     await writeInvoiceAllocations(connection,id,plan);
+    for (const old of before.filter(row => !retained.has(text(row.sourceId)))) {
+      await refreshStatementInvoiceSummary(plan.sourceType, text(old.sourceId), connection);
+    }
     for(const row of plan.allocations) {
       await backfillInvoiceSourceFields({invoiceId:id,sourceType:plan.sourceType,sourceId:row.sourceId,invoiceNo:text(invoice.invoiceNo),currency:plan.currency,
         amountExcludingTax:row.amountExcludingTax,taxAmount:row.taxAmount,taxRate:row.taxRate,amountIncludingTax:row.amountIncludingTax,

@@ -4,7 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { FileUp } from "lucide-react";
 import { Button, Input, Select, Textarea } from "./ui";
 import { Modal } from "./modal";
-import { notify } from "./app-dialog";
+import { confirmDialog, notify } from "./app-dialog";
+import { StatementInvoiceList } from "./statement-invoice-list";
 import { SearchSelect, type SearchSelectOption } from "./search-select";
 import { InvoiceRecognitionReview } from "./invoice-recognition-review";
 import { InvoiceAllocationEditor } from "./invoice-allocation-editor";
@@ -119,6 +120,9 @@ export function InvoiceDraftModal({
   const [allocationPlan,setAllocationPlan] = useState<InvoiceAllocationPlan|null>(null);
   const [existingInvoiceId,setExistingInvoiceId] = useState<string|null>(null);
   const [adjustExisting,setAdjustExisting] = useState(false);
+  const [savedRevision, setSavedRevision] = useState(0);
+  const [removingRegistration, setRemovingRegistration] = useState(false);
+  const appendInvoices = (sourceType === "service_fee" || sourceType === "cloud_row") && mode === "external";
   const updateAllocationPlan = useCallback((plan:InvoiceAllocationPlan) => {setAllocationPlan(plan);setAllocationIds(plan.allocations.map(row=>row.sourceId));},[]);
   /**
    * 开票方式：本地开票（系统生成票面）/ 飞书审批开票。
@@ -169,10 +173,10 @@ export function InvoiceDraftModal({
           paymentTermDays: String(defaultInvoicePaymentTermDays(data.paymentTermDays)),
           currency: text(data.currency) || "USD",
           exchangeRate: text(data.exchangeRate),
-          amountExcludingTax: text(data.amountExcludingTax),
-          taxRate: text(data.taxRate),
-          taxAmount: text(data.taxAmount),
-          amountIncludingTax: text(data.amountIncludingTax),
+          amountExcludingTax: appendInvoices ? "" : text(data.amountExcludingTax),
+          taxRate: appendInvoices ? "" : text(data.taxRate),
+          taxAmount: appendInvoices ? "" : text(data.taxAmount),
+          amountIncludingTax: appendInvoices ? "" : text(data.amountIncludingTax),
           lines: ((data.lines ?? []) as Record<string, unknown>[]).map((line) => ({
             periodLabel: text(line.date), description: text(line.desc), amount: text(line.cost),
           })),
@@ -193,10 +197,13 @@ export function InvoiceDraftModal({
     setIssueMode("local");
     setApprovalState(null);
     return () => { cancelled = true; requestId.current += 1; };
-  }, [autoOpenMergePicker, mode, open, sourceId, sourceType]);
+  }, [autoOpenMergePicker, mode, open, sourceId, sourceType, appendInvoices]);
 
   async function recognizeFile(next: File) {
     if (next.size > 20 * 1024 * 1024) { notify("文件不能超过 20 MB", "error"); return; }
+    const beforeConfirm = requestId.current;
+    if (appendInvoices && file && !await confirmDialog({ title: "替换尚未保存的发票？", message: "当前发票尚未保存，替换会清除本张的识别和修改。如需追加另一张，请取消并先点击“保存并继续添加”。", confirmText: "替换当前发票", cancelText: "返回保存" })) return;
+    if (beforeConfirm !== requestId.current) return;
     const id = ++requestId.current;
     setFile(next); setRecognition(null); setRecognizing(true); setExistingInvoiceId(null);
     setTermsError("");
@@ -244,12 +251,12 @@ export function InvoiceDraftModal({
   }
 
   function close() {
-    if (saving.current || approvalState?.submitting || approvalState?.preparingAttachments) return;
+    if (saving.current || removingRegistration || approvalState?.submitting || approvalState?.preparingAttachments) return;
     requestId.current += 1;
     onClose();
   }
 
-  const submit = useCallback(async () => {
+  const submit = useCallback(async (continueAdding = false) => {
     if (!draft || saving.current || recognizing || loadingTerms) return;
     if(allocationPlan) {const error=validateInvoiceAllocationPlan(allocationPlan,draft);if(error){notify(error,"error");return;}if(allocationPlan.currency!==draft.currency){notify("请按当前开票币种重新核对分摊","error");return;}}
     if (!draft.customerId || !draft.undertakingUnitId) { notify("请选择客户抬头和开票主体", "error"); return; }
@@ -284,26 +291,32 @@ export function InvoiceDraftModal({
       if (!response.ok) throw new Error(data.error ?? (mode === "external" ? "登记失败" : "开票失败"));
       notify(`${mode === "external" ? "已登记外部发票" : "已开票"}：${text(data.invoice?.invoiceNo)}`, "success");
       onSaved?.(data.invoice as Record<string, unknown>);
-      onClose();
+      if (continueAdding && appendInvoices) {
+        requestId.current += 1;
+        setFile(null); setRecognition(null); setAllocationIds([]); setAllocationPlan(null); setExistingInvoiceId(null);
+        setSavedRevision(value => value + 1);
+        setDraft(current => current ? { ...current, invoiceNo: "", invoiceDate: "", dueDate: "", amountExcludingTax: "", taxAmount: "", taxRate: "", amountIncludingTax: "", lines: [] } : current);
+      } else onClose();
     } catch (error) {
       notify(error instanceof Error ? error.message : "保存失败", "error");
     } finally {
       saving.current = false;
       setBusy(false);
     }
-  }, [allocationIds, allocationPlan, draft, file, mode, onClose, onSaved, recognizing, recognition, loadingTerms, termsError]);
+  }, [allocationIds, allocationPlan, draft, file, mode, onClose, onSaved, recognizing, recognition, loadingTerms, termsError, appendInvoices]);
 
   if (!open) return null;
 
   return (
     <Modal
       description={mode === "external"
-        ? "外部已经开好票：只登记 + 存文件，不生成票面"
+        ? appendInvoices ? "支持同一账期多张发票：逐张识别、确认并保存，金额自动累计，原件分别保留。" : "外部已经开好票：只登记 + 存文件，不生成票面"
         : issueMode === "approval"
           ? undefined
           : "票面按开票主体与客户档案生成；资料缺项会拦下并提示去补档案"}
       footer={<>
         <Button disabled={busy || approvalState?.submitting || approvalState?.preparingAttachments} onClick={close}>取消</Button>
+        {appendInvoices ? <Button disabled={busy || recognizing || loadingTerms || Boolean(termsError) || prefilling || !draft || !file} onClick={() => void submit(true)}>保存并继续添加</Button> : null}
         {issueMode === "approval" ? (
           <Button
             disabled={!approvalState || approvalState.loading || approvalState.blocked || approvalState.submitting}
@@ -355,6 +368,7 @@ export function InvoiceDraftModal({
         <div className="py-10 text-center text-sm text-ink-3">正在按账单预填…</div>
       ) : (
         <div className="space-y-4">
+          {appendInvoices ? <StatementInvoiceList sourceType={sourceType === "cloud_row" ? "cloud_row" : "service_fee"} sourceId={sourceId} refreshToken={savedRevision} disabled={busy || recognizing || Boolean(file)} onBusyChange={setRemovingRegistration} onChanged={() => { setSavedRevision(value => value + 1); onSaved?.({}); }} /> : null}
           {mode === "external" ? (
             <section className="rounded border border-line-soft bg-white p-4">
               <h3 className="mb-3 border-b border-line-soft pb-2 text-sm font-medium text-ink">发票文件</h3>
@@ -374,7 +388,7 @@ export function InvoiceDraftModal({
           {existingInvoiceId?<div className="flex flex-wrap items-center gap-2 rounded border border-warning-border p-3 text-sm"><span>该发票已登记，可直接调整原票的关联账期。</span><a className="text-primary" href={`/api/invoices/${encodeURIComponent(existingInvoiceId)}/file`} target="_blank" rel="noreferrer">查看原发票</a><Button onClick={()=>setAdjustExisting(true)}>调整关联账期及分摊</Button></div>:null}
           {["cloud_row","service_fee"].includes(sourceType)?<div className="space-y-2"><InvoiceAllocationEditor sourceType={sourceType} sourceId={sourceId} currency={draft.currency} totals={draft} value={allocationPlan} onChange={updateAllocationPlan} autoOpen={autoOpenMergePicker} recognizedLines={recognition?.lines} disabled={busy||recognizing||loadingTerms}
             onTotalsChange={mode==="generated"?totals=>setDraft(current=>current?{...current,amountExcludingTax:String(totals.amountExcludingTax),taxAmount:String(totals.taxAmount),amountIncludingTax:String(totals.amountIncludingTax),taxRate:String(totals.taxRate??"")}:current):undefined}/>
-            <button className="text-xs text-primary" type="button" onClick={()=>setAdjustExisting(true)}>查看／调整本账单已登记发票的分摊</button></div>:null}
+            {!appendInvoices ? <button className="text-xs text-primary" type="button" onClick={()=>setAdjustExisting(true)}>查看／调整本账单已登记发票的分摊</button> : null}</div>:null}
           <fieldset disabled={busy || recognizing || loadingTerms}><DraftFormFields
             customerOptions={customerOptions}
             draft={draft}

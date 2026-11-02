@@ -6,6 +6,7 @@ import type { PoolConnection } from "mysql2/promise";
 import { allocationInvoiceLines, allocationTotals, readInvoiceAllocationPlan, servicePeriodLabel, type InvoiceAllocationPlan } from "./invoice-allocation";
 import { loadAllocationSources, prepareInvoiceAllocationPlan, lockInvoiceAllocationSources, writeInvoiceAllocations } from "./invoice-allocation-service";
 import { deleteFileObject, readFile, storeFile } from "./file-storage-service";
+import { isStatementInvoiceSource, refreshStatementInvoiceSummary, removeStatementInvoiceAttachment, statementInvoiceAttachmentId, validateStatementInvoiceAppend } from "./statement-invoice-ledger";
 import { renderInvoicePdf } from "./invoice-pdf";
 import {
   collectMissingInvoiceFields,
@@ -887,7 +888,7 @@ export async function saveInvoice(input: InvoiceDraftInput, actor: InvoiceActor 
       const target = tables[input.sourceType];
       if (!target || !input.sourceId || !(await queryRowsRaw(`SELECT ${target[1]} FROM ${target[0]} WHERE ${target[1]} = :id LIMIT 1`, { id: input.sourceId })).length) throw new Error("来源单据不存在，请刷新重试");
       const existing = await queryRowsRaw(`SELECT invoiceNo FROM ${INVOICE_TABLE} WHERE sourceType = :sourceType AND sourceId = :sourceId AND status = 'issued' LIMIT 1`, { sourceType: input.sourceType, sourceId: input.sourceId });
-      if (existing.length) throw new Error(`该来源已有发票 ${text(existing[0].invoiceNo)}，请先核对，不能重复覆盖`);
+      if (existing.length && !isStatementInvoiceSource(input.sourceType)) throw new Error(`该来源已有发票 ${text(existing[0].invoiceNo)}，请先核对，不能重复覆盖`);
     }
   }
   let mergeRows: Row[] = [];
@@ -994,10 +995,17 @@ export async function saveInvoice(input: InvoiceDraftInput, actor: InvoiceActor 
         const [lockedRow] = await queryRowsInTransaction(connection, "SELECT * FROM merge_cloud_rows WHERE id = :id FOR UPDATE", { id: rowId });
         const original = mergeRows.find(row => text(row.id) === rowId)!;
         if (!lockedRow || rowAmount(lockedRow, "net") !== rowAmount(original, "net") || rowAmount(lockedRow, "total") !== rowAmount(original, "total")) throw new Error("合并账期数据已变化，请刷新后重新核对");
-        const conflicts = await queryRowsInTransaction(connection, "SELECT i.id FROM merge_common_invoices i LEFT JOIN merge_common_invoice_allocations a ON a.invoiceId = i.id WHERE i.status = 'issued' AND ((i.sourceType = 'cloud_row' AND i.sourceId = :id) OR (a.sourceType = 'cloud_row' AND a.sourceId = :id)) LIMIT 1 FOR UPDATE", { id: rowId });
-        if (conflicts.length) throw new Error("合并账期中已有已登记发票，请刷新核对");
       }
     }
+  }
+  if (isStatementInvoiceSource(sourceTypeValue)) {
+    const sourceIds = plannedAllocation ? plannedAllocation.allocations.map(row => row.sourceId) : mergeRows.length ? mergeRows.map(row => text(row.id)) : [sourceIdValue];
+    for (const sourceId of [...new Set(sourceIds)].sort()) {
+      await validateStatementInvoiceAppend(sourceTypeValue, sourceId, { invoiceNo: resolved.invoiceNo, currency: resolved.currency }, connection);
+    }
+    await queryRowsInTransaction(connection, "SELECT undertakingUnitId FROM merge_common_undertaking_units WHERE undertakingUnitId=:id FOR UPDATE", { id: resolved.bank.undertakingUnitId });
+    const duplicates = await queryRowsInTransaction<Row>(connection, "SELECT id FROM merge_common_invoices WHERE undertakingUnitId=:unit AND invoiceNo=:number LIMIT 1 FOR UPDATE", { unit: resolved.bank.undertakingUnitId, number: resolved.invoiceNo });
+    if (duplicates.length) throw Object.assign(new Error("该发票已登记，不能重复累计，请查看原发票"), { existingInvoiceId: text(duplicates[0].id) });
   }
   if (plannedAllocation) {
     await lockInvoiceAllocationSources(connection,plannedAllocation,{instanceCode:approvalReturn?.instanceCode});
@@ -1011,7 +1019,7 @@ export async function saveInvoice(input: InvoiceDraftInput, actor: InvoiceActor 
     const sourceRows = await queryRowsInTransaction(connection, `SELECT ${target[1]} FROM ${target[0]} WHERE ${target[1]} = :id FOR UPDATE`, { id: sourceIdValue });
     if (!sourceRows.length) throw new Error("来源单据已删除");
     const duplicate = await queryRowsInTransaction(connection, `SELECT id FROM ${INVOICE_TABLE} WHERE sourceType = :type AND sourceId = :id AND status = 'issued' LIMIT 1 FOR UPDATE`, { type: sourceTypeValue, id: sourceIdValue });
-    if (duplicate.length) throw new Error("该来源已开票，请刷新后核对");
+    if (duplicate.length && !isStatementInvoiceSource(sourceTypeValue)) throw new Error("该来源已开票，请刷新后核对");
   }
   await executeRaw(
     `INSERT INTO ${INVOICE_TABLE}
@@ -1246,15 +1254,18 @@ export async function attachInvoiceFileToSource(params: {
     await executeRaw(`UPDATE ${INVOICE_TABLE} SET sourceAttachmentId = :attachmentId WHERE id = :invoiceId`, { attachmentId, invoiceId });
     return attachmentId;
   }
-  if (sourceType === "service_fee") {
+  if (isStatementInvoiceSource(sourceType)) {
+    const ownerType = sourceType === "service_fee" ? "service_fee_invoice" : "invoice";
+    const stableId = statementInvoiceAttachmentId(sourceType, invoiceId, sourceId);
     const existing = await queryRowsRaw<Row>(
       `SELECT id FROM merge_cloud_attachments
-        WHERE ownerType = 'service_fee_invoice' AND ownerId = :ownerId AND fileName = :fileName LIMIT 1`,
-      { ownerId: sourceId, fileName: params.fileName },
+        WHERE ownerType = :ownerType AND ownerId = :ownerId AND id = :id LIMIT 1`,
+      { ownerId: sourceId, ownerType, id: stableId },
     );
-    const attachmentId = text(existing[0]?.id) || randomUUID();
+    const attachmentId = stableId;
     const common = {
       id: attachmentId,
+      ownerType,
       ownerId: sourceId,
       fileName: params.fileName,
       fileType: params.fileType,
@@ -1266,7 +1277,7 @@ export async function attachInvoiceFileToSource(params: {
     if (existing.length) {
       await executeRaw(
         `UPDATE merge_cloud_attachments
-            SET fileType = :fileType, fileSize = :fileSize, dataUrl = :dataUrl,
+            SET fileName = :fileName, fileType = :fileType, fileSize = :fileSize, dataUrl = :dataUrl,
                 storageProvider = :storageProvider, storageKey = :storageKey, updatedAt = NOW()
           WHERE id = :id`,
         common,
@@ -1275,7 +1286,7 @@ export async function attachInvoiceFileToSource(params: {
       await executeRaw(
         `INSERT INTO merge_cloud_attachments
            (id, ownerType, ownerId, fileName, fileType, fileSize, dataUrl, storageProvider, storageKey, uploadedByUserId, uploadedByName)
-         VALUES (:id, 'service_fee_invoice', :ownerId, :fileName, :fileType, :fileSize, :dataUrl, :storageProvider, :storageKey, :actorId, :actorName)`,
+         VALUES (:id, :ownerType, :ownerId, :fileName, :fileType, :fileSize, :dataUrl, :storageProvider, :storageKey, :actorId, :actorName)`,
         { ...common, actorId: text(params.actor.userId) || null, actorName: text(params.actor.name) || "开票功能" },
       );
     }
@@ -1292,41 +1303,7 @@ export async function attachInvoiceFileToSource(params: {
     await executeRaw(`UPDATE ${INVOICE_TABLE} SET sourceAttachmentId = :attachmentId WHERE id = :invoiceId`, { attachmentId, invoiceId });
     return attachmentId;
   }
-  if (sourceType !== "cloud_row") return "";
-  const existing = await queryRowsRaw<Row>(
-    `SELECT id FROM merge_cloud_attachments
-      WHERE ownerType = 'invoice' AND ownerId = :ownerId AND fileName = :fileName LIMIT 1`,
-    { ownerId: sourceId, fileName: params.fileName },
-  );
-  const attachmentId = text(existing[0]?.id) || randomUUID();
-  const common = {
-    id: attachmentId,
-    ownerId: sourceId,
-    fileName: params.fileName,
-    fileType: params.fileType,
-    fileSize: params.fileSize,
-    dataUrl: params.dataUrl,
-    storageProvider: params.provider,
-    storageKey: params.storageKey,
-  };
-  if (existing.length) {
-    await executeRaw(
-      `UPDATE merge_cloud_attachments
-          SET fileType = :fileType, fileSize = :fileSize, dataUrl = :dataUrl,
-              storageProvider = :storageProvider, storageKey = :storageKey, updatedAt = NOW()
-        WHERE id = :id`,
-      common,
-    );
-  } else {
-    await executeRaw(
-      `INSERT INTO merge_cloud_attachments
-         (id, ownerType, ownerId, fileName, fileType, fileSize, dataUrl, storageProvider, storageKey, uploadedByUserId, uploadedByName)
-       VALUES (:id, 'invoice', :ownerId, :fileName, :fileType, :fileSize, :dataUrl, :storageProvider, :storageKey, :actorId, :actorName)`,
-      { ...common, actorId: text(params.actor.userId) || null, actorName: text(params.actor.name) || "开票功能" },
-    );
-  }
-  await executeRaw(`UPDATE ${INVOICE_TABLE} SET sourceAttachmentId = :attachmentId WHERE id = :invoiceId`, { attachmentId, invoiceId });
-  return attachmentId;
+  return "";
 }
 
 /**
@@ -1394,6 +1371,11 @@ export async function backfillInvoiceSourceFields(params: {
   const queryRowsRaw = <T extends Row>(sql: string, values: Row = {}) => connection ? queryRowsInTransaction<T>(connection, sql, values) : queryOutsideTransaction<T>(sql, values);
   const { sourceType, sourceId } = params;
   if (!sourceId) return;
+  if (isStatementInvoiceSource(sourceType) && params.invoiceId) {
+    if (connection) await refreshStatementInvoiceSummary(sourceType, sourceId, connection);
+    else await withTransaction(tx => refreshStatementInvoiceSummary(sourceType, sourceId, tx));
+    return;
+  }
   const invoiceNo = text(params.invoiceNo) || null;
   const currency = text(params.currency) || null;
   const net = text(params.amountExcludingTax) || null;
@@ -1594,33 +1576,27 @@ export async function voidInvoice(id: string, reason: string, actor: InvoiceActo
   const row = current[0];
   if (!row) throw new Error("开票记录不存在");
   if (text(row.status) === "void") throw new Error("这张发票已经作废了");
-  const allocations = await queryRowsRaw<Row>(
-    `SELECT sourceType, sourceId FROM merge_common_invoice_allocations WHERE invoiceId = :id`, { id },
-  );
-  if (allocations.length && ["cloud_row", "service_fee"].includes(text(row.sourceType))) {
-    // 合并票的状态、全部月份和附件引用必须一起提交或一起回滚。
+  if (isStatementInvoiceSource(text(row.sourceType))) {
+    const sourceType = text(row.sourceType) as "cloud_row" | "service_fee";
     await withTransaction(async connection => {
-      const [invoice] = await queryRowsInTransaction<Row>(connection, `SELECT * FROM ${INVOICE_TABLE} WHERE id=:id FOR UPDATE`, {id});
-      if (!invoice || invoice.status === "void") throw new Error("发票状态已变化，请刷新后核对");
-      const currentAllocations = await queryRowsInTransaction<Row>(connection,
-        "SELECT sourceType, sourceId FROM merge_common_invoice_allocations WHERE invoiceId=:id ORDER BY sourceId FOR UPDATE", {id});
-      const sourceType = text(invoice.sourceType);
-      const ids = [...new Set([text(invoice.sourceId), ...currentAllocations.map(item=>text(item.sourceId))])].filter(Boolean).sort();
-      for (const sourceId of ids) {
-        await backfillRevert(sourceType, sourceId, text(invoice.invoiceNo), connection);
-        await executeInTransaction(connection, `DELETE FROM merge_cloud_attachments
-          WHERE ownerType=:ownerType AND ownerId=:sourceId AND fileName=:fileName
-            AND COALESCE(storageKey,'')=COALESCE(:storageKey,'')`, {
-          ownerType: sourceType === "cloud_row" ? "invoice" : "service_fee_invoice", sourceId,
-          fileName: text(invoice.fileName), storageKey: text(invoice.storageKey),
-        });
-      }
+      const [invoice] = await queryRowsInTransaction<Row>(connection, `SELECT * FROM ${INVOICE_TABLE} WHERE id=:id FOR UPDATE`, { id });
+      if (!invoice || invoice.status !== "issued") throw new Error("发票状态已变化，请刷新后核对");
+      const allocations = await queryRowsInTransaction<Row>(connection, "SELECT sourceId FROM merge_common_invoice_allocations WHERE invoiceId=:id FOR UPDATE", { id });
+      const ids = [...new Set([text(invoice.sourceId), ...allocations.map(item => text(item.sourceId))])].filter(Boolean).sort();
+      for (const sourceId of ids) await queryRowsInTransaction(connection, sourceType === "cloud_row" ? "SELECT id FROM merge_cloud_rows WHERE id=:sourceId FOR UPDATE" : "SELECT snapshotNo FROM merge_power_servicefeesnapshots WHERE snapshotNo=:sourceId FOR UPDATE", { sourceId });
       await executeInTransaction(connection, `UPDATE ${INVOICE_TABLE} SET status='void',voidedAt=NOW(),voidReason=:reason,
         sourceAttachmentId=NULL,updatedByUserId=:actorId,updatedByName=:actorName WHERE id=:id`,
-        {id,reason:text(reason)||null,actorId:text(actor.userId)||null,actorName:text(actor.name)||null});
+        { id, reason: text(reason) || null, actorId: text(actor.userId) || null, actorName: text(actor.name) || null });
+      for (const sourceId of ids) {
+        await refreshStatementInvoiceSummary(sourceType, sourceId, connection);
+        await removeStatementInvoiceAttachment(sourceType, invoice, sourceId, connection);
+      }
     });
     return getInvoice(id);
   }
+  const allocations = await queryRowsRaw<Row>(
+    `SELECT sourceType, sourceId FROM merge_common_invoice_allocations WHERE invoiceId = :id`, { id },
+  );
 
   await executeRaw(
     `UPDATE ${INVOICE_TABLE} SET status = 'void', voidedAt = NOW(), voidReason = :reason,

@@ -15,6 +15,12 @@ const rows=periods.map((period,index)=>({id:`row${index}`,snapshotNo:`row${index
 const sources:InvoiceAllocationSource[]=rows.map(row=>({sourceType:"cloud_row",sourceId:row.id,sourceNo:`${row.period} · ${row.account}`,period:row.period,customerId:"business-A",customerName:"Customer A",undertakingUnitId:"business-unit",account:row.account,sourceCurrency:"USD",sourceNet:"100.00",sourceTax:"0.00",sourceTotal:"100.00",sourceTaxRate:"0",suggestedRate:"7"}));
 function plan(type:"cloud_row"|"service_fee"="cloud_row"){const result=suggestInvoiceAllocations(sources.map(row=>({...row,sourceType:type})),"CNY");result.lineMode="summary";result.summaryCompatible=true;return result;}
 function query(sql:string,values:Record<string,unknown>={}){
+  if (sql.includes("COALESCE(a.sourceId, i.sourceId)")) {
+    const invoice = mock.writes.find(row => row.sql.includes("INSERT INTO merge_common_invoices"))?.values;
+    if (!invoice) return [];
+    return mock.writes.filter(row => row.sql.includes("INSERT INTO merge_common_invoice_allocations") && (values.ids as string[]).includes(String(row.values.sourceId)))
+      .map(row => ({ ...invoice, ...row.values, id: invoice.id }));
+  }
   if(sql.includes("FROM merge_cloud_rows")||sql.includes("FROM merge_power_servicefeesnapshots"))return rows.filter(row=>values.id?row.id===values.id:Array.isArray(values.ids)?values.ids.includes(row.id):true);
   if(sql.includes("FROM merge_common_customers WHERE"))return [{name:"Actual invoice buyer B"}];
   if(sql.includes("FROM merge_common_undertaking_units WHERE"))return [{name:"Invoice issuing unit"}];
@@ -60,11 +66,11 @@ describe("multi-period persistence",()=>{
     mock.query.mockImplementation(async(sql,values)=>sql.includes("FROM merge_cloud_rows")?query(sql,values).map((row,i)=>({...row,businessCustomerId:i?"business-A":"foreign"})):[]);
     await expect(prepareInvoiceAllocationPlan(p,allocationTotals(p.allocations))).rejects.toThrow("同一业务客户");
   });
-  it("rejects a competing invoice or approval on any month",async()=>{
+  it("blocks an unfinished approval but permits another invoice on the same month",async()=>{
     const p=plan();mock.query.mockImplementation(async(sql,values)=>sql.includes("FROM merge_common_feishu_approvals")?[{instanceCode:"other",ownerId:"row5",serialNumber:"APP-OTHER"}]:query(sql,values));
     await expect(prepareInvoiceAllocationPlan(p,allocationTotals(p.allocations))).rejects.toThrow("APP-OTHER");
     mock.queryTx.mockImplementation(async(sql,values)=>sql.includes("FROM merge_common_invoices i")?[{id:"other",invoiceNo:"EXISTING",allocationSourceId:"row5"}]:query(sql,values));
-    await expect(lockInvoiceAllocationSources({} as never,p)).rejects.toThrow("EXISTING");
+    await expect(lockInvoiceAllocationSources({} as never,p)).resolves.toBeUndefined();
   });
   it("preserves approved source values but still validates reviewed allocations",async()=>{
     const p=plan();p.allocations[0].sourceTotal="95.00";
@@ -81,7 +87,11 @@ describe("multi-period persistence",()=>{
     const previous=plan(sourceType);
     const invoice={id:"invoice",invoiceNo:"ORIGINAL",source:"external",status:"issued",sourceType,sourceId:"row0",currency:"CNY",
       invoiceDate:new Date(2026,5,1),dueDate:new Date(2026,6,1),fileName:"original.pdf",fileType:"application/pdf",fileSize:10,fileProvider:"db",fileContent:"data:application/pdf;base64,YQ==",...allocationTotals(previous.allocations),allocationPlanJson:JSON.stringify(previous)};
-    const respond=(sql:string,values:Record<string,unknown>)=>sql.includes("SELECT * FROM merge_common_invoices")?[invoice]:sql.includes("FROM merge_common_invoice_allocations")?previous.allocations:query(sql,values);
+    const respond=(sql:string,values:Record<string,unknown>)=>sql.includes("COALESCE(a.sourceId, i.sourceId)")
+      ? (mock.writes.some(row => row.sql.includes("DELETE FROM merge_common_invoice_allocations"))
+        ? mock.writes.filter(row => row.sql.includes("INSERT INTO merge_common_invoice_allocations")).map(row => row.values) : previous.allocations)
+          .filter(row => (values.ids as string[]).includes(String(row.sourceId))).map(row => ({ ...invoice, ...row, id: invoice.id }))
+      : sql.includes("SELECT * FROM merge_common_invoices")?[invoice]:sql.includes("FROM merge_common_invoice_allocations")?previous.allocations:query(sql,values);
     mock.query.mockImplementation(async(sql,values)=>respond(sql,values));mock.queryTx.mockImplementation(async(sql,values)=>respond(sql,values));
     const edit=await readInvoiceAllocationEdit("invoice");
     const next={...previous,allocations:previous.allocations.slice(0,5).map(row=>({...row,amountExcludingTax:"840.00",amountIncludingTax:"840.00"}))};
@@ -89,18 +99,20 @@ describe("multi-period persistence",()=>{
     expect(mock.committed).toBe(true);
     const backfills=mock.writes.filter(row=>row.sql.includes(sourceType==="cloud_row"?"UPDATE merge_cloud_rows":"UPDATE merge_power_servicefeesnapshots")&&row.values.total);
     expect(backfills).toHaveLength(5);expect(backfills.every(row=>row.values.total==="840.00"&&row.values.invoiceDate==="2026-06-01")).toBe(true);
-    const removal=mock.writes.find(row=>row.sql.includes("invoiceNo=NULL")&&row.values.sourceId==="row5");expect(removal?.sql).toContain("AND invoiceNo=:invoiceNo");
+    const removal=mock.writes.find(row=>row.sql.includes(sourceType === "service_fee" ? "UPDATE merge_power_servicefeesnapshots" : "UPDATE merge_cloud_rows")&&row.values.sourceId==="row5");
+    expect(removal?.values).toMatchObject({ invoiceNo: null, total: null, [sourceType === "service_fee" ? "invoiceStatus" : "collectionInvoice"]: sourceType === "service_fee" ? "未开票" : "not_issued" });
     expect(mock.writes.some(row=>row.sql.startsWith("INSERT INTO merge_common_invoices"))).toBe(false);
     expect(mock.writes.filter(row=>row.sql.startsWith("UPDATE merge_common_invoices")).every(row=>!row.sql.includes("amountIncludingTax=")&&!row.sql.includes("fileContent="))).toBe(true);
   });
   it.each(["cloud_row","service_fee"] as const)("voids all six %s allocations and unlinks the correct attachments atomically",async sourceType=>{
     const p=plan(sourceType);const invoice={id:"invoice",invoiceNo:"VOID-SIX",sourceType,sourceId:"row0",status:"issued",fileName:"six.pdf",storageKey:"invoice/six.pdf"};
-    const respond=(sql:string,values:Record<string,unknown>)=>sql.includes("FROM merge_common_invoices")?[invoice]:sql.includes("FROM merge_common_invoice_allocations")?p.allocations:query(sql,values);
+    const respond=(sql:string,values:Record<string,unknown>)=>sql.includes("COALESCE(a.sourceId, i.sourceId)")?[]:sql.includes("FROM merge_common_invoices")?[invoice]:sql.includes("FROM merge_common_invoice_allocations")?p.allocations:query(sql,values);
     mock.query.mockImplementation(async(sql,values)=>respond(sql,values));mock.queryTx.mockImplementation(async(sql,values)=>respond(sql,values));
     await voidInvoice("invoice","test");expect(mock.committed).toBe(true);
     const deletes=mock.writes.filter(row=>row.sql.includes("DELETE FROM merge_cloud_attachments"));expect(deletes).toHaveLength(6);
-    expect(deletes.every(row=>row.values.ownerType===(sourceType==="cloud_row"?"invoice":"service_fee_invoice")&&row.values.storageKey==="invoice/six.pdf")).toBe(true);
-    const clears=mock.writes.filter(row=>row.sql.includes("invoiceNo = NULL"));expect(clears).toHaveLength(6);expect(clears.every(row=>row.sql.includes("AND invoiceNo = :invoiceNo"))).toBe(true);
+    expect(deletes.every(row=>row.values.ownerType===(sourceType === "service_fee" ? "service_fee_invoice" : "invoice")&&row.values.storageKey==="invoice/six.pdf")).toBe(true);
+    const clears=mock.writes.filter(row=>row.sql.includes(sourceType === "service_fee" ? "UPDATE merge_power_servicefeesnapshots" : "UPDATE merge_cloud_rows"));
+    expect(clears).toHaveLength(6);expect(clears.every(row => row.values.total === null && row.values.invoiceNo === null)).toBe(true);
     expect(mock.writes.some(row=>row.sql.includes("fileContent = NULL"))).toBe(false);
   });
   it("rolls back a combined void when any month fails",async()=>{

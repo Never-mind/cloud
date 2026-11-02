@@ -2,7 +2,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const db = vi.hoisted(() => ({ query: vi.fn(), execute: vi.fn(), transactional: vi.fn(), queryTransaction: vi.fn(), writes: [] as Array<{ sql: string; values: Record<string, unknown> }>, committed: false, rolledBack: false }));
 vi.mock("./db", () => ({
   queryRowsRaw: db.query, executeRaw: db.execute,
-  queryRowsInTransaction: (_connection: unknown, sql: string, values: Record<string, unknown>) => db.queryTransaction(sql, values),
+  queryRowsInTransaction: (_connection: unknown, sql: string, values: Record<string, unknown>) => sql.includes("COALESCE(a.sourceId, i.sourceId)")
+    ? db.writes.filter(item => item.sql.includes("INSERT INTO merge_common_invoices")).map(item => item.values)
+    : db.queryTransaction(sql, values),
   executeInTransaction: (_connection: unknown, sql: string, values: Record<string, unknown>) => db.transactional(sql, values),
   withTransaction: async (callback: (connection: object) => Promise<void>) => { try { await callback({}); db.committed = true; } catch (error) { db.rolledBack = true; throw error; } },
 }));
@@ -58,20 +60,20 @@ describe("external invoice persistence", () => {
     expect(source?.values).toMatchObject({ currency: "CNY", net: "700.00", taxAmount: "42.00", total: "742.00" });
     expect(source?.sql).not.toContain("customerReceivable");
     expect(source?.sql).not.toContain("collectionCurrency =");
-    expect(source?.sql).toContain("THEN COALESCE(:exchangeRate, invoiceExchangeRate) ELSE :exchangeRate END");
+    expect(source?.values.exchangeRate).toBeNull();
   });
   it("uses the approved allocation set even when the chronological primary row differs", async () => {
     const rows = [
       { id: "row-1", period: "202610", customerReceivableNetAmount: "100", customerReceivableTotalAmount: "112.99", invoiceCurrency: "CNY" },
       { id: "row-2", period: "202609", customerReceivableNetAmount: "100", customerReceivableTotalAmount: "113", invoiceCurrency: "CNY" },
     ];
-    db.query.mockImplementation(async (sql: string, values: Record<string, unknown>) => sql.includes("FROM merge_cloud_rows") ? rows.filter(row => row.id === values.id)
+    db.query.mockImplementation(async (sql: string, values: Record<string, unknown>) => sql.includes("FROM merge_cloud_rows") ? rows.filter(row => row.id === (values.id || values.sourceId))
       : sql.includes("FROM merge_common_customers WHERE") ? [{ name: "Customer" }]
       : sql.includes("FROM merge_common_undertaking_units WHERE") ? [{ name: "Unit" }] : []);
     db.queryTransaction.mockImplementation(async (sql: string, values: Record<string, unknown>) => {
       if (sql.includes("FROM merge_common_feishu_approvals")) return [{ status: "approved", ownerType: "cloud_row", ownerId: "row-1", allocationSourceIds: "row-1,row-2" }];
       if (sql.includes("FROM merge_common_invoice_approval_files")) return [{ id: "file-1" }];
-      return sql.includes("FROM merge_cloud_rows") ? rows.filter(row => row.id === values.id) : [];
+      return sql.includes("FROM merge_cloud_rows") ? rows.filter(row => row.id === (values.id || values.sourceId)) : [];
     });
     await saveInvoice({ ...input, amountExcludingTax: "200", taxRate: "12.995", taxAmount: "25.99", amountIncludingTax: "225.99", allocationSourceIds: ["row-1", "row-2"] }, {}, { fileId: "file-1", instanceCode: "instance", relatedFileIds: ["file-1"] });
     expect(db.committed).toBe(true);
@@ -145,10 +147,10 @@ describe("external invoice persistence", () => {
     const invoice = db.writes.find(item => item.sql.includes("INSERT INTO merge_common_invoices"));
     expect(invoice?.values).toMatchObject({ undertakingUnitId: "unit-1", sellerName: "Registered Unit", customerId: "customer-1" });
   });
-  it("rejects repeated source and unallocated external multi-period invoices", async () => {
+  it("rejects a duplicate invoice and unallocated external multi-period invoices", async () => {
     await expect(saveInvoice({ ...input, allocationSourceIds: ["a", "b"] })).rejects.toThrow("分摊");
     db.queryTransaction.mockImplementation(async () => [{ id: "already-issued" }]);
-    await expect(saveInvoice(input)).rejects.toThrow("已开票");
+    await expect(saveInvoice(input)).rejects.toThrow("已登记");
     expect(db.writes).toHaveLength(0);
   });
   it("keeps service-fee invoice and receivable dates independent", async () => {
@@ -172,6 +174,8 @@ describe("external invoice persistence", () => {
     expect(db.writes).toHaveLength(0);
   });
   it.each(["service_fee", "settlement_invoice"])("unlinks the %s attachment when voided while retaining the invoice file", async sourceType => {
+    db.queryTransaction.mockImplementation(async (sql: string) => sql.includes("SELECT * FROM merge_common_invoices")
+      ? [{ id: "invoice-1", invoiceNo: "TEST", sourceType, sourceId: "source-1", status: "issued", sourceAttachmentId: "attachment-1" }] : []);
     db.query.mockImplementation(async (sql: string) => {
       if (sql.includes("SELECT id, invoiceNo, status")) return [{ id: "invoice-1", invoiceNo: "TEST", sourceType, sourceId: "source-1", status: "issued" }];
       if (sql.includes("SELECT sourceAttachmentId")) return [{ sourceAttachmentId: "attachment-1" }];
@@ -180,7 +184,7 @@ describe("external invoice persistence", () => {
     await voidInvoice("invoice-1", "test");
     const attachment = db.writes.find(item => item.sql.startsWith("DELETE FROM"));
     expect(attachment?.sql).toContain(sourceType === "service_fee" ? "merge_cloud_attachments" : "merge_po_settlement_attachments");
-    expect(attachment?.values).toMatchObject({ attachmentId: "attachment-1", sourceId: "source-1" });
+    expect(attachment?.values).toMatchObject({ [sourceType === "service_fee" ? "legacyId" : "attachmentId"]: "attachment-1", sourceId: "source-1" });
     expect(db.writes.some(item => item.sql.includes("fileContent = NULL"))).toBe(false);
   });
 });

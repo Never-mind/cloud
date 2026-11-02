@@ -27,7 +27,7 @@ export async function loadAllocationSources(sourceType: AllocationSourceType, id
     return { sourceType, sourceId: text(cloud ? row.id : row.snapshotNo), sourceNo: cloud ? `${period} · ${text(row.account)}` : text(row.snapshotNo), period,
       customerId: text(row.businessCustomerId), customerName: text(row.customerLabel), undertakingUnitId: text(cloud ? row.undertakingUnitId : row.defaultUndertakingUnitId), account: text(cloud ? row.account : row.countryCode),
       sourceCurrency: cloud ? "USD" : text(row.serviceFeeCurrency).toUpperCase() || "USD", sourceNet: money(net), sourceTax: money(Number(total)-Number(net)), sourceTotal: money(total), sourceTaxRate: percent(cloud ? row.customerTaxRate : row.vatRate),
-      disabledReason: text(row.invoiceNo) ? `已登记发票 ${text(row.invoiceNo)}` : ["issued", "已开票"].includes(text(cloud ? row.collectionInvoice : row.invoiceStatus)) ? "已标记开票，请先核对原登记" : Number(total) <= 0 ? "账单应收金额不大于零" : "" };
+      disabledReason: Number(total) <= 0 ? "账单应收金额不大于零" : "" };
   }).sort((a,b) => a.period.localeCompare(b.period) || a.sourceId.localeCompare(b.sourceId));
 }
 
@@ -37,14 +37,15 @@ async function occupancy(sourceType: AllocationSourceType, ids: string[], option
   const invoices = await query<Row>(`SELECT i.id,i.invoiceNo,i.sourceId AS primarySourceId,a.sourceId AS allocationSourceId
     FROM merge_common_invoices i LEFT JOIN merge_common_invoice_allocations a ON a.invoiceId=i.id
     WHERE i.status='issued' AND i.sourceType=:type AND (i.sourceId IN (:ids) OR a.sourceId IN (:ids))${connection?" FOR UPDATE":""}`, { type: sourceType, ids });
-  const approvals = await query<Row>(`SELECT instanceCode,ownerId,allocationSourceIds,serialNumber FROM merge_common_feishu_approvals
+  const approvals = await query<Row>(`SELECT instanceCode,ownerId,allocationSourceIds,serialNumber,status,invoiceId FROM merge_common_feishu_approvals
     WHERE ownerType=:type AND status IN ('pending','returned','approved') AND (ownerId IN (:ids) OR allocationSourceIds IS NOT NULL)${connection?" FOR UPDATE":""}`, { type: sourceType, ids });
   const blocked = new Map<string,string>(), owned = new Set<string>();
   for (const row of invoices) for (const id of [text(row.primarySourceId),text(row.allocationSourceId)].filter(id=>ids.includes(id))) {
-    if (text(row.id) === options.invoiceId) owned.add(id); else blocked.set(id, `已关联发票 ${text(row.invoiceNo)}`);
+    if (text(row.id) === options.invoiceId) owned.add(id);
   }
   for (const row of approvals) {
     if (text(row.instanceCode) === options.instanceCode) continue;
+    if (row.status === "approved" && row.invoiceId) continue;
     for (const id of [text(row.ownerId), ...text(row.allocationSourceIds).split(",")].filter(id=>ids.includes(id))) blocked.set(id, `已有生效审批 ${text(row.serialNumber)||text(row.instanceCode)}`);
   }
   return { blocked, owned };

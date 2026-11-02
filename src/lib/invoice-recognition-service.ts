@@ -7,6 +7,7 @@ import { parseCfdiInvoiceText } from "./cfdi-pdf-parser";
 import { parseCfdiInvoice } from "./cfdi-invoice-parser";
 import { isDazhuangCommercialInvoiceText, parseDazhuangCommercialInvoiceText } from "./commercial-invoice-parser";
 import { isSingaporeInvoiceText, parseSingaporeInvoiceText } from "./sg-invoice-parser";
+import { isChileInvoiceText, parseChileInvoicePages, type ChileInvoice } from "./chile-invoice-parser";
 import { extractOfdPages } from "./ofd-text-extract";
 import { parseChinaEinvoiceXml } from "./china-einvoice-xml-parser";
 import type { ChinaVatInvoice } from "./china-vat-invoice-parser";
@@ -21,7 +22,7 @@ import { defaultInvoicePaymentTermDays } from "./invoice-payment-terms";
  *   - 票面里没有的字段（记账日期、实收日期）留空，不猜值。
  *
  * 支持：中国增值税电子发票、数电票 XML、墨西哥 CFDI（XML / PDF）、
- * 新加坡 GST 商业发票、达创普通商业发票、香港万众商业发票（PDF / Excel，按约定无税规则）。
+ * 智利电子发票（PDF）、新加坡 GST 商业发票、达创普通商业发票、香港万众商业发票（PDF / Excel，按约定无税规则）。
  * 扫描件、拍照件没有文字层，本期不处理（后续接 OCR）。
  */
 
@@ -208,6 +209,7 @@ export async function recognizeInvoiceFile(params: {
   let kind = "";
   let exact = false;
   let hkwz: HkwzInvoice | undefined;
+  let chile: ChileInvoice | undefined;
   let parsed: {
     fullNumber: string; uuid: string; invoiceDate: string;
     issuerName: string; issuerTaxNumber: string; receiverName: string; receiverTaxNumber: string;
@@ -322,6 +324,19 @@ export async function recognizeInvoiceFile(params: {
         taxRate: commercial.taxRate,
       };
       warnings.push("该商业发票票面未列明未税金额、税率和税金，请人工确认后补充");
+    } else if (isChileInvoiceText(content)) {
+      chile = parseChileInvoicePages(pages);
+      source = "智利电子发票 PDF";
+      kind = `FACTURA ELECTRONICA · IVA ${chile.taxRate}%`;
+      exact = true;
+      parsed = {
+        fullNumber: chile.invoiceNo, uuid: "", invoiceDate: chile.invoiceDate,
+        issuerName: chile.issuerName, issuerTaxNumber: chile.issuerTaxNumber,
+        receiverName: chile.receiverName, receiverTaxNumber: chile.receiverTaxNumber,
+        currency: chile.currency, exchangeRate: chile.exchangeRate,
+        amountExcludingTax: chile.amountExcludingTax, taxAmount: chile.taxAmount,
+        totalIncludingTax: chile.totalIncludingTax, taxRate: chile.taxRate,
+      };
     } else if (isCfdi) {
       const cfdi = parseCfdiInvoiceText(content);
       source = "墨西哥 CFDI PDF";
@@ -431,6 +446,7 @@ export async function recognizeInvoiceFile(params: {
   return {
     source, kind, exact, fields, form, warnings,
     ...(hkwz ? { partyFields: hkwz.partyFields, lines: hkwz.lines, taxTreatment: "template_no_tax" as const } : {}),
+    ...(chile ? { partyFields: chile.partyFields } : {}),
     facts: {
       issuerName: parsed.issuerName, issuerTaxNumber: parsed.issuerTaxNumber,
       receiverName: parsed.receiverName, receiverTaxNumber: parsed.receiverTaxNumber,
@@ -438,6 +454,7 @@ export async function recognizeInvoiceFile(params: {
       exchangeRate: parsed.exchangeRate, amountExcludingTax: money(parsed.amountExcludingTax),
       taxRate: money(parsed.taxRate), taxAmount: money(parsed.taxAmount), amountIncludingTax: money(parsed.totalIncludingTax), taxUuid: parsed.uuid,
       ...(hkwz ? { dueDate: hkwz.dueDate, paymentTermDays: hkwz.paymentTermDays, servicePeriod: hkwz.servicePeriod, comment: hkwz.comment } : {}),
+      ...(chile ? { comment: chile.comment } : {}),
     },
     matches: {
       issuerUnitId: issuerMatch.entity?.id ?? "", receiverUnitId: receiverMatch.entity?.id ?? "",

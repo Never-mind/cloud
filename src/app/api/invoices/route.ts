@@ -5,6 +5,7 @@ import { getOperationActor } from "@/lib/operation-actor";
 import { hasPermission } from "@/lib/permission-definitions";
 import { getPermissionStateForEmail } from "@/lib/permission-service";
 import { listInvoices, saveInvoice, type InvoiceDraftInput, type InvoiceLinePayload } from "@/lib/invoice-service";
+import { isStatementInvoiceSource, statementInvoiceEntries } from "@/lib/statement-invoice-ledger";
 
 /** 发票台账：GET 列表；POST 新建（系统生成票面 / 外部发票登记）。 */
 
@@ -19,6 +20,10 @@ export async function GET(request: NextRequest) {
   try {
     await requireInvoiceAccess(request, "view");
     const params = request.nextUrl.searchParams;
+    const sourceType = params.get("sourceType") || "";
+    if (isStatementInvoiceSource(sourceType) && params.get("sourceId")) {
+      return NextResponse.json({ rows: await statementInvoiceEntries(sourceType, [params.get("sourceId")!]) });
+    }
     const result = await listInvoices({
       keyword: params.get("keyword") ?? "",
       period: params.get("period") ?? "",

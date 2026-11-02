@@ -40,6 +40,21 @@ function workbook() {
 }
 
 describe("confirmed cloud statement financial maintenance", () => {
+  it("protects multi-invoice totals while leaving receipt information editable", async () => {
+    db.query.mockImplementation(async (sql: string) => sql.includes("COALESCE(a.sourceId, i.sourceId)")
+      ? [{ id: "a", sourceId: row.id }, { id: "b", sourceId: row.id }]
+      : /FROM merge_cloud_rows WHERE/.test(sql) ? [{ ...row }] : []);
+    await expect(updateCloudRow("confirmed-row", { invoiceTotalAmount: 123 }, null)).rejects.toThrow("多张发票");
+    expect(db.execute).not.toHaveBeenCalled();
+    await updateCloudRow("confirmed-row", { collectionTotalAmount: 123 }, null);
+    expect(db.execute).toHaveBeenCalled();
+  });
+  it("requires valid invoices to be voided before marking the statement uninvoiced", async () => {
+    db.query.mockImplementation(async (sql: string) => sql.includes("COALESCE(a.sourceId, i.sourceId)")
+      ? [{ id: "a", sourceId: row.id }] : /FROM merge_cloud_rows WHERE/.test(sql) ? [{ ...row }] : []);
+    await expect(updateCloudRow("confirmed-row", { collectionInvoice: "not_issued" }, null)).rejects.toThrow("有效发票");
+    expect(db.execute).not.toHaveBeenCalled();
+  });
   it("saves invoice edits and recalculates invoice tax without changing the confirmed bill", async () => {
     const result = await updateCloudRow("confirmed-row", {
       invoiceNo: "INV-NEW", invoiceNetAmount: 200, invoiceCurrency: "CNY", invoiceExchangeRate: 7.1,
