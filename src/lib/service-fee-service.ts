@@ -1,3 +1,4 @@
+import { normalizeBankSerialNo } from "./bank-serial-no";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -1008,11 +1009,11 @@ export async function listServiceFeeStatements(searchParams: URLSearchParams) {
     repaymentStatus: "repaymentStatus", repaymentCurrency: "repaymentCurrency", repaymentAmount: "repaymentAmount", repaymentAmountExcludingTax: "repaymentAmountExcludingTax", repaymentVatRate: "repaymentVatRate",
     invoiceNo: "invoiceNo", invoiceCurrency: "invoiceCurrency", invoiceAmountExcludingTax: "invoiceAmountExcludingTax", invoiceVatRate: "invoiceVatRate", invoiceAmountIncludingTax: "invoiceAmountIncludingTax",
     receivableDate: "receivableDate", invoiceDate: "invoiceDate",
-    invoiceStatus: "invoiceStatus", invoiceOriginalName: "invoiceOriginalName",
+    invoiceStatus: "invoiceStatus", invoiceOriginalName: "invoiceOriginalName", bankSerialNo: "bankSerialNo",
   };
   for (const [field, expression] of Object.entries(filterExpressions)) appendTableInFilter(whereParts, params, expression, field, searchParams, "serviceStatement");
   if (filters.keyword) {
-    whereParts.push("CONCAT_WS(' ', snapshotNo, countryCode, status, invoiceStatus, repaymentStatus, invoiceOriginalName) LIKE :keyword");
+    whereParts.push("CONCAT_WS(' ', snapshotNo, countryCode, status, invoiceStatus, repaymentStatus, invoiceOriginalName, bankSerialNo) LIKE :keyword");
     params.keyword = `%${filters.keyword}%`;
   }
   if (filters.writeOffMonth) {
@@ -1053,6 +1054,7 @@ export async function listServiceFeeStatements(searchParams: URLSearchParams) {
              repaymentAmountExcludingTax,
              repaymentVatRate,
              DATE_FORMAT(repaymentDate, '%Y-%m-%d') AS repaymentDate,
+             bankSerialNo,
              DATE_FORMAT(repaymentUpdatedAt, '%Y-%m-%d') AS repaymentUpdatedAt,
              invoiceNo,
              invoiceCurrency,
@@ -1123,7 +1125,7 @@ export async function listServiceFeeStatementFilterOptions(searchParams: URLSear
     repaymentStatus: "repaymentStatus", repaymentCurrency: "repaymentCurrency", repaymentAmount: "repaymentAmount", repaymentAmountExcludingTax: "repaymentAmountExcludingTax", repaymentVatRate: "repaymentVatRate",
     invoiceNo: "invoiceNo", invoiceCurrency: "invoiceCurrency", invoiceAmountExcludingTax: "invoiceAmountExcludingTax", invoiceVatRate: "invoiceVatRate", invoiceAmountIncludingTax: "invoiceAmountIncludingTax",
     receivableDate: "receivableDate", invoiceDate: "invoiceDate",
-    invoiceStatus: "invoiceStatus", invoiceOriginalName: "invoiceOriginalName",
+    invoiceStatus: "invoiceStatus", invoiceOriginalName: "invoiceOriginalName", bankSerialNo: "bankSerialNo",
   };
   const field = searchParams.get("field")?.trim() ?? "";
   const expression = expressions[field];
@@ -1228,14 +1230,15 @@ export async function updateServiceFeeRepayment(snapshotNo: string, input: Row) 
     if (repaymentVatRate !== null && repaymentVatRate < 0) throw new Error("回款税率不能小于 0");
     if (!repaymentDate) throw new Error("请选择回款日期");
   }
-  const existing = await queryRows<Row>("SELECT snapshotNo FROM servicefeesnapshots WHERE snapshotNo = :snapshotNo LIMIT 1", { snapshotNo });
+  const existing = await queryRows<Row>("SELECT snapshotNo, bankSerialNo FROM servicefeesnapshots WHERE snapshotNo = :snapshotNo LIMIT 1", { snapshotNo });
   if (!existing[0]) throw new Error("服务费对账单不存在");
+  const bankSerialNo = normalizeBankSerialNo(input.bankSerialNo === undefined ? existing[0].bankSerialNo : input.bankSerialNo);
   await execute(
     `UPDATE servicefeesnapshots
      SET repaymentStatus = :repaymentStatus, receivingUnitId = :receivingUnitId, payerCustomerId = :payerCustomerId,
          repaymentCurrency = :repaymentCurrency, repaymentAmount = :repaymentAmount,
          repaymentAmountExcludingTax = :repaymentAmountExcludingTax, repaymentVatRate = :repaymentVatRate,
-         repaymentDate = :repaymentDate,
+         repaymentDate = :repaymentDate, bankSerialNo = :bankSerialNo,
          repaymentUpdatedAt = CURRENT_TIMESTAMP
      WHERE snapshotNo = :snapshotNo`,
     {
@@ -1248,9 +1251,10 @@ export async function updateServiceFeeRepayment(snapshotNo: string, input: Row) 
       repaymentAmountExcludingTax,
       repaymentVatRate,
       repaymentDate: repaymentDate || null,
+      bankSerialNo,
     },
   );
-  return { snapshotNo, repaymentStatus, receivingUnitId, payerCustomerId, repaymentCurrency, repaymentAmount, repaymentAmountExcludingTax, repaymentVatRate, repaymentDate };
+  return { snapshotNo, repaymentStatus, receivingUnitId, payerCustomerId, repaymentCurrency, repaymentAmount, repaymentAmountExcludingTax, repaymentVatRate, repaymentDate, bankSerialNo };
 }
 
 export async function updateServiceFeeInvoiceInfo(snapshotNo: string, input: Row) {

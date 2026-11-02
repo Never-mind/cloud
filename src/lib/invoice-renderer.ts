@@ -7,7 +7,7 @@ import { trimTrailingEmptyColumns } from "./invoice-html-trim";
  *
  * 版式与 BI 的 `InvoiceRenderer.php` 一致（普通版 / SGD 双币版两份模板），
  * 逻辑是逐行对齐的移植，差别只有两处**刻意**的参数化：
- *   1. 票号前缀：模板原文写死 `INV No.CI-WZ_${num}`，我们改成 `INV No.${num}`，票号由系统按 `INV-<账期>-<流水>` 分配；
+ *   1. 票号前缀：模板原文写死 `INV No.CI-WZ_${num}`，我们改成 `INV No.${num}`，票号由系统按 `WZ-<账期>-<流水>` 分配；
  *   2. 联系电话：模板原文写死 BI 的 `0755-86561930`，改成 `${telephone}` 由承接单位档案带出。
  *
  * 移植时用 BI 自带的两份样例做过逐字比对（见 invoice-renderer.test.ts），改模板前请先看该测试。
@@ -27,7 +27,7 @@ export type InvoiceLineInput = {
 };
 
 export type InvoiceRenderInput = {
-  /** 完整票号，含前缀，例如 INV-202607-0001 */
+  /** 完整票号，含前缀，例如 WZ-202607-0001；历史票号按原值渲染。 */
   invoiceNo: string;
   invoiceDate: string;
   dueDate: string;

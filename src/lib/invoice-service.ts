@@ -17,7 +17,7 @@ import {
 
 /**
  * 开票服务：一张票有两种来源，落在同一条开票记录上。
- *   - source=generated：系统按档案 + 账单生成票面文件（票号 INV-<账期>-<流水>）；
+ *   - source=generated：系统按档案 + 账单生成票面文件（票号 WZ-<账期>-<流水>）；
  *   - source=external ：外部已经开好票，上传文件 + 登记票号金额。
  * 两者都会回填来源账单的开票信息，并把文件挂到该单据的开票附件位置。
  */
@@ -90,7 +90,7 @@ export type InvoiceDraftInput = {
 
 const INVOICE_TABLE = "merge_common_invoices";
 const INVOICE_ITEM_TABLE = "merge_common_invoice_items";
-const INVOICE_NO_PREFIX = "INV";
+const INVOICE_NO_PREFIX = "WZ";
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
 /** 国家中文名 → 票面用的英文名（票面是全英文的）。 */
@@ -238,16 +238,26 @@ export async function getInvoice(id: string) {
   return { ...rows[0], items, allocations } as Row & { items: Row[]; allocations: Row[] };
 }
 
-/** 票号分配：INV-<账期>-<4位流水>，同账期内递增；并发下靠唯一键兜底重试。 */
+/** 票号分配：WZ-<账期>-<4位流水>；接续同账期新旧前缀的最大流水，历史票号保持原样。 */
 export async function nextInvoiceNo(period: string) {
   const prefix = `${INVOICE_NO_PREFIX}-${period}-`;
+  const legacyPrefix = `INV-${period}-`;
   const rows = await queryRowsRaw<Row>(
-    `SELECT invoiceNo FROM ${INVOICE_TABLE} WHERE invoiceNo LIKE :prefix ORDER BY invoiceNo DESC LIMIT 1`,
-    { prefix: `${prefix}%` },
+    `SELECT invoiceNo FROM ${INVOICE_TABLE} WHERE invoiceNo LIKE :prefix OR invoiceNo LIKE :legacyPrefix`,
+    { prefix: `${prefix}%`, legacyPrefix: `${legacyPrefix}%` },
   );
-  const last = text(rows[0]?.invoiceNo).slice(prefix.length);
-  const next = Number.parseInt(last, 10);
-  return `${prefix}${String(Number.isFinite(next) ? next + 1 : 1).padStart(4, "0")}`;
+  let last = BigInt(0);
+  for (const row of rows) {
+    const invoiceNo = text(row.invoiceNo);
+    const matchedPrefix = [prefix, legacyPrefix].find(value => invoiceNo.startsWith(value));
+    if (!matchedPrefix) continue;
+    const suffix = invoiceNo.slice(matchedPrefix.length);
+    // 手工票号的非流水后缀不参与编号；按数值比较也能正确处理超过四位的流水。
+    if (!/^\d{4,}$/.test(suffix)) continue;
+    const sequence = BigInt(suffix);
+    if (sequence > last) last = sequence;
+  }
+  return `${prefix}${String(last + BigInt(1)).padStart(4, "0")}`;
 }
 
 type PartySnapshot = {

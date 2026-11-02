@@ -466,7 +466,7 @@ async function findCloudRowCandidates(period: string, customerId: string, custom
     `SELECT id, customer, customerId, invoiceNo, invoiceCurrency, invoiceNetAmount, invoiceTaxAmount, invoiceTotalAmount,
             invoiceDate, invoiceExchangeRate, collectionInvoice,
             COALESCE(customerReceivableTotalAmount, customerReceivableNetAmount, customerReceivable, 0) AS receivableAmount,
-            collected, collectionCurrency, collectionTotalAmount, collectionDate
+            collected, collectionCurrency, collectionTotalAmount, collectionDate, bankSerialNo
        FROM merge_cloud_rows
       WHERE period = :period AND (customerId = :customerId OR (COALESCE(customerId,'') = '' AND customer = :customerName))`,
     { period, customerId: customerId || "", customerName },
@@ -598,6 +598,12 @@ async function backfillReceipt(
     values.collectionTotalAmount = receipt.receiptAmount;
   } else if (receipt.receiptAmount !== null && !moneyEquals(target.collectionTotalAmount, receipt.receiptAmount)) {
     differences.push(`实收金额本地 ${text(target.collectionTotalAmount)} / CRM ${receipt.receiptAmount}`);
+  }
+  if (receipt.bankSerialNo && isBlank(target.bankSerialNo)) {
+    assignments.push("bankSerialNo = :bankSerialNo");
+    values.bankSerialNo = receipt.bankSerialNo;
+  } else if (receipt.bankSerialNo && text(target.bankSerialNo) !== receipt.bankSerialNo) {
+    differences.push("银行流水号与 CRM 不同，已保留本地填写值");
   }
   if (Number(target.collected) !== 1) assignments.push("collected = 1");
   // CRM 只给到账月份，没有具体到账日：本地为空时按当月首日预估，并在备注里说明。
@@ -2039,6 +2045,10 @@ export async function allocateReceiptToRows(options: {
       "collectionPayer = :customerName",
     ];
     const values: Row = { currency: currency || null, amount: shares[index], customerName: text(receipt.customerName) || null, rowId: row.rowId };
+    if (text(receipt.bankSerialNo)) {
+      assignments.push("bankSerialNo = COALESCE(NULLIF(TRIM(bankSerialNo), ''), :bankSerialNo)");
+      values.bankSerialNo = text(receipt.bankSerialNo);
+    }
     if (arrivalMonth) {
       // CRM 只给到账月份：本地为空时按当月首日预估，已有日期不覆盖
       assignments.push("collectionDate = COALESCE(collectionDate, :collectionDate)");
@@ -2072,12 +2082,13 @@ export async function clearReceiptAllocation(options: { crmReceiptId: unknown })
     "SELECT rowId, amount FROM merge_cloud_crm_receipt_allocations WHERE crmReceiptId = :id",
     { id: crmReceiptId },
   );
+  const [receipt] = await queryRowsRaw<Row>("SELECT bankSerialNo FROM merge_cloud_crm_receipts WHERE crmReceiptId = :id", { id: crmReceiptId });
   let cleared = 0;
   for (const allocation of allocations) {
     const result = await executeRaw(
-      `UPDATE merge_cloud_rows SET collectionCurrency = NULL, collectionTotalAmount = NULL, collectionDate = NULL, collected = 0
+      `UPDATE merge_cloud_rows SET bankSerialNo = CASE WHEN BINARY bankSerialNo = BINARY :bankSerialNo THEN NULL ELSE bankSerialNo END, collectionCurrency = NULL, collectionTotalAmount = NULL, collectionDate = NULL, collected = 0
         WHERE id = :rowId AND ABS(COALESCE(collectionTotalAmount, 0) - :amount) < 0.01`,
-      { rowId: text(allocation.rowId), amount: Number(allocation.amount ?? 0) },
+      { rowId: text(allocation.rowId), amount: Number(allocation.amount ?? 0), bankSerialNo: text(receipt?.bankSerialNo) || null },
     ) as { affectedRows?: number };
     if (Number(result?.affectedRows ?? 0) > 0) cleared += 1;
   }

@@ -40,6 +40,16 @@ function workbook() {
 }
 
 describe("confirmed cloud statement financial maintenance", () => {
+  it("saves and clears the bank reference without changing confirmed financial amounts", async () => {
+    await updateCloudRow("confirmed-row", pickCloudFinancialFields({ bankSerialNo: "  0001234567890123456789-a  " }, "collection"), null);
+    expect(row.bankSerialNo).toBe("0001234567890123456789-a");
+    expect(row.collectionTotalAmount).toBe(original.collectionTotalAmount);
+    expect(row.customerReceivableNetAmount).toBe(original.customerReceivableNetAmount);
+    await updateCloudRow("confirmed-row", { collected: 1 }, null);
+    expect(row.bankSerialNo).toBe("0001234567890123456789-a");
+    await updateCloudRow("confirmed-row", { bankSerialNo: "" }, null);
+    expect(row.bankSerialNo).toBeNull();
+  });
   it("protects multi-invoice totals while leaving receipt information editable", async () => {
     db.query.mockImplementation(async (sql: string) => sql.includes("COALESCE(a.sourceId, i.sourceId)")
       ? [{ id: "a", sourceId: row.id }, { id: "b", sourceId: row.id }]

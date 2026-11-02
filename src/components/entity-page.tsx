@@ -21,6 +21,7 @@ import {
   type ColumnVisibility,
 } from "@/lib/table-utils";
 import { PaginationBar } from "./pagination-bar";
+import { QuantitySummaryBar } from "./quantity-summary-bar";
 import { StickyTable } from "./sticky-table";
 import { TableColumnMenu, type TableFilterOption, type TableSortOrder } from "./table-column-menu";
 import { useRequestGuard } from "@/lib/table-query-client";
@@ -67,6 +68,7 @@ export function EntityPage({
   const searchParams = useSearchParams();
   const [rows, setRows] = useState<Row[]>([]);
   const [total, setTotal] = useState(0);
+  const [totalQuantity, setTotalQuantity] = useState(0);
   const [keyword, setKeyword] = useState(() => searchParams.get("keyword") ?? "");
   const [appliedKeyword, setAppliedKeyword] = useState(() => searchParams.get("keyword") ?? "");
   const [filterValues, setFilterValues] = useState<Record<string, string>>(() =>
@@ -222,12 +224,14 @@ export function EntityPage({
       if (!isCurrentRequest()) return;
       setRows(data.rows ?? []);
       setTotal(Number(data.total ?? 0));
+      setTotalQuantity(Number(data.totalQuantity ?? 0));
       if (Number(data.page ?? nextPage) !== nextPage) setPage(Number(data.page));
       if (Number(data.pageSize ?? nextPageSize) !== nextPageSize) setPageSize(Number(data.pageSize));
     } catch (error) {
       if (!isCurrentRequest()) return;
       setRows([]);
       setTotal(0);
+      setTotalQuantity(0);
       notify(error instanceof Error ? error.message : "数据加载失败", "info");
     } finally {
       if (isCurrentRequest()) setLoading(false);
@@ -1102,6 +1106,13 @@ export function EntityPage({
           </table>
         </StickyTable>
 
+        {config.key === "shipments" ? (
+          <QuantitySummaryBar
+            loading={loading}
+            pageQuantity={rows.reduce((sum, row) => sum + Number(row.quantity ?? 0), 0)}
+            totalQuantity={totalQuantity}
+          />
+        ) : null}
         <PaginationBar
           page={page}
           pageSize={pageSize}
@@ -1213,8 +1224,8 @@ export function EntityPage({
                         value="已回款"
                         defaultChecked={String(editing?.[field.key] ?? fixedValues[field.key] ?? "未回款") === "已回款"}
                       />
-                      <span className="relative inline-flex h-5 w-10 rounded-full bg-ink-4 transition-colors peer-checked:bg-success">
-                        <span className="absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform peer-checked:translate-x-[22px]" />
+                      <span className="relative inline-flex h-5 w-10 rounded-full bg-ink-4 transition-colors peer-checked:bg-success peer-checked:[&>span]:translate-x-5 peer-focus-visible:ring-2 peer-focus-visible:ring-primary/35 peer-focus-visible:ring-offset-2">
+                        <span className="absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform" />
                       </span>
                       <span className="peer-checked:hidden">未回款</span>
                       <span className="hidden peer-checked:inline">已回款</span>

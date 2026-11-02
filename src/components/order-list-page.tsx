@@ -19,6 +19,7 @@ import { DEFAULT_PAGE_SIZE } from "@/lib/pagination";
 import { buildDetailRoute, buildListRoute, getCurrentRoute, getPositiveNumber, useListScrollPosition } from "@/lib/client-list-navigation";
 import { fetchAllEntityRows } from "@/lib/client-entity-fetch";
 import { PaginationBar } from "./pagination-bar";
+import { QuantitySummaryBar } from "./quantity-summary-bar";
 import { StickyTable } from "./sticky-table";
 import { TableColumnMenu, type TableFilterOption, type TableSortOrder } from "./table-column-menu";
 import { useRequestGuard } from "@/lib/table-query-client";
@@ -37,6 +38,7 @@ type OrderListResponse = {
   page: number;
   pageSize: number;
   totalPages: number;
+  totalQuantity: number;
   statusCounts: { draft: number; confirmed: number };
 };
 
@@ -58,6 +60,7 @@ export function OrderListPage({
   const searchParams = useSearchParams();
   const [rows, setRows] = useState<Row[]>([]);
   const [total, setTotal] = useState(0);
+  const [totalQuantity, setTotalQuantity] = useState(0);
   const [statusCounts, setStatusCounts] = useState({ draft: 0, confirmed: 0 });
   const [keyword, setKeyword] = useState(() => searchParams.get("keyword") ?? "");
   const [countryCode, setCountryCode] = useState(() => searchParams.get("countryCode") ?? "");
@@ -211,12 +214,14 @@ export function OrderListPage({
       if (!isCurrentRequest()) return;
       setRows(data.rows ?? []);
       setTotal(Number(data.total ?? 0));
+      setTotalQuantity(Number(data.totalQuantity ?? 0));
       setStatusCounts(data.statusCounts ?? { draft: 0, confirmed: 0 });
       if (data.page !== nextPage) setPage(data.page);
     } catch (error) {
       if (!isCurrentRequest()) return;
       setRows([]);
       setTotal(0);
+      setTotalQuantity(0);
       setStatusCounts({ draft: 0, confirmed: 0 });
       notify(error instanceof Error ? error.message : "订单列表加载失败", "info");
     } finally {
@@ -761,6 +766,11 @@ export function OrderListPage({
             </tbody>
           </table>
         </StickyTable>
+        <QuantitySummaryBar
+          loading={loading}
+          pageQuantity={rows.reduce((sum, row) => sum + Number(row.totalQuantity ?? 0), 0)}
+          totalQuantity={totalQuantity}
+        />
         <PaginationBar
           page={page}
           pageSize={pageSize}
@@ -859,10 +869,12 @@ function PaymentApprovalBadge({ row }: { row: Row }) {
   if (!label) return <span className="text-ink-3">-</span>;
   const title = [
     `审批状态：${label}`,
+    "来源：算力采购订单",
+    row.paymentApprovalCostProject ? `付款成本项目：${row.paymentApprovalCostProject}` : "",
     row.paymentApprovalNo ? `单号：${String(row.paymentApprovalNo)}` : "",
     row.paymentConfirmedAt ? `确认到账：${formatDisplayValue(row.paymentConfirmedAt as never, "datetime")}` : "",
   ].filter(Boolean).join(" · ");
-  return <span className={`inline-flex rounded border px-2 py-0.5 text-xs ${paymentApprovalStatusClass(row.paymentApprovalStatus)}`} title={title}>{label}</span>;
+  return <span className="inline-flex flex-col items-start gap-1" title={title}><span className={`inline-flex rounded border px-2 py-0.5 text-xs ${paymentApprovalStatusClass(row.paymentApprovalStatus)}`} title={title}>{label}</span>{row.paymentApprovalCostProject ? <span className="text-[11px] text-ink-3">成本项目：{String(row.paymentApprovalCostProject)}</span> : null}</span>;
 }
 
 function formatValue(value: unknown, type?: string) {

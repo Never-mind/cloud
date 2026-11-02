@@ -311,6 +311,7 @@ const FIELD_COMMENTS = {
   receivableDate: "应收日期",
   serviceFeeCurrency: "服务费币种",
   actualReceiptDate: "实收日期",
+  bankSerialNo: "银行流水号",
   invoiceTotal: "发票含税总额",
   invoiceTaxExcludedTotal: "发票未税总额",
   invoiceNetAmount: "发票未税金额",

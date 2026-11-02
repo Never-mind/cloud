@@ -1,7 +1,7 @@
 /**
  * 成本款付款申请（飞书审批「成本款付款申请」A5075F7F-2EC5-4594-875B-14BEAEFD45E3）。
  *
- * 三个入口共用同一张审批，但走**不同的明细分支**（字段不共用）：
+ * 三个入口共用同一张审批。以下为默认成本项目，用户可切换；来源单据归属保持原入口：
  *   ① 华为云业务 → 供应商付款   → 成本部门 CLOUD + 成本项目 华为云 → 付款明细-华为云（多一列客户名称）
  *   ② 集采系统 → 发票汇总        → 成本部门 CLOUD + 成本项目 其他   → 付款明细-其他
  *   ③ 算力系统 → 采购订单        → 成本部门 CLOUD + 成本项目 算力   → 付款明细-算力（多订单号、批次序号，支持多单合并）
@@ -11,6 +11,7 @@
  * 审批台账复用 `merge_common_feishu_approvals`，通过后回写来源单据的付款状态。
  */
 import { randomUUID } from "node:crypto";
+import { COST_PAYMENT_PROJECT_LABELS, COST_PAYMENT_PROJECT_KEYS, COST_PAYMENT_LIST_WIDGETS, costPaymentProjectLabel } from "./cost-payment-project";
 import { execute, queryRows, type Row } from "./db";
 import { FEISHU_API_BASE } from "./feishu-auth-config";
 import { getFeishuTenantAccessToken } from "./feishu-message-service";
@@ -115,11 +116,7 @@ const WIDGET = {
   project: "widget17688932030050001",
 } as const;
 
-const LIST_WIDGET: Record<CostPaymentBranch, string> = {
-  huawei: "widget17688936313800001",
-  other: "widget17688942726490001",
-  compute: "widget17688927004010001",
-};
+const LIST_WIDGET = COST_PAYMENT_LIST_WIDGETS;
 
 const COLUMN_WIDGET: Record<CostPaymentBranch, Record<string, string>> = {
   huawei: {
@@ -160,13 +157,9 @@ const COLUMN_WIDGET: Record<CostPaymentBranch, Record<string, string>> = {
   },
 };
 
-/** 成本部门固定 CLOUD；成本项目按入口固定。 */
+/** 成本部门固定 CLOUD；成本项目由用户选择，默认沿用来源入口。 */
 export const COST_PAYMENT_DEPARTMENT_CLOUD = "mkmewlrf-r482htyi7nc-0";
-const PROJECT_KEY: Record<CostPaymentBranch, string> = {
-  huawei: "mkm9capp-w1hyx3b3i3o-0",
-  other: "mkm9d6gc-qj9dr11qw2d-1",
-  compute: "mkm9capp-x50k57e3ab-0",
-};
+const PROJECT_KEY = COST_PAYMENT_PROJECT_KEYS;
 
 /** 成本公司：系统承接单位代码 → 审批公司选项（香港万众按业务确认取 HK WANZHONG）。 */
 const COMPANY_KEY_BY_UNIT_CODE: Record<string, string> = {
@@ -267,6 +260,7 @@ export function buildCostPaymentForm(
   input: {
     reason: string;
     companyKey: string;
+    projectKey?: string;
     entries: Array<{
       amount: number;
       currency: string;
@@ -315,7 +309,7 @@ export function buildCostPaymentForm(
     { id: WIDGET.reason, type: "textarea", value: input.reason },
     { id: WIDGET.department, type: "radioV2", value: COST_PAYMENT_DEPARTMENT_CLOUD },
     { id: WIDGET.company, type: "radioV2", value: input.companyKey },
-    { id: WIDGET.project, type: "radioV2", value: PROJECT_KEY[branch] },
+    { id: WIDGET.project, type: "radioV2", value: input.projectKey || PROJECT_KEY[branch] },
     { id: LIST_WIDGET[branch], type: "fieldList", value: rows },
   ];
 }
@@ -464,20 +458,33 @@ async function callFeishu<T>(path: string, init: RequestInit = {}, action = "调
 
 /** 发起审批：上传附件 → 组装表单 → 提交 → 记台账 → 回写来源单据状态。 */
 export async function submitCostPaymentApproval(input: {
+  /** 来源入口：决定单据归属、附件及回写目标。 */
   branch: CostPaymentBranch;
+  /** 本次飞书成本项目，旧调用未传时沿用来源默认。 */
+  costProject?: CostPaymentBranch;
   reason: string;
   entries: CostPaymentEntryInput[];
   starter: { openId: string; userId?: string; displayName?: string };
 }) {
   const openId = String(input.starter.openId ?? "").trim();
   if (!openId.startsWith("ou_")) throw new Error("当前账号没有绑定飞书 open_id，无法发起审批");
-  const validationError = validateCostPaymentEntries(input.branch, input.entries);
+  const costProject = input.costProject ?? input.branch;
+  if (!isCostPaymentBranch(input.branch) || !isCostPaymentBranch(costProject)) throw new Error("未知的付款成本项目");
+  const seen = new Set<string>();
+  for (const entry of input.entries) {
+    if (entry.ownerType !== OWNER_TYPE_BY_BRANCH[input.branch]) throw new Error("付款单据来源与业务入口不一致，请刷新后重试");
+    if (!String(entry.ownerId ?? "").trim() || seen.has(entry.ownerId)) throw new Error("付款来源单据为空或重复，请重新选择");
+    seen.add(entry.ownerId);
+  }
+  const projectOptions = (await loadCostPaymentApprovalOptions(true))[costProject];
+  const validationError = validateCostPaymentProjectOptions(costProject, input.entries, projectOptions)
+    || validateCostPaymentEntries(costProject, input.entries);
   if (validationError) throw new Error(validationError);
 
   const companyKey =
     String(input.entries[0].companyKey ?? "").trim() || resolveCostPaymentCompanyKey(input.entries[0].undertakingUnitCode);
   const formEntries = [];
-  const savedAttachments: Array<{ ownerId: string; fileName: string; dataUrl: string; fileType: string }> = [];
+  const savedAttachments: Array<{ entry: CostPaymentEntryInput; fileName: string; dataUrl: string; fileType: string }> = [];
   for (const entry of input.entries) {
     const existing = !Array.isArray(entry.attachmentRefs) && entry.ownerType === "settlement_invoice_payment"
       ? await loadSettlementInvoiceAttachmentTokens(entry.ownerId)
@@ -489,7 +496,7 @@ export async function submitCostPaymentApproval(input: {
     for (const attachment of entry.attachments ?? []) {
       const match = /^data:([^;,]+)?;base64,/.exec(String(attachment.dataUrl ?? ""));
       savedAttachments.push({
-        ownerId: entry.ownerId,
+        entry,
         fileName: attachment.fileName || "attachment.pdf",
         dataUrl: attachment.dataUrl,
         fileType: match?.[1] ?? "application/octet-stream",
@@ -507,14 +514,14 @@ export async function submitCostPaymentApproval(input: {
       invoiceOptionValue: entry.invoiceOptionKey,
       paymentDate: String(entry.paymentDate).slice(0, 10),
       invoiceIssued: Boolean(entry.invoiceIssued),
-      customerKey: input.branch === "huawei" ? String(entry.customerOptionKey ?? "").trim() || resolveCostPaymentCustomerKey(entry.customerName) : undefined,
+      customerKey: costProject === "huawei" ? String(entry.customerOptionKey ?? "").trim() || resolveCostPaymentCustomerKey(entry.customerName) : undefined,
       orderNo: entry.orderNo,
       batchNo: entry.batchNo,
       attachmentTokens: tokens,
     });
   }
 
-  const form = buildCostPaymentForm(input.branch, { reason: input.reason, companyKey, entries: formEntries });
+  const form = buildCostPaymentForm(costProject, { reason: input.reason, companyKey, projectKey: projectOptions.projectKey, entries: formEntries });
   const created = await callFeishu<{ instance_code?: string }>(
     "/open-apis/approval/v4/instances",
     { method: "POST", body: JSON.stringify({ approval_code: COST_PAYMENT_APPROVAL_CODE, open_id: openId, form: JSON.stringify(form) }) },
@@ -550,11 +557,11 @@ export async function submitCostPaymentApproval(input: {
   );
 
   await markCostPaymentPending(input.entries.map((entry) => ({ ownerType: entry.ownerType, ownerId: entry.ownerId })), approvalId);
-  // 弹层里上传的附件同时存成来源单据的附件，采购订单详情页也能看到。
+  // 无论选择哪个成本项目，新上传附件仍保存在原业务单据下。
   for (const attachment of savedAttachments) {
-    await saveAttachmentForOwner(attachment.ownerId, attachment.fileName, attachment.fileType, attachment.dataUrl);
+    await saveAttachmentForOwner(attachment.entry, attachment.fileName, attachment.fileType, attachment.dataUrl);
   }
-  return { approvalId, instanceCode };
+  return { approvalId, instanceCode, costProject, costProjectLabel: COST_PAYMENT_PROJECT_LABELS[costProject] };
 }
 
 /**
@@ -599,16 +606,31 @@ async function markCostPaymentPending(entries: Array<{ ownerType: CostPaymentOwn
   }
 }
 
-/** 新上传的附件存进通用附件表，采购订单详情页可以下载。 */
-async function saveAttachmentForOwner(ownerId: string, fileName: string, fileType: string, dataUrl: string) {
+/** 新上传附件按真实来源保存，不能用所选审批项目决定附件归属。 */
+async function saveAttachmentForOwner(entry: CostPaymentEntryInput, fileName: string, fileType: string, dataUrl: string) {
   const attachmentId = randomUUID();
   const bytes = Buffer.from(String(dataUrl).replace(/^data:[^;]*;base64,/, ""), "base64");
+  const values = { attachmentId, ownerId: entry.ownerId, fileName: fileName.slice(0, 255), fileType, fileSize: bytes.length, dataUrl };
+  if (entry.ownerType === "cloud_supplier_payment") {
+    await execute(`INSERT INTO merge_cloud_attachments
+      (id, ownerType, ownerId, fileName, fileType, fileSize, dataUrl, storageProvider, uploadedAt)
+      VALUES (:attachmentId, 'supplier_payment', :ownerId, :fileName, :fileType, :fileSize, :dataUrl, 'db', CURRENT_TIMESTAMP)`,
+    { ...values, ownerId: entry.attachmentOwnerId || entry.ownerId });
+    return;
+  }
+  if (entry.ownerType === "settlement_invoice_payment") {
+    await execute(`INSERT INTO merge_po_settlement_attachments
+      (id, projectId, invoiceId, fileName, fileType, fileSize, dataUrl, storageProvider, uploadedAt)
+      SELECT :attachmentId, projectId, id, :fileName, :fileType, :fileSize, :dataUrl, 'db', CURRENT_TIMESTAMP
+      FROM merge_po_settlement_invoices WHERE id = :ownerId`, values);
+    return;
+  }
   await execute(
     `INSERT INTO merge_common_attachments
        (attachmentId, ownerType, ownerId, fileName, fileType, fileSize, dataUrl, storageProvider, uploadedAt)
      VALUES
        (:attachmentId, 'purchase-orders', :ownerId, :fileName, :fileType, :fileSize, :dataUrl, 'db', CURRENT_TIMESTAMP)`,
-    { attachmentId, ownerId, fileName: fileName.slice(0, 255), fileType, fileSize: bytes.length, dataUrl },
+    values,
   );
 }
 
@@ -807,6 +829,11 @@ export type CostPaymentBranchOptions = {
   invoice: CostPaymentOption[];
   /** 金额控件允许的币种。 */
   currencies: string[];
+  projectKey: string;
+  available: boolean;
+  unavailableReason?: string;
+  invoiceIssuedKey: string;
+  invoiceNotIssuedKey: string;
 };
 
 const APPROVAL_OPTIONS_CACHE_MS = 10 * 60 * 1000;
@@ -818,9 +845,14 @@ function builtinOptions(): Record<CostPaymentBranch, CostPaymentBranchOptions> {
   const company = Object.entries(COMPANY_KEY_BY_UNIT_CODE).map(([, value]) => ({ value, text: value }));
   const build = (branch: CostPaymentBranch, extras?: { customer?: CostPaymentOption[] }): CostPaymentBranchOptions => ({
     company,
+    projectKey: PROJECT_KEY[branch],
+    available: false,
+    unavailableReason: "暂时无法核实飞书审批定义，请刷新后重试",
+    invoiceIssuedKey: INVOICE_WIDGET_KEY[branch].issued,
+    invoiceNotIssuedKey: INVOICE_WIDGET_KEY[branch].notIssued,
     customer: extras?.customer ?? [],
-    fee: Object.entries(FEE_WIDGET_KEY[branch]).map(([key, value]) => ({ value, text: key })),
-    invoice: [INVOICE_WIDGET_KEY[branch].issued, INVOICE_WIDGET_KEY[branch].notIssued].map((value) => ({ value, text: value })),
+    fee: Object.entries(FEE_WIDGET_KEY[branch]).map(([key, value]) => ({ value, text: COST_PAYMENT_FEE_OPTIONS.find(option => option.value === key)?.label ?? key })),
+    invoice: [INVOICE_WIDGET_KEY[branch].issued, INVOICE_WIDGET_KEY[branch].notIssued].map((value) => ({ value, text: value === INVOICE_WIDGET_KEY[branch].issued ? "已开票" : "未开票" })),
     currencies: ["BRL", "CLP", "CNY", "MXN", "USD"],
   });
   return {
@@ -837,8 +869,53 @@ function readOptions(widget: ApprovalWidget | undefined): CostPaymentOption[] {
     .filter((item) => item.value);
 }
 
-function findWidget(widgets: ApprovalWidget[] | undefined, name: string): ApprovalWidget | undefined {
-  return (widgets ?? []).find((widget) => widget.name === name);
+export function parseCostPaymentApprovalOptions(widgets: ApprovalWidget[]) {
+  const company = readOptions(widgets.find(widget => widget.id === WIDGET.company));
+  const projects = readOptions(widgets.find(widget => widget.id === WIDGET.project));
+  const result = {} as Record<CostPaymentBranch, CostPaymentBranchOptions>;
+  for (const branch of COST_PAYMENT_BRANCHES) {
+    const project = projects.find(option => option.value === PROJECT_KEY[branch])
+      ?? projects.find(option => option.text.trim() === COST_PAYMENT_PROJECT_LABELS[branch]);
+    const list = widgets.find(widget => widget.id === LIST_WIDGET[branch]);
+    const children = list?.children ?? [];
+    const column = (key: string) => children.find(widget => widget.id === COLUMN_WIDGET[branch][key]);
+    const amount = column("amount");
+    const currencyRange = (!Array.isArray(amount?.option) && amount?.option?.currencyRange) || [];
+    const invoice = readOptions(column("invoice"));
+    const knownColumns = Object.values(COLUMN_WIDGET[branch]);
+    const missingFields = knownColumns.some(id => !children.some(widget => widget.id === id));
+    const unknownRequired = children.some(widget => widget.required && !knownColumns.includes(widget.id ?? ""));
+    const invoiceIssuedKey = invoice.find(option => option.value === INVOICE_WIDGET_KEY[branch].issued)?.value ?? "";
+    const invoiceNotIssuedKey = invoice.find(option => option.value === INVOICE_WIDGET_KEY[branch].notIssued)?.value ?? "";
+    const unavailableReason = !project ? "飞书审批中未配置此成本项目"
+      : !list || list.type !== "fieldList" || missingFields || unknownRequired ? "飞书付款明细结构已变化，需要更新字段映射"
+      : !invoiceIssuedKey || !invoiceNotIssuedKey ? "飞书发票选项已变化，需要更新选项映射" : "";
+    result[branch] = {
+      company, projectKey: project?.value ?? "", available: !unavailableReason, unavailableReason,
+      customer: branch === "huawei" ? readOptions(column("customer")) : [],
+      fee: readOptions(column("fee")), invoice, invoiceIssuedKey, invoiceNotIssuedKey,
+      currencies: Array.isArray(currencyRange) && currencyRange.length ? [...currencyRange] : ["BRL", "CLP", "CNY", "MXN", "USD"],
+    };
+  }
+  return result;
+}
+
+/** Validate against the selected branch before uploading any attachment or creating an instance. */
+export function validateCostPaymentProjectOptions(branch: CostPaymentBranch, entries: CostPaymentEntryInput[], options: CostPaymentBranchOptions) {
+  if (!options.available) return options.unavailableReason || "此付款成本项目暂不可用";
+  for (const [index, entry] of entries.entries()) {
+    const label = `第 ${index + 1} 行`;
+    const company = String(entry.companyKey ?? "").trim() || resolveCostPaymentCompanyKey(entry.undertakingUnitCode);
+    if (!options.company.some(option => option.value === company)) return `${label} 成本公司不在当前飞书选项中，请重新选择`;
+    if (!options.currencies.includes(String(entry.currency ?? "").trim().toUpperCase())) return `${label} 币种不受所选付款成本项目支持`;
+    const fee = entry.feeOptionKey ?? FEE_WIDGET_KEY[branch][entry.feeKey ?? "none"];
+    if (!options.fee.some(option => option.value === fee)) return `${label} 请重新选择所选成本项目的手续费选项`;
+    const invoice = entry.invoiceOptionKey ?? (entry.invoiceIssued ? options.invoiceIssuedKey : options.invoiceNotIssuedKey);
+    if (![options.invoiceIssuedKey, options.invoiceNotIssuedKey].includes(invoice)) return `${label} 请重新选择所选成本项目的发票选项`;
+    const customer = String(entry.customerOptionKey ?? "").trim() || resolveCostPaymentCustomerKey(entry.customerName);
+    if (branch === "huawei" && !options.customer.some(option => option.value === customer)) return `${label} 请从华为云审批选项中选择客户名称`;
+  }
+  return "";
 }
 
 /**
@@ -857,32 +934,14 @@ export async function loadCostPaymentApprovalOptions(force = false) {
         "读取审批定义",
       );
       const widgets = JSON.parse(String(data?.form ?? "[]")) as ApprovalWidget[];
-      const company = readOptions(findWidget(widgets, "成本公司"));
-      const parseBranch = (branch: CostPaymentBranch, listName: string) => {
-        const list = findWidget(widgets, listName);
-        const children = list?.children ?? [];
-        const amount = findWidget(children, "金额");
-        const currencyRange = (!Array.isArray(amount?.option) && amount?.option?.currencyRange) || [];
-        return {
-          company,
-          customer: branch === "huawei" ? readOptions(findWidget(children, "客户名称")) : [],
-          fee: readOptions(findWidget(children, "手续费")),
-          invoice: readOptions(findWidget(children, "发票")),
-          currencies: Array.isArray(currencyRange) && currencyRange.length ? [...currencyRange] : ["BRL", "CLP", "CNY", "MXN", "USD"],
-        } satisfies CostPaymentBranchOptions;
-      };
-      const value = {
-        huawei: parseBranch("huawei", "付款明细-华为云"),
-        other: parseBranch("other", "付款明细-其他"),
-        compute: parseBranch("compute", "付款明细-算力"),
-      };
+      const value = parseCostPaymentApprovalOptions(widgets);
       approvalOptionsCache = { at: Date.now(), value };
       return value;
     })()
       .catch(() => {
         // 飞书读不到就用内置兜底，不能因为审批定义读不到就让整个弹层打不开
         const fallback = builtinOptions();
-        approvalOptionsCache = { at: Date.now(), value: fallback };
+        approvalOptionsCache = { at: Date.now() - APPROVAL_OPTIONS_CACHE_MS + 10000, value: fallback };
         return fallback;
       })
       .finally(() => {
@@ -1006,7 +1065,8 @@ export async function loadCostPaymentPreview(branch: CostPaymentBranch, ownerIds
         );
 
   /** 可选项优先取飞书审批定义里的（后台加了新选项，下拉自动跟着变）。 */
-  const branchOptions = (await loadCostPaymentApprovalOptions())[branch];
+  const optionsByProject = await loadCostPaymentApprovalOptions();
+  const branchOptions = optionsByProject[branch];
   const found = new Set<string>();
   for (const row of sourceRows) {
     found.add(String(row.ownerId ?? ""));
@@ -1258,7 +1318,7 @@ export async function loadCostPaymentPreview(branch: CostPaymentBranch, ownerIds
           : Boolean(row.invoiceNo),
       customerName: String(row.customerName ?? ""),
       sources: branch === "huawei" ? sourcesByKey.get(`${String(row.period ?? "")}::${String(row.supplierId ?? "")}`) ?? [] : [],
-      orderNo: String(row.ownerNo ?? ""),
+      orderNo: branch === "compute" ? String(row.ownerNo ?? "") : "",
       batchNo: String(row.batchNo ?? ""),
       projectId,
       projectNo: String(row.projectNo ?? "").trim(),
@@ -1277,12 +1337,14 @@ export async function loadCostPaymentPreview(branch: CostPaymentBranch, ownerIds
     branch,
     rows,
     options: branchOptions,
+    optionsByProject,
+    costProjects: COST_PAYMENT_BRANCHES.map(value => ({ value, text: COST_PAYMENT_PROJECT_LABELS[value], available: optionsByProject[value].available, unavailableReason: optionsByProject[value].unavailableReason })),
     companies: await loadCostPaymentCompanyOptions(branchOptions.company),
     warnings: rows.flatMap((row) => {
       const list: string[] = [];
       if (!row.bankAccounts.length) list.push(`${row.ownerNo || row.ownerId}：供应商还没有银行账户，请先在供应商档案里补`);
       if (row.paid) list.push(`${row.ownerNo || row.ownerId}：已标记为已付款`);
-      if (branch === "huawei" && !resolveCostPaymentCustomerKey(row.customerName)) list.push(`${row.ownerNo || row.ownerId}：客户「${row.customerName || "未匹配"}」在审批里没有对应选项`);
+      // Customer requirements depend on the selected approval project, not this source.
       return list;
     }),
   };
@@ -1334,6 +1396,7 @@ export type CostPaymentApprovalView = {
   paymentConfirmedAt: string;
   paymentConfirmedNode: string;
   ownerIds: string[];
+  costProjectLabel: string;
 };
 
 const OWNER_TYPE_BY_BRANCH: Record<CostPaymentBranch, CostPaymentOwnerType> = {
@@ -1551,7 +1614,7 @@ export async function loadCostPaymentApprovalMap(ownerType: CostPaymentOwnerType
     `SELECT id, instanceCode, status, rejectReason, serialNumber, ownerId, allocationSourceIds,
             DATE_FORMAT(submittedAt, '%Y-%m-%d %H:%i') AS submittedAt,
             DATE_FORMAT(paymentConfirmedAt, '%Y-%m-%d %H:%i') AS paymentConfirmedAt,
-            paymentConfirmedNode
+            paymentConfirmedNode, formJson
        FROM merge_common_feishu_approvals
       WHERE ownerType = :ownerType
         AND status IN ('pending', 'returned', 'approved')
@@ -1573,6 +1636,7 @@ export async function loadCostPaymentApprovalMap(ownerType: CostPaymentOwnerType
         paymentConfirmedAt: String(row.paymentConfirmedAt ?? ""),
         paymentConfirmedNode: String(row.paymentConfirmedNode ?? ""),
         ownerIds: candidates,
+        costProjectLabel: costPaymentProjectLabel(row.formJson),
       });
     }
   }

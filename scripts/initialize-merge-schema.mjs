@@ -656,6 +656,7 @@ CREATE TABLE IF NOT EXISTS po_settlement_sales (
   receivedRevenueUsd DECIMAL(18,4) NOT NULL DEFAULT 0,
   invoiceNo VARCHAR(100) NULL,
   receivedAt DATE NULL,
+  bankSerialNo VARCHAR(255) NULL COMMENT '银行流水号',
   createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   KEY idx_po_settlement_sales_project (projectId)
@@ -674,6 +675,7 @@ CREATE TABLE IF NOT EXISTS po_settlement_invoices (
   invoiceEntityType VARCHAR(20) NULL,
   invoiceDate DATE NULL,
   receivableDate DATE NULL,
+  bankSerialNo VARCHAR(255) NULL COMMENT '银行流水号',
   invoiceNo VARCHAR(100) NULL,
   invoiceTotal DECIMAL(18,4) NOT NULL DEFAULT 0,
   invoiceTaxExcludedTotal DECIMAL(18,4) NOT NULL DEFAULT 0,
@@ -764,6 +766,7 @@ CREATE TABLE IF NOT EXISTS cloud_rows (
   collectionTaxAmount DECIMAL(18,4) NULL,
   collectionTotalAmount DECIMAL(18,4) NULL,
   collectionDate DATE NULL,
+  bankSerialNo VARCHAR(255) NULL COMMENT '银行流水号',
   receivableDate DATE NULL,
   collectionRegisteredAt DATETIME NULL,
   collectionProofFile VARCHAR(255) NULL,

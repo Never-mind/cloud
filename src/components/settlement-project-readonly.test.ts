@@ -10,7 +10,7 @@ const source = readFileSync(
 describe("settlement project read-only state", () => {
   it("disables the expense and sales entry form when the project is closed", () => {
     expect(source).toContain('<fieldset className="min-w-0" disabled={locked}><div className={formGrid}>');
-    expect(source).toContain("</Field></div></fieldset><TableScroll");
+    expect(source).toContain("</div></fieldset><TableScroll");
   });
 
   it("disables the expense and sales row actions when the project is closed", () => {

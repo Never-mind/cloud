@@ -1799,6 +1799,9 @@ async function main() {
   await addColumnIfMissing("servicefeesnapshots", "repaymentAmount", "`repaymentAmount` DECIMAL(18, 4) NULL COMMENT 'repayment amount VAT included' AFTER `repaymentCurrency`");
   await addColumnIfMissing("servicefeesnapshots", "repaymentAmountExcludingTax", "`repaymentAmountExcludingTax` DECIMAL(18, 4) NULL COMMENT 'repayment amount VAT excluded' AFTER `repaymentAmount`");
   await addColumnIfMissing("servicefeesnapshots", "repaymentVatRate", "`repaymentVatRate` DECIMAL(10, 6) NULL COMMENT 'repayment VAT rate' AFTER `repaymentAmountExcludingTax`");
+  for (const table of ["servicefeesnapshots", "merge_cloud_rows", "merge_po_settlement_sales", "merge_po_settlement_invoices"]) {
+    await addColumnIfMissing(table, "bankSerialNo", "`bankSerialNo` VARCHAR(255) NULL COMMENT '银行流水号'");
+  }
   await addColumnIfMissing("servicefeesnapshots", "repaymentDate", "`repaymentDate` DATE NULL COMMENT 'repayment date' AFTER `repaymentAmount`");
   await addColumnIfMissing("servicefeesnapshots", "repaymentUpdatedAt", "`repaymentUpdatedAt` DATETIME NULL COMMENT 'repayment updated time' AFTER `repaymentDate`");
   await addColumnIfMissing("servicefeesnapshots", "invoiceNo", "`invoiceNo` VARCHAR(128) NULL COMMENT 'invoice number' AFTER `repaymentUpdatedAt`");

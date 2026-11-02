@@ -8,6 +8,8 @@
  * 审批后台加了新选项，这里会自动出现；读不到时回落到内置列表。
  */
 import { useEffect, useMemo, useState } from "react";
+import { COST_PAYMENT_PROJECT_LABELS, remapCostPaymentOption } from "@/lib/cost-payment-project";
+import type { CostPaymentBranchOptions as BranchOptions } from "@/lib/cost-payment-approval-service";
 import { Banknote, Building2, ChevronDown, Link2, Paperclip, Upload } from "lucide-react";
 import { Button, Input, Select, Textarea } from "./ui";
 import { Modal } from "./modal";
@@ -85,7 +87,7 @@ type DraftRow = PreviewRow & {
 };
 
 type CompanyOption = { code: string; name: string; companyKey: string };
-type BranchOptions = { company: Option[]; customer: Option[]; fee: Option[]; invoice: Option[]; currencies: string[] };
+type CostProjectOption = { value: Branch; text: string; available: boolean; unavailableReason?: string };
 
 function todayValue() {
   const date = new Date();
@@ -98,7 +100,7 @@ const BRANCH_TITLE: Record<Branch, string> = {
   compute: "算力系统 · 采购订单",
 };
 
-const PROJECT_LABEL: Record<Branch, string> = { huawei: "华为云", other: "其他", compute: "算力" };
+const PROJECT_LABEL = COST_PAYMENT_PROJECT_LABELS;
 
 const OWNER_TYPE: Record<Branch, "cloud_supplier_payment" | "settlement_invoice_payment" | "purchase_order_payment"> = {
   huawei: "cloud_supplier_payment",
@@ -138,7 +140,10 @@ export function CostPaymentApprovalModal({
 }) {
   const [rows, setRows] = useState<DraftRow[]>([]);
   const [warnings, setWarnings] = useState<string[]>([]);
-  const [options, setOptions] = useState<BranchOptions | null>(null);
+  const [costProject, setCostProject] = useState<Branch>(branch);
+  const [costProjects, setCostProjects] = useState<CostProjectOption[]>([]);
+  const [optionsByProject, setOptionsByProject] = useState<Partial<Record<Branch, BranchOptions>>>({});
+  const options = optionsByProject[costProject] ?? null;
   const [companies, setCompanies] = useState<CompanyOption[]>([]);
   const [companyKey, setCompanyKey] = useState("");
   const [reason, setReason] = useState("");
@@ -165,20 +170,23 @@ export function CostPaymentApprovalModal({
         const data = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(data.error ?? "预填数据加载失败");
         if (cancelled) return;
-        const branchOptions: BranchOptions = data.options ?? { company: [], customer: [], fee: [], invoice: [], currencies: ["USD"] };
+        const branchOptions: BranchOptions = data.options;
+        if (!branchOptions || !data.optionsByProject) throw new Error("付款配置未加载完整，请刷新后重试");
         const nextCompanies: CompanyOption[] = data.companies ?? [];
         const previewRows: PreviewRow[] = data.rows ?? [];
         const defaultFee = branchOptions.fee.find((option) => option.text === "无")?.value ?? branchOptions.fee[0]?.value ?? "";
         const nextRows: DraftRow[] = previewRows.map((row) => ({
           ...row,
           feeOptionKey: defaultFee,
-          invoiceOptionKey: row.invoiceIssued ? branchOptions.invoice[0]?.value ?? "" : branchOptions.invoice[1]?.value ?? "",
+          invoiceOptionKey: row.invoiceIssued ? branchOptions.invoiceIssuedKey : branchOptions.invoiceNotIssuedKey,
           customerOptionKey: matchCustomerOption(branchOptions.customer, row.customerName),
           accountId: row.bankAccounts.find((account) => account.isDefault)?.accountId ?? row.bankAccounts[0]?.accountId ?? "",
           attachments: [],
           attachmentRefs: defaultAttachmentRefs(branch, row.attachmentOptions ?? []),
         }));
-        setOptions(branchOptions);
+        setCostProject(branch);
+        setCostProjects(data.costProjects ?? []);
+        setOptionsByProject(data.optionsByProject);
         setCompanies(nextCompanies);
         setRows(nextRows);
         setWarnings(Array.isArray(data.warnings) ? data.warnings : []);
@@ -208,6 +216,21 @@ export function CostPaymentApprovalModal({
   }, [rows]);
 
   const selectedCompany = companies.find((company) => company.companyKey === companyKey);
+
+  function changeCostProject(next: Branch) {
+    const nextOptions = optionsByProject[next];
+    if (!nextOptions?.available || next === costProject) return;
+    setRows(current => current.map(row => ({
+      ...row,
+      feeOptionKey: remapCostPaymentOption(row.feeOptionKey, options?.fee ?? [], nextOptions.fee),
+      invoiceOptionKey: row.invoiceOptionKey ? (row.invoiceIssued ? nextOptions.invoiceIssuedKey : nextOptions.invoiceNotIssuedKey) : "",
+      customerOptionKey: next === "huawei"
+        ? nextOptions.customer.some(option => option.value === row.customerOptionKey) ? row.customerOptionKey : matchCustomerOption(nextOptions.customer, row.customerName)
+        : row.customerOptionKey,
+    })));
+    setCostProject(next);
+    setError("");
+  }
 
   function patchRow(ownerId: string, patch: Partial<DraftRow>) {
     setRows((current) => current.map((row) => (row.ownerId === ownerId ? { ...row, ...patch } : row)));
@@ -253,11 +276,20 @@ export function CostPaymentApprovalModal({
     setSubmitting(true);
     setError("");
     try {
+      if (!options?.available) throw new Error(options?.unavailableReason || "请先加载有效的付款成本项目");
+      for (const [index, row] of rows.entries()) {
+        const label = `第 ${index + 1} 行`;
+        if (costProject === "compute" && !row.orderNo.trim()) throw new Error(`${label} 请补充订单号`);
+        if (costProject === "huawei" && !options.customer.some(option => option.value === row.customerOptionKey)) throw new Error(`${label} 请选择客户名称`);
+        if (!row.feeOptionKey || !row.invoiceOptionKey) throw new Error(`${label} 请重新选择手续费及发票选项`);
+        if (!options.currencies.includes(row.currency)) throw new Error(`${label} 币种不受所选付款成本项目支持，请核对`);
+      }
       const response = await fetch(`/api/payments/cost-approval/${branch}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           reason,
+          costProject,
           entries: rows.map((row) => ({
             ownerType: OWNER_TYPE[branch],
             ownerId: row.ownerId,
@@ -275,7 +307,7 @@ export function CostPaymentApprovalModal({
             feeOptionKey: row.feeOptionKey,
             invoiceOptionKey: row.invoiceOptionKey,
             paymentDate: row.paymentDate,
-            invoiceIssued: row.invoiceOptionKey === options?.invoice[0]?.value,
+            invoiceIssued: row.invoiceOptionKey === options?.invoiceIssuedKey,
             customerName: row.customerName,
             customerOptionKey: row.customerOptionKey,
             orderNo: row.orderNo,
@@ -289,7 +321,7 @@ export function CostPaymentApprovalModal({
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error ?? "发起付款申请失败");
-      notify(`已发起飞书审批：${data.instanceCode}`, "success");
+      notify(`已发起飞书审批：${data.instanceCode} · 付款成本项目：${PROJECT_LABEL[costProject]}`, "success");
       onSubmitted?.();
       onClose();
     } catch (submitError) {
@@ -350,7 +382,7 @@ export function CostPaymentApprovalModal({
               <Link2 size={15} />
               绑定已有审批
             </Button>
-            <Button disabled={loading || submitting || !rows.length} onClick={() => void submit()} tone="primary">
+            <Button disabled={loading || submitting || binding || !rows.length || !options?.available} onClick={() => void submit()} tone="primary">
               <Banknote size={15} />
               {submitting ? "发起中…" : "确认并发起审批"}
             </Button>
@@ -361,7 +393,7 @@ export function CostPaymentApprovalModal({
       title={
         <span className="flex items-center gap-2">
           发起成本款付款申请
-          <span className="rounded bg-info-soft px-1.5 py-0.5 text-[11px] font-normal text-primary">{PROJECT_LABEL[branch]}</span>
+          <span className="rounded bg-info-soft px-1.5 py-0.5 text-[11px] font-normal text-primary">{PROJECT_LABEL[costProject]}</span>
         </span>
       }
       widthClass="max-w-3xl"
@@ -381,13 +413,21 @@ export function CostPaymentApprovalModal({
       <div className="mb-4 grid gap-px overflow-hidden rounded border border-line-soft bg-line-soft sm:grid-cols-3">
         <SummaryCell label="付款明细" value={`${rows.length || 0} 条`} />
         <SummaryCell label="合计金额" value={totals || "-"} />
-        <SummaryCell label="成本部门 / 项目" value={`CLOUD / ${PROJECT_LABEL[branch]}`} />
+        <SummaryCell label="成本部门 / 项目" value={`CLOUD / ${PROJECT_LABEL[costProject]}`} />
       </div>
 
       {/* 基本信息 */}
       <section className="rounded border border-line-soft bg-white">
-        <SectionHead icon={<Building2 size={14} />} title="基本信息" hint="成本部门与成本项目由入口决定，不用选" />
+        <SectionHead icon={<Building2 size={14} />} title="基本信息" hint="成本部门为 CLOUD；付款成本项目默认按来源带出，可切换" />
         <div className="divide-y divide-line-soft">
+          <FormRow label="来源业务"><span className="text-sm text-ink-2">{BRANCH_TITLE[branch]}</span></FormRow>
+          <FormRow hint="同一申请使用一个成本项目，审批结果回写原业务单据" label="付款成本项目">
+            <Select aria-label="付款成本项目" className="w-full" value={costProject} disabled={loading || submitting || binding} onChange={event => changeCostProject(event.target.value as Branch)}>
+              {!costProjects.length ? <option value={branch}>{PROJECT_LABEL[branch]}</option> : costProjects.map(option => <option key={option.value} value={option.value} disabled={!option.available}>{option.text}{option.value === branch ? "（默认）" : ""}{option.available ? "" : `（${option.unavailableReason || "暂不可用"}）`}</option>)}
+            </Select>
+            {!loading && !options?.available ? <p className="mt-1 text-xs text-danger">{options?.unavailableReason || "付款配置不可用，请刷新后重试"}</p> : null}
+            {costProject !== branch ? <p className="mt-1 text-xs text-primary">本次按「{PROJECT_LABEL[costProject]}」提交飞书审批，付款结果仍回写「{BRANCH_TITLE[branch]}」。</p> : null}
+          </FormRow>
           <FormRow hint="审批单上的用途说明，尽量写清楚账期/项目" label="付款事由">
             <Textarea className="w-full" rows={3} value={reason} onChange={(event) => setReason(event.target.value)} />
           </FormRow>
@@ -422,7 +462,7 @@ export function CostPaymentApprovalModal({
 
             {/* 明细字段：标签在左、控件等宽满行（之前用多列网格，控件宽度不一） */}
             <div className="divide-y divide-line-soft">
-              {branch === "huawei" ? (
+              {costProject === "huawei" ? (
                 <FormRow hint="飞书审批里的选项" label="客户名称">
                   <Select className="w-full" value={row.customerOptionKey} onChange={(event) => patchRow(row.ownerId, { customerOptionKey: event.target.value })}>
                     <option value="">请选择客户</option>
@@ -432,6 +472,12 @@ export function CostPaymentApprovalModal({
                   </Select>
                 </FormRow>
               ) : null}
+              {costProject === "compute" ? <>
+                <FormRow label="订单号" hint="算力审批必填；来源没有采购订单号时请补充实际订单号">
+                  <Input aria-label={`第 ${index + 1} 行订单号`} className="w-full" required value={row.orderNo} onChange={event => patchRow(row.ownerId, { orderNo: event.target.value })} />
+                </FormRow>
+                <FormRow label="批次序号"><Input aria-label={`第 ${index + 1} 行批次序号`} className="w-full" value={row.batchNo} onChange={event => patchRow(row.ownerId, { batchNo: event.target.value })} /></FormRow>
+              </> : null}
               <FormRow hint="默认取系统账单，可改" label="金额">
                 <Input
                   className="w-full"
@@ -450,6 +496,7 @@ export function CostPaymentApprovalModal({
               </FormRow>
               <FormRow label="手续费">
                 <Select className="w-full" value={row.feeOptionKey} onChange={(event) => patchRow(row.ownerId, { feeOptionKey: event.target.value })}>
+                  <option value="">请选择手续费</option>
                   {(options?.fee ?? []).map((option) => <option key={option.value} value={option.value}>{option.text}</option>)}
                 </Select>
               </FormRow>
@@ -463,7 +510,8 @@ export function CostPaymentApprovalModal({
                 />
               </FormRow>
               <FormRow label="发票">
-                <Select className="w-full" value={row.invoiceOptionKey} onChange={(event) => patchRow(row.ownerId, { invoiceOptionKey: event.target.value })}>
+                <Select className="w-full" value={row.invoiceOptionKey} onChange={(event) => patchRow(row.ownerId, { invoiceOptionKey: event.target.value, invoiceIssued: event.target.value === options?.invoiceIssuedKey })}>
+                  <option value="">请选择发票情况</option>
                   {(options?.invoice ?? []).map((option) => <option key={option.value} value={option.value}>{option.text}</option>)}
                 </Select>
               </FormRow>

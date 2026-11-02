@@ -1,3 +1,5 @@
+import { COST_PAYMENT_PROJECT_LABEL_SQL } from "./cost-payment-project";
+import { normalizeBankSerialNo } from "./bank-serial-no";
 import { createHash, randomUUID } from "node:crypto";
 import * as XLSX from "xlsx";
 import { executeRaw, queryRows, queryRowsRaw, withTransaction, queryRowsInTransaction, executeInTransaction, type Row } from "./db";
@@ -25,7 +27,7 @@ const CLOUD_ROW_COLUMNS = [
   "theoreticalGrossProfit", "settlementGrossProfit", "grossProfit", "calculationLogic", "customerDiscount", "remark", "collectionInvoice",
   "collected", "paymentDate", "collectionPayer", "collectionPayee", "collectionCurrency", "collectionExchangeRate",
   "collectionPayerCustomerId", "collectionPayeeUndertakingUnitId",
-  "collectionNetAmount", "collectionTaxRate", "collectionTaxAmount", "collectionTotalAmount", "collectionDate", "invoiceNo", "invoiceCurrency",
+  "collectionNetAmount", "collectionTaxRate", "collectionTaxAmount", "collectionTotalAmount", "collectionDate", "bankSerialNo", "invoiceNo", "invoiceCurrency",
   "invoicePayer", "invoicePayee", "invoicePayerCustomerId", "invoicePayeeUndertakingUnitId",
   "invoiceNetAmount", "invoiceTaxRate", "invoiceTaxAmount", "invoiceTotalAmount", "invoiceExchangeRate", "invoiceDate", "receivableDate",
 ] as const;
@@ -121,6 +123,7 @@ const CLOUD_ROW_FILTER_EXPRESSIONS: Record<string, string> = {
   collectionTaxAmount: "collectionTaxAmount",
   collectionTotalAmount: "collectionTotalAmount",
   collectionDate: formatTableDateExpression("collectionDate"),
+  bankSerialNo: "bankSerialNo",
   receivableDate: formatTableDateExpression("receivableDate"),
   status: "CASE WHEN confirmed = 1 THEN '已确认' ELSE '未确认' END",
   collectionInvoice: "CASE WHEN collectionInvoice = 'issued' THEN '已开票' ELSE '未开票' END",
@@ -305,6 +308,7 @@ const CLOUD_SUPPLIER_PAYMENT_FROM_V2 = `(SELECT
     COALESCE(p.paid, 0) AS paid,
     p.paymentApprovalId, paymentApproval.status AS paymentApprovalStatus,
     paymentApproval.serialNumber AS paymentApprovalNo,
+              ${COST_PAYMENT_PROJECT_LABEL_SQL} AS paymentApprovalCostProject,
     paymentApproval.paymentConfirmedAt,
     p.updatedAt AS paymentUpdatedAt
   FROM ${CLOUD_SUPPLIER_PAYMENT_GROUPS} g
@@ -344,7 +348,7 @@ export const CLOUD_IMPORT_HEADERS: Record<string, string> = {
   "客户实收-付款单位": "collectionPayer", "客户实收-收款单位": "collectionPayee",
   "客户实收币种": "collectionCurrency", "客户实收未税金额": "collectionNetAmount", "客户实收税率": "collectionTaxRate",
   "客户实收汇率": "collectionExchangeRate",
-  "客户实收税金": "collectionTaxAmount", "客户实收含税金额": "collectionTotalAmount", "客户实收日期": "collectionDate", "应收日期": "receivableDate", "客户实收应收日期": "receivableDate",
+  "客户实收税金": "collectionTaxAmount", "客户实收含税金额": "collectionTotalAmount", "客户实收日期": "collectionDate", "银行流水号": "bankSerialNo", "应收日期": "receivableDate", "客户实收应收日期": "receivableDate",
   "客户开票号": "invoiceNo", "客户开票币种": "invoiceCurrency", "客户开票-付款单位": "invoicePayer", "客户开票-收款单位": "invoicePayee",
   // 系统自身导出的文件会带这三列；不映射的话回导时会被静默丢弃。
   "客户开票状态": "collectionInvoice", collectioninvoice: "collectionInvoice",
@@ -489,7 +493,7 @@ function cloudBaseWhere(params: URLSearchParams) {
      * 关键词除了匹配本行存的文本，还要按 ID / 服务映射匹配往来方档案的**当前名称**，
      * 否则档案改名后搜新简称搜不到（列表已经显示新简称）。
      */
-    conditions.push(`(customer LIKE :keyword OR account LIKE :keyword OR batchCode LIKE :keyword OR supplierName LIKE :keyword
+    conditions.push(`(bankSerialNo LIKE :keyword OR customer LIKE :keyword OR account LIKE :keyword OR batchCode LIKE :keyword OR supplierName LIKE :keyword
       OR EXISTS (SELECT 1 FROM merge_common_customers c
         WHERE (c.customerId = merge_cloud_rows.customerId OR c.customerCode = merge_cloud_rows.customerId)
           AND (c.shortName LIKE :keyword OR c.nameCn LIKE :keyword OR c.name LIKE :keyword OR c.customerCode LIKE :keyword))
@@ -1037,6 +1041,7 @@ export async function createCloudRow(body: Row, actor: OperationActor | null) {
     collectionTaxAmount: collectionTax,
     collectionTotalAmount: totalAmount(collectionNet, collectionTax, body.collectionTotalAmount),
     collectionDate: dateOnly(body.collectionDate),
+    bankSerialNo: normalizeBankSerialNo(body.bankSerialNo),
     receivableDate: dateOnly(body.receivableDate),
     invoiceNo: text(body.invoiceNo) || null,
     invoiceCurrency: text(body.invoiceCurrency) || null,
@@ -1061,14 +1066,14 @@ export async function createCloudRow(body: Row, actor: OperationActor | null) {
      supplierTaxRate,supplierTaxAmount,supplierPayableTotalAmount,supplierPayable,customerReceivablePayer,customerReceivablePayee,customerReceivableNetAmount,
      customerTaxRate,customerReceivableTaxAmount,customerReceivableTotalAmount,customerReceivable,theoreticalGrossProfit,settlementGrossProfit,grossProfit,
      calculationLogic,customerDiscount,remark,collectionInvoice,collected,collectionPayer,collectionPayee,collectionPayerCustomerId,collectionPayeeUndertakingUnitId,collectionCurrency,collectionExchangeRate,
-     collectionNetAmount,collectionTaxRate,collectionTaxAmount,collectionTotalAmount,collectionDate,receivableDate,invoiceNo,invoiceCurrency,invoicePayer,invoicePayee,
+     collectionNetAmount,collectionTaxRate,collectionTaxAmount,collectionTotalAmount,collectionDate,bankSerialNo,receivableDate,invoiceNo,invoiceCurrency,invoicePayer,invoicePayee,
      invoiceNetAmount,invoiceTaxRate,invoiceTaxAmount,invoiceTotalAmount,invoiceExchangeRate,invoiceDate,createdByUserId,createdByName,updatedByUserId,updatedByName)
     VALUES (:id,:importBatchId,:period,:batchCode,:mappingId,:supplierId,:supplierName,:undertakingUnitId,:customerId,:customer,:account,:owner,:collectionEntity,
      :cloudReconciler,:catalogAmount,:partnerAmount,:voucherCustomerAmount,:voucherSupplierAmount,:supplierPayablePayer,:supplierPayablePayee,:supplierPayableNetAmount,
      :supplierTaxRate,:supplierTaxAmount,:supplierPayableTotalAmount,:supplierPayable,:customerReceivablePayer,:customerReceivablePayee,:customerReceivableNetAmount,
      :customerTaxRate,:customerReceivableTaxAmount,:customerReceivableTotalAmount,:customerReceivable,:theoreticalGrossProfit,:settlementGrossProfit,:grossProfit,
      :calculationLogic,:customerDiscount,:remark,:collectionInvoice,:collected,:collectionPayer,:collectionPayee,:collectionPayerCustomerId,:collectionPayeeUndertakingUnitId,:collectionCurrency,:collectionExchangeRate,
-     :collectionNetAmount,:collectionTaxRate,:collectionTaxAmount,:collectionTotalAmount,:collectionDate,:receivableDate,:invoiceNo,:invoiceCurrency,:invoicePayer,:invoicePayee,
+     :collectionNetAmount,:collectionTaxRate,:collectionTaxAmount,:collectionTotalAmount,:collectionDate,:bankSerialNo,:receivableDate,:invoiceNo,:invoiceCurrency,:invoicePayer,:invoicePayee,
      :invoiceNetAmount,:invoiceTaxRate,:invoiceTaxAmount,:invoiceTotalAmount,:invoiceExchangeRate,:invoiceDate,:createdByUserId,:createdByName,:updatedByUserId,:updatedByName)`, row);
   await syncCloudSupplierPaymentPeriods([period]);
   return (await queryRowsRaw<Row>("SELECT * FROM merge_cloud_rows WHERE id = :id", { id: row.id }))[0] ?? null;
@@ -1106,7 +1111,7 @@ export async function updateCloudRow(id: string, body: Row, actor: OperationActo
     const assignments = fields.map((key) => `${key} = :${key}`);
     const values: Row = { id };
     for (const key of fields) {
-      values[key] = key.endsWith("TaxRate") ? rate(merged[key]) : ["collectionDate", "receivableDate", "invoiceDate"].includes(key) ? dateOnly(merged[key]) : CLOUD_NUMERIC_COLUMNS.has(key) ? nullableNumber(merged[key]) : merged[key];
+      values[key] = key === "bankSerialNo" ? normalizeBankSerialNo(merged[key]) : key.endsWith("TaxRate") ? rate(merged[key]) : ["collectionDate", "receivableDate", "invoiceDate"].includes(key) ? dateOnly(merged[key]) : CLOUD_NUMERIC_COLUMNS.has(key) ? nullableNumber(merged[key]) : merged[key];
     }
     const setDerivedValue = (key: string, value: number | null) => {
       if (!assignmentFields.has(key)) { assignmentFields.add(key); assignments.push(`${key} = :${key}`); }
@@ -1735,7 +1740,7 @@ export async function importCloudWorkbook(buffer: Buffer, fileName: string, peri
       collectionInvoice: normalizeCloudInvoiceStatus(source.collectionInvoice) || "not_issued", collected: text(source.collected) === "是" || text(source.collected) === "1" ? 1 : 0,
        collectionPayer: collectionPayer.name || text(mappedSource.collectionPayer), collectionPayee: collectionPayee.name || text(mappedSource.collectionPayee), collectionPayerCustomerId: collectionPayer.id, collectionPayeeUndertakingUnitId: collectionPayee.id, collectionCurrency: text(source.collectionCurrency),
       collectionExchangeRate: nullableNumber(source.collectionExchangeRate),
-       collectionNetAmount: collectionNet, collectionTaxRate, collectionTaxAmount: collectionTax, collectionTotalAmount: totalAmount(collectionNet, collectionTax, source.collectionTotalAmount), collectionDate: dateOnly(source.collectionDate), receivableDate: dateOnly(source.receivableDate),
+       collectionNetAmount: collectionNet, collectionTaxRate, collectionTaxAmount: collectionTax, collectionTotalAmount: totalAmount(collectionNet, collectionTax, source.collectionTotalAmount), collectionDate: dateOnly(source.collectionDate), bankSerialNo: normalizeBankSerialNo(source.bankSerialNo == null ? null : String(source.bankSerialNo)), receivableDate: dateOnly(source.receivableDate),
        invoiceNo: text(source.invoiceNo), invoiceCurrency: text(source.invoiceCurrency), invoicePayer: invoicePayer.name || text(mappedSource.invoicePayer), invoicePayee: invoicePayee.name || text(mappedSource.invoicePayee), invoicePayerCustomerId: invoicePayer.id, invoicePayeeUndertakingUnitId: invoicePayee.id,
       invoiceNetAmount: invoiceNet, invoiceTaxRate, invoiceTaxAmount: invoiceTax, invoiceTotalAmount: totalAmount(invoiceNet, invoiceTax, source.invoiceTotalAmount), invoiceDate: dateOnly(source.invoiceDate),
       invoiceExchangeRate: nullableNumber(source.invoiceExchangeRate),
@@ -1793,13 +1798,13 @@ export async function importCloudWorkbook(buffer: Buffer, fileName: string, peri
        supplierPayablePayer,supplierPayablePayee,supplierPayableNetAmount,supplierTaxRate,supplierTaxAmount,supplierPayableTotalAmount,supplierPayable,
        customerReceivablePayer,customerReceivablePayee,customerReceivableNetAmount,customerTaxRate,customerReceivableTaxAmount,customerReceivableTotalAmount,customerReceivable,
        theoreticalGrossProfit,settlementGrossProfit,grossProfit,calculationLogic,customerDiscount,remark,collectionInvoice,collected,collectionPayer,collectionPayee,collectionPayerCustomerId,collectionPayeeUndertakingUnitId,collectionCurrency,collectionExchangeRate,
-       collectionNetAmount,collectionTaxRate,collectionTaxAmount,collectionTotalAmount,collectionDate,receivableDate,invoiceNo,invoiceCurrency,invoicePayer,invoicePayee,invoicePayerCustomerId,invoicePayeeUndertakingUnitId,invoiceNetAmount,invoiceTaxRate,
+       collectionNetAmount,collectionTaxRate,collectionTaxAmount,collectionTotalAmount,collectionDate,bankSerialNo,receivableDate,invoiceNo,invoiceCurrency,invoicePayer,invoicePayee,invoicePayerCustomerId,invoicePayeeUndertakingUnitId,invoiceNetAmount,invoiceTaxRate,
        invoiceTaxAmount,invoiceTotalAmount,invoiceExchangeRate,invoiceDate,createdByUserId,createdByName,updatedByUserId,updatedByName)
       VALUES (:id,:importBatchId,:period,:batchCode,:mappingId,:supplierId,:supplierName,:undertakingUnitId,:customerId,:customer,:account,:owner,:cloudReconciler,:collectionEntity,:catalogAmount,:partnerAmount,:voucherCustomerAmount,:voucherSupplierAmount,
        :supplierPayablePayer,:supplierPayablePayee,:supplierPayableNetAmount,:supplierTaxRate,:supplierTaxAmount,:supplierPayableTotalAmount,:supplierPayable,
        :customerReceivablePayer,:customerReceivablePayee,:customerReceivableNetAmount,:customerTaxRate,:customerReceivableTaxAmount,:customerReceivableTotalAmount,:customerReceivable,
         :theoreticalGrossProfit,:settlementGrossProfit,:grossProfit,:calculationLogic,:customerDiscount,:remark,:collectionInvoice,:collected,:collectionPayer,:collectionPayee,:collectionPayerCustomerId,:collectionPayeeUndertakingUnitId,:collectionCurrency,:collectionExchangeRate,
-        :collectionNetAmount,:collectionTaxRate,:collectionTaxAmount,:collectionTotalAmount,:collectionDate,:receivableDate,:invoiceNo,:invoiceCurrency,:invoicePayer,:invoicePayee,:invoicePayerCustomerId,:invoicePayeeUndertakingUnitId,:invoiceNetAmount,:invoiceTaxRate,
+        :collectionNetAmount,:collectionTaxRate,:collectionTaxAmount,:collectionTotalAmount,:collectionDate,:bankSerialNo,:receivableDate,:invoiceNo,:invoiceCurrency,:invoicePayer,:invoicePayee,:invoicePayerCustomerId,:invoicePayeeUndertakingUnitId,:invoiceNetAmount,:invoiceTaxRate,
        :invoiceTaxAmount,:invoiceTotalAmount,:invoiceExchangeRate,:invoiceDate,:createdByUserId,:createdByName,:updatedByUserId,:updatedByName)`, row);
     existingByKey.set(rowKey, { id: row.id });
     createdRows += 1;

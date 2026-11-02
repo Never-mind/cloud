@@ -25,11 +25,14 @@ export async function POST(request: NextRequest, context: { params: Promise<{ br
   if (!actor) return NextResponse.json({ error: "未登录或登录已过期" }, { status: 401 });
 
   const body = await request.json().catch(() => ({}));
+  const costProject = body?.costProject === undefined ? branch : body.costProject;
+  if (!isCostPaymentBranch(costProject)) return NextResponse.json({ error: "未知的付款成本项目" }, { status: 400 });
   const entries = Array.isArray(body?.entries) ? (body.entries as CostPaymentEntryInput[]) : [];
   try {
     const openId = await loadUserFeishuOpenId(actor.userId);
     const result = await submitCostPaymentApproval({
       branch,
+      costProject,
       reason: String(body?.reason ?? "").trim() || "支付成本款",
       entries,
       starter: { openId, userId: actor.userId, displayName: actor.displayName },
@@ -42,7 +45,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ br
       entityType: "cost-payment-approval",
       entityId: result.instanceCode,
       requestId: getOperationRequestId(request),
-      detail: { result: "success", branch, count: entries.length },
+      detail: { result: "success", branch, costProject, costProjectLabel: result.costProjectLabel, count: entries.length },
     });
     return NextResponse.json(result, { status: 201 });
   } catch (error) {

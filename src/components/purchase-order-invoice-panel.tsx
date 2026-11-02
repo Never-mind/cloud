@@ -1,5 +1,7 @@
 "use client";
 
+import { StatusSwitch } from "./status-switch";
+
 /**
  * 算力采购订单主单里的「发票与付款」区块。
  *
@@ -39,6 +41,7 @@ type InvoiceInfo = {
   paymentApprovalId: string | null;
   paymentApprovalStatus: string | null;
   paymentApprovalNo: string | null;
+  paymentApprovalCostProject?: string | null;
   paymentConfirmedAt: string | null;
 };
 
@@ -307,6 +310,7 @@ export function PurchaseOrderInvoicePanel({ purchaseOrderId, readOnly = false }:
           <div className="grid gap-x-6 gap-y-2 rounded border border-line-soft bg-surface-2/40 p-3 text-xs text-ink-2 sm:grid-cols-2 lg:grid-cols-4">
             <div>审批状态：<span className={paymentApprovalStatus ? `inline-flex rounded border px-2 py-0.5 text-[11px] ${paymentApprovalStatusClass(invoiceInfo.paymentApprovalStatus)}` : "text-ink"}>{paymentApprovalStatus || "-"}</span></div>
             <div>审批单号：<span className="text-ink">{invoiceInfo.paymentApprovalNo || "-"}</span></div>
+            <div>付款成本项目：<span className="text-ink">{invoiceInfo.paymentApprovalCostProject || "-"}</span></div>
             <div>预计付款日期：<span className="text-ink">{dateValue(invoiceInfo.expectedPaymentDate) || "-"}</span></div>
             <div>付款状态：<span className={paymentStatus === "已付款" ? "text-success" : ["审批中", "已退回"].includes(paymentStatus) ? "text-warning-ink" : paymentStatus === "已驳回" ? "text-danger" : "text-ink"}>{paymentStatus}</span></div>
             <div>实际付款日期：<span className="text-ink">{dateValue(invoiceInfo.actualPaymentDate) || "-"}</span></div>
@@ -334,7 +338,7 @@ export function PurchaseOrderInvoicePanel({ purchaseOrderId, readOnly = false }:
                 <label className="space-y-1 text-sm text-ink-2"><span>开票日期</span><Input className="w-full" type="date" value={invoiceDraft.invoiceDate} onChange={(event) => setInvoiceDraft((current) => ({ ...current, invoiceDate: event.target.value }))} onBlur={(event) => setInvoiceDraft((current) => ({ ...current, invoiceDate: event.target.value }))} /></label>
                 <label className="space-y-1 text-sm text-ink-2"><span>发票币种</span><Select className="w-full" value={invoiceDraft.invoiceCurrency} onChange={(event) => setInvoiceDraft((current) => ({ ...current, invoiceCurrency: event.target.value }))}>{INVOICE_CURRENCIES.map((currency) => <option key={currency}>{currency}</option>)}</Select></label>
                 <div className="flex items-end pb-1 text-sm text-ink-2">
-                  <SlideSwitch checked={invoiceDraft.invoiced} onChange={(checked) => setInvoiceDraft((current) => ({ ...current, invoiced: checked }))} onLabel="已开票" offLabel="未开票" />
+                  <StatusSwitch checked={invoiceDraft.invoiced} onChange={(checked) => setInvoiceDraft((current) => ({ ...current, invoiced: checked }))} onLabel="已开票" offLabel="未开票" />
                 </div>
               </div>
             </section>
@@ -355,7 +359,7 @@ export function PurchaseOrderInvoicePanel({ purchaseOrderId, readOnly = false }:
                 <label className="space-y-1 text-sm text-ink-2"><span>预计付款日期</span><Input className="w-full" type="date" value={invoiceDraft.expectedPaymentDate} onChange={(event) => setInvoiceDraft((current) => ({ ...current, expectedPaymentDate: event.target.value }))} onBlur={(event) => setInvoiceDraft((current) => ({ ...current, expectedPaymentDate: event.target.value }))} /></label>
                 <label className="space-y-1 text-sm text-ink-2"><span>实际付款日期</span><Input className="w-full" disabled={!invoiceDraft.paid} type="date" value={invoiceDraft.actualPaymentDate} onChange={(event) => setInvoiceDraft((current) => ({ ...current, actualPaymentDate: event.target.value }))} onBlur={(event) => setInvoiceDraft((current) => ({ ...current, actualPaymentDate: event.target.value }))} /></label>
                 <div className="flex items-end pb-1 text-sm text-ink-2">
-                  <SlideSwitch checked={invoiceDraft.paid} onChange={(checked) => setInvoiceDraft((current) => ({ ...current, paid: checked, actualPaymentDate: checked ? current.actualPaymentDate || todayValue() : "" }))} onLabel="已付款" offLabel="未付款" />
+                  <StatusSwitch checked={invoiceDraft.paid} onChange={(checked) => setInvoiceDraft((current) => ({ ...current, paid: checked, actualPaymentDate: checked ? current.actualPaymentDate || todayValue() : "" }))} onLabel="已付款" offLabel="未付款" />
                 </div>
                 <label className="space-y-1 text-sm text-ink-2 sm:col-span-2"><span>备注</span><Textarea className="w-full" rows={3} value={invoiceDraft.invoiceRemark} onChange={(event) => setInvoiceDraft((current) => ({ ...current, invoiceRemark: event.target.value }))} /></label>
               </div>
@@ -367,29 +371,5 @@ export function PurchaseOrderInvoicePanel({ purchaseOrderId, readOnly = false }:
         </Modal>
       ) : null}
     </section>
-  );
-}
-
-function SlideSwitch({ checked, onChange, onLabel, offLabel, disabled = false }: {
-  checked: boolean;
-  onChange: (checked: boolean) => void;
-  onLabel: string;
-  offLabel: string;
-  disabled?: boolean;
-}) {
-  return (
-    <button
-      aria-checked={checked}
-      className="inline-flex items-center gap-2 text-sm text-ink-2 disabled:cursor-not-allowed disabled:opacity-50"
-      disabled={disabled}
-      onClick={() => onChange(!checked)}
-      role="switch"
-      type="button"
-    >
-      <span className={`relative inline-flex h-5 w-9 rounded-full transition-colors ${checked ? "bg-success" : "bg-ink-4"}`}>
-        <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${checked ? "translate-x-[18px]" : "translate-x-0.5"}`} />
-      </span>
-      <span>{checked ? onLabel : offLabel}</span>
-    </button>
   );
 }

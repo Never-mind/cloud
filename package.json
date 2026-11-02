@@ -34,6 +34,7 @@
     "schema:notifications": "tsx scripts/migrate-notifications.ts",
     "schema:crm-invoices": "tsx scripts/migrate-crm-invoices.ts",
     "schema:invoices": "tsx scripts/migrate-invoices.ts",
+    "schema:receipt-bank-serial": "tsx scripts/migrate-receipt-bank-serial.ts",
     "schema:invoice-review": "tsx scripts/migrate-invoice-review.ts",
     "schema:invoice-allocations": "tsx scripts/migrate-invoice-allocations.ts",
     "invoices:refresh": "tsx scripts/refresh-invoice-files.ts",

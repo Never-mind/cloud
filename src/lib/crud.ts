@@ -91,6 +91,7 @@ async function resolveEntityLocator(config: EntityConfig, id: string): Promise<E
 }
 
 const shipmentDisplayFields = new Set([
+  "quantity",
   "countryCode",
   "destinationAddress",
   "recipientName",
@@ -374,7 +375,7 @@ export async function listEntityRows(config: EntityConfig, searchParams: URLSear
          (derivedRequestTypeEntityKeys.has(config.key) && field.key === "requestType")
          || (config.key === "purchase-orders" && field.key === "countryCode")
          || (config.key === "prepayment-contracts" && field.key === "countryCode")
-         || (config.key === "shipments" && field.key === "requestNo"),
+         || (config.key === "shipments" && ["requestNo", "quantity"].includes(field.key)),
        )
         .map((field) => `${getEntityDisplayFieldExpression(config, field.key)} AS ${quoteIdentifier(field.key)}`),
     )
@@ -610,7 +611,16 @@ export async function listEntityRows(config: EntityConfig, searchParams: URLSear
   const where = whereParts.length ? `WHERE ${whereParts.join(" AND ")}` : "";
   const orderBy = getEntityOrderBy(config, shipmentAlias, searchParams);
   const knownTotal = getKnownTotal(searchParams);
-  const normalizedTotal = knownTotal ?? Number((await queryRows<{ total: number }>(
+  // 物流数量与列表共用筛选条件，汇总全部匹配行，不受分页或客户端缓存条数影响。
+  const shipmentSummary = config.key === "shipments"
+    ? (await queryRows<{ total: number; totalQuantity: number }>(
+      `SELECT COUNT(*) AS total,
+        COALESCE(SUM(${getEntityDisplayFieldExpression(config, "quantity", shipmentAlias)}), 0) AS totalQuantity
+       FROM ${tableSource} ${where}`,
+      params,
+    ))[0]
+    : undefined;
+  const normalizedTotal = shipmentSummary ? Number(shipmentSummary.total ?? 0) : knownTotal ?? Number((await queryRows<{ total: number }>(
     `SELECT COUNT(*) AS total FROM ${tableSource} ${where}`,
     params,
   ))[0]?.total ?? 0);
@@ -643,6 +653,7 @@ export async function listEntityRows(config: EntityConfig, searchParams: URLSear
     page,
     pageSize,
     totalPages,
+    ...(shipmentSummary ? { totalQuantity: Number(shipmentSummary.totalQuantity ?? 0) } : {}),
     ...(statusCounts ? { statusCounts } : {}),
   };
 }
@@ -1044,8 +1055,10 @@ function getEntityDisplayFieldExpression(config: EntityConfig, field: string, sh
      * 再补一条"PO 号 + 实例编码"业务键兜底，覆盖物流 id 与本地明细 id 格式
      * 完全对不上（连后缀都不同）的历史行 —— 这类行以前需求单号会显示为空。
      */
-    if (field === "requestNo") {
-      return `(SELECT COALESCE(NULLIF(ri.requestNo, ''), NULLIF(poi.requestNo, ''))
+    if (field === "requestNo" || field === "quantity") {
+      // 数量沿用需求单号的关联规则，兼容历史物流明细 ID 和 PO + 实例编码。
+      const value = field === "quantity" ? "ri.quantity" : "COALESCE(NULLIF(ri.requestNo, ''), NULLIF(poi.requestNo, ''))";
+      const lookup = `(SELECT ${value}
                  FROM purchaseorderitems poi
                  LEFT JOIN requestitems ri ON ri.id = poi.requestItemId
                 WHERE poi.id = shipment.purchaseOrderItemId
@@ -1057,8 +1070,9 @@ function getEntityDisplayFieldExpression(config: EntityConfig, field: string, sh
                      AND ri.deviceCode = shipment.deviceCode
                    )
                 ORDER BY (poi.id = shipment.purchaseOrderItemId) DESC,
-                         (shipment.purchaseOrderItemId LIKE CONCAT('%', SUBSTRING(poi.id, 5))) DESC
+                         (shipment.purchaseOrderItemId LIKE CONCAT('%', SUBSTRING(poi.id, 5))) DESC, poi.id DESC
                 LIMIT 1)`;
+      return field === "quantity" ? `COALESCE(${lookup}, 0)` : lookup;
     }
     if (field === "destinationAddress") return `COALESCE(NULLIF(shipment.snapshotDestinationAddress, ''), NULLIF(shipment.destinationLocationId, ''))`;
     if (field === "recipientName") return `COALESCE(NULLIF(shipment.snapshotRecipientName, ''), NULLIF(shipment.recipientContactId, ''))`;

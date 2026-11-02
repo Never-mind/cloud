@@ -1,3 +1,4 @@
+import { COST_PAYMENT_PROJECT_LABEL_SQL } from "@/lib/cost-payment-project";
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedUserEmail } from "@/lib/auth";
 import { execute, queryRows, type Row } from "@/lib/db";
@@ -23,6 +24,7 @@ async function loadInvoiceInfo(purchaseOrderId: string) {
             po.paymentApprovalId,
             approval.status AS paymentApprovalStatus,
             approval.serialNumber AS paymentApprovalNo,
+            ${COST_PAYMENT_PROJECT_LABEL_SQL.replaceAll("paymentApproval.", "approval.")} AS paymentApprovalCostProject,
             approval.paymentConfirmedAt
        FROM merge_power_purchaseorders po
        LEFT JOIN merge_common_feishu_approvals approval ON approval.id = po.paymentApprovalId

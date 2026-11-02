@@ -14,6 +14,15 @@ beforeEach(() => {
 });
 
 describe("confirmed service fee statement", () => {
+  it("keeps a bank reference on status updates and supports replacing and clearing it", async () => {
+    db.query.mockResolvedValue([{ snapshotNo: "SF-CONFIRMED", status: "已确认", bankSerialNo: "001234567890123456789-USD" }]);
+    await updateServiceFeeRepayment("SF-CONFIRMED", { repaymentStatus: "未回款" });
+    expect(db.execute.mock.calls.at(-1)?.[1].bankSerialNo).toBe("001234567890123456789-USD");
+    await updateServiceFeeRepayment("SF-CONFIRMED", { repaymentStatus: "未回款", bankSerialNo: "  00002/ABC  " });
+    expect(db.execute.mock.calls.at(-1)?.[1].bankSerialNo).toBe("00002/ABC");
+    await updateServiceFeeRepayment("SF-CONFIRMED", { repaymentStatus: "未回款", bankSerialNo: "" });
+    expect(db.execute.mock.calls.at(-1)?.[1].bankSerialNo).toBeNull();
+  });
   it("allows invoice information, actual partners and invoice status to be maintained", async () => {
     await updateServiceFeeInvoiceInfo("SF-CONFIRMED", {
       invoiceNo: "NEW", invoiceCurrency: "CNY", invoiceReceivingUnitId: "unit-b", invoicePayerCustomerId: "customer-b",

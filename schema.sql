@@ -724,6 +724,7 @@ CREATE TABLE IF NOT EXISTS `merge_power_servicefeesnapshots` (
   `repaymentAmountExcludingTax` DECIMAL(18, 4) NULL COMMENT 'repayment amount VAT excluded',
   `repaymentVatRate` DECIMAL(10, 6) NULL COMMENT 'repayment VAT rate',
   `repaymentDate` DATE NULL COMMENT 'repayment date',
+  `bankSerialNo` VARCHAR(255) NULL COMMENT '银行流水号',
   `repaymentUpdatedAt` DATETIME NULL COMMENT 'repayment updated time',
   `invoiceNo` VARCHAR(128) NULL COMMENT 'invoice number',
   `invoiceCurrency` VARCHAR(16) NULL COMMENT 'invoice currency',

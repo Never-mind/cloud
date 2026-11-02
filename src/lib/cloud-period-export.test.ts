@@ -22,4 +22,18 @@ describe("cloud export month range", () => {
     expect(response.status).toBe(400);
     expect(db.query).not.toHaveBeenCalled();
   });
+  it.each(["", "&view=collection"])("exports receipt references as text and honors reference searches %s", async view => {
+    const bankSerialNo = "00012345678901234567890123456789/a-B";
+    db.query.mockResolvedValue([
+      { period: "202605", customer: "测试客户", bankSerialNo, collectionDate: "2026-11-02" },
+      { period: "202604", customer: "其他客户", bankSerialNo: "different" },
+    ]);
+    const response = await GET(new NextRequest("http://local/api/cloud/rows/export?keyword=" + encodeURIComponent(bankSerialNo.toLowerCase()) + view));
+    expect(response.status).toBe(200);
+    const workbook = XLSX.read(Buffer.from(await response.arrayBuffer()));
+    const rows = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ 银行流水号: bankSerialNo });
+    expect(rows[0]).toHaveProperty(view ? "实收日期" : "客户实收日期", "2026-11-02");
+  });
 });

@@ -1,5 +1,7 @@
 "use client";
 
+import { StatusSwitch } from "./status-switch";
+
 import Link from "next/link";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { InvoiceDraftModal, type InvoiceDraftMode } from "./invoice-draft-modal";
@@ -43,6 +45,7 @@ type RepaymentDraft = {
   repaymentAmountExcludingTax: string;
   repaymentVatRate: string;
   repaymentDate: string;
+  bankSerialNo: string;
   sourceCurrency: string;
   prefillSource: "开票信息" | "客户应收";
 };
@@ -88,6 +91,7 @@ const columns: ServiceFeeColumn[] = [
   { key: "repaymentPayerName", label: "实收付款单位", defaultVisible: false, sortable: false, filterable: false },
   { key: "repaymentPayeeName", label: "实收收款单位", defaultVisible: false, sortable: false, filterable: false },
   { key: "repaymentDate", label: "实收日期", defaultVisible: false, sortable: false, filterable: false },
+  { key: "bankSerialNo", label: "银行流水号", defaultVisible: false, sortable: true, filterable: true },
   { key: "customerInvoice", label: "客户开票（含税）", defaultVisible: true, sortable: true, filterable: true },
   { key: "invoiceNo", label: "发票号", defaultVisible: false, sortable: true, filterable: true },
   { key: "invoiceCurrency", label: "开票币种", defaultVisible: false, sortable: true, filterable: true },
@@ -110,7 +114,7 @@ const fieldGroups: Record<string, string[]> = {
   "基本信息": ["snapshotNo", "writeOffMonth", "countryCode"],
   "金额": ["billingTotal", "prepaymentTotal"],
   "客户应收": ["customerReceivable", "serviceFeeCurrency", "serviceFeeTotalExcludingTax", "vatRate", "receivableTaxAmount", "receivablePayerName", "receivablePayeeName"],
-  "客户实收": ["customerReceived", "repaymentCurrency", "repaymentAmountExcludingTax", "repaymentVatRate", "repaymentTaxAmount", "repaymentPayerName", "repaymentPayeeName", "repaymentDate"],
+  "客户实收": ["customerReceived", "repaymentCurrency", "repaymentAmountExcludingTax", "repaymentVatRate", "repaymentTaxAmount", "repaymentPayerName", "repaymentPayeeName", "repaymentDate", "bankSerialNo"],
   "客户开票": ["customerInvoice", "invoiceNo", "invoiceCurrency", "invoiceAmountExcludingTax", "invoiceVatRate", "invoiceTaxAmount", "invoicePayerName", "invoicePayeeName", "receivableDate", "invoiceDate"],
   "审计": ["createdAt", "updatedAt", "confirmedAt"],
   "状态": ["status", "invoiceStatus", "repaymentStatus"],
@@ -254,6 +258,7 @@ export function ServiceFeeStatementsPage() {
       repaymentAmountExcludingTax: amounts.net,
       repaymentVatRate: formatRateInput(amounts.rate),
       repaymentDate: String(row.repaymentDate ?? "").slice(0, 10),
+      bankSerialNo: String(row.bankSerialNo ?? ""),
       sourceCurrency: String(source.currency ?? ""),
       prefillSource: invoiceIssued ? "开票信息" : "客户应收",
     });
@@ -426,6 +431,7 @@ export function ServiceFeeStatementsPage() {
           repaymentAmountExcludingTax: nullableNumber(row.repaymentAmountExcludingTax),
           repaymentVatRate: parseRateInput(row.repaymentVatRate),
           repaymentDate: String(row.repaymentDate ?? "").slice(0, 10),
+          bankSerialNo: String(row.bankSerialNo ?? ""),
         }),
       });
       const data = await response.json().catch(() => ({}));
@@ -618,15 +624,9 @@ export function ServiceFeeStatementsPage() {
     return <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2 rounded border border-line-soft bg-surface-2 px-3 py-2">
         <span className="text-xs font-medium text-ink-2">本行操作</span>
-        <button aria-checked={row.repaymentStatus === "已回款"} className="inline-flex h-7 items-center gap-1 rounded border border-line bg-white px-2 text-xs text-ink-2 disabled:opacity-50" disabled={busyNo === snapshotNo} role="switch" type="button" onClick={() => void setRepaymentState(row, row.repaymentStatus === "已回款" ? "未回款" : "已回款")}>
-          <span className={`relative inline-flex h-4 w-7 rounded-full ${row.repaymentStatus === "已回款" ? "bg-success" : "bg-ink-4"}`}><span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white shadow ${row.repaymentStatus === "已回款" ? "translate-x-[15px]" : "translate-x-0.5"}`} /></span>
-          {row.repaymentStatus === "已回款" ? "已回款" : "未回款"}
-        </button>
+        <StatusSwitch checked={row.repaymentStatus === "已回款"} disabled={busyNo === snapshotNo} onChange={(checked) => void setRepaymentState(row, checked ? "已回款" : "未回款")} onLabel="已回款" offLabel="未回款" />
         <Button disabled={busyNo === snapshotNo} size="sm" onClick={() => openRepayment(row)}>编辑实收</Button>
-        <button aria-checked={issued} className="inline-flex h-7 items-center gap-1 rounded border border-line bg-white px-2 text-xs text-ink-2 disabled:opacity-50" disabled={busyNo === snapshotNo || (Array.isArray(row.registeredInvoices) && row.registeredInvoices.length > 0)} role="switch" type="button" title="已登记发票的状态由有效发票自动计算" onClick={() => void setInvoiceState(snapshotNo, issued ? "未开票" : "已开票")}>
-          <span className={`relative inline-flex h-4 w-7 rounded-full ${issued ? "bg-success" : "bg-ink-4"}`}><span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white shadow ${issued ? "translate-x-[15px]" : "translate-x-0.5"}`} /></span>
-          {issued ? "已开票" : "未开票"}
-        </button>
+        <StatusSwitch checked={issued} disabled={busyNo === snapshotNo || (Array.isArray(row.registeredInvoices) && row.registeredInvoices.length > 0)} title="已登记发票的状态由有效发票自动计算" onChange={(checked) => void setInvoiceState(snapshotNo, checked ? "已开票" : "未开票")} onLabel="已开票" offLabel="未开票" />
         <Button disabled={busyNo === snapshotNo} size="sm" onClick={() => openInvoiceInfo(row)}>{Array.isArray(row.registeredInvoices) && row.registeredInvoices.length > 1 ? "查看／追加发票" : "编辑开票"}</Button>
         <Button disabled={busyNo === snapshotNo} size="sm" onClick={() => setInvoiceModal({ mode: "generated", sourceId: snapshotNo })}>开票</Button>
         <Button disabled={busyNo === snapshotNo} size="sm" onClick={() => setInvoiceModal({ mode: "external", sourceId: snapshotNo })}>上传并识别</Button>
@@ -647,7 +647,7 @@ export function ServiceFeeStatementsPage() {
           showLabel
         />
       </div>
-      <StatementInvoiceSummary invoiceNo={row.invoiceNo} invoiceDate={row.invoiceDate} receivableDate={row.receivableDate} collectionDate={row.repaymentDate} />
+      <StatementInvoiceSummary invoiceNo={row.invoiceNo} invoiceDate={row.invoiceDate} receivableDate={row.receivableDate} collectionDate={row.repaymentDate} bankSerialNo={row.bankSerialNo} />
       {Array.isArray(row.registeredInvoices) && row.registeredInvoices.length ? <StatementInvoiceList sourceId={snapshotNo} entries={row.registeredInvoices} onChanged={() => { setAttachmentVersion(current => current + 1); void loadData(page, pageSizeRef.current); }} /> : null}
       {groups.map((group) => <section className="overflow-hidden rounded border border-line-soft" key={group.title}>
         <div className="border-b border-line-soft bg-canvas px-3 py-2 text-xs font-medium text-ink-2">{group.title}</div>
@@ -820,23 +820,18 @@ export function ServiceFeeStatementsPage() {
           {receiptInvoiceCurrencyMismatch(repaymentDraft.repaymentCurrency, repaymentDraft.sourceCurrency) ? <p className="mb-3 text-xs text-warning-ink">实收币种与{repaymentDraft.prefillSource}币种不同，请按实际收款币种核对金额；系统不自动换算。</p> : null}
           <div className="grid grid-cols-2 gap-4">
               <RepaymentField label="是否回款">
-                <button
-                  aria-checked={repaymentDraft.repaymentStatus === "已回款"}
-                  aria-label={`是否回款：${repaymentDraft.repaymentStatus}`}
-                  className="inline-flex h-9 items-center gap-2 text-sm text-ink-2"
-                  role="switch"
+                <StatusSwitch
+                  checked={repaymentDraft.repaymentStatus === "已回款"}
+                  aria-label="是否回款"
+                  className="h-9"
                   title="点击切换回款状态"
-                  type="button"
-                  onClick={() => setRepaymentDraft((current) => current ? {
+                  onChange={(checked) => setRepaymentDraft((current) => current ? {
                     ...current,
-                    repaymentStatus: current.repaymentStatus === "已回款" ? "未回款" : "已回款",
+                    repaymentStatus: checked ? "已回款" : "未回款",
                   } : current)}
-                >
-                  <span className={`relative inline-flex h-5 w-10 rounded-full transition-colors ${repaymentDraft.repaymentStatus === "已回款" ? "bg-success" : "bg-ink-4"}`}>
-                    <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${repaymentDraft.repaymentStatus === "已回款" ? "translate-x-[22px]" : "translate-x-0.5"}`} />
-                  </span>
-                  <span>{repaymentDraft.repaymentStatus}</span>
-                </button>
+                  onLabel="已回款"
+                  offLabel="未回款"
+                />
               </RepaymentField>
               <div />
               <RepaymentField label="收款单位">
@@ -861,6 +856,9 @@ export function ServiceFeeStatementsPage() {
               </RepaymentField>
               <RepaymentField label="回款日期">
                 <Input className="w-full min-w-0" type="date" value={repaymentDraft.repaymentDate} onChange={(event) => setRepaymentDraft((current) => current ? { ...current, repaymentDate: event.target.value } : current)} />
+              </RepaymentField>
+              <RepaymentField label="银行流水号">
+                <Input className="w-full min-w-0" maxLength={255} placeholder="选填，按银行流水原样填写" value={repaymentDraft.bankSerialNo} onChange={(event) => setRepaymentDraft((current) => current ? { ...current, bankSerialNo: event.target.value } : current)} />
               </RepaymentField>
           </div>
         </Modal>

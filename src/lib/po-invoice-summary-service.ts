@@ -1,3 +1,4 @@
+import { COST_PAYMENT_PROJECT_LABEL_SQL } from "./cost-payment-project";
 import * as XLSX from "xlsx";
 import { queryRows, type Row } from "./db";
 import { formatDisplayValue } from "./display-format";
@@ -27,6 +28,7 @@ export type PoInvoiceSummaryRow = {
   invoiceEntityType: "supplier" | "customer" | null;
   receivableDate: string | null;
   actualReceiptDate: string | null;
+  bankSerialNo?: string | null;
   invoiceDate: string | null;
   invoiceNo: string | null;
   invoiceTotal: number;
@@ -40,6 +42,7 @@ export type PoInvoiceSummaryRow = {
   isInvoiced: boolean;
   paymentApprovalStatus: string;
   paymentApprovalNo: string;
+  paymentApprovalCostProject?: string | null;
   paymentConfirmedAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -88,6 +91,7 @@ const filterExpressions: Record<string, string> = {
   invoiceEntity: "i.invoiceEntity",
   receivableDate: "i.receivableDate",
   actualReceiptDate: "i.actualReceiptDate",
+  bankSerialNo: "i.bankSerialNo",
   invoiceDate: "i.invoiceDate",
   invoiceNo: "i.invoiceNo",
   invoiceTotal: "i.invoiceTotal",
@@ -156,6 +160,7 @@ function addBaseConditions(params: URLSearchParams, conditions: string[], values
       OR i.companyEntity LIKE :summaryKeyword
       OR i.invoiceEntity LIKE :summaryKeyword
       OR i.invoiceNo LIKE :summaryKeyword
+      OR i.bankSerialNo LIKE :summaryKeyword
       OR i.accountPeriod LIKE :summaryKeyword
     )`);
     values.summaryKeyword = `%${keyword}%`;
@@ -181,6 +186,7 @@ function selectSql(conditions: string[]) {
            COALESCE(p.status, 'purchasing') AS projectStatus,
            paymentApproval.status AS paymentApprovalStatus,
            paymentApproval.serialNumber AS paymentApprovalNo,
+              ${COST_PAYMENT_PROJECT_LABEL_SQL} AS paymentApprovalCostProject,
            paymentApproval.paymentConfirmedAt
       FROM ${invoiceFrom}
      WHERE ${conditions.join(" AND ")}
@@ -205,6 +211,7 @@ function normalizeRow(row: Row): PoInvoiceSummaryRow {
     invoiceEntityType: text(row.invoiceEntityType) === "supplier" || text(row.invoiceEntityType) === "customer" ? text(row.invoiceEntityType) as "supplier" | "customer" : null,
     receivableDate: dateText(row.receivableDate),
     actualReceiptDate: dateText(row.actualReceiptDate),
+    bankSerialNo: text(row.bankSerialNo) || null,
     invoiceDate: dateText(row.invoiceDate),
     invoiceNo: text(row.invoiceNo) || null,
     invoiceTotal: numeric(row.invoiceTotal),
@@ -330,6 +337,7 @@ function exportRow(row: PoInvoiceSummaryRow) {
     供应商或客户: row.invoiceEntity || "",
     应收日期: row.receivableDate || "",
     实收日期: row.actualReceiptDate || "",
+    银行流水号: row.bankSerialNo || "",
     发票日期: row.invoiceDate || "",
     发票号: row.invoiceNo || "",
     发票总额: money(row.invoiceTotal),

@@ -31,6 +31,7 @@ const columns: Column[] = [
   { key: "invoiceEntity", label: "供应商/客户" },
   { key: "receivableDate", label: "预计收/付款日期", type: "date" },
   { key: "actualReceiptDate", label: "实际收/付款日期", type: "date" },
+  { key: "bankSerialNo", label: "银行流水号" },
   { key: "paymentApprovalStatus", label: "审批状态" },
   { key: "invoiceDate", label: "发票日期", type: "date" },
   { key: "invoiceNo", label: "发票号" },
@@ -221,10 +222,12 @@ function PaymentApprovalBadge({ row }: { row: PoInvoiceSummaryRow }) {
   if (!label) return <span className="text-ink-3">-</span>;
   const title = [
     `审批状态：${label}`,
+    "来源：集采付款",
+    row.paymentApprovalCostProject ? `付款成本项目：${row.paymentApprovalCostProject}` : "",
     row.paymentApprovalNo ? `单号：${row.paymentApprovalNo}` : "",
     row.paymentConfirmedAt ? `确认到账：${formatDisplayValue(row.paymentConfirmedAt as never, "datetime")}` : "",
   ].filter(Boolean).join(" · ");
-  return <span className={`inline-flex rounded border px-2 py-0.5 text-xs ${paymentApprovalStatusClass(row.paymentApprovalStatus)}`} title={title}>{label}</span>;
+  return <span className="inline-flex flex-col items-start gap-1" title={title}><span className={`inline-flex rounded border px-2 py-0.5 text-xs ${paymentApprovalStatusClass(row.paymentApprovalStatus)}`} title={title}>{label}</span>{row.paymentApprovalCostProject ? <span className="text-[11px] text-ink-3">成本项目：{String(row.paymentApprovalCostProject)}</span> : null}</span>;
 }
 
 function formatValue(value: unknown, type?: Column["type"]) {

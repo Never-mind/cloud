@@ -2,7 +2,7 @@
 export const CLOUD_COLLECTION_EDIT_FIELDS = [
   "collected", "collectionPayer", "collectionPayee", "collectionPayerCustomerId", "collectionPayeeUndertakingUnitId",
   "collectionCurrency", "collectionExchangeRate", "collectionNetAmount", "collectionTaxRate",
-  "collectionTaxAmount", "collectionTotalAmount", "collectionDate",
+  "collectionTaxAmount", "collectionTotalAmount", "collectionDate", "bankSerialNo",
 ] as const;
 
 export const CLOUD_INVOICE_EDIT_FIELDS = [

@@ -1,3 +1,5 @@
+import { COST_PAYMENT_PROJECT_LABEL_SQL } from "./cost-payment-project";
+import { normalizeBankSerialNo } from "./bank-serial-no";
 import { randomUUID } from "node:crypto";
 import * as XLSX from "xlsx";
 import { execute, queryRows, type Row } from "./db";
@@ -109,6 +111,7 @@ type SettlementSale = {
   receivedRevenueUsd: number;
   invoiceNo: string | null;
   receivedAt: string | null;
+  bankSerialNo?: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -137,10 +140,12 @@ type SettlementInvoice = {
   usdAmount: number;
   receivableDate: string | null;
   actualReceiptDate: string | null;
+  bankSerialNo?: string | null;
   isPaid: boolean;
   isInvoiced: boolean;
   paymentApprovalStatus: string | null;
   paymentApprovalNo: string | null;
+  paymentApprovalCostProject?: string | null;
   paymentConfirmedAt: string | null;
   attachments?: SettlementAttachment[];
   createdAt: string;
@@ -562,6 +567,7 @@ async function detailRows(projectId: string) {
       `SELECT invoice.*,
               paymentApproval.status AS paymentApprovalStatus,
               paymentApproval.serialNumber AS paymentApprovalNo,
+              ${COST_PAYMENT_PROJECT_LABEL_SQL} AS paymentApprovalCostProject,
               paymentApproval.paymentConfirmedAt
          FROM merge_po_settlement_invoices invoice
          LEFT JOIN merge_common_feishu_approvals paymentApproval
@@ -997,9 +1003,9 @@ export async function addSettlementSale(projectId: string, input: Record<string,
   const values = inputValues(input, { currency: "USD", priceType: "tax_included" });
   const amounts = settlementAmounts(values, project);
   await execute(
-    `INSERT INTO merge_po_settlement_sales (id,projectId,description,amount,currency,priceType,taxRate,receivedRevenueTaxIncludedUsd,receivedRevenueUsd,invoiceNo,receivedAt)
-     VALUES (:id,:projectId,:description,:amount,:currency,:priceType,:taxRate,:includedUsd,:excludedUsd,:invoiceNo,:receivedAt)`,
-    { id: randomUUID(), projectId, description: text(input.description) || null, ...values, includedUsd: amounts.taxIncludedUsd, excludedUsd: amounts.taxExcludedUsd, invoiceNo: text(input.invoiceNo) || null, receivedAt: text(input.receivedAt) || new Date().toISOString().slice(0, 10) },
+    `INSERT INTO merge_po_settlement_sales (id,projectId,description,amount,currency,priceType,taxRate,receivedRevenueTaxIncludedUsd,receivedRevenueUsd,invoiceNo,receivedAt,bankSerialNo)
+     VALUES (:id,:projectId,:description,:amount,:currency,:priceType,:taxRate,:includedUsd,:excludedUsd,:invoiceNo,:receivedAt,:bankSerialNo)`,
+    { id: randomUUID(), projectId, description: text(input.description) || null, ...values, includedUsd: amounts.taxIncludedUsd, excludedUsd: amounts.taxExcludedUsd, invoiceNo: text(input.invoiceNo) || null, bankSerialNo: normalizeBankSerialNo(input.bankSerialNo), receivedAt: text(input.receivedAt) || new Date().toISOString().slice(0, 10) },
   );
   return touchAndRecalculate(projectId, actor);
 }
@@ -1011,8 +1017,8 @@ export async function updateSettlementSale(projectId: string, saleId: string, in
   const values = inputValues(input, { currency: validCurrency(sale.currency) ? sale.currency : "USD", priceType: validPriceType(sale.priceType) ? sale.priceType : "tax_included" });
   const amounts = settlementAmounts(values, project);
   await execute(
-    `UPDATE merge_po_settlement_sales SET description=:description,amount=:amount,currency=:currency,priceType=:priceType,taxRate=:taxRate,receivedRevenueTaxIncludedUsd=:includedUsd,receivedRevenueUsd=:excludedUsd,invoiceNo=:invoiceNo,receivedAt=:receivedAt WHERE id=:id AND projectId=:projectId`,
-    { id: saleId, projectId, description: text(input.description) || null, ...values, includedUsd: amounts.taxIncludedUsd, excludedUsd: amounts.taxExcludedUsd, invoiceNo: text(input.invoiceNo) || null, receivedAt: text(input.receivedAt) || null },
+    `UPDATE merge_po_settlement_sales SET description=:description,amount=:amount,currency=:currency,priceType=:priceType,taxRate=:taxRate,receivedRevenueTaxIncludedUsd=:includedUsd,receivedRevenueUsd=:excludedUsd,invoiceNo=:invoiceNo,receivedAt=:receivedAt,bankSerialNo=:bankSerialNo WHERE id=:id AND projectId=:projectId`,
+    { id: saleId, projectId, description: text(input.description) || null, ...values, includedUsd: amounts.taxIncludedUsd, excludedUsd: amounts.taxExcludedUsd, invoiceNo: text(input.invoiceNo) || null, bankSerialNo: normalizeBankSerialNo(input.bankSerialNo === undefined ? sale.bankSerialNo : input.bankSerialNo), receivedAt: text(input.receivedAt) || null },
   );
   return touchAndRecalculate(projectId, actor);
 }
@@ -1050,7 +1056,7 @@ async function invoiceValues(_projectId: string, input: Record<string, unknown>)
     companyEntityId ? resolveSettlementPartnerName("undertaking", companyEntityId) : null,
     invoiceEntityId ? resolveSettlementPartnerName(invoiceEntityType === "customer" ? "customer" : invoiceEntityType === "supplier" ? "supplier" : "any", invoiceEntityId) : null,
   ]);
-  return { type, accountPeriod, accountingDate, companyEntity: companyEntityName || text(input.companyEntity) || null, invoiceEntity: invoiceEntityName || text(input.invoiceEntity) || null, companyEntityId, invoiceEntityId, invoiceEntityType, invoiceDate, invoiceNo: text(input.invoiceNo) || null, taxUuid: text(input.taxUuid) || null, invoiceTotal, invoiceTaxExcludedTotal, taxRate, invoiceTaxAmount, currency, exchangeRate, usdAmount, isPaid: input.isPaid ? 1 : 0, isInvoiced: input.isInvoiced ? 1 : 0, receivableDate, actualReceiptDate };
+  return { type, accountPeriod, accountingDate, companyEntity: companyEntityName || text(input.companyEntity) || null, invoiceEntity: invoiceEntityName || text(input.invoiceEntity) || null, companyEntityId, invoiceEntityId, invoiceEntityType, invoiceDate, invoiceNo: text(input.invoiceNo) || null, taxUuid: text(input.taxUuid) || null, invoiceTotal, invoiceTaxExcludedTotal, taxRate, invoiceTaxAmount, currency, exchangeRate, usdAmount, isPaid: input.isPaid ? 1 : 0, isInvoiced: input.isInvoiced ? 1 : 0, receivableDate, actualReceiptDate, bankSerialNo: normalizeBankSerialNo(input.bankSerialNo) };
 }
 
 async function resolveSettlementPartnerName(kind: "undertaking" | "supplier" | "customer" | "any", value: string) {
@@ -1105,8 +1111,8 @@ export async function addSettlementInvoice(projectId: string, input: Record<stri
   }
   const id = randomUUID();
   await execute(
-    `INSERT INTO merge_po_settlement_invoices (id,projectId,type,accountPeriod,accountingDate,companyEntity,invoiceEntity,companyEntityId,invoiceEntityId,invoiceEntityType,invoiceDate,invoiceNo,taxUuid,invoiceTotal,invoiceTaxExcludedTotal,taxRate,invoiceTaxAmount,currency,exchangeRate,usdAmount,isPaid,isInvoiced,receivableDate,actualReceiptDate)
-     VALUES (:id,:projectId,:type,:accountPeriod,:accountingDate,:companyEntity,:invoiceEntity,:companyEntityId,:invoiceEntityId,:invoiceEntityType,:invoiceDate,:invoiceNo,:taxUuid,:invoiceTotal,:invoiceTaxExcludedTotal,:taxRate,:invoiceTaxAmount,:currency,:exchangeRate,:usdAmount,:isPaid,:isInvoiced,:receivableDate,:actualReceiptDate)`,
+    `INSERT INTO merge_po_settlement_invoices (id,projectId,type,accountPeriod,accountingDate,companyEntity,invoiceEntity,companyEntityId,invoiceEntityId,invoiceEntityType,invoiceDate,invoiceNo,taxUuid,invoiceTotal,invoiceTaxExcludedTotal,taxRate,invoiceTaxAmount,currency,exchangeRate,usdAmount,isPaid,isInvoiced,receivableDate,actualReceiptDate,bankSerialNo)
+     VALUES (:id,:projectId,:type,:accountPeriod,:accountingDate,:companyEntity,:invoiceEntity,:companyEntityId,:invoiceEntityId,:invoiceEntityType,:invoiceDate,:invoiceNo,:taxUuid,:invoiceTotal,:invoiceTaxExcludedTotal,:taxRate,:invoiceTaxAmount,:currency,:exchangeRate,:usdAmount,:isPaid,:isInvoiced,:receivableDate,:actualReceiptDate,:bankSerialNo)`,
     { id, projectId, ...values },
   );
   // 识别发票时文件要跟着这条记录一起进附件（走和手工上传附件同一条链路，含 OBS）
@@ -1198,8 +1204,8 @@ export async function prepareSettlementIssueInvoice(projectId: string, actor: Op
   });
   const invoiceId = randomUUID();
   await execute(
-    `INSERT INTO merge_po_settlement_invoices (id,projectId,type,accountPeriod,accountingDate,companyEntity,invoiceEntity,companyEntityId,invoiceEntityId,invoiceEntityType,invoiceDate,invoiceNo,invoiceTotal,invoiceTaxExcludedTotal,taxRate,invoiceTaxAmount,currency,exchangeRate,usdAmount,isPaid,isInvoiced,receivableDate,actualReceiptDate)
-     VALUES (:id,:projectId,:type,:accountPeriod,:accountingDate,:companyEntity,:invoiceEntity,:companyEntityId,:invoiceEntityId,:invoiceEntityType,:invoiceDate,:invoiceNo,:invoiceTotal,:invoiceTaxExcludedTotal,:taxRate,:invoiceTaxAmount,:currency,:exchangeRate,:usdAmount,:isPaid,:isInvoiced,:receivableDate,:actualReceiptDate)`,
+    `INSERT INTO merge_po_settlement_invoices (id,projectId,type,accountPeriod,accountingDate,companyEntity,invoiceEntity,companyEntityId,invoiceEntityId,invoiceEntityType,invoiceDate,invoiceNo,invoiceTotal,invoiceTaxExcludedTotal,taxRate,invoiceTaxAmount,currency,exchangeRate,usdAmount,isPaid,isInvoiced,receivableDate,actualReceiptDate,bankSerialNo)
+     VALUES (:id,:projectId,:type,:accountPeriod,:accountingDate,:companyEntity,:invoiceEntity,:companyEntityId,:invoiceEntityId,:invoiceEntityType,:invoiceDate,:invoiceNo,:invoiceTotal,:invoiceTaxExcludedTotal,:taxRate,:invoiceTaxAmount,:currency,:exchangeRate,:usdAmount,:isPaid,:isInvoiced,:receivableDate,:actualReceiptDate,:bankSerialNo)`,
     { id: invoiceId, projectId, ...values },
   );
   await touchAndRecalculate(projectId, actor);
@@ -1210,9 +1216,9 @@ export async function updateSettlementInvoice(projectId: string, invoiceId: stri
   const project = await getProject(projectId); assertEditable(project);
   const invoice = (await queryRows<SettlementInvoice>("SELECT * FROM merge_po_settlement_invoices WHERE id=:id AND projectId=:projectId LIMIT 1", { id: invoiceId, projectId }))[0];
   if (!invoice) throw new Error("发票不存在");
-  const values = await invoiceValues(projectId, input);
+  const values = await invoiceValues(projectId, { ...input, bankSerialNo: input.bankSerialNo === undefined ? invoice.bankSerialNo : input.bankSerialNo });
   await execute(
-    `UPDATE merge_po_settlement_invoices SET type=:type,accountPeriod=:accountPeriod,accountingDate=:accountingDate,companyEntity=:companyEntity,invoiceEntity=:invoiceEntity,companyEntityId=:companyEntityId,invoiceEntityId=:invoiceEntityId,invoiceEntityType=:invoiceEntityType,invoiceDate=:invoiceDate,invoiceNo=:invoiceNo,taxUuid=:taxUuid,invoiceTotal=:invoiceTotal,invoiceTaxExcludedTotal=:invoiceTaxExcludedTotal,taxRate=:taxRate,invoiceTaxAmount=:invoiceTaxAmount,currency=:currency,exchangeRate=:exchangeRate,usdAmount=:usdAmount,isPaid=:isPaid,isInvoiced=:isInvoiced,receivableDate=:receivableDate,actualReceiptDate=:actualReceiptDate WHERE id=:id AND projectId=:projectId`,
+    `UPDATE merge_po_settlement_invoices SET type=:type,accountPeriod=:accountPeriod,accountingDate=:accountingDate,companyEntity=:companyEntity,invoiceEntity=:invoiceEntity,companyEntityId=:companyEntityId,invoiceEntityId=:invoiceEntityId,invoiceEntityType=:invoiceEntityType,invoiceDate=:invoiceDate,invoiceNo=:invoiceNo,taxUuid=:taxUuid,invoiceTotal=:invoiceTotal,invoiceTaxExcludedTotal=:invoiceTaxExcludedTotal,taxRate=:taxRate,invoiceTaxAmount=:invoiceTaxAmount,currency=:currency,exchangeRate=:exchangeRate,usdAmount=:usdAmount,isPaid=:isPaid,isInvoiced=:isInvoiced,receivableDate=:receivableDate,actualReceiptDate=:actualReceiptDate,bankSerialNo=:bankSerialNo WHERE id=:id AND projectId=:projectId`,
     { id: invoiceId, projectId, ...values },
   );
   return touchAndRecalculate(projectId, actor);
@@ -1364,8 +1370,8 @@ export async function exportSettlementProject(projectId: string) {
     项目结算: [projectExportRow(detail.project)],
     采购明细: detail.items.map((item) => ({ 产品编码: item.productCode, 产品名称: item.productName, 品牌: item.brand || "", 计划数量: item.plannedQty, 采购数量: item.purchaseQty, 采购单价: item.purchaseUnitPrice, 币种: item.currency, 价格方式: item.priceType === "tax_included" ? "含税价" : "未税价", 税率: item.taxRate, "已采购成本（未税 USD）": item.purchasedCostUsd, 发票号: item.invoiceNo || "" })),
     其他成本费用: detail.expenses.map((item) => ({ 类型: item.type, 说明: item.description || "", 金额: item.amount, 币种: item.currency, 价格方式: item.priceType === "tax_included" ? "含税价" : "未税价", 税率: item.taxRate, "成本（未税 USD）": item.costUsd, 发票号: item.invoiceNo || "" })),
-    销售收入: detail.sales.map((item) => ({ 说明: item.description || "", 金额: item.amount, 币种: item.currency, 价格方式: item.priceType === "tax_included" ? "含税价" : "未税价", 税率: item.taxRate, "收入（含税 USD）": item.receivedRevenueTaxIncludedUsd, "收入（未税 USD）": item.receivedRevenueUsd, 收款日期: item.receivedAt || "", 发票号: item.invoiceNo || "" })),
-    发票管理: detail.invoices.map((item) => ({ 类型: item.type === "income" ? "收入" : "成本", 账期: item.accountPeriod || "", 应收日期: item.receivableDate || "", 实收日期: item.actualReceiptDate || "", 发票号: item.invoiceNo || "", 发票总额: item.invoiceTotal, 发票未税金额: item.invoiceTaxExcludedTotal, 税率: item.taxRate, 发票税额: item.invoiceTaxAmount, 币种: item.currency, 汇率: item.exchangeRate, "USD金额": item.usdAmount, 是否支付: item.isPaid ? "是" : "否", 是否开票: item.isInvoiced ? "是" : "否" })),
+    销售收入: detail.sales.map((item) => ({ 说明: item.description || "", 金额: item.amount, 币种: item.currency, 价格方式: item.priceType === "tax_included" ? "含税价" : "未税价", 税率: item.taxRate, "收入（含税 USD）": item.receivedRevenueTaxIncludedUsd, "收入（未税 USD）": item.receivedRevenueUsd, 收款日期: item.receivedAt || "", 银行流水号: item.bankSerialNo || "", 发票号: item.invoiceNo || "" })),
+    发票管理: detail.invoices.map((item) => ({ 类型: item.type === "income" ? "收入" : "成本", 账期: item.accountPeriod || "", 应收日期: item.receivableDate || "", 实收日期: item.actualReceiptDate || "", 银行流水号: item.bankSerialNo || "", 发票号: item.invoiceNo || "", 发票总额: item.invoiceTotal, 发票未税金额: item.invoiceTaxExcludedTotal, 税率: item.taxRate, 发票税额: item.invoiceTaxAmount, 币种: item.currency, 汇率: item.exchangeRate, "USD金额": item.usdAmount, 是否支付: item.isPaid ? "是" : "否", 是否开票: item.isInvoiced ? "是" : "否" })),
     附件管理: detail.attachments.map((item) => ({ 文件名: item.fileName, 类型: item.fileType || "", 大小: item.fileSize, 说明: item.description || "", 上传人: item.uploadedByName || "", 上传时间: item.uploadedAt })),
   });
 }

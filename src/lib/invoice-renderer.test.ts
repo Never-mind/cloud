@@ -14,7 +14,7 @@ import { trimTrailingEmptyColumns } from "./invoice-html-trim";
 /**
  * 金标准：BI 的两份样例输出（output/invoice.html、output/invoice-sgd.html）原样存成基线。
  * 允许的差异：
- *   1. 票号前缀 —— BI 模板里写死的 `CI-WZ_` 已参数化，票号由系统按 INV-<账期>-<流水> 分配；
+ *   1. 票号前缀 —— BI 模板里写死的 `CI-WZ_` 已参数化，票号由系统按 WZ-<账期>-<流水> 分配；
  *   2. 没有签章图时不输出 `src=''` 的破图占位；
  *   3. 裁掉右侧全空列；
  *   4. FROM 的 CONTACT 一格：BI 原版填的是单位名称，按业务口径应为**承接单位联系人**；
@@ -198,6 +198,12 @@ describe("invoice renderer", () => {
     // 备注单元格高度写在 style 里：height:<值>pt;mso-height-source:userset
     const heightOf = (html: string) => Number(/height:([0-9.]+)pt;mso-height-source:userset/.exec(html)?.[1] ?? 0);
     expect(heightOf(long)).toBeGreaterThan(0);
+  });
+
+  it.each(["normal", "sgd"] as const)("%s 票面保留新旧编号原值", template => {
+    for (const invoiceNo of ["WZ-202610-0026", "INV-202610-0025"]) {
+      expect(renderInvoice({ ...demoInput(template), invoiceNo }, { template })).toContain(`INV No.${invoiceNo}`);
+    }
   });
 
   it("缺项检查给出人话提示，便于引导用户先去补档案", () => {

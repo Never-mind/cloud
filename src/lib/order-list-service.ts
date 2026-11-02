@@ -1,3 +1,4 @@
+import { COST_PAYMENT_PROJECT_LABEL_SQL } from "./cost-payment-project";
 import { queryRows, type Row } from "./db";
 import { DEFAULT_PAGE_SIZE, normalizePageSize } from "./pagination";
 import { formatTableDateExpression, getNaturalBatchSort } from "./table-query";
@@ -9,6 +10,7 @@ type OrderListResult = {
   page: number;
   pageSize: number;
   totalPages: number;
+  totalQuantity: number;
   statusCounts: { draft: number; confirmed: number };
 };
 
@@ -37,6 +39,9 @@ const REQUEST_BATCH_SORT = `COALESCE(
 
 /** 采购进度口径：需求单明细里已进入采购订单的比例。 */
 const REQUEST_ORDER_PROGRESS_CASE = "CASE WHEN COUNT(DISTINCT poItem.id) = 0 THEN '未下单' WHEN COUNT(DISTINCT poItem.id) < COUNT(DISTINCT ri.id) THEN '部分下单' ELSE '全部下单' END";
+
+// 数量只按需求明细累计，避免一条需求明细关联多个采购记录时被重复计算。
+const REQUEST_TOTAL_QUANTITY = "COALESCE((SELECT SUM(quantityItem.quantity) FROM requestitems quantityItem WHERE quantityItem.requestNo = req.requestNo), 0)";
 
 export async function listOrderRows(searchParams: URLSearchParams): Promise<OrderListResult> {
   const mode = searchParams.get("mode") === "purchase" ? "purchase" : "requests";
@@ -77,10 +82,10 @@ async function listRequests(options: {
   const progressValues = getFilterValues(options.searchParams, "orderProgress");
   const progressHaving = progressValues.length ? `HAVING ${REQUEST_ORDER_PROGRESS_CASE} IN (:having_orderProgress)` : "";
   if (progressValues.length) params.having_orderProgress = progressValues;
-  const [{ total }] = await queryRows<{ total: number }>(
+  const [{ total, totalQuantity }] = await queryRows<{ total: number; totalQuantity: number }>(
     progressValues.length
-      ? `SELECT COUNT(*) AS total FROM (
-           SELECT req.requestNo
+      ? `SELECT COUNT(*) AS total, COALESCE(SUM(totalQuantity), 0) AS totalQuantity FROM (
+           SELECT req.requestNo, ${REQUEST_TOTAL_QUANTITY} AS totalQuantity
            FROM requests AS req
            LEFT JOIN requestitems AS ri ON ri.requestNo = req.requestNo
            LEFT JOIN purchaseorderitems AS poItem ON poItem.requestItemId = ri.id
@@ -88,7 +93,8 @@ async function listRequests(options: {
            ${REQUEST_GROUP_BY}
            ${progressHaving}
          ) AS groupedProgress`
-      : `SELECT COUNT(*) AS total FROM requests AS req ${baseWhere ? `WHERE ${baseWhere}` : ""}`,
+      : `SELECT COUNT(*) AS total, COALESCE(SUM(${REQUEST_TOTAL_QUANTITY}), 0) AS totalQuantity
+         FROM requests AS req ${baseWhere ? `WHERE ${baseWhere}` : ""}`,
     params,
   );
   const [counts] = await queryRows<{ draft: number; confirmed: number }>(
@@ -135,7 +141,7 @@ async function listRequests(options: {
         req.createdByName,
         req.updatedByName,
         req.confirmedByName,
-        COALESCE(SUM(ri.quantity), 0) AS totalQuantity,
+        ${REQUEST_TOTAL_QUANTITY} AS totalQuantity,
         COUNT(DISTINCT ri.id) AS totalItemCount,
         COUNT(DISTINCT poItem.id) AS orderedItemCount,
         CONCAT(COUNT(DISTINCT poItem.id), '/', COUNT(DISTINCT ri.id)) AS orderProgress,
@@ -157,6 +163,7 @@ async function listRequests(options: {
   return {
     rows,
     total: normalizedTotal,
+    totalQuantity: Number(totalQuantity ?? 0),
     page,
     pageSize: options.pageSize,
     totalPages,
@@ -184,9 +191,10 @@ async function listPurchaseOrders(options: {
   const baseWhere = [keywordWhere, countryWhere, statusCondition, ...columnFilters].filter(Boolean).join(" AND ");
   const allWhereParts = [keywordWhere, countryWhere, ...columnFilters].filter(Boolean);
   const allWhere = allWhereParts.length ? `WHERE ${allWhereParts.join(" AND ")}` : "";
-  const [{ total }] = await queryRows<{ total: number }>(
+  const [{ total, totalQuantity }] = await queryRows<{ total: number; totalQuantity: number }>(
     `
-      SELECT COUNT(DISTINCT purchase.purchaseOrderId) AS total
+      SELECT COUNT(DISTINCT purchase.purchaseOrderId) AS total,
+        COALESCE(SUM(requestItem.quantity), 0) AS totalQuantity
       FROM purchaseorders AS purchase
       LEFT JOIN purchaseorderitems AS item ON item.poNo = purchase.poNo
       LEFT JOIN requestitems AS requestItem ON requestItem.id = item.requestItemId
@@ -240,6 +248,7 @@ async function listPurchaseOrders(options: {
         purchase.paymentStatus,
         paymentApproval.status AS paymentApprovalStatus,
         paymentApproval.serialNumber AS paymentApprovalNo,
+              ${COST_PAYMENT_PROJECT_LABEL_SQL} AS paymentApprovalCostProject,
         DATE_FORMAT(paymentApproval.paymentConfirmedAt, '%Y-%m-%d %H:%i') AS paymentConfirmedAt,
         DATE_FORMAT(purchase.paidAt, '%Y-%m-%d') AS paidAt,
         purchase.createdByName,
@@ -254,13 +263,13 @@ async function listPurchaseOrders(options: {
         ON item.poNo = purchase.poNo
       LEFT JOIN requestitems AS requestItem ON requestItem.id = item.requestItemId
       LEFT JOIN requests AS requestMaster
-        ON requestMaster.requestNo = COALESCE(NULLIF(item.requestNo, ''), requestItem.requestNo)
+        ON requestMaster.requestNo = COALESCE(NULLIF(item.requestNo, ''), requestItem.requestNo, purchase.requestNo)
       LEFT JOIN merge_common_feishu_approvals paymentApproval
         ON paymentApproval.id = purchase.paymentApprovalId
       ${baseWhere ? `WHERE ${baseWhere}` : ""}
       GROUP BY purchase.purchaseOrderId, purchase.poNo, purchase.requestNo, purchase.sourceRequestNos, purchase.status, purchase.currency,
         purchase.invoiceNo, purchase.invoiceDate, purchase.invoiceStatus, purchase.paymentDate, purchase.paymentStatus,
-        purchase.paymentApprovalId, paymentApproval.status, paymentApproval.serialNumber, paymentApproval.paymentConfirmedAt, purchase.paidAt,
+        purchase.paymentApprovalId, paymentApproval.status, paymentApproval.formJson, paymentApproval.serialNumber, paymentApproval.paymentConfirmedAt, purchase.paidAt,
         purchase.createdByName, purchase.updatedByName, purchase.confirmedByName,
         purchase.createdAt, purchase.updatedAt
       ORDER BY ${getPurchaseOrderBy(options.sortField, options.sortOrder)}
@@ -294,6 +303,7 @@ async function listPurchaseOrders(options: {
       return { ...row, requestNo: sourceRequestNos, sourceRequestNos };
     }),
     total: normalizedTotal,
+    totalQuantity: Number(totalQuantity ?? 0),
     page,
     pageSize: options.pageSize,
     totalPages,
