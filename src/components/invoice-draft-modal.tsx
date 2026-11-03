@@ -30,7 +30,7 @@ import { INVOICE_CUSTOMER_FIELDS, INVOICE_SELLER_FIELDS, invoicePartyFields, par
  */
 
 export type InvoiceDraftMode = "generated" | "external";
-export type InvoiceDraftSourceType = "manual" | "cloud_row" | "billing_statement" | "service_fee" | "settlement_invoice";
+export type InvoiceDraftSourceType = "manual" | "cloud_row" | "billing_statement" | "service_fee" | "settlement_invoice" | "prepayment_contract";
 
 type DraftLine = { periodLabel: string; description: string; amount: string };
 
@@ -48,6 +48,8 @@ type DraftForm = InvoicePartyFields & {
   paymentTermDays: string;
   currency: string;
   exchangeRate: string;
+  businessExchangeRate: string;
+  contractCurrency: string;
   amountExcludingTax: string;
   taxRate: string;
   taxAmount: string;
@@ -81,7 +83,7 @@ export function emptyInvoiceDraft(sourceType: InvoiceDraftSourceType = "manual",
     sourceType, sourceId, sourceNo: "", period: invoiceDate.slice(0, 7).replace("-", ""),
     invoiceNo: "", customerId: "", undertakingUnitId: "", template: "normal",
     invoiceDate, dueDate: addDays(invoiceDate, 30), paymentTermDays: "30", currency: "USD",
-    amountExcludingTax: "", taxRate: "", taxAmount: "", amountIncludingTax: "", exchangeRate: "",
+    amountExcludingTax: "", taxRate: "", taxAmount: "", amountIncludingTax: "", exchangeRate: "", businessExchangeRate: "", contractCurrency: "",
     sgdRate: "", sgdTotal: "", gstRegNo: "", comment: "",
     lines: [{ periodLabel: "", description: "", amount: "" }],
   };
@@ -89,6 +91,7 @@ export function emptyInvoiceDraft(sourceType: InvoiceDraftSourceType = "manual",
 
 export function InvoiceDraftModal({
   autoOpenMergePicker = false,
+  manualRegistration = false,
   mode,
   onClose,
   onSaved,
@@ -98,6 +101,7 @@ export function InvoiceDraftModal({
 }: {
   /** 从账单行的「合并多账期」入口进来时，直接打开账单行选择弹层。 */
   autoOpenMergePicker?: boolean;
+  manualRegistration?: boolean;
   mode: InvoiceDraftMode;
   onClose: () => void;
   onSaved?: (invoice: Record<string, unknown>) => void;
@@ -173,6 +177,7 @@ export function InvoiceDraftModal({
           paymentTermDays: String(defaultInvoicePaymentTermDays(data.paymentTermDays)),
           currency: text(data.currency) || "USD",
           exchangeRate: text(data.exchangeRate),
+          contractCurrency: text(data.contractCurrency), businessExchangeRate: text(data.businessExchangeRate),
           amountExcludingTax: appendInvoices ? "" : text(data.amountExcludingTax),
           taxRate: appendInvoices ? "" : text(data.taxRate),
           taxAmount: appendInvoices ? "" : text(data.taxAmount),
@@ -261,7 +266,7 @@ export function InvoiceDraftModal({
     if(allocationPlan) {const error=validateInvoiceAllocationPlan(allocationPlan,draft);if(error){notify(error,"error");return;}if(allocationPlan.currency!==draft.currency){notify("请按当前开票币种重新核对分摊","error");return;}}
     if (!draft.customerId || !draft.undertakingUnitId) { notify("请选择客户抬头和开票主体", "error"); return; }
     if (termsError) { notify(termsError, "error"); return; }
-    if (mode === "external" && !file) { notify("请先选择发票文件", "error"); return; }
+    if (mode === "external" && !file && !manualRegistration) { notify("请先选择发票文件", "error"); return; }
     if (mode === "external") {
       if (termsError) { notify(termsError, "error"); return; }
       if (!draft.customerId || !draft.undertakingUnitId) { notify("请选择客户抬头和开票主体", "error"); return; }
@@ -274,7 +279,9 @@ export function InvoiceDraftModal({
     setBusy(true);
     try {
       let response: Response;
-      if (mode === "external") {
+      if (mode === "external" && manualRegistration && !file) {
+        response = await fetch("/api/invoices", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...draft, ...completeInvoiceReviewAmounts(draft), source: "external", manualRegistration: true }) });
+      } else if (mode === "external") {
         const form = new FormData();
         form.set("file", file as File);
         form.set("payload", JSON.stringify({ ...draft, ...completeInvoiceReviewAmounts(draft), source: "external", recognitionFacts: recognition?.facts,allocationPlan }));
@@ -303,14 +310,14 @@ export function InvoiceDraftModal({
       saving.current = false;
       setBusy(false);
     }
-  }, [allocationIds, allocationPlan, draft, file, mode, onClose, onSaved, recognizing, recognition, loadingTerms, termsError, appendInvoices]);
+  }, [allocationIds, allocationPlan, draft, file, mode, onClose, onSaved, recognizing, recognition, loadingTerms, termsError, appendInvoices, manualRegistration]);
 
   if (!open) return null;
 
   return (
     <Modal
       description={mode === "external"
-        ? appendInvoices ? "支持同一账期多张发票：逐张识别、确认并保存，金额自动累计，原件分别保留。" : "外部已经开好票：只登记 + 存文件，不生成票面"
+        ? manualRegistration ? "登记已开出的发票；保存后计入合同已开票金额，可分多次登记。" : appendInvoices ? "支持同一账期多张发票：逐张识别、确认并保存，金额自动累计，原件分别保留。" : "外部已经开好票：只登记 + 存文件，不生成票面"
         : issueMode === "approval"
           ? undefined
           : "票面按开票主体与客户档案生成；资料缺项会拦下并提示去补档案"}
@@ -332,7 +339,7 @@ export function InvoiceDraftModal({
         )}
       </>}
       onClose={close}
-      title={mode === "external" ? "上传并识别" : "开票"}
+      title={manualRegistration ? "手动登记发票" : mode === "external" ? "上传并识别" : "开票"}
       widthClass="max-w-5xl"
     >
       {showIssueTabs ? (
@@ -360,7 +367,7 @@ export function InvoiceDraftModal({
           sourceIds={allocationIds}
           sourceType={sourceType}
           allocationPlan={allocationPlan}
-          onAllocationChange={updateAllocationPlan}
+          onAllocationChange={sourceType === "cloud_row" || sourceType === "service_fee" ? updateAllocationPlan : undefined}
         />
       </div> : null}
       <div hidden={issueMode === "approval" && showIssueTabs}>
@@ -369,7 +376,7 @@ export function InvoiceDraftModal({
       ) : (
         <div className="space-y-4">
           {appendInvoices ? <StatementInvoiceList sourceType={sourceType === "cloud_row" ? "cloud_row" : "service_fee"} sourceId={sourceId} refreshToken={savedRevision} disabled={busy || recognizing || Boolean(file)} onBusyChange={setRemovingRegistration} onChanged={() => { setSavedRevision(value => value + 1); onSaved?.({}); }} /> : null}
-          {mode === "external" ? (
+          {mode === "external" && !manualRegistration ? (
             <section className="rounded border border-line-soft bg-white p-4">
               <h3 className="mb-3 border-b border-line-soft pb-2 text-sm font-medium text-ink">发票文件</h3>
               <label className="flex cursor-pointer items-center gap-2 rounded border border-dashed border-line px-4 py-4 text-sm text-ink-2 hover:border-primary hover:text-primary">
@@ -435,7 +442,7 @@ function DraftFormFields({
   onOpenMergePicker?: () => void;
   simple?: boolean;
 }) {
-  const patch = (values: Partial<DraftForm>) => onChange({ ...draft, ...values });
+  const patch = (values: Partial<DraftForm>) => onChange({ ...draft, ...values, ...(values.currency !== undefined && values.currency !== draft.currency && draft.sourceType === "prepayment_contract" ? { businessExchangeRate: values.currency.toUpperCase() === draft.contractCurrency ? "1" : "" } : {}) });
   const labelClass = "flex min-w-0 flex-col gap-1 text-sm";
   const sectionClass = "rounded border border-line-soft bg-white p-4";
   const headingClass = "text-sm font-medium text-ink";
@@ -444,6 +451,13 @@ function DraftFormFields({
 
   const updateLine = (index: number, values: Partial<DraftLine>) =>
     patch({ lines: draft.lines.map((line, i) => (i === index ? { ...line, ...values } : line)) });
+  const updateAmounts = (field: "amountExcludingTax" | "taxRate" | "taxAmount" | "amountIncludingTax", value: string) => {
+    const next = updateInvoiceReviewAmounts(draft, field, value);
+    if (draft.sourceType === "prepayment_contract" && draft.lines.length === 1 && Number(draft.lines[0].amount) === Number(draft.amountIncludingTax)) {
+      next.lines = [{ ...draft.lines[0], amount: next.amountIncludingTax }];
+    }
+    return next;
+  };
 
   /** 双币模板：改汇率或含税金额时把 SGD 合计按 汇率 × 含税 重算，用户仍可手工覆盖。 */
   const syncSgdTotal = (next: Partial<DraftForm>) => {
@@ -497,7 +511,7 @@ function DraftFormFields({
           <label className={labelClass}>
             <span className="text-ink-2">发票号</span>
             <Input className="w-full" onChange={(event) => patch({ invoiceNo: event.target.value })} placeholder={simple ? "真实发票号码" : "留空自动分配"} value={draft.invoiceNo} />
-            <span className={hintClass}>{simple ? "填外部系统出具的发票号" : "规则 INV-账期-流水，可手工改"}</span>
+            <span className={hintClass}>{simple ? "填外部系统出具的发票号" : "规则 WZ-年月-流水，可手工改"}</span>
           </label>
           <label className={labelClass}>
             <span className="text-ink-2">开票日期</span>
@@ -542,22 +556,22 @@ function DraftFormFields({
           </label>
           <label className={labelClass}>
             <span className="text-ink-2">未税金额</span>
-            <Input className="w-full" onChange={(event) => onChange(updateInvoiceReviewAmounts(draft, "amountExcludingTax", event.target.value))} value={draft.amountExcludingTax} />
+            <Input className="w-full" onChange={(event) => onChange(updateAmounts("amountExcludingTax", event.target.value))} value={draft.amountExcludingTax} />
           </label>
           <label className={labelClass}>
             <span className="text-ink-2">税率（%）</span>
-            <Input className="w-full" onChange={(event) => onChange(updateInvoiceReviewAmounts(draft, "taxRate", event.target.value))} placeholder="例如 8 表示 8%" value={draft.taxRate} />
+            <Input className="w-full" onChange={(event) => onChange(updateAmounts("taxRate", event.target.value))} placeholder="例如 8 表示 8%" value={draft.taxRate} />
             <span className={hintClass}>填百分数：8% 就填 8（不要填 0.08）</span>
           </label>
           <label className={labelClass}>
             <span className="text-ink-2">税金</span>
-            <Input className="w-full" onChange={(event) => onChange(updateInvoiceReviewAmounts(draft, "taxAmount", event.target.value))} value={draft.taxAmount} />
+            <Input className="w-full" onChange={(event) => onChange(updateAmounts("taxAmount", event.target.value))} value={draft.taxAmount} />
           </label>
           <label className={labelClass}>
             <span className="text-ink-2">含税金额</span>
             <Input
               className="w-full"
-              onChange={(event) => onChange({ ...updateInvoiceReviewAmounts(draft, "amountIncludingTax", event.target.value), ...syncSgdTotal({ amountIncludingTax: event.target.value }) })}
+              onChange={(event) => onChange({ ...updateAmounts("amountIncludingTax", event.target.value), ...syncSgdTotal({ amountIncludingTax: event.target.value }) })}
               value={draft.amountIncludingTax}
             />
             <span className={hintClass}>票面 Total，也是明细行合计</span>
@@ -592,9 +606,10 @@ function DraftFormFields({
           )}
         </div>
       </section>
-      {simple && (draft.sourceType === "cloud_row" || draft.sourceType === "settlement_invoice") ? <label className={labelClass}>
+      {(simple || draft.sourceType === "prepayment_contract") && (draft.sourceType === "cloud_row" || draft.sourceType === "settlement_invoice" || draft.sourceType === "prepayment_contract") ? <label className={labelClass}>
         <span>发票汇率（1 USD 对应的原币金额）</span><Input value={draft.exchangeRate} onChange={event => patch({ exchangeRate: event.target.value })} />
       </label> : null}
+      {draft.sourceType === "prepayment_contract" ? <label className={labelClass}><span>合同折算汇率（1 {draft.currency} = N {draft.contractCurrency}）</span><Input type="number" step="any" disabled={draft.currency.toUpperCase() === draft.contractCurrency} value={draft.currency.toUpperCase() === draft.contractCurrency ? "1" : draft.businessExchangeRate} onChange={event => patch({ businessExchangeRate: event.target.value })} /><span className={hintClass}>用于合同开票汇总；与上面的 USD 发票汇率分别保存。</span></label> : null}
       {simple ? <label className={labelClass}><span>发票备注</span><Textarea className="w-full" rows={2} value={draft.comment} onChange={event => patch({ comment: event.target.value })} /></label> : null}
 
       {simple || hasAllocationPlan ? null : (

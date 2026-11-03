@@ -35,6 +35,7 @@ async function scopes(context: Context): Promise<Scope[]> {
       billing_statement: ["merge_power_billingstatementsnapshots", "snapshotNo"],
       service_fee: ["merge_power_servicefeesnapshots", "snapshotNo"],
       settlement_invoice: ["merge_po_settlement_invoices", "id"],
+      prepayment_contract: ["merge_power_prepaymentcontracts", "financeId"],
     };
     const target = tables[context.sourceType];
     if (!sourceId || !target) throw new Error("缺少有效的审批来源单据");

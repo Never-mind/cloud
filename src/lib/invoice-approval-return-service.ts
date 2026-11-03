@@ -120,7 +120,7 @@ export async function returnedInvoiceContent(id: string) {
 export async function listInvoiceApprovalProgress(sourceType?: string, sourceId?: string, requestedOffset = 0) {
   const offset = Number.isFinite(requestedOffset) ? Math.max(0, Math.floor(requestedOffset)) : 0;
   const where = sourceType && sourceId ? " AND ownerType = :sourceType AND (ownerId = :sourceId OR FIND_IN_SET(:sourceId, allocationSourceIds) > 0)" : "";
-  const page = await queryRows<Row>("SELECT id, ownerType, ownerId, ownerNo, approvalCode, instanceCode, serialNumber, status, invoiceId, rejectReason, syncError, allocationSourceIds, submittedAt, lastSyncedAt, invoiceParseJson FROM merge_common_feishu_approvals WHERE ownerType IN ('cloud_row','billing_statement','service_fee','settlement_invoice')" + where + " ORDER BY submittedAt DESC, id DESC LIMIT 51 OFFSET " + offset, { sourceType: sourceType ?? "", sourceId: sourceId ?? "" });
+  const page = await queryRows<Row>("SELECT id, ownerType, ownerId, ownerNo, approvalCode, instanceCode, serialNumber, status, invoiceId, rejectReason, syncError, allocationSourceIds, submittedAt, lastSyncedAt, invoiceParseJson FROM merge_common_feishu_approvals WHERE ownerType IN ('cloud_row','billing_statement','service_fee','settlement_invoice','prepayment_contract')" + where + " ORDER BY submittedAt DESC, id DESC LIMIT 51 OFFSET " + offset, { sourceType: sourceType ?? "", sourceId: sourceId ?? "" });
   const approvals = page.slice(0, 50);
   const files = approvals.length ? await queryRows<Row>("SELECT instanceCode, id, fileName, invoiceIdentity, invoiceNo, invoiceId, recognitionJson, recognitionError, createdAt FROM merge_common_invoice_approval_files WHERE instanceCode IN (:codes) ORDER BY createdAt, id", { codes: approvals.map(row => row.instanceCode) }) : [];
   const result = [];
@@ -143,6 +143,13 @@ export async function returnedInvoiceReview(id: string) {
   let allocationPlan=readInvoiceAllocationPlan(approval.allocationPlanJson);
   const base = await buildInvoicePrefill({ sourceType: approval.ownerType as InvoiceSourceType, sourceId: String(approval.ownerId), sourceIds: allocationSourceIds.length > 1 ? allocationSourceIds : undefined });
   const partySnapshot = readApprovalPartySnapshot(approval.partySnapshotJson);
+  const { readBusinessRequest } = await import("./prepayment-finance");
+  const businessRequest = readBusinessRequest(approval.businessRequestJson);
+  if (approval.ownerType === "prepayment_contract") {
+    if (!businessRequest) throw new Error("预付款申请金额快照缺失，请核对审批台账");
+    const { financialAmounts } = await import("./prepayment-finance");
+    Object.assign(base, businessRequest, Object.fromEntries(Object.entries(financialAmounts(businessRequest.amountIncludingTax, businessRequest.taxRate)).map(([key,value]) => [key,String(value)])));
+  }
   if (partySnapshot) {
     base.customerId = partySnapshot.customerId; base.undertakingUnitId = partySnapshot.undertakingUnitId;
     base.customerName = String(partySnapshot.customer.name ?? ""); base.customerAddress = String(partySnapshot.customer.address ?? "");
@@ -175,5 +182,5 @@ export async function returnedInvoiceReview(id: string) {
   }
   return { allocationPlan,approval: { instanceCode: String(file.instanceCode), status: String(approval.status), invoiceId: approval.invoiceId,
     sourceType: String(approval.ownerType), sourceId: String(approval.ownerId), allocationSourceIds: String(approval.allocationSourceIds ?? "").split(",").filter(Boolean) },
-    base, group, confirmed, expectedInvoice, partySnapshot };
+    base, group, confirmed, expectedInvoice: businessRequest ? { currency: businessRequest.currency, amountIncludingTax: businessRequest.amountIncludingTax } : expectedInvoice, partySnapshot, businessRequest };
 }

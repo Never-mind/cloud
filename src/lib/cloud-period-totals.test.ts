@@ -23,7 +23,7 @@ describe("cloud period totals", () => {
     expect(totalsSql).toContain("ROUND(SUM(COALESCE(settlementGrossProfit, grossProfit, 0)), 4) AS settlementGrossProfit");
     expect(totalsSql).not.toContain("LIMIT :limit");
     expect(totalsSql).not.toContain("OFFSET :offset");
-    expect(result.currencyTotals).toEqual([
+    expect("currencyTotals" in result ? result.currencyTotals : undefined).toEqual([
       { currency: "CNY", invoiceTotalAmount: 7000 },
       { currency: "USD", settlementGrossProfit: "-123.4500", collectionTotalAmount: 100 },
     ]);

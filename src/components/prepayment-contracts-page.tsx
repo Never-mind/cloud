@@ -13,6 +13,7 @@ import { confirmDialog, notify } from "./app-dialog";
 import { PaginationBar } from "./pagination-bar";
 import { StickyTable } from "./sticky-table";
 import { TableColumnMenu, type TableFilterOption, type TableSortOrder } from "./table-column-menu";
+import { useWorkspaceDataRefresh } from "@/lib/workspace-events";
 import { TableStateContent } from "./table-state";
 
 type Row = Record<string, string | number | boolean | null>;
@@ -29,6 +30,7 @@ const columns: Array<{ key: string; label: string; type?: string }> = [
 ] .map((column) => ({ ...column, sortable: true, filterable: true }));
 // 核销状态是前端按合同实时并入的派生列，服务端不支持排序/筛选，所以不参与上面的 map
 columns.splice(2, 0, { key: "writeOffStatus", label: "核销状态" });
+columns.push({ key: "invoiced", label: "已开票（含税）", type: "money" }, { key: "received", label: "已收款（含税）", type: "money" }, { key: "invoiceStatus", label: "开票状态" }, { key: "receiptStatus", label: "收款状态" });
 // 国家由服务端按合同明细汇总（多国用 " / " 连接），紧跟合同号显示
 columns.splice(1, 0, { key: "countryCode", label: "国家" });
 
@@ -105,6 +107,7 @@ export function PrepaymentContractsPage() {
     }
   }
 
+  useWorkspaceDataRefresh(() => { void loadData(); });
   async function loadData(
     nextPage = page,
     nextPageSize = pageSizeRef.current,
@@ -122,7 +125,16 @@ export function PrepaymentContractsPage() {
       const response = await fetch(`/api/entities/prepayment-contracts?${params}`);
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? "合同加载失败");
-      setRows(data.rows ?? []);
+      let nextRows = data.rows ?? [];
+      if (nextRows.length) {
+        const financeResponse = await fetch("/api/prepayments/finance-summary", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ contractNos: nextRows.map((row:Row) => row.contractNo) }) });
+        const finance = await financeResponse.json();
+        if (financeResponse.ok) {
+          const map = new Map<string,Row>((finance.rows ?? []).map((row:Row) => [String(row.contractNo),row]));
+          nextRows = nextRows.map((row:Row) => ({ ...row, ...map.get(String(row.contractNo)) }));
+        } else notify(finance.error || "财务汇总加载失败", "error");
+      }
+      setRows(nextRows);
         void mergeWriteOffStatus();
       setTotal(Number(data.total ?? 0));
       setPage(Number(data.page ?? nextPage));
@@ -393,7 +405,7 @@ export function PrepaymentContractsPage() {
                 {columns.map((column) => (
                   <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium" key={column.key}>
                     {/* 核销状态是前端并入的派生值，服务端不支持排序；筛选改由上方「核销状态」下拉负责 */}
-                    {column.key === "writeOffStatus" ? column.label : renderHeader(column)}
+                    {["writeOffStatus", "invoiced", "received", "invoiceStatus", "receiptStatus"].includes(column.key) ? column.label : renderHeader(column)}
                   </th>
                 ))}
                 <th className="whitespace-nowrap sticky right-0 border-b border-line-soft bg-canvas px-3 py-3 text-left font-medium">操作</th>

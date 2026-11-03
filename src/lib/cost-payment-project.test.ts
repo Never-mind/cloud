@@ -27,10 +27,10 @@ function definition() {
         id: field.id, type: field.type,
         option: field.type === "amount" ? { currencyRange: ["USD", "CNY"] }
           : field.type === "radioV2" ? field.id === "widget17688981032310001" ? [{ value: "customer", text: "客户" }]
-            : String(field.value).includes("lhk7") || String(field.value).includes("z8fi") || String(field.value).includes("5isf") ? [{ value: field.value, text: "无" }]
+            : String(field.value).includes("lhk7") || String(field.value).includes("z8fi") || String(field.value).includes("5isf") ? [{ value: String(field.value), text: "无" }]
               : [
-                { value: ((form(branch, true)[4].value as Array<Array<{ value: unknown }>>)[0][index]).value, text: "已开" },
-                { value: field.value, text: "未开" },
+                { value: String(((form(branch, true)[4].value as Array<Array<{ value: unknown }>>)[0][index]).value), text: "已开" },
+                { value: String(field.value), text: "未开" },
               ] : undefined,
       })),
     })),
@@ -104,7 +104,8 @@ describe("independent payment cost projects", () => {
   });
   it("disables missing and changed branches without inventing mappings", () => {
     const widgets = definition();
-    widgets[1].option = widgets[1].option!.filter(option => option.value !== COST_PAYMENT_PROJECT_KEYS.other);
+    const project = widgets[1] as { option: Array<{ value: string; text: string }> };
+    project.option = project.option.filter(option => option.value !== COST_PAYMENT_PROJECT_KEYS.other);
     expect(parseCostPaymentApprovalOptions(widgets).other.available).toBe(false);
     expect(parseCostPaymentApprovalOptions(widgets).huawei.available).toBe(true);
     expect(costPaymentProjectLabel("broken json")).toBe("");

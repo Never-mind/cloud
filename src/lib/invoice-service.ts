@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { prepaymentInvoicePrefill, linkPrepaymentInvoice, lockPrepaymentCapacity, voidPrepaymentInvoice } from "./prepayment-finance-service";
+import { readBusinessRequest, type PrepaymentBusinessRequest } from "./prepayment-finance";
 import { completeInvoiceReviewAmounts, validateInvoiceReview } from "./invoice-review";
 import { defaultInvoicePaymentTermDays, resolveInvoicePaymentDates } from "./invoice-payment-terms";
 import { executeRaw, queryRowsRaw, executeRaw as executeOutsideTransaction, queryRowsRaw as queryOutsideTransaction, withTransaction, executeInTransaction, queryRowsInTransaction, type Row } from "./db";
@@ -24,7 +26,7 @@ import {
 
 export type InvoiceSource = "generated" | "external";
 export type InvoiceStatus = "draft" | "issued" | "void";
-export type InvoiceSourceType = "cloud_row" | "billing_statement" | "service_fee" | "settlement_invoice" | "manual";
+export type InvoiceSourceType = "cloud_row" | "billing_statement" | "service_fee" | "settlement_invoice" | "prepayment_contract" | "manual";
 
 export type InvoiceActor = { userId?: string | null; name?: string | null };
 
@@ -36,6 +38,10 @@ export type InvoiceLinePayload = {
 };
 
 export type InvoiceDraftInput = {
+  businessExchangeRate?: string | number | null;
+  manualRegistration?: boolean;
+  importBatchId?: string | null;
+  importRowKey?: string | null;
   allocationPlan?: InvoiceAllocationPlan | null;
   recognitionFacts?: Record<string, string>;
   /** 系统生成票面（generated）还是外部已开票（external）；不传时按有没有上传文件推断。 */
@@ -172,6 +178,8 @@ const LIST_SQL = `
     LEFT JOIN merge_common_undertaking_units uu ON uu.undertakingUnitId = i.undertakingUnitId`;
 
 export type InvoiceListQuery = {
+  sourceType?: string;
+  sourceId?: string;
   keyword?: string;
   period?: string;
   source?: string;
@@ -185,6 +193,10 @@ export async function listInvoices(query: InvoiceListQuery = {}) {
   const conditions: string[] = [];
   const params: Record<string, unknown> = {};
   const keyword = text(query.keyword);
+  if (text(query.sourceType) && text(query.sourceId)) {
+    conditions.push("i.sourceType=:sourceType AND i.sourceId=:sourceId");
+    params.sourceType = text(query.sourceType); params.sourceId = text(query.sourceId);
+  }
   if (keyword) {
     conditions.push(
       "(i.invoiceNo LIKE :keyword OR i.customerName LIKE :keyword OR cu.shortName LIKE :keyword OR cu.nameCn LIKE :keyword OR cu.name LIKE :keyword OR i.sourceNo LIKE :keyword OR i.sellerName LIKE :keyword OR EXISTS (SELECT 1 FROM merge_common_feishu_approvals a WHERE a.instanceCode = i.approvalInstanceCode AND a.serialNumber LIKE :keyword))",
@@ -289,6 +301,8 @@ type PartySnapshot = {
 
 /** 开票弹层的预填结构：来源单据能带多少带多少，剩下的由用户补。 */
 export type InvoicePrefill = {
+  contractCurrency?: string;
+  businessExchangeRate?: string;
   exchangeRate?: string;
   dueDate?: string;
   sourceType: InvoiceSourceType;
@@ -468,6 +482,14 @@ export async function buildInvoicePrefill(params: { sourceType: InvoiceSourceTyp
   const prefill = emptyPrefill(sourceType, sourceId);
   let lines: InvoiceLineInput[] = [];
   const mergeIds = (params.sourceIds ?? []).map(text).filter(Boolean);
+
+  if (sourceType === "prepayment_contract") {
+    if (mergeIds.length) throw new Error("预付款开票请按合同办理");
+    const values = await prepaymentInvoicePrefill(sourceId);
+    Object.assign(prefill, values, { period: periodOf(isoDate(new Date())) });
+    const result = await finishPrefill(prefill, [{ date: "", desc: `Advance payment - ${values.sourceNo}`, cost: values.amountIncludingTax }]);
+    return { ...result, contractCurrency: values.contractCurrency, businessExchangeRate: "1" };
+  }
 
   if (sourceType === "service_fee" && mergeIds.length > 0) {
     const rows = await loadAllocationSources("service_fee", [...new Set(mergeIds)]);
@@ -851,6 +873,12 @@ function toRenderInput(resolved: ResolvedInvoice) {
 
 /** 生成/保存开票记录。source=generated 时渲染票面文件；external 时用传入的附件。 */
 export async function saveInvoice(input: InvoiceDraftInput, actor: InvoiceActor = {}, approvalReturn?: { fileId: string; instanceCode: string; relatedFileIds: string[]; mode?: "automatic" | "manual" }) {
+  if (input.sourceType === "prepayment_contract" && approvalReturn) {
+    const [approval] = await queryRowsRaw<Row>("SELECT businessRequestJson FROM merge_common_feishu_approvals WHERE instanceCode=:code", { code: approvalReturn.instanceCode });
+    const snapshot = readBusinessRequest(approval?.businessRequestJson);
+    if (!snapshot) throw new Error("预付款申请金额快照缺失");
+    input = { ...input, businessExchangeRate: snapshot.businessExchangeRate };
+  }
   /**
    * 来源判定：以弹层明确传来的 source 为准，其次按有没有上传文件判断。
    * 注意**不能**用 sourceType === \"manual\" 来判断——手工开票（无来源单据）同样要生成票面，
@@ -893,12 +921,12 @@ export async function saveInvoice(input: InvoiceDraftInput, actor: InvoiceActor 
     if (!text(input.customerId) || !text(input.undertakingUnitId)) throw new Error("请选择客户和开票主体");
     if (text(input.exchangeRate) && (!Number.isFinite(Number(input.exchangeRate)) || Number(input.exchangeRate) <= 0)) throw new Error("汇率必须是大于 0 的有效数字");
     input = { ...input, ...completeInvoiceReviewAmounts(review) };
-    const tables: Record<string, [string, string]> = { cloud_row: ["merge_cloud_rows", "id"], service_fee: ["merge_power_servicefeesnapshots", "snapshotNo"], billing_statement: ["merge_power_billingstatementsnapshots", "snapshotNo"], settlement_invoice: ["merge_po_settlement_invoices", "id"] };
+    const tables: Record<string, [string, string]> = { cloud_row: ["merge_cloud_rows", "id"], service_fee: ["merge_power_servicefeesnapshots", "snapshotNo"], billing_statement: ["merge_power_billingstatementsnapshots", "snapshotNo"], settlement_invoice: ["merge_po_settlement_invoices", "id"], prepayment_contract: ["merge_power_prepaymentcontracts", "financeId"] };
     if (input.sourceType && input.sourceType !== "manual") {
       const target = tables[input.sourceType];
       if (!target || !input.sourceId || !(await queryRowsRaw(`SELECT ${target[1]} FROM ${target[0]} WHERE ${target[1]} = :id LIMIT 1`, { id: input.sourceId })).length) throw new Error("来源单据不存在，请刷新重试");
       const existing = await queryRowsRaw(`SELECT invoiceNo FROM ${INVOICE_TABLE} WHERE sourceType = :sourceType AND sourceId = :sourceId AND status = 'issued' LIMIT 1`, { sourceType: input.sourceType, sourceId: input.sourceId });
-      if (existing.length && !isStatementInvoiceSource(input.sourceType)) throw new Error(`该来源已有发票 ${text(existing[0].invoiceNo)}，请先核对，不能重复覆盖`);
+      if (existing.length && input.sourceType !== "prepayment_contract" && !isStatementInvoiceSource(input.sourceType)) throw new Error(`该来源已有发票 ${text(existing[0].invoiceNo)}，请先核对，不能重复覆盖`);
     }
   }
   let mergeRows: Row[] = [];
@@ -941,6 +969,11 @@ export async function saveInvoice(input: InvoiceDraftInput, actor: InvoiceActor 
   }
 
   const resolved = await resolveInvoice(effectiveInput, true);
+  if (effectiveInput.sourceType === "prepayment_contract") {
+    const error = validateInvoiceReview({ ...resolved, invoiceDate: resolved.invoiceDate, currency: resolved.currency });
+    if (error) throw new Error(error);
+    if (source === "generated" && Math.abs(resolved.lines.reduce((sum,line) => sum + Number(line.amount),0) - Number(resolved.amountIncludingTax)) > 0.01) throw new Error("票面明细行合计与含税金额不一致，请核对明细金额");
+  }
   const id = randomUUID();
   const sourceTypeValue = text(effectiveInput.sourceType) || "manual";
   const sourceIdValue = text(effectiveInput.sourceId);
@@ -966,10 +999,16 @@ export async function saveInvoice(input: InvoiceDraftInput, actor: InvoiceActor 
       fileType = "text/html";
     }
   } else {
-    if (!input.file?.bytes?.length) throw new Error("请先上传外部发票文件");
-    bytes = input.file.bytes;
-    fileName = input.file.fileName || `${resolved.invoiceNo}.pdf`;
-    fileType = input.file.fileType || "application/octet-stream";
+    if (!input.file?.bytes?.length) {
+      if (sourceTypeValue !== "prepayment_contract" || input.manualRegistration !== true) throw new Error("请先上传外部发票文件");
+      bytes = Buffer.from(`手工登记说明（非发票原件）\n发票号：${resolved.invoiceNo}\n开票日期：${resolved.invoiceDate}\n含税金额：${resolved.amountIncludingTax} ${resolved.currency}\n`, "utf8");
+      fileName = `${resolved.invoiceNo}-手工登记说明.txt`;
+      fileType = "text/plain";
+    } else {
+      bytes = input.file.bytes;
+      fileName = input.file.fileName || `${resolved.invoiceNo}.pdf`;
+      fileType = input.file.fileType || "application/octet-stream";
+    }
   }
 
   const period = text(effectiveInput.period) || periodOf(resolved.invoiceDate);
@@ -985,10 +1024,21 @@ export async function saveInvoice(input: InvoiceDraftInput, actor: InvoiceActor 
   try {
   await withTransaction(async connection => {
   const executeRaw = (sql: string, params: Row = {}) => executeInTransaction(connection, sql, params);
+  const businessRequest: PrepaymentBusinessRequest = { currency: resolved.currency, amountIncludingTax: resolved.amountIncludingTax, taxRate: resolved.taxRate, businessExchangeRate: text(input.businessExchangeRate) };
+  if (sourceTypeValue === "prepayment_contract") {
+    await lockPrepaymentCapacity(connection, sourceIdValue, businessRequest, approvalReturn?.instanceCode);
+    await queryRowsInTransaction(connection, "SELECT undertakingUnitId FROM merge_common_undertaking_units WHERE undertakingUnitId=:id FOR UPDATE", { id: resolved.bank.undertakingUnitId });
+    const duplicate = await queryRowsInTransaction(connection, "SELECT id FROM merge_common_invoices WHERE undertakingUnitId=:unit AND invoiceNo=:number LIMIT 1", { unit: resolved.bank.undertakingUnitId, number: resolved.invoiceNo });
+    if (duplicate.length) throw new Error("该开票主体下已有相同发票号，不能重复登记");
+  }
   if (approvalReturn) {
-    const [approval] = await queryRowsInTransaction<Row>(connection, "SELECT status, invoiceId, ownerType, ownerId, allocationSourceIds FROM merge_common_feishu_approvals WHERE instanceCode = :instanceCode FOR UPDATE", { instanceCode: approvalReturn.instanceCode });
+    const [approval] = await queryRowsInTransaction<Row>(connection, "SELECT status, invoiceId, ownerType, ownerId, allocationSourceIds, businessRequestJson FROM merge_common_feishu_approvals WHERE instanceCode = :instanceCode FOR UPDATE", { instanceCode: approvalReturn.instanceCode });
     if (!approval || approval.status !== "approved") throw new Error("审批尚未通过或已撤回，不能登记回票");
     if (approval.invoiceId) throw new Error("该审批已有正式发票，不能自动覆盖，请先核对已有记录");
+    if (sourceTypeValue === "prepayment_contract") {
+      const approved = readBusinessRequest(approval.businessRequestJson);
+      if (!approved || approved.currency !== resolved.currency || Math.abs(Number(approved.amountIncludingTax) - Number(resolved.amountIncludingTax)) > 0.02 || Number(approved.businessExchangeRate) !== Number(businessRequest.businessExchangeRate)) throw new Error("回票金额、币种或合同折算汇率与申请快照不同，请核对");
+    }
     const approvedIds = text(approval.allocationSourceIds).split(",").filter(Boolean).sort();
     const sameSources = mergeRows.length || plannedAllocation
       ? approvedIds.join(",") === [...allocationIds].sort().join(",") && approvedIds.includes(sourceIdValue) && approvedIds.includes(text(approval.ownerId))
@@ -1024,12 +1074,12 @@ export async function saveInvoice(input: InvoiceDraftInput, actor: InvoiceActor 
     if (duplicates.length) throw Object.assign(new Error("这张发票已登记，请调整原发票的关联账期"),{existingInvoiceId:text(duplicates[0].id)});
   }
   if (source === "external" && sourceIdValue && sourceTypeValue !== "manual") {
-    const targets: Record<string, [string, string]> = { cloud_row: ["merge_cloud_rows", "id"], service_fee: ["merge_power_servicefeesnapshots", "snapshotNo"], billing_statement: ["merge_power_billingstatementsnapshots", "snapshotNo"], settlement_invoice: ["merge_po_settlement_invoices", "id"] };
+    const targets: Record<string, [string, string]> = { cloud_row: ["merge_cloud_rows", "id"], service_fee: ["merge_power_servicefeesnapshots", "snapshotNo"], billing_statement: ["merge_power_billingstatementsnapshots", "snapshotNo"], settlement_invoice: ["merge_po_settlement_invoices", "id"], prepayment_contract: ["merge_power_prepaymentcontracts", "financeId"] };
     const target = targets[sourceTypeValue];
     const sourceRows = await queryRowsInTransaction(connection, `SELECT ${target[1]} FROM ${target[0]} WHERE ${target[1]} = :id FOR UPDATE`, { id: sourceIdValue });
     if (!sourceRows.length) throw new Error("来源单据已删除");
     const duplicate = await queryRowsInTransaction(connection, `SELECT id FROM ${INVOICE_TABLE} WHERE sourceType = :type AND sourceId = :id AND status = 'issued' LIMIT 1 FOR UPDATE`, { type: sourceTypeValue, id: sourceIdValue });
-    if (duplicate.length && !isStatementInvoiceSource(sourceTypeValue)) throw new Error("该来源已开票，请刷新后核对");
+    if (duplicate.length && sourceTypeValue !== "prepayment_contract" && !isStatementInvoiceSource(sourceTypeValue)) throw new Error("该来源已开票，请刷新后核对");
   }
   await executeRaw(
     `INSERT INTO ${INVOICE_TABLE}
@@ -1120,6 +1170,12 @@ export async function saveInvoice(input: InvoiceDraftInput, actor: InvoiceActor 
         sgdRate: line.sgdRate || null,
       },
     );
+  }
+
+  if (sourceTypeValue === "prepayment_contract") await linkPrepaymentInvoice(connection, id, sourceIdValue, businessRequest, approvalReturn?.instanceCode);
+  if (input.importBatchId || input.importRowKey) {
+    if (!text(input.importBatchId) || !text(input.importRowKey)) throw new Error("导入批次号和行标识须同时提供");
+    await executeRaw(`UPDATE ${INVOICE_TABLE} SET importBatchId=:batch,importRowKey=:rowKey WHERE id=:id`, { id, batch: text(input.importBatchId), rowKey: text(input.importRowKey) });
   }
 
   if (!mergeRows.length && !plannedAllocation) await backfillSource({ id, sourceType: sourceTypeValue, sourceId: sourceIdValue, resolved, source }, connection);
@@ -1586,6 +1642,10 @@ export async function voidInvoice(id: string, reason: string, actor: InvoiceActo
   const row = current[0];
   if (!row) throw new Error("开票记录不存在");
   if (text(row.status) === "void") throw new Error("这张发票已经作废了");
+  if (row.sourceType === "prepayment_contract") {
+    await voidPrepaymentInvoice(id, reason, text(actor.name));
+    return getInvoice(id);
+  }
   if (isStatementInvoiceSource(text(row.sourceType))) {
     const sourceType = text(row.sourceType) as "cloud_row" | "service_fee";
     await withTransaction(async connection => {
@@ -1873,6 +1933,7 @@ export async function deleteInvoice(id: string) {
   const invoice = await getInvoice(id);
   if (!invoice) throw new Error("开票记录不存在");
   if (text(invoice.status) === "issued") throw new Error("已开票的记录请先作废再删除");
+  if (invoice.sourceType === "prepayment_contract") throw new Error("预付款发票保留作废记录供财务追溯，不支持永久删除");
   await executeRaw(`DELETE FROM ${INVOICE_ITEM_TABLE} WHERE invoiceId = :id`, { id });
   await executeRaw(`DELETE FROM merge_common_invoice_allocations WHERE invoiceId = :id`, { id });
   await executeRaw(`DELETE FROM ${INVOICE_TABLE} WHERE id = :id`, { id });

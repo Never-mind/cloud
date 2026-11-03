@@ -38,6 +38,7 @@ export async function autoRegisterReturnedInvoice(instanceCode: string) {
   const file = await returnedInvoiceContent(group.primary.id);
   const snapshot = review.partySnapshot;
   const input: InvoiceDraftInput = {
+    businessExchangeRate: review.businessRequest?.businessExchangeRate,
     source: "external", sourceType: review.approval.sourceType as InvoiceSourceType, sourceId: review.approval.sourceId,
     sourceNo: review.base.sourceNo, period: review.base.period, ...details, customerId, undertakingUnitId,
     paymentTermDays, dueDate: invoiceDueDate(details.invoiceDate, paymentTermDays),

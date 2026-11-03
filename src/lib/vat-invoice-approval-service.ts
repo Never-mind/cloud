@@ -48,6 +48,7 @@ export async function buildVatApprovalPrefill(params: { sourceType: InvoiceSourc
   const sourceCurrency = String(base.currency).trim().toUpperCase();
   const sameCurrency = sourceCurrency === "CNY";
   const draft: VatDraft = {
+    businessExchangeRate: sameCurrency ? "1" : "",
     customerId, undertakingUnitId,
     companyKey: company?.value ?? "", invoiceType: "special",
     customerName: String(customer?.nameCn || customer?.name || ""), taxId: String(customer?.taxNumber ?? ""),
@@ -99,7 +100,8 @@ export async function submitVatInvoiceApproval(input: {
   if(files.length>10)throw new Error("合并开票说明占用一个附件，请将其他审批材料控制在 9 个以内");
   for (const file of files) tokens.push(await uploadApprovalAttachment(file));
   return submitInvoiceApproval({
-    ownerType: input.sourceType as "cloud_row" | "billing_statement" | "service_fee" | "settlement_invoice",
+    ownerType: input.sourceType as "cloud_row" | "billing_statement" | "service_fee" | "settlement_invoice" | "prepayment_contract",
+    businessRequest: input.sourceType === "prepayment_contract" ? { currency: "CNY", amountIncludingTax: input.draft.amountIncludingTax, taxRate: input.draft.taxRate, businessExchangeRate: input.draft.businessExchangeRate || "" } : undefined,
     ownerId: input.sourceId, allocationSourceIds: input.sourceIds, ownerNo: prefill.sourceNo,
     allocationPlan,
     period: prefill.period, starterOpenId: input.starterOpenId, starterUserId: input.starterUserId, starterName: input.starterName,

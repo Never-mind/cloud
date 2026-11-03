@@ -65,7 +65,7 @@ export function InvoiceApprovalProgress({ sourceType, sourceId, onSaved }: { sou
   }
   return <section className="space-y-3">
     <div className="flex items-center gap-2"><GitBranch size={16} /><h3 className="text-sm font-medium">审批进度与回票</h3><Button disabled={loading} onClick={() => void load()} aria-label="刷新审批记录"><RefreshCw size={14} /></Button></div>
-    <p className="text-xs text-ink-3">审批通过后，系统自动取回发票、识别并登记到对应账期，无需再次确认。识别失败或存在冲突时会显示具体原因，可在此补充处理。</p>
+    <p className="text-xs text-ink-3">审批通过后，系统自动取回发票、识别并登记到对应{sourceType === "prepayment_contract" ? "合同" : "账期"}，无需再次确认。识别失败或存在冲突时会显示具体原因，可在此补充处理。</p>
     {error ? <p role="alert" className="text-sm text-danger">{error}</p> : null}
     {!loading && !error && !rows.length ? <p className="text-sm text-ink-3">暂无开票审批</p> : null}
     {rows.map(row => {

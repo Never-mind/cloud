@@ -584,9 +584,10 @@ export async function fetchInvoiceApprovalInstance(instanceCode: string) {
  * 台账
  * ------------------------------------------------------------------------ */
 
-export type InvoiceApprovalOwnerType = "cloud_row" | "billing_statement" | "service_fee" | "settlement_invoice";
+export type InvoiceApprovalOwnerType = "cloud_row" | "billing_statement" | "service_fee" | "settlement_invoice" | "prepayment_contract";
 
 export type SubmitInvoiceApprovalInput = {
+  businessRequest?: import("./prepayment-finance").PrepaymentBusinessRequest;
   allocationPlan?:InvoiceAllocationPlan|null;
   ownerType: InvoiceApprovalOwnerType;
   ownerId: string;
@@ -624,9 +625,21 @@ export async function submitInvoiceApproval(input: SubmitInvoiceApprovalInput) {
         if (Number(lock?.acquired) !== 1) throw new Error("该单据正在提交审批，请稍后刷新");
         keys.push(key);
       }
-      for (const source of sources) {
+      for (const source of input.ownerType === "prepayment_contract" ? [] : sources) {
         const active = await queryRowsInTransaction(connection, "SELECT id FROM merge_common_feishu_approvals WHERE ownerType = :type AND (ownerId = :id OR FIND_IN_SET(:id, allocationSourceIds) > 0) AND status IN ('pending', 'returned', 'approved') LIMIT 1", { type: input.ownerType, id: source });
         if (active.length) throw new Error("该单据已有生效审批，请勿重复提交");
+      }
+      if (input.ownerType === "prepayment_contract") {
+        if (!input.businessRequest) throw new Error("缺少预付款申请金额快照");
+        await queryRowsInTransaction(connection, "SELECT businessRequestJson FROM merge_common_feishu_approvals LIMIT 0");
+        await connection.beginTransaction();
+        try {
+          const { lockPrepaymentCapacity } = await import("./prepayment-finance-service");
+          const checked = await lockPrepaymentCapacity(connection, input.ownerId, input.businessRequest);
+          const result = await submitLockedInvoiceApproval({ ...input, businessRequest: { ...input.businessRequest, businessExchangeRate: String(checked.rate) } }, connection);
+          await connection.commit();
+          return result;
+        } catch (error) { await connection.rollback(); throw error; }
       }
       if(input.allocationPlan) {
         await connection.beginTransaction();
@@ -661,10 +674,10 @@ async function submitLockedInvoiceApproval(input: SubmitInvoiceApprovalInput, co
     `
       INSERT INTO merge_common_feishu_approvals
         (id, ownerType, ownerId, ownerNo, period, approvalCode, instanceCode, title, allocationSourceIds,
-         status, starterOpenId, starterUserId, starterName, invoiceId, formJson, partySnapshotJson, allocationPlanJson, submittedAt, lastSyncedAt)
+         status, starterOpenId, starterUserId, starterName, invoiceId, formJson, partySnapshotJson, allocationPlanJson, businessRequestJson, submittedAt, lastSyncedAt)
       VALUES
         (:id, :ownerType, :ownerId, :ownerNo, :period, :approvalCode, :instanceCode, :title, :allocationSourceIds,
-         'pending', :starterOpenId, :starterUserId, :starterName, :invoiceId, :formJson, :partySnapshotJson, :allocationPlanJson, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+         'pending', :starterOpenId, :starterUserId, :starterName, :invoiceId, :formJson, :partySnapshotJson, :allocationPlanJson, :businessRequestJson, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
     `,
     {
       id,
@@ -683,6 +696,7 @@ async function submitLockedInvoiceApproval(input: SubmitInvoiceApprovalInput, co
       formJson: JSON.stringify(input.form),
       partySnapshotJson: input.partySnapshot ? JSON.stringify(input.partySnapshot) : null,
       allocationPlanJson:input.allocationPlan?JSON.stringify(input.allocationPlan):null,
+      businessRequestJson: input.businessRequest ? JSON.stringify(input.businessRequest) : null,
     },
   );
 
@@ -764,6 +778,7 @@ const OWNER_TO_SOURCE_TYPE: Record<InvoiceApprovalOwnerType, InvoiceSourceType> 
   billing_statement: "billing_statement",
   service_fee: "service_fee",
   settlement_invoice: "settlement_invoice",
+  prepayment_contract: "prepayment_contract",
 };
 
 const SOURCE_TYPE_TO_OWNER: Record<string, InvoiceApprovalOwnerType> = {
@@ -771,10 +786,12 @@ const SOURCE_TYPE_TO_OWNER: Record<string, InvoiceApprovalOwnerType> = {
   billing_statement: "billing_statement",
   service_fee: "service_fee",
   settlement_invoice: "settlement_invoice",
+  prepayment_contract: "prepayment_contract",
 };
 
 /** 一条来源单据上最近一次还在生效的审批（审批中 / 已通过）。 */
 export async function findActiveInvoiceApproval(sourceType: string, sourceId: string) {
+  if (sourceType === "prepayment_contract") return null; // Each partial application reserves its own amount.
   const ownerType = SOURCE_TYPE_TO_OWNER[String(sourceType)] ?? "cloud_row";
   const rows = await queryRows<{ instanceCode: string; status: string; serialNumber: string; rejectReason: string; submittedAt: string; invoiceId: string; invoiceStatus: string | null }>(
     `SELECT a.instanceCode, a.status, a.serialNumber, a.rejectReason, a.invoiceId, i.status AS invoiceStatus, DATE_FORMAT(a.submittedAt, '%Y-%m-%d %H:%i') AS submittedAt
@@ -940,7 +957,7 @@ export async function syncPendingInvoiceApprovals(limit = 50, dueOnly = false) {
   const batchLimit = Number.isFinite(limit) ? Math.max(1, Math.min(200, Math.floor(limit))) : 50;
   const rows = await queryRows<{ instanceCode: string }>(
     `SELECT instanceCode FROM merge_common_feishu_approvals
-      WHERE ownerType IN ('cloud_row', 'billing_statement', 'service_fee', 'settlement_invoice')
+      WHERE ownerType IN ('cloud_row', 'billing_statement', 'service_fee', 'settlement_invoice', 'prepayment_contract')
         AND (status IN ('pending', 'returned') OR (status = 'approved' AND (NULLIF(invoiceId, '') IS NULL OR NULLIF(syncError, '') IS NOT NULL)))
         ${dueOnly ? "AND (lastSyncedAt IS NULL OR lastSyncedAt <= TIMESTAMPADD(SECOND, -60, CURRENT_TIMESTAMP))" : ""}
       ORDER BY COALESCE(lastSyncedAt, submittedAt) ASC LIMIT :limit`,
@@ -1119,8 +1136,8 @@ export async function buildInvoiceApprovalPrefill(params: { sourceType: InvoiceS
     amountCurrencyOptions: await loadApprovalAmountCurrencies(party?.optionKey ?? ""),
     amountExcludingTax: base.amountExcludingTax ?? "",
     taxRate: base.taxRate ?? "",
-    suggestedPurpose: [base.period, customer?.shortName ?? customer?.name ?? ""].filter(Boolean).join(" · "),
-    suggestedInvoiceContent: "project",
+    suggestedPurpose: [params.sourceType === "prepayment_contract" ? `${base.sourceNo} 预付款` : base.period, customer?.shortName ?? customer?.name ?? ""].filter(Boolean).join(" · "),
+    suggestedInvoiceContent: params.sourceType === "prepayment_contract" ? `Advance payment - ${base.sourceNo}` : "project",
     paymentReceivedTime: invoiceDueDate(invoiceDate, termDays),
     paymentTermDays: termDays,
     customer: customer
@@ -1153,6 +1170,8 @@ export async function buildInvoiceApprovalPrefill(params: { sourceType: InvoiceS
  * 材料支持当前单据/客户的附件引用与本次上传；保留旧 cfsAttachmentId 的兼容入口。
  */
 export async function submitInvoiceApprovalFromSource(input: InvoiceAttachmentSelection & {
+  businessExchangeRate?: string;
+  taxRate?: string;
   allocationPlan?:InvoiceAllocationPlan|null;
   customerId?: string;
   undertakingUnitId?: string;
@@ -1266,9 +1285,10 @@ export async function submitInvoiceApprovalFromSource(input: InvoiceAttachmentSe
       : undefined,
   });
   const result = await submitInvoiceApproval({
+    businessRequest: input.sourceType === "prepayment_contract" ? { currency: amountCurrency, amountIncludingTax: String(prefill.branch === "cl" ? input.chile!.amountIncludingTax : amount), taxRate: input.taxRate ?? String(prefill.taxRate), businessExchangeRate: input.businessExchangeRate || "" } : undefined,
     ownerType: input.sourceType === "cloud_row" ? "cloud_row"
       : input.sourceType === "billing_statement" ? "billing_statement"
-        : input.sourceType === "service_fee" ? "service_fee" : "settlement_invoice",
+        : input.sourceType === "service_fee" ? "service_fee" : input.sourceType === "prepayment_contract" ? "prepayment_contract" : "settlement_invoice",
     ownerId: input.sourceId,
     allocationSourceIds: input.sourceIds ?? [],
     allocationPlan,

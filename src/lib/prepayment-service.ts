@@ -1,3 +1,4 @@
+import { assertNoPrepaymentFinance } from "./prepayment-finance-service";
 import type { PoolConnection } from "mysql2/promise";
 import {
   execute,
@@ -211,9 +212,9 @@ export async function createPrepaymentDraft({
     await execute(
       `
         INSERT INTO prepaymentcontracts
-          (contractNo, status, currency, effectiveDate, totalAmount)
+          (contractNo, status, currency, effectiveDate, totalAmount, financeId)
         VALUES
-          (:contractNo, :status, :currency, :effectiveDate, :totalAmount)
+          (:contractNo, :status, :currency, :effectiveDate, :totalAmount, UUID())
       `,
       contract,
     );
@@ -236,9 +237,9 @@ export async function createPrepaymentDraft({
       connection,
       `
         INSERT INTO prepaymentcontracts
-          (contractNo, status, currency, effectiveDate, totalAmount)
+          (contractNo, status, currency, effectiveDate, totalAmount, financeId)
         VALUES
-          (:contractNo, :status, :currency, :effectiveDate, :totalAmount)
+          (:contractNo, :status, :currency, :effectiveDate, :totalAmount, UUID())
       `,
       draft.contract,
     );
@@ -361,6 +362,8 @@ export async function updatePrepaymentDraft({
   const currency = normalizedLines[0]?.contractCurrency ?? String(contract.currency ?? "USD");
 
   await withTransaction(async (connection) => {
+    await executeInTransaction(connection, "UPDATE prepaymentcontracts SET financeId=COALESCE(financeId,UUID()) WHERE contractNo=:contractNo", { contractNo });
+    await assertNoPrepaymentFinance(contractNo, connection);
     // 改名与明细替换放在同一个事务里，避免出现"名字改了但保存失败"的半截状态。
     if (targetContractNo !== contractNo) {
       await executeInTransaction(
@@ -412,6 +415,7 @@ export async function deletePrepaymentDraft(contractNo: string) {
   if (!contract) return;
   if (String(contract.status) !== "草稿") throw new Error("已确认的预付款合同不可删除");
 
+  await assertNoPrepaymentFinance(contractNo);
   await execute("DELETE FROM prepaymentcontractitems WHERE contractNo = :contractNo", { contractNo });
   await execute("DELETE FROM prepaymentcontracts WHERE contractNo = :contractNo", { contractNo });
 }
@@ -460,8 +464,10 @@ export async function rollbackPrepaymentContract(contractNo: string) {
 
   await assertPrepaymentContractRollbackAllowed(contractNo);
 
-  // 退回草稿 = 撤销确认：清掉已生成的 24 个月预付款核销明细，合同与明细回到草稿可再次修改确认。
+  // 退回草稿 = 撤销确认：保留已有财务记录的合同不能退回。
   await withTransaction(async (connection) => {
+    await executeInTransaction(connection, "UPDATE prepaymentcontracts SET financeId=financeId WHERE contractNo=:contractNo", { contractNo });
+    await assertNoPrepaymentFinance(contractNo, connection);
     await executeInTransaction(
       connection,
       "DELETE FROM monthlyprepaymentwriteoffs WHERE contractNo = :contractNo",

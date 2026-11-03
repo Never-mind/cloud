@@ -1,6 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // Allow verification builds beside a running 5174 instance without replacing its chunks.
+  distDir: process.env.NEXT_DIST_DIR || ".next",
   allowedDevOrigins: ["127.0.0.1", "localhost"],
   devIndicators: false,
   // 发票识别用 pdfjs 抽 PDF 文字层：它靠 worker 文件在运行时按路径加载，

@@ -107,6 +107,7 @@ export function InvoiceApprovalPanel({
   const [parties, setParties] = useState<{ customerId?: string; undertakingUnitId?: string }>({});
   const [partnerError, setPartnerError] = useState("");
   const [form, setForm] = useState({
+    businessExchangeRate: "",
     purpose: "",
     paymentReceivedTime: "",
     paymentTermDays: "",
@@ -149,6 +150,7 @@ export function InvoiceApprovalPanel({
       let plannedAmounts:ReturnType<typeof allocationTotals>|null=null;
       try{if(selectedPlan&&data.amountCurrencyOptions.includes(selectedPlan.currency))plannedAmounts=allocationTotals(selectedPlan.allocations);}catch{/* incomplete allocations remain editable */}
       setForm({
+        businessExchangeRate: data.amountCurrencyOptions.includes(String(data.currency).toUpperCase()) ? "1" : "",
         purpose: data.suggestedPurpose,
         paymentReceivedTime: data.paymentReceivedTime,
         paymentTermDays: String(data.paymentTermDays ?? ""),
@@ -174,6 +176,7 @@ export function InvoiceApprovalPanel({
         chileNote3: "",
         chileNote4: "",
         ...(plannedAmounts&&selectedPlan?{amountCurrency:selectedPlan.currency,amountExcludingTax:String(plannedAmounts.amountExcludingTax),taxRate:plannedAmounts.taxRate,taxAmount:String(plannedAmounts.taxAmount),amountIncludingTax:String(plannedAmounts.amountIncludingTax),chileAmount:String(plannedAmounts.amountIncludingTax)}:{}),
+        ...(sourceType === "prepayment_contract" && !data.amountCurrencyOptions.includes(String(data.currency).toUpperCase()) ? { amountExcludingTax:"", taxAmount:"", amountIncludingTax:"", chileAmount:"" } : {}),
       });
     } catch (error) {
       if (id !== requestId.current) return;
@@ -260,6 +263,8 @@ export function InvoiceApprovalPanel({
           customerOverride: { name: form.customerName, taxId: form.taxId, taxRegime: form.taxRegime, address: form.address, postCode: form.postCode },
           amountIncludingTax: Number(form.amountIncludingTax) || undefined,
           amountCurrency: form.amountCurrency || undefined,
+          businessExchangeRate: form.businessExchangeRate,
+          taxRate: form.taxRate,
           ...materials,
           chile: prefill.branch === "cl"
             ? {
@@ -316,6 +321,7 @@ export function InvoiceApprovalPanel({
       <InvoiceApprovalPartners customerOptions={customerOptions} unitOptions={unitOptions}
         customerId={parties.customerId ?? prefill.customer?.customerId ?? ""} undertakingUnitId={parties.undertakingUnitId ?? prefill.undertakingUnitId ?? ""}
         disabled={loading || submitting || readingAttachments} onChange={(key,value)=>void changePartner(key,value)}/>
+      {sourceType === "prepayment_contract" ? <label className="grid gap-1 text-sm">合同折算汇率（1 {form.amountCurrency} = N {prefill.currency}）<Input type="number" step="any" disabled={submitting || loading || form.amountCurrency === prefill.currency} value={form.amountCurrency === prefill.currency ? "1" : form.businessExchangeRate} onChange={e => setForm(current => ({ ...current, businessExchangeRate: e.target.value }))} /></label> : null}
       {loading ? <p className="text-sm text-ink-3">正在更新开票资料和审批主体…</p> : null}
       {partnerError ? <p role="alert" className="text-sm text-danger">{partnerError}</p> : null}
       {onAllocationChange?<InvoiceAllocationEditor sourceType={sourceType} sourceId={sourceId} currency={form.amountCurrency} totals={{...form,amountIncludingTax:prefill.branch==="cl"?form.chileAmount:form.amountIncludingTax}} value={allocationPlan} onChange={onAllocationChange} disabled={submitting||loading||Boolean(prefill.existingApproval)} onTotalsChange={totals=>setForm(current=>({...current,amountExcludingTax:String(totals.amountExcludingTax),taxAmount:String(totals.taxAmount),taxRate:String(totals.taxRate??""),amountIncludingTax:String(totals.amountIncludingTax),chileAmount:String(totals.amountIncludingTax)}))}/>:null}
@@ -331,7 +337,7 @@ export function InvoiceApprovalPanel({
       {!amountCurrencySupported ? (
         <Notice tone="warning">
           本单原币是 {prefill.currency}，不在飞书审批表单支持的币种（{prefill.amountCurrencyOptions.join(" / ") || "—"}）里：
-          用飞书审批会把金额当成所选币种提交。建议改用「本地开票」，或者让管理员先把 {prefill.currency} 加进飞书金额控件的币种范围。
+          {sourceType === "prepayment_contract" ? "请填写实际开票币种的金额和折算至合同币种的汇率，系统按折算金额校验剩余可开额度。" : <>用飞书审批会把金额当成所选币种提交。建议改用「本地开票」，或者让管理员先把 {prefill.currency} 加进飞书金额控件的币种范围。</>}
         </Notice>
       ) : null}
       {sourceType === "billing_statement" ? (
@@ -416,7 +422,7 @@ export function InvoiceApprovalPanel({
             <div className="grid gap-4 md:grid-cols-3">
               {/* 金额与币种默认带账单口径，允许人工改：飞书金额控件支持 MXN / USD（智利固定 CLP） */}
               <Field label="币种 Currency" hint={`本次按 ${form.amountCurrency} 开票`}>
-                <Select value={form.amountCurrency} onChange={(event) => setForm({ ...form, amountCurrency: event.target.value })}>
+                <Select value={form.amountCurrency} onChange={(event) => setForm({ ...form, amountCurrency: event.target.value, businessExchangeRate: event.target.value === prefill.currency ? "1" : "" })}>
                   {prefill.amountCurrencyOptions.map((item) => <option key={item} value={item}>{item}</option>)}
                 </Select>
               </Field>

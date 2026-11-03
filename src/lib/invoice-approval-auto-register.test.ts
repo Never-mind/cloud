@@ -12,6 +12,11 @@ const pdf={id:"pdf",fileName:`invoice_${facts.invoiceNo}.pdf`,invoiceIdentity:"i
 const review=()=>({base:{sourceNo:"202607 account",period:"202607",currency:"USD",exchangeRate:"1",paymentTermDays:30},approval:{status:"approved",sourceType:"cloud_row",sourceId:"row",allocationSourceIds:[]},allocationPlan:null,partySnapshot:{customerId:"customer-b",undertakingUnitId:"unit-b",customer:{address:"审批地址"}},expectedInvoice:{currency:"CNY",amountIncludingTax:"904105.43"}});
 beforeEach(()=>{vi.resetAllMocks();mocks.query.mockResolvedValue([{status:"approved",invoiceId:null}]);mocks.files.mockResolvedValue([pdf,{...pdf,id:"ofd",fileName:`invoice_${facts.invoiceNo}.ofd`,invoiceIdentity:"",invoiceNo:"",recognition:null,recognitionError:"unsupported"}]);mocks.review.mockResolvedValue(review());mocks.content.mockResolvedValue({fileName:pdf.fileName,fileType:"application/pdf",bytes:Buffer.from("pdf")});mocks.save.mockResolvedValue({id:"invoice"});});
 describe("automatic return posting",()=>{
+ it("carries the per-application contract FX snapshot when registering a prepayment invoice",async()=>{
+  const data=review();mocks.review.mockResolvedValue({...data,approval:{...data.approval,sourceType:"prepayment_contract",sourceId:"stable-contract-id"},businessRequest:{currency:"CNY",amountIncludingTax:facts.amountIncludingTax,taxRate:"6",businessExchangeRate:"0.14"}});
+  await autoRegisterReturnedInvoice("instance");
+  expect(mocks.save).toHaveBeenCalledWith(expect.objectContaining({sourceType:"prepayment_contract",sourceId:"stable-contract-id",businessExchangeRate:"0.14"}),expect.anything(),expect.objectContaining({mode:"automatic"}));
+ });
  it.each(["cloud_row","service_fee","billing_statement","settlement_invoice"])("posts %s with actual invoice parties, currency and dates without manual confirmation",async sourceType=>{
   const data=review();data.approval.sourceType=sourceType;mocks.review.mockResolvedValue(data);
   expect(await autoRegisterReturnedInvoice("instance")).toMatchObject({status:"registered",invoiceId:"invoice"});

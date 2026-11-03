@@ -113,6 +113,7 @@ export function VatInvoiceApprovalPanel({ sourceType, sourceId, sourceIds, onSta
         <label className="flex flex-col gap-1 text-sm">来源币种<Input value={data.sourceCurrency || ""} readOnly /></label>
         <label className="flex flex-col gap-1 text-sm">来源含税金额<Input value={data.sourceAmountIncludingTax || ""} readOnly /></label>
         <label className="flex flex-col gap-1 text-sm">开票币种<Input value="CNY" readOnly /></label>
+        {sourceType === "prepayment_contract" ? <label className="flex flex-col gap-1 text-sm">合同折算汇率（1 CNY = N {data.sourceCurrency}）<Input type="number" step="any" disabled={data.sourceCurrency === "CNY"} value={data.sourceCurrency === "CNY" ? "1" : draft.businessExchangeRate || ""} onChange={e => patch({ businessExchangeRate: e.target.value })} /></label> : null}
       </div>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {([["amountExcludingTax", "未税金额"], ["taxRate", "税率（%）"], ["taxAmount", "税额"], ["amountIncludingTax", "开票金额（含税）"]] as const).map(([key, label]) => <label key={key} className="flex flex-col gap-1 text-sm">{label}<Input value={draft[key]} onChange={e => patch(updateInvoiceReviewAmounts(draft, key, e.target.value))} /></label>)}

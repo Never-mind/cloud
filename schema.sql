@@ -409,6 +409,13 @@ CREATE TABLE IF NOT EXISTS `merge_power_purchaseorderplanitems` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='PurchaseOrderPlanItems';
 
 CREATE TABLE IF NOT EXISTS `merge_power_prepaymentcontracts` (
+  `financeId` VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL,
+  `financeAmountBasis` VARCHAR(16) NULL,
+  `financeTaxRate` DECIMAL(10,4) NULL,
+  `financeCustomerId` VARCHAR(64) NULL,
+  `financeUnitId` VARCHAR(64) NULL,
+  `financeVersion` INT NOT NULL DEFAULT 0,
+  UNIQUE KEY `uk_prepayment_finance` (`financeId`),
   `contractNo` VARCHAR(128) NOT NULL COMMENT 'contract no PK',
   `status` VARCHAR(64) NOT NULL DEFAULT '草稿' COMMENT 'prepayment contract status',
   `currency` VARCHAR(16) NULL COMMENT 'contract currency',
@@ -1333,3 +1340,36 @@ CREATE TABLE IF NOT EXISTS `merge_power_internalservicefeesnapshotitems` (
   `updatedAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`), KEY `idx_InternalServiceFeeSnapshotItems_snapshot` (`snapshotNo`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='InternalServiceFeeSnapshotItems';
+
+-- 预付款财务独立台账（公共业务关联，为将来批量导入预留）
+CREATE TABLE IF NOT EXISTS merge_common_invoice_business_links (
+  id VARCHAR(64) NOT NULL PRIMARY KEY, invoiceId VARCHAR(64) NOT NULL,
+  sourceType VARCHAR(40) NOT NULL, sourceId VARCHAR(64) NOT NULL, sourceNo VARCHAR(255) NULL,
+  sourceCurrency VARCHAR(16) NOT NULL, businessExchangeRate DECIMAL(24,10) NOT NULL,
+  sourceAmountIncludingTax DECIMAL(20,2) NOT NULL,
+  createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uk_business_invoice (invoiceId,sourceType,sourceId), KEY idx_business_source (sourceType,sourceId)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS merge_common_receipts (
+  id VARCHAR(64) NOT NULL PRIMARY KEY, sourceType VARCHAR(40) NOT NULL, sourceId VARCHAR(64) NOT NULL,
+  requestKey VARCHAR(64) NOT NULL, version INT NOT NULL DEFAULT 1,
+  customerId VARCHAR(64) NOT NULL, undertakingUnitId VARCHAR(64) NOT NULL,
+  currency VARCHAR(16) NOT NULL, exchangeRate DECIMAL(24,10) NULL, businessExchangeRate DECIMAL(24,10) NOT NULL,
+  sourceCurrency VARCHAR(16) NOT NULL, sourceAmountIncludingTax DECIMAL(20,2) NOT NULL,
+  amountExcludingTax DECIMAL(20,2) NOT NULL, taxRate DECIMAL(10,4) NOT NULL,
+  taxAmount DECIMAL(20,2) NOT NULL, amountIncludingTax DECIMAL(20,2) NOT NULL,
+  receivedDate DATE NULL, isReceived TINYINT NOT NULL DEFAULT 0, bankSerialNo VARCHAR(255) NULL,
+  status VARCHAR(16) NOT NULL DEFAULT 'active', remark TEXT NULL, voidReason TEXT NULL,
+  createdBy VARCHAR(255) NULL, updatedBy VARCHAR(255) NULL,
+  createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uk_receipt_request (sourceType,sourceId,requestKey), KEY idx_receipt_source (sourceType,sourceId)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS merge_common_receipt_allocations (
+  id VARCHAR(64) NOT NULL PRIMARY KEY, receiptId VARCHAR(64) NOT NULL, invoiceId VARCHAR(64) NOT NULL,
+  amount DECIMAL(20,2) NOT NULL, invoiceExchangeRate DECIMAL(24,10) NOT NULL,
+  invoiceAmount DECIMAL(20,2) NOT NULL,
+  UNIQUE KEY uk_receipt_invoice (receiptId,invoiceId), KEY idx_receipt_invoice (invoiceId)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

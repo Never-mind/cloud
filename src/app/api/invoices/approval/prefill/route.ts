@@ -19,7 +19,7 @@ export async function GET(request: NextRequest) {
     const params = request.nextUrl.searchParams;
     const sourceType = (params.get("sourceType") ?? "manual") as InvoiceSourceType;
     const sourceIds = (params.get("sourceIds") ?? "").split(",").map((value) => value.trim()).filter(Boolean);
-    if (!["cloud_row", "billing_statement", "service_fee", "settlement_invoice"].includes(sourceType)) throw new Error("不支持的审批来源");
+    if (!["cloud_row", "billing_statement", "service_fee", "settlement_invoice", "prepayment_contract"].includes(sourceType)) throw new Error("不支持的审批来源");
     const flow = params.get("flow") ?? "cloud";
     if (!["cloud", "vat"].includes(flow)) throw new Error("不支持的开票审批流程");
     const source = { sourceType, sourceId: params.get("sourceId"), sourceIds, customerId: params.get("customerId") ?? undefined, undertakingUnitId: params.get("undertakingUnitId") ?? undefined };

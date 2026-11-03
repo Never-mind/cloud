@@ -22,7 +22,7 @@ describe("shipment quantities", () => {
       page: "2", pageSize: "10", knownTotal: "999", receiptStatus: "unreceived", "filter.batchName": "MX-1",
     }));
     expect(result).toMatchObject({ total: 21, totalQuantity: 1050, page: 2 });
-    expect(result.rows.map((row) => row.quantity)).toEqual([20, 30]);
+    expect(result.rows.map((row) => "quantity" in row ? row.quantity : undefined)).toEqual([20, 30]);
     const [summarySql, summaryParams] = vi.mocked(queryRows).mock.calls[0];
     expect(summarySql).toContain("shipment.`deliveredAt` IS NULL");
     expect(summaryParams).toMatchObject({ columnFilter_batchName: ["MX-1"] });

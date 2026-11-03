@@ -15,6 +15,7 @@ import { confirmDialog, notify } from "./app-dialog";
 import { EmptyState, LoadingBlock } from "./table-state";
 import { StickyTable } from "./sticky-table";
 import { useWorkspaceDataRefresh } from "@/lib/workspace-events";
+import { PrepaymentFinancePanel } from "./prepayment-finance-panel";
 import { WorkspaceNavigationDialog } from "./workspace-navigation-dialog";
 
 type Contract = {
@@ -421,6 +422,7 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
         </div>
       </div>
 
+      <PrepaymentFinancePanel key={`${contract.contractNo}:${contract.status}:${contract.totalAmount}`} contractNo={contract.contractNo}>
       <Panel>
         <div className="border-b border-line-soft px-4 py-3 font-medium text-ink">主单信息</div>
         <div className="grid grid-cols-2 gap-4 p-4 md:grid-cols-3 xl:grid-cols-6">
@@ -636,6 +638,7 @@ export function PrepaymentContractDetailPage({ contractNo }: { contractNo: strin
           </table>
         </StickyTable>
       </Panel>
+      </PrepaymentFinancePanel>
       {navigationPrompt ? (
         <WorkspaceNavigationDialog
           title="合同已确认"

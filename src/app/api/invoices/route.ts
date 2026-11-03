@@ -25,6 +25,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ rows: await statementInvoiceEntries(sourceType, [params.get("sourceId")!]) });
     }
     const result = await listInvoices({
+      sourceType, sourceId: params.get("sourceId") || "",
       keyword: params.get("keyword") ?? "",
       period: params.get("period") ?? "",
       source: params.get("source") ?? "",

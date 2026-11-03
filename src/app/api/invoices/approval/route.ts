@@ -40,7 +40,7 @@ export async function POST(request: NextRequest) {
     const sourceType = (text(body.sourceType) || "manual") as InvoiceSourceType;
     const sourceId = text(body.sourceId);
     if (!sourceId) return NextResponse.json({ error: "缺少来源单据（sourceId）" }, { status: 400 });
-    if (!["cloud_row", "billing_statement", "service_fee", "settlement_invoice"].includes(sourceType)) throw new Error("不支持的审批来源");
+    if (!["cloud_row", "billing_statement", "service_fee", "settlement_invoice", "prepayment_contract"].includes(sourceType)) throw new Error("不支持的审批来源");
     const flow = text(body.flow) || "cloud";
     if (!["cloud", "vat"].includes(flow)) throw new Error("不支持的开票审批流程");
     if (flow === "vat") {
@@ -55,6 +55,8 @@ export async function POST(request: NextRequest) {
     }
 
     const result = await submitInvoiceApprovalFromSource({
+      businessExchangeRate: text(body.businessExchangeRate),
+      taxRate: body.taxRate === undefined ? undefined : text(body.taxRate),
       allocationPlan:body.allocationPlan as InvoiceAllocationPlan|undefined,
       ...parseInvoiceAttachmentSelection(body as InvoiceAttachmentSelection),
       sourceType,
