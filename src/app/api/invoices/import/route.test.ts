@@ -1,0 +1,20 @@
+import {beforeEach,describe,it,expect,vi} from 'vitest';
+import {NextRequest} from 'next/server';
+const m=vi.hoisted(()=>({email:vi.fn(),permission:vi.fn(),actor:vi.fn(),execute:vi.fn(),batch:vi.fn(),sources:vi.fn()}));
+vi.mock('@/lib/auth',()=>({getAuthenticatedUserEmail:m.email}));
+vi.mock('@/lib/permission-service',()=>({getPermissionStateForEmail:vi.fn(async()=>({}))}));
+vi.mock('@/lib/permission-definitions',()=>({hasPermission:m.permission}));
+vi.mock('@/lib/operation-actor',()=>({getOperationActor:m.actor}));
+vi.mock('@/lib/operation-log',()=>({recordOperationLog:vi.fn(async()=>{})}));
+vi.mock('@/lib/invoice-batch-import-service',()=>({executeImportRow:m.execute,getImportBatch:m.batch,findImportSources:m.sources,createImportBatch:vi.fn(),listImportBatches:vi.fn(),updateImportRow:vi.fn()}));
+vi.mock('@/lib/invoice-service',()=>({readInvoiceFile:vi.fn()}));
+import {GET,POST} from './route';
+const post=()=>new NextRequest('http://localhost/api/invoices/import',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'execute',batchId:'batch',rowId:'row',version:1})});
+beforeEach(()=>{vi.resetAllMocks();m.email.mockReturnValue('owner@example.test');m.permission.mockReturnValue(true);m.actor.mockResolvedValue({userId:'actor',displayName:'Test'});m.execute.mockResolvedValue({status:'issued',invoiceId:'invoice'});});
+describe('batch invoice API access',()=>{
+ it('does not execute without login',async()=>{m.email.mockReturnValue(null);expect((await POST(post())).status).toBe(401);expect(m.execute).not.toHaveBeenCalled();});
+ it('requires invoice create and view rights',async()=>{m.permission.mockImplementation((_state,_module,action)=>action!=='create');expect((await POST(post())).status).toBe(403);expect(m.execute).not.toHaveBeenCalled();});
+ it('does not expose source records without source update rights',async()=>{m.permission.mockImplementation((_state,module,action)=>module==='invoices'||action!=='update');expect((await GET(new NextRequest('http://localhost/api/invoices/import?action=sources&module=cloud_row'))).status).toBe(403);expect(m.sources).not.toHaveBeenCalled();});
+ it('passes the authenticated owner and source policy, never a posted actor',async()=>{expect((await POST(post())).status).toBe(200);expect(m.execute).toHaveBeenCalledWith('batch','row',1,expect.objectContaining({email:'owner@example.test',canUse:expect.any(Function)}),{userId:'actor',name:'Test'});});
+ it('rejects unsupported actions without financial mutations',async()=>{const response=await POST(new NextRequest('http://localhost/api/invoices/import',{method:'POST',body:JSON.stringify({action:'delete-all'})}));expect(response.status).toBe(400);expect(m.execute).not.toHaveBeenCalled();});
+});

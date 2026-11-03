@@ -1,0 +1,15 @@
+import {describe,it,expect} from 'vitest';
+import {normalizeImportRaw,importAmounts,importRates,importAllocationPlan,importSourceType} from './invoice-batch-import';
+import {validateInvoiceAllocationPlan,allocationTotals,type InvoiceAllocationSource} from './invoice-allocation';
+const raw=normalizeImportRaw({module:'华为云',currency:'USD',gross:'300.10',taxRate:'0',description:'202601-202602服务费'});
+const sources:InvoiceAllocationSource[]=[100,200].map((amount,i)=>({sourceType:'cloud_row',sourceId:`row${i}`,sourceNo:`20260${i+1}`,period:`20260${i+1}`,customerId:'A',customerName:'A',undertakingUnitId:'B',account:'account',sourceCurrency:'USD',sourceNet:String(amount),sourceTax:'0',sourceTotal:String(amount),sourceTaxRate:'0'}));
+describe('batch invoice financial rules',()=>{
+ it('keeps the customer agreed ten-cent difference and exact allocation totals',()=>{const plan=importAllocationPlan(raw,sources,['1','1']);expect(plan.allocations.map(row=>row.amountIncludingTax)).toEqual(['100.03','200.07']);expect(validateInvoiceAllocationPlan(plan,importAmounts(raw))).toBeNull();expect(allocationTotals(plan.allocations).amountIncludingTax).toBe('300.10');});
+ it('honors explicit uneven allocations and one-line description',()=>{const plan=importAllocationPlan({...raw,allocations:'50.10;250'},sources,['1','1']);expect(plan.allocations.map(row=>row.amountIncludingTax)).toEqual(['50.10','250.00']);expect(plan.description).toBe(raw.description);expect(plan.lineMode).toBe('summary');});
+ it('converts invoice-to-source rates into allocation direction',()=>{const plan=importAllocationPlan({...raw,currency:'CNY',gross:'2100'},sources,['0.14285714285714285','0.14285714285714285']);expect(plan.allocations[0].exchangeRate).toBe('7');expect(plan.allocations[0].amountIncludingTax).toBe('700.00');});
+ it('calculates and reconciles tax at cent precision',()=>{expect(importAmounts({...raw,gross:'106',taxRate:'6%'})).toEqual({amountExcludingTax:'100.00',taxRate:'6',taxAmount:'6.00',amountIncludingTax:'106.00'});expect(()=>importAmounts({...raw,gross:'106',net:'100',taxRate:'0'})).toThrow('不一致');});
+ it.each(['-1','0','abc','1.111','Infinity'])('rejects invalid gross %s',gross=>expect(()=>importAmounts({...raw,gross})).toThrow());
+ it('requires explicit zero tax and meaningful exchange rates',()=>{expect(()=>importAmounts({...raw,taxRate:''})).toThrow();expect(()=>importRates('', ['USD'],'CNY')).toThrow();expect(()=>importRates('7',['USD'],'USD')).toThrow();expect(importRates('', ['USD'],'USD')).toEqual(['1']);});
+ it('rejects omitted/duplicate-style mismatched allocation lengths and sums',()=>{expect(()=>importAllocationPlan({...raw,allocations:'300.10'},sources,['1','1'])).toThrow('数量');expect(()=>importAllocationPlan({...raw,allocations:'100;200'},sources,['1','1'])).toThrow('合计');expect(()=>importRates('1;1;1',['USD','USD'],'USD')).toThrow('数量');});
+ it('uses explicit supported module names',()=>{expect(importSourceType('预付款合同')).toBe('prepayment_contract');expect(()=>importSourceType('anything')).toThrow();});
+});

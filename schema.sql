@@ -1373,3 +1373,18 @@ CREATE TABLE IF NOT EXISTS merge_common_receipt_allocations (
   invoiceAmount DECIMAL(20,2) NOT NULL,
   UNIQUE KEY uk_receipt_invoice (receiptId,invoiceId), KEY idx_receipt_invoice (invoiceId)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 批量导入本地开票：预览批次和逐行执行结果。
+CREATE TABLE IF NOT EXISTS merge_common_invoice_import_batches (
+ id VARCHAR(64) NOT NULL PRIMARY KEY, fileName VARCHAR(255) NOT NULL, fileHash VARCHAR(64) NOT NULL,
+ createdBy VARCHAR(255) NOT NULL, createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ KEY idx_invoice_batch_owner (createdBy,createdAt)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS merge_common_invoice_import_rows (
+ id VARCHAR(64) NOT NULL PRIMARY KEY, batchId VARCHAR(64) NOT NULL, rowNo INT NOT NULL,
+ rowKey VARCHAR(128) NOT NULL, inputHash VARCHAR(64) NOT NULL, rawJson LONGTEXT NOT NULL, previewJson LONGTEXT NOT NULL,
+ status VARCHAR(16) NOT NULL DEFAULT 'ready', invoiceId VARCHAR(64) NULL, message TEXT NULL, version INT NOT NULL DEFAULT 1,
+ createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+ UNIQUE KEY uk_invoice_batch_row (batchId,rowNo), KEY idx_invoice_import_key (rowKey), KEY idx_invoice_import_invoice (invoiceId)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

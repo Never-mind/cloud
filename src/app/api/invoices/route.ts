@@ -78,6 +78,7 @@ export async function POST(request: NextRequest) {
       input = { ...body, lines: parseLines(body.lines) } as InvoiceDraftInput;
     }
 
+    if (input.importBatchId || input.importRowKey) throw new Error("导入批次标识只能通过批量开票入口提交");
     const invoice = await saveInvoice(input, operationActor);
     if (input.source === "external") await recordOperationLog({ actor, moduleKey: "invoices", action: "confirm_recognition", entityType: "invoice", entityId: String(invoice?.id ?? ""), detail: { recognized: input.recognitionFacts ?? null, confirmed: { invoiceNo: input.invoiceNo, invoiceDate: input.invoiceDate, currency: input.currency, exchangeRate: input.exchangeRate, amountExcludingTax: input.amountExcludingTax, taxRate: input.taxRate, taxAmount: input.taxAmount, amountIncludingTax: input.amountIncludingTax } } });
     return NextResponse.json({ invoice });

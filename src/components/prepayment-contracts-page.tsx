@@ -15,6 +15,7 @@ import { StickyTable } from "./sticky-table";
 import { TableColumnMenu, type TableFilterOption, type TableSortOrder } from "./table-column-menu";
 import { useWorkspaceDataRefresh } from "@/lib/workspace-events";
 import { TableStateContent } from "./table-state";
+import { PrepaymentFinanceStatus } from "./prepayment-finance-status";
 
 type Row = Record<string, string | number | boolean | null>;
 
@@ -431,6 +432,8 @@ export function PrepaymentContractsPage() {
                           <Link className="font-medium text-primary hover:underline" href={buildDetailRoute(`/finance/prepayment-contracts/${encodeURIComponent(contractNo)}`, currentRoute)}>
                             {contractNo}
                           </Link>
+                        ) : column.key === "invoiceStatus" || column.key === "receiptStatus" ? (
+                          <PrepaymentFinanceStatus status={row[column.key] == null ? null : String(row[column.key])} />
                         ) : (
                           formatValue(row[column.key], column.type)
                         )}

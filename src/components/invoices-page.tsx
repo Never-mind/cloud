@@ -10,6 +10,7 @@ import { confirmDialog, notify } from "./app-dialog";
 import { InvoiceDraftModal, type InvoiceDraftMode } from "./invoice-draft-modal";
 import { formatDisplayValue, formatMoneyValue } from "@/lib/display-format";
 import { InvoiceApprovalProgress } from "./invoice-approval-progress";
+import { InvoiceBatchImportModal } from "./invoice-batch-import-modal";
 
 type InvoiceRow = Record<string, unknown>;
 
@@ -46,6 +47,7 @@ export function InvoicesPage() {
   const [detail, setDetail] = useState<InvoiceRow | null>(null);
   const [modal, setModal] = useState<InvoiceDraftMode | null>(null);
   const [approvalsOpen, setApprovalsOpen] = useState(false);
+  const [batchImportOpen, setBatchImportOpen] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -152,6 +154,7 @@ export function InvoicesPage() {
           <div className="ml-auto flex items-center gap-2">
             <a className="inline-flex h-9 items-center gap-1 rounded border border-line bg-white px-3 text-sm text-ink-2 hover:border-primary hover:text-primary" href={`/api/invoices/export?${exportParams.toString()}`}>导出</a>
             <Button onClick={() => setModal("generated")} tone="primary"><Plus size={15} />开票</Button>
+            <Button onClick={() => setBatchImportOpen(true)}><FileUp size={15} />导入批量开票</Button>
             <Button onClick={() => setModal("external")}><FileUp size={15} />上传并识别</Button>
             <Button onClick={() => setApprovalsOpen(true)}><RefreshCw size={15} />审批与回票</Button>
           </div>
@@ -221,6 +224,7 @@ export function InvoicesPage() {
         <PaginationBar page={page} pageSize={pageSize} total={total} onPageChange={setPage} onPageSizeChange={(size) => { setPage(1); setPageSize(size); }} />
       </Panel>
 
+      {batchImportOpen ? <InvoiceBatchImportModal onClose={() => setBatchImportOpen(false)} onSaved={() => void load()} /> : null}
       <InvoiceDraftModal
         mode={modal ?? "generated"}
         onClose={() => setModal(null)}

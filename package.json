@@ -64,6 +64,8 @@
     "internal-service-fees:sync": "tsx scripts/resync-internal-service-fees.ts",
     "seed": "npm run migrate && tsx scripts/seed.ts",
     "schema:prepayment-finance": "tsx scripts/migrate-prepayment-finance.ts",
+    "schema:invoice-batch-import": "tsx scripts/migrate-invoice-batch-import.ts",
+    "verify:invoice-batch-import": "tsx scripts/verify-invoice-batch-import.ts",
     "verify:prepayment-finance": "tsx scripts/verify-prepayment-finance.ts"
   },
   "dependencies": {

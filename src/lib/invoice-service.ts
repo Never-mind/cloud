@@ -871,6 +871,14 @@ function toRenderInput(resolved: ResolvedInvoice) {
   };
 }
 
+/** Read-only validation shared by the Excel preview and the normal local invoice renderer. */
+export async function previewGeneratedInvoice(input: InvoiceDraftInput) {
+  const resolved = await resolveInvoice({ ...input, source: "generated", invoiceNo: text(input.invoiceNo) || "PREVIEW" }, false);
+  const missing = collectMissingInvoiceFields(toRenderInput(resolved), resolved.template);
+  if (missing.length) throw new Error(`开票资料不完整：${missing.join("、")}`);
+  return { customerName: resolved.customer.customerName, sellerName: resolved.bank.sellerName, dueDate: resolved.dueDate };
+}
+
 /** 生成/保存开票记录。source=generated 时渲染票面文件；external 时用传入的附件。 */
 export async function saveInvoice(input: InvoiceDraftInput, actor: InvoiceActor = {}, approvalReturn?: { fileId: string; instanceCode: string; relatedFileIds: string[]; mode?: "automatic" | "manual" }) {
   if (input.sourceType === "prepayment_contract" && approvalReturn) {
@@ -1933,6 +1941,7 @@ export async function deleteInvoice(id: string) {
   const invoice = await getInvoice(id);
   if (!invoice) throw new Error("开票记录不存在");
   if (text(invoice.status) === "issued") throw new Error("已开票的记录请先作废再删除");
+  if (invoice.importBatchId) throw new Error("批量导入发票需保留导入编号防止重复开票，可作废但不支持永久删除");
   if (invoice.sourceType === "prepayment_contract") throw new Error("预付款发票保留作废记录供财务追溯，不支持永久删除");
   await executeRaw(`DELETE FROM ${INVOICE_ITEM_TABLE} WHERE invoiceId = :id`, { id });
   await executeRaw(`DELETE FROM merge_common_invoice_allocations WHERE invoiceId = :id`, { id });
