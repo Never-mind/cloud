@@ -9,10 +9,10 @@
 /**
  * 代码内兜底地址：所有相关环境变量都没配时使用。
  *
- * 2026-10-10 起远端 Frappe 已从内网（192.168.3.153:1337）搬到公网，
- * 内网地址外网访问不到，所以兜底也换成公网入口。
+ * 2026-11-12 公网入口更新为 debaser.luzcorp.dev，现有凭据继续使用。
+ * 显式配置的环境变量优先，已部署服务仍需更新地址并重启。
  */
-const DEFAULT_FRAPPE_BASE_URL = "https://preview.debaser.luzcorp.dev";
+const DEFAULT_FRAPPE_BASE_URL = "https://debaser.luzcorp.dev";
 
 /**
  * 推荐变量名在前，历史变量名在后继续兼容，避免已上线服务器必须一次性改名。

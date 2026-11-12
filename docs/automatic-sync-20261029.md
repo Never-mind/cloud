@@ -9,13 +9,15 @@
 配置（秒）：
 
 ```dotenv
-FRAPPE_API_BASE_URL=https://your-frappe-host
-FRAPPE_API_TOKEN=your-token
+FRAPPE_API_BASE_URL=https://debaser.luzcorp.dev
+FRAPPE_API_TOKEN=<保留当前 API Token>
 FRAPPE_DEMAND_AUTO_SYNC=1
 FRAPPE_DEMAND_AUTO_SYNC_INTERVAL_SECONDS=1800
 FRAPPE_DEMAND_SYNC_ON_LOGIN=1
 FRAPPE_DEMAND_LOGIN_SYNC_COOLDOWN_SECONDS=300
 ```
+
+2026-11-12 地址更新为 `https://debaser.luzcorp.dev`；现有账号、密码及 API Token 保持不变。已部署服务修改 `.env.local` 的 `FRAPPE_API_BASE_URL` 并重启后，继续按原定时与登录触发规则同步，无需新增计划任务。
 
 启动日志 `[frappe-demand-auto-sync] enabled; interval=1800s; login=true; loginCooldown=300s; firstRun=5s` 表示已启用。测试、构建、不配置 Frappe 密钥或显式关闭时不启动。需求同步映射页面“最近同步结果”显示定时/登录/手动来源及失败原因；原有映射、已存在跳过、删除抑制和变更待核对规则沿用。无需新增表字段或另外注册计划任务。旧的 Windows 注册脚本及 `npm run sync:frappe-demands` 作为外部调度/人工入口保留；启用内置同步时不必重复配置它们。
 
