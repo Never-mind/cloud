@@ -1,6 +1,7 @@
 "use client";
 
 import { StatusSwitch } from "./status-switch";
+import type { ServiceFeeRepaymentStatus } from "@/lib/service-fee-finance-status";
 
 import Link from "next/link";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -37,7 +38,7 @@ type Row = Record<string, string | number | boolean | null>;
 type ListResponse = { rows: Row[]; total: number; page: number; pageSize: number; totalPages: number };
 type RepaymentDraft = {
   snapshotNo: string;
-  repaymentStatus: "未回款" | "已回款";
+  repaymentStatus: ServiceFeeRepaymentStatus;
   receivingUnitId: string;
   payerCustomerId: string;
   repaymentCurrency: string;
@@ -231,7 +232,7 @@ export function ServiceFeeStatementsPage() {
   }
 
   function openRepayment(row: Row) {
-    const invoiceIssued = isInvoiceIssued(row.invoiceStatus);
+    const invoiceIssued = isInvoiceIssued(row.invoiceStatus) || (row.invoiceStatus === "无需开票" && Boolean(row.invoiceNo));
     const source = invoiceIssued ? {
       currency: row.invoiceCurrency,
       net: row.invoiceAmountExcludingTax,
@@ -250,7 +251,7 @@ export function ServiceFeeStatementsPage() {
     }, source);
     setRepaymentDraft({
       snapshotNo: String(row.snapshotNo ?? ""),
-      repaymentStatus: String(row.repaymentStatus ?? "未回款") === "已回款" ? "已回款" : "未回款",
+      repaymentStatus: row.repaymentStatus === "无需回款" ? "无需回款" : row.repaymentStatus === "已回款" ? "已回款" : "未回款",
       receivingUnitId: firstNonBlankValue(row.receivingUnitId, row.defaultReceivingUnitId),
       payerCustomerId: firstNonBlankValue(row.payerCustomerId, row.defaultPayerCustomerId),
       repaymentCurrency: amounts.currency,
@@ -525,6 +526,9 @@ export function ServiceFeeStatementsPage() {
     const serviceFeeCurrency = firstNonBlankValue(row.serviceFeeCurrency, row.defaultBillingCurrency, row.defaultRepaymentCurrency) || "USD";
     const confirmed = row.status === "已确认";
     const issued = row.invoiceStatus === "已开票";
+    if ((key === "invoiceStatus" && row.invoiceStatus === "无需开票") || (key === "repaymentStatus" && row.repaymentStatus === "无需回款")) {
+      return <NotRequiredStatus>{key === "invoiceStatus" ? "无需开票" : "无需回款"}</NotRequiredStatus>;
+    }
     if (key === "snapshotNo") return <Link className="font-medium text-primary hover:underline" href={`/finance/service-fee-snapshot-items?snapshotNo=${encodeURIComponent(snapshotNo)}`} onClick={(event) => {
       event.preventDefault();
       postWorkspaceMessage({ type: "cloud-power:open-tab", route: `/finance/service-fee-snapshot-items?snapshotNo=${encodeURIComponent(snapshotNo)}`, title: "服务费对账单明细" });
@@ -624,9 +628,9 @@ export function ServiceFeeStatementsPage() {
     return <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2 rounded border border-line-soft bg-surface-2 px-3 py-2">
         <span className="text-xs font-medium text-ink-2">本行操作</span>
-        <StatusSwitch checked={row.repaymentStatus === "已回款"} disabled={busyNo === snapshotNo} onChange={(checked) => void setRepaymentState(row, checked ? "已回款" : "未回款")} onLabel="已回款" offLabel="未回款" />
+        {row.repaymentStatus === "无需回款" ? <NotRequiredStatus>无需回款</NotRequiredStatus> : <StatusSwitch checked={row.repaymentStatus === "已回款"} disabled={busyNo === snapshotNo} onChange={(checked) => void setRepaymentState(row, checked ? "已回款" : "未回款")} onLabel="已回款" offLabel="未回款" />}
         <Button disabled={busyNo === snapshotNo} size="sm" onClick={() => openRepayment(row)}>编辑实收</Button>
-        <StatusSwitch checked={issued} disabled={busyNo === snapshotNo || (Array.isArray(row.registeredInvoices) && row.registeredInvoices.length > 0)} title="已登记发票的状态由有效发票自动计算" onChange={(checked) => void setInvoiceState(snapshotNo, checked ? "已开票" : "未开票")} onLabel="已开票" offLabel="未开票" />
+        {row.invoiceStatus === "无需开票" ? <NotRequiredStatus>无需开票</NotRequiredStatus> : <StatusSwitch checked={issued} disabled={busyNo === snapshotNo || (Array.isArray(row.registeredInvoices) && row.registeredInvoices.length > 0)} title="已登记发票的状态由有效发票自动计算" onChange={(checked) => void setInvoiceState(snapshotNo, checked ? "已开票" : "未开票")} onLabel="已开票" offLabel="未开票" />}
         <Button disabled={busyNo === snapshotNo} size="sm" onClick={() => openInvoiceInfo(row)}>{Array.isArray(row.registeredInvoices) && row.registeredInvoices.length > 1 ? "查看／追加发票" : "编辑开票"}</Button>
         <Button disabled={busyNo === snapshotNo} size="sm" onClick={() => setInvoiceModal({ mode: "generated", sourceId: snapshotNo })}>开票</Button>
         <Button disabled={busyNo === snapshotNo} size="sm" onClick={() => setInvoiceModal({ mode: "external", sourceId: snapshotNo })}>上传并识别</Button>
@@ -686,12 +690,14 @@ export function ServiceFeeStatementsPage() {
             <option value="">全部开票状态</option>
             <option value="未开票">未开票</option>
             <option value="已开票">已开票</option>
+            <option value="无需开票">无需开票</option>
           </Select>
           <div className="flex h-9 items-center gap-1 rounded border border-line bg-white p-1" aria-label="是否回款筛选">
             {[
               ["", "全部"],
               ["未回款", "未回款"],
               ["已回款", "已回款"],
+              ["无需回款", "无需回款"],
             ].map(([value, label]) => (
               <button
                 className={`h-7 rounded px-2 text-xs transition ${repaymentStatus === value ? "bg-info-soft text-primary" : "text-ink-2 hover:bg-canvas"}`}
@@ -820,7 +826,7 @@ export function ServiceFeeStatementsPage() {
           {receiptInvoiceCurrencyMismatch(repaymentDraft.repaymentCurrency, repaymentDraft.sourceCurrency) ? <p className="mb-3 text-xs text-warning-ink">实收币种与{repaymentDraft.prefillSource}币种不同，请按实际收款币种核对金额；系统不自动换算。</p> : null}
           <div className="grid grid-cols-2 gap-4">
               <RepaymentField label="是否回款">
-                <StatusSwitch
+                {repaymentDraft.repaymentStatus === "无需回款" ? <NotRequiredStatus>无需回款</NotRequiredStatus> : <StatusSwitch
                   checked={repaymentDraft.repaymentStatus === "已回款"}
                   aria-label="是否回款"
                   className="h-9"
@@ -831,7 +837,7 @@ export function ServiceFeeStatementsPage() {
                   } : current)}
                   onLabel="已回款"
                   offLabel="未回款"
-                />
+                />}
               </RepaymentField>
               <div />
               <RepaymentField label="收款单位">
@@ -923,6 +929,10 @@ export function ServiceFeeStatementsPage() {
       />
     </div>
   );
+}
+
+function NotRequiredStatus({ children }: { children: ReactNode }) {
+  return <span className="inline-flex rounded-full border border-line-soft bg-canvas px-2 py-0.5 text-xs text-ink-3" title="当期含税服务费绝对值小于1，按账单币种自动判断">{children}</span>;
 }
 
 function RepaymentField({ children, label }: { children: React.ReactNode; label: string }) {

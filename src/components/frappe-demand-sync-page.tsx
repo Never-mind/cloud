@@ -10,6 +10,7 @@ import { StickyTable } from "./sticky-table";
 import { PaginationBar } from "./pagination-bar";
 import { DEFAULT_PAGE_SIZE } from "@/lib/pagination";
 import { formatInstanceModelType } from "@/lib/instance-model-type";
+import { formatSyncTime } from "@/lib/sync-time";
 
 type Tab = "supplier" | "material" | "ledger";
 type Row = Record<string, unknown>;
@@ -137,12 +138,6 @@ function syncResultStatus(status: SyncResult["status"]) {
   const labels: Record<SyncResult["status"], string> = { created: "已新建", skipped_existing: "已跳过", blocked: "待处理", pending_change: "待核对" };
   const colors: Record<SyncResult["status"], string> = { created: "bg-success-soft text-success-strong", skipped_existing: "bg-fill-soft text-ink-3", blocked: "bg-warning-soft text-warning-deep", pending_change: "bg-danger-soft text-danger" };
   return <span className={`inline-flex rounded px-2 py-1 text-xs ${colors[status]}`}>{labels[status]}</span>;
-}
-
-function formatRunTime(value: string | null) {
-  if (!value) return "-";
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString("zh-CN", { hour12: false });
 }
 
 function sourceTypeLabel(sourceType: string) {
@@ -383,7 +378,7 @@ export function FrappeDemandSyncPage() {
     {latestRun ? <Panel>
       <details open>
         <summary className="cursor-pointer list-none px-4 py-3 text-sm text-ink [&::-webkit-details-marker]:hidden">
-          <span className="font-medium">最近同步结果</span><span className="ml-2 text-ink-3">{formatRunTime(latestRun.startedAt)} · {({ login: "登录触发", scheduled: "定时同步", script: "脚本同步", manual: "手动同步" } as Record<string, string>)[latestRun.triggerType] || "同步"} · {latestRun.status === "running" ? "执行中" : latestRun.status === "failed" ? "同步失败" : latestRun.dryRun ? "试运行" : "正式同步"} · 新建 {latestRun.createdRequestCount} 张 / {latestRun.createdItemCount} 条，跳过 {latestRun.skippedExistingCount} 条，待处理 {latestRun.blockedItemCount} 条，待核对 {latestRun.changedItemCount} 条</span>
+          <span className="font-medium">最近同步结果</span><span className="ml-2 text-ink-3">{formatSyncTime(latestRun.startedAt)}（北京时间） · {({ login: "登录触发", scheduled: "定时同步", script: "脚本同步", manual: "手动同步" } as Record<string, string>)[latestRun.triggerType] || "同步"} · {latestRun.status === "running" ? "执行中" : latestRun.status === "failed" ? "同步失败" : latestRun.dryRun ? "试运行" : "正式同步"} · 新建 {latestRun.createdRequestCount} 张 / {latestRun.createdItemCount} 条，跳过 {latestRun.skippedExistingCount} 条，待处理 {latestRun.blockedItemCount} 条，待核对 {latestRun.changedItemCount} 条</span>
         </summary>
         <div className="border-t border-line-soft">
           {latestRun.errors?.length ? <p role="alert" className="px-4 py-3 text-sm text-danger">{latestRun.errors.slice(0, 3).join("；")}</p> : null}
@@ -420,7 +415,7 @@ export function FrappeDemandSyncPage() {
         <table className="min-w-[1100px] border-collapse text-sm">
           <thead className="bg-canvas"><tr>
             <th className="whitespace-nowrap table-select-cell border-b border-r border-line-soft py-3 text-center font-medium [&>input]:h-4 [&>input]:w-4 [&>input]:align-middle"><input aria-label="全选需求单" checked={ledger.length > 0 && selectedOrders.length === ledger.length} type="checkbox" onChange={(event) => setSelectedOrders(event.target.checked ? ledger.map((row) => row.sourceOrderId) : [])} /></th>
-            {["远端需求单号", "本地需求单号", "明细数", "本地状态", "远端变更", "最后同步", "操作"].map((label) => <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium" key={label}>{label}</th>)}
+            {["远端需求单号", "本地需求单号", "明细数", "本地状态", "远端变更", "最后同步（北京时间）", "操作"].map((label) => <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium" key={label}>{label}</th>)}
           </tr></thead>
           <tbody>
             {ledger.map((row) => <Fragment key={row.sourceOrderId}>
@@ -431,7 +426,7 @@ export function FrappeDemandSyncPage() {
                 <td className="border-b border-r border-line-soft px-3 py-3 text-right">{row.itemCount}</td>
                 <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3">{row.localExists ? <span className="text-success">已存在</span> : <span className="text-danger">已删除</span>}</td>
                 <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3">{row.changedCount ? <span className="text-warning-deep">已变更 {row.changedCount} 条</span> : row.outOfScopeCount ? <span className="text-ink-3">{row.outOfScopeCount} 条状态变化</span> : "-"}</td>
-                <td className="border-b border-r border-line-soft px-3 py-3 text-xs text-ink-3">{formatRunTime(row.lastSyncedAt)}</td>
+                <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-xs text-ink-3">{formatSyncTime(row.lastSyncedAt)}</td>
                 <td className="border-b border-line-soft px-3 py-3"><div className="flex flex-wrap gap-1"><Button onClick={() => void toggleLedgerOrder(row.sourceOrderId)}>{expandedOrder === row.sourceOrderId ? "收起明细" : "查看明细"}</Button>{row.changedCount ? <Button disabled={busy} tone="primary" onClick={() => void acceptOrderChanges(row.sourceOrderId)}>已核对</Button> : null}</div></td>
               </tr>
               {expandedOrder === row.sourceOrderId ? <tr><td className="border-b border-line-soft bg-surface-2 px-4 py-3" colSpan={8}>

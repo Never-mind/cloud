@@ -4,6 +4,7 @@ import { REQUEST_TYPE_OPTIONS } from "./request-type";
 import { INSTANCE_MODEL_TYPE_OPTIONS } from "./instance-model-type";
 import { REQUEST_REMOTE_STATUS_OPTIONS } from "./request-remote-status";
 import { purchaseOrderPlanFieldSpecs, purchaseOrderSnFieldSpecs } from "./purchase-order-demand-plan-fields";
+import { PROSPECT_STATUSES } from "./prospect";
 
 export type FieldType = "text" | "number" | "money" | "percentage" | "date" | "datetime" | "boolean" | "switch" | "textarea" | "select" | "lineType" | "signature";
 
@@ -334,6 +335,7 @@ export const entityConfigs: EntityConfig[] = [
       { key: "taxRegime", label: "税制（Régimen Fiscal）" },
       { key: "postCode", label: "发票地址邮编" },
       { key: "cooperationStatus", label: "合作状态", type: "select", options: [{ label: "正常合作", value: "normal" }, { label: "暂停合作", value: "suspended" }, { label: "终止合作", value: "terminated" }, { label: "未合作过", value: "not_cooperated" }] },
+      { key: "paymentTermDays", label: "默认开票账期（天）", type: "number", placeholder: "留空默认30天" },
       { key: "businessTypes", label: "合作业务" },
       { key: "status", label: "档案状态", type: "select", required: true, options: [{ label: "启用", value: "active" }, { label: "停用", value: "disabled" }] },
       { key: "website", label: "官网" },
@@ -342,6 +344,13 @@ export const entityConfigs: EntityConfig[] = [
       { key: "contactPhone", label: "联系电话" },
       { key: "contactEmail", label: "联系邮箱" },
     ],
+  },
+  {
+    key: "prospects", title: "潜在客户", table: "merge_common_prospects", primaryKey: "id",
+    navGroup: "业务伙伴", route: "/prospects", detailRoute: "/prospects", genericListDisabled: true,
+    description: "维护潜在客户、跟进记录和资料，合作确定后转为客户。",
+    listFields: [{ key: "name", label: "公司名称" }, { key: "status", label: "跟进状态", type: "select", options: [...PROSPECT_STATUSES] }],
+    formFields: [], filters: [],
   },
   {
     key: "instance-contracts",
@@ -999,8 +1008,8 @@ export const entityConfigs: EntityConfig[] = [
       { key: "writeOffMonth", label: "核销月份", placeholder: "核销月份", type: "date" },
       { key: "countryCode", label: "国家", placeholder: "国家" },
       { key: "status", label: "确认状态", type: "select", options: [{ label: "未确认", value: "未确认" }, { label: "已确认", value: "已确认" }] },
-      { key: "invoiceStatus", label: "开票状态", type: "select", options: [{ label: "未开票", value: "未开票" }, { label: "已开票", value: "已开票" }] },
-      { key: "repaymentStatus", label: "回款状态", type: "select", options: [{ label: "未回款", value: "未回款" }, { label: "已回款", value: "已回款" }] },
+      { key: "invoiceStatus", label: "开票状态", type: "select", options: [{ label: "未开票", value: "未开票" }, { label: "已开票", value: "已开票" }, { label: "无需开票", value: "无需开票" }] },
+      { key: "repaymentStatus", label: "回款状态", type: "select", options: [{ label: "未回款", value: "未回款" }, { label: "已回款", value: "已回款" }, { label: "无需回款", value: "无需回款" }] },
     ],
     listFields: [
       { key: "snapshotNo", label: "对账单号" },
@@ -2457,7 +2466,7 @@ export const navGroups: NavGroup[] = [
     items: [],
     children: [{ title: "华为云对账", items: getEntitiesByKeys(["huawei-cloud"]) }],
   },
-  { title: "业务伙伴", items: getEntitiesByKeys(["suppliers", "customers", "undertaking-units"]) },
+  { title: "业务伙伴", items: getEntitiesByKeys(["suppliers", "customers", "prospects", "undertaking-units"]) },
   { title: "用户管理", items: [], children: userManagementChildren },
   { title: "发票管理", items: invoiceManagementItems },
   { title: "文档管理", items: documentManagementItems },

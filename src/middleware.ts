@@ -72,6 +72,11 @@ export async function middleware(request: NextRequest) {
     return applyEmbeddedCookie(NextResponse.redirect(loginUrl), request, embedded);
   }
 
+  // 潜在客户的转化和只读状态仅通过专用服务维护。
+  if (pathname === "/api/entities/prospects" || pathname.startsWith("/api/entities/prospects/")) {
+    return NextResponse.json({ error: "请使用潜在客户专用接口" }, { status: 400 });
+  }
+
   const routePermission = getRoutePermission(pathname, request.method);
   const moduleKey = getModuleFeatureKeyForRoute(pathname) ?? routePermission?.moduleKey;
   if (moduleKey && isModuleFeatureToggleable(moduleKey)) {

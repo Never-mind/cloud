@@ -1,6 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({ query: vi.fn(), write: vi.fn(), upload: vi.fn(), remote: vi.fn(), fetch: vi.fn() }));
 vi.mock("./db", () => ({ queryRows: mocks.query, execute: mocks.write }));
+// Allocation persistence is covered by cloud-payment-allocation-service.test.ts;
+// this suite isolates switching Feishu cost projects and original owner routing.
+vi.mock("./cloud-payment-allocation-service", () => ({
+  withCloudPaymentSources: async (ids: string[], work: (rows: unknown[]) => Promise<unknown>) => {
+    if (new Set(ids).size !== ids.length) throw new Error("付款来源单据重复");
+    return work([]);
+  },
+  prepareCloudPaymentPlan: async (_rows: unknown[], entries: unknown[]) => ({ entries, plan: undefined }),
+}));
 vi.mock("./feishu-message-service", () => ({ getFeishuTenantAccessToken: async () => "test-token" }));
 vi.mock("./feishu-approval-service", () => ({ uploadApprovalAttachment: mocks.upload, fetchInvoiceApprovalInstance: mocks.remote }));
 vi.mock("./file-storage-service", () => ({ readFile: async () => ({ bytes: Buffer.from("test"), fileName: "test.txt" }) }));

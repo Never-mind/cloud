@@ -18,6 +18,12 @@ beforeEach(() => {
 });
 
 describe("cross-currency VAT return review", () => {
+  it("uses the full multirow Cloud invoice total and currency on return review", async () => {
+    const formJson = JSON.stringify([{id:"widget17634576967120001",value:[9290.82,100002].map(value => [{id:"widget17634577022660001",value,currency:"MXN"}])}]);
+    mocks.prefill.mockResolvedValue({currency:"USD",amountIncludingTax:"106"});
+    mocks.query.mockImplementation(async (sql:string) => sql.includes("SELECT instanceCode") ? [{instanceCode:"instance"}] : sql.includes("FROM merge_common_feishu_approvals") ? [{ownerType:"service_fee",ownerId:"source",status:"approved",formJson}] : []);
+    expect((await returnedInvoiceReview("file")).expectedInvoice).toEqual({currency:"MXN",amountIncludingTax:"109292.82"});
+  });
   it("compares return parties and terms with the approved selections instead of source defaults", async () => {
     const partySnapshot = { customerId: "actual-customer", undertakingUnitId: "actual-unit", customer: { name: "Approved Customer", taxId: "TAX", address: "Approved Address" }, sellerName: "Approved Unit", paymentTermDays: 30 };
     mocks.prefill.mockResolvedValue({ customerId: "business-customer", undertakingUnitId: "business-unit", paymentTermDays: 1111 });

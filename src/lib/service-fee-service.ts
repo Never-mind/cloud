@@ -1,4 +1,5 @@
 import { normalizeBankSerialNo } from "./bank-serial-no";
+import { serviceFeeFinanceStatuses, serviceFeeFinanceStatusWriteSql, serviceFeeSettlementNotRequired } from "./service-fee-finance-status";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -947,11 +948,11 @@ export async function createServiceFeeStatementDraft({
         INSERT INTO servicefeesnapshots
           (snapshotNo, status, writeOffMonth, startMonth, endMonth, countryCode, serviceFeeCurrency, batchName, keyword,
            billingTotal, prepaymentTotal, serviceFeeTotal, serviceFeeTotalExcludingTax, vatRate,
-           instanceServiceFeeTotal, feeServiceFeeTotal, confirmedAt)
+           instanceServiceFeeTotal, feeServiceFeeTotal, invoiceStatus, repaymentStatus, confirmedAt)
         VALUES
           (:snapshotNo, '未确认', :writeOffMonth, :writeOffMonth, :writeOffMonth, :countryCode, :serviceFeeCurrency, NULL, NULL,
            :billingTotal, :prepaymentTotal, :serviceFeeTotal, :serviceFeeTotalExcludingTax, :vatRate,
-           :instanceServiceFeeTotal, :feeServiceFeeTotal, NULL)
+           :instanceServiceFeeTotal, :feeServiceFeeTotal, :invoiceStatus, :repaymentStatus, NULL)
         ON DUPLICATE KEY UPDATE
           status = '未确认',
           writeOffMonth = VALUES(writeOffMonth),
@@ -968,6 +969,8 @@ export async function createServiceFeeStatementDraft({
            vatRate = VALUES(vatRate),
            instanceServiceFeeTotal = VALUES(instanceServiceFeeTotal),
           feeServiceFeeTotal = VALUES(feeServiceFeeTotal),
+          invoiceStatus = ${serviceFeeFinanceStatusWriteSql("invoiceStatus")},
+          repaymentStatus = ${serviceFeeFinanceStatusWriteSql("repaymentStatus")},
           confirmedAt = NULL
       `,
       {
@@ -977,6 +980,7 @@ export async function createServiceFeeStatementDraft({
         serviceFeeCurrency: statementFilters.currency,
         vatRate: Number(calculated.rows[0]?.vatRate ?? 0),
         ...calculated.summary,
+        ...serviceFeeFinanceStatuses({ serviceFeeTotal: calculated.summary.serviceFeeTotal }),
       },
     );
 
@@ -1013,7 +1017,7 @@ export async function listServiceFeeStatements(searchParams: URLSearchParams) {
   };
   for (const [field, expression] of Object.entries(filterExpressions)) appendTableInFilter(whereParts, params, expression, field, searchParams, "serviceStatement");
   if (filters.keyword) {
-    whereParts.push("CONCAT_WS(' ', snapshotNo, countryCode, status, invoiceStatus, repaymentStatus, invoiceOriginalName, bankSerialNo) LIKE :keyword");
+    whereParts.push(`CONCAT_WS(' ', snapshotNo, countryCode, status, ${filterExpressions.invoiceStatus}, ${filterExpressions.repaymentStatus}, invoiceOriginalName, bankSerialNo) LIKE :keyword`);
     params.keyword = `%${filters.keyword}%`;
   }
   if (filters.writeOffMonth) {
@@ -1022,7 +1026,7 @@ export async function listServiceFeeStatements(searchParams: URLSearchParams) {
   }
   for (const key of ["countryCode", "status", "invoiceStatus", "repaymentStatus"] as const) {
     if (!filters[key]) continue;
-    whereParts.push(`${key} = :${key}`);
+    whereParts.push(`${filterExpressions[key]} = :${key}`);
     params[key] = filters[key];
   }
   const where = whereParts.length ? `WHERE ${whereParts.join(" AND ")}` : "";
@@ -1207,8 +1211,16 @@ async function attachRepaymentPartyCodes(rows: Row[]) {
 }
 
 export async function updateServiceFeeRepayment(snapshotNo: string, input: Row) {
-  const repaymentStatus = String(input.repaymentStatus ?? "").trim();
-  if (!new Set(["未回款", "已回款"]).has(repaymentStatus)) throw new Error("回款状态无效");
+  return withTransaction(async connection => {
+  const queryRows = <T extends Row>(sql: string, values: Row) => queryRowsInTransaction<T>(connection, sql, values);
+  const execute = (sql: string, values: Row) => executeInTransaction(connection, sql, values);
+  const requestedStatus = String(input.repaymentStatus ?? "").trim();
+  if (!new Set(["未回款", "已回款", "无需回款"]).has(requestedStatus)) throw new Error("回款状态无效");
+  const [existing] = await queryRows<Row>("SELECT snapshotNo, serviceFeeTotal, bankSerialNo FROM servicefeesnapshots WHERE snapshotNo = :snapshotNo LIMIT 1 FOR UPDATE", { snapshotNo });
+  if (!existing) throw new Error("服务费对账单不存在");
+  const notRequired = serviceFeeSettlementNotRequired(existing.serviceFeeTotal);
+  if (requestedStatus === "无需回款" && !notRequired) throw new Error("仅当期含税服务费绝对值小于1时可设为无需回款，请刷新账单");
+  const repaymentStatus = notRequired ? "无需回款" : requestedStatus;
   const receivingUnitId = String(input.receivingUnitId ?? "").trim();
   const payerCustomerId = String(input.payerCustomerId ?? "").trim();
   const repaymentCurrency = String(input.repaymentCurrency ?? "").trim();
@@ -1230,9 +1242,7 @@ export async function updateServiceFeeRepayment(snapshotNo: string, input: Row) 
     if (repaymentVatRate !== null && repaymentVatRate < 0) throw new Error("回款税率不能小于 0");
     if (!repaymentDate) throw new Error("请选择回款日期");
   }
-  const existing = await queryRows<Row>("SELECT snapshotNo, bankSerialNo FROM servicefeesnapshots WHERE snapshotNo = :snapshotNo LIMIT 1", { snapshotNo });
-  if (!existing[0]) throw new Error("服务费对账单不存在");
-  const bankSerialNo = normalizeBankSerialNo(input.bankSerialNo === undefined ? existing[0].bankSerialNo : input.bankSerialNo);
+  const bankSerialNo = normalizeBankSerialNo(input.bankSerialNo === undefined ? existing.bankSerialNo : input.bankSerialNo);
   await execute(
     `UPDATE servicefeesnapshots
      SET repaymentStatus = :repaymentStatus, receivingUnitId = :receivingUnitId, payerCustomerId = :payerCustomerId,
@@ -1255,6 +1265,7 @@ export async function updateServiceFeeRepayment(snapshotNo: string, input: Row) 
     },
   );
   return { snapshotNo, repaymentStatus, receivingUnitId, payerCustomerId, repaymentCurrency, repaymentAmount, repaymentAmountExcludingTax, repaymentVatRate, repaymentDate, bankSerialNo };
+  });
 }
 
 export async function updateServiceFeeInvoiceInfo(snapshotNo: string, input: Row) {
@@ -1343,7 +1354,10 @@ export async function confirmServiceFeeStatement(snapshotNo: string) {
     }
     await executeInTransaction(
       connection,
-      "UPDATE servicefeesnapshots SET status = '已确认', confirmedAt = CURRENT_TIMESTAMP WHERE snapshotNo = :snapshotNo",
+      `UPDATE servicefeesnapshots SET status = '已确认', confirmedAt = CURRENT_TIMESTAMP,
+        invoiceStatus = ${serviceFeeFinanceStatusWriteSql("invoiceStatus")},
+        repaymentStatus = ${serviceFeeFinanceStatusWriteSql("repaymentStatus")}
+        WHERE snapshotNo = :snapshotNo`,
       { snapshotNo },
     );
     return { snapshotNo, status: "已确认" };
@@ -1371,8 +1385,12 @@ export async function updateServiceFeeInvoiceStatus(snapshotNo: string, invoiceS
   return withTransaction(async connection => {
   const queryRows = <T extends Row>(sql: string, values: Row) => queryRowsInTransaction<T>(connection, sql, values);
   const execute = (sql: string, values: Row) => executeInTransaction(connection, sql, values);
-  if (!new Set(["未开票", "已开票"]).has(invoiceStatus)) throw new Error("开票状态无效");
-  await queryRows("SELECT snapshotNo FROM servicefeesnapshots WHERE snapshotNo=:snapshotNo FOR UPDATE", { snapshotNo });
+  if (!new Set(["未开票", "已开票", "无需开票"]).has(invoiceStatus)) throw new Error("开票状态无效");
+  const [existing] = await queryRows<Row>("SELECT snapshotNo, serviceFeeTotal FROM servicefeesnapshots WHERE snapshotNo=:snapshotNo FOR UPDATE", { snapshotNo });
+  if (!existing) throw new Error("服务费对账单不存在");
+  const notRequired = serviceFeeSettlementNotRequired(existing.serviceFeeTotal);
+  if (invoiceStatus === "无需开票" && !notRequired) throw new Error("仅当期含税服务费绝对值小于1时可设为无需开票，请刷新账单");
+  if (notRequired) invoiceStatus = "无需开票";
   if (invoiceStatus === "未开票" && (await serviceFeeInvoiceEntries([snapshotNo], connection)).length) throw new Error("该账期仍有有效发票，请先在发票管理中核对并作废对应发票");
   const rows = await queryRows<{ snapshotNo: string }>(
     "SELECT snapshotNo FROM servicefeesnapshots WHERE snapshotNo = :snapshotNo LIMIT 1",

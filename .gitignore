@@ -1,9 +1,14 @@
 .next/
 .next-prepayment-finance/
+.next-demand-identity*/
+.next-prospects*/
+.next-*/
 node_modules/
 .npm-cache/
 .codex/
 outputs/
+output/
+tmp/
 
 .env
 .env*.local
@@ -20,3 +25,8 @@ uploads/
 Thumbs.db
 # 数据库备份（本地/生产 dump），体积大且含真实业务数据，不入库
 backup/
+# 本地数据库诊断与回滚快照
+/cloud-schema-before-*.sql
+/cloud-rollback-*.sql
+/merge-local-backup-*.sql
+/tmp-prod-schema-*

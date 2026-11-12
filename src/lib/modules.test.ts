@@ -85,11 +85,13 @@ describe("module configuration", () => {
     expect(businessPartnerGroup?.items.map((item) => item.title)).toEqual([
       "供应商管理",
       "客户管理",
+      "潜在客户",
       "承接单位管理",
     ]);
     expect(businessPartnerGroup?.items.map((item) => item.key)).toEqual([
       "suppliers",
       "customers",
+      "prospects",
       "undertaking-units",
     ]);
     expect(["suppliers", "customers", "undertaking-units"].map((key) => getEntityConfig(key)?.navGroup)).toEqual([

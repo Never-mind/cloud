@@ -11,10 +11,9 @@ import { pathToFileURL } from "node:url";
  * 票面本身就是一张固定宽度的表格，交给浏览器打印最稳。
  *
  * 浏览器路径优先读环境变量 `INVOICE_PDF_BROWSER`，否则在常见路径里找一个；
- * 找不到就返回 null，调用方保留 HTML 版本（功能不中断）。
+ * 转换失败时明确报错，不能把 HTML 当成 PDF 保存或下载。
  */
 const BROWSER_CANDIDATES = [
-  process.env.INVOICE_PDF_BROWSER,
   "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
   "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
   "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
@@ -25,14 +24,19 @@ const BROWSER_CANDIDATES = [
   "/usr/bin/chromium-browser",
   "/usr/bin/microsoft-edge",
   "/snap/bin/chromium",
-].filter((value): value is string => Boolean(value));
-
-let cachedBrowser: string | null | undefined;
+];
 
 export function resolvePdfBrowser() {
-  if (cachedBrowser !== undefined) return cachedBrowser;
-  cachedBrowser = BROWSER_CANDIDATES.find((candidate) => existsSync(candidate)) ?? null;
-  return cachedBrowser;
+  const configured = process.env.INVOICE_PDF_BROWSER?.trim();
+  return [configured, ...BROWSER_CANDIDATES].find((candidate) => candidate && existsSync(candidate)) ?? null;
+}
+
+export class InvoicePdfError extends Error {
+  readonly status = 503;
+  constructor(message: string) {
+    super(message);
+    this.name = "InvoicePdfError";
+  }
 }
 
 /** A4 去掉四周 10mm 页边距后的可用尺寸（pt） */
@@ -71,9 +75,9 @@ function runBrowser(browser: string, args: string[]) {
   });
 }
 
-export async function renderInvoicePdf(html: string): Promise<Buffer | null> {
+export async function renderInvoicePdf(html: string): Promise<Buffer> {
   const browser = resolvePdfBrowser();
-  if (!browser) return null;
+  if (!browser) throw new InvoicePdfError("PDF 转换服务不可用：请安装 Chrome/Edge/Chromium 或配置 INVOICE_PDF_BROWSER 后重试");
   const { widthPt, heightPt } = tableSizePt(html);
   // 宽或高超出 A4 可用区域就按比例缩小，保证"一页放下"（与 Excel/WPS 的缩放打印一致）
   const fitWidth = widthPt > 0 ? A4_CONTENT_WIDTH_PT / widthPt : 1;
@@ -93,18 +97,29 @@ export async function renderInvoicePdf(html: string): Promise<Buffer | null> {
       "--disable-gpu",
       "--no-sandbox",
       "--no-first-run",
+      "--no-default-browser-check",
+      "--disable-extensions",
+      "--disable-dev-shm-usage",
+      // Isolate each print job from the user's browser and concurrent invoices.
+      `--user-data-dir=${join(dir, "browser-profile")}`,
       "--no-pdf-header-footer",
       "--print-to-pdf-no-header",
       `--print-to-pdf=${pdfPath}`,
       pathToFileURL(htmlPath).href,
     ]);
-    if (!existsSync(pdfPath)) return null;
+    if (!existsSync(pdfPath)) throw new Error("PDF_OUTPUT_MISSING");
     const bytes = readFileSync(pdfPath);
-    return bytes.length ? bytes : null;
-  } catch {
-    return null;
+    if (bytes.subarray(0, 5).toString("ascii") !== "%PDF-") throw new Error("PDF_OUTPUT_INVALID");
+    return bytes;
+  } catch (error) {
+    // Do not log the invoice HTML or customer data.
+    const reason = error instanceof Error ? (error as NodeJS.ErrnoException).code || error.name : "unknown";
+    console.error(`[invoice-pdf] conversion failed: ${reason}`);
+    throw new InvoicePdfError("PDF 转换失败，请检查服务器浏览器运行权限后重试；未使用 HTML 替代 PDF");
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    // dir is exclusively created by mkdtempSync above; never target a user browser profile.
+    try { rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 }); }
+    catch { console.warn("[invoice-pdf] temporary print directory cleanup deferred"); }
   }
 }
 

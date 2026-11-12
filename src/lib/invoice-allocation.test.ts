@@ -30,7 +30,57 @@ describe("invoice allocation", () => {
     expect(splitInvoiceAmount("100", [1, 1, 1])).toEqual(["33.34", "33.33", "33.33"]);
     expect(splitInvoiceAmount("0.01", [0, 0])).toEqual(["0.01", "0.00"]);
     expect(() => moneyCents("Infinity")).toThrow();
-    expect(() => moneyCents("-1")).toThrow();
+    expect(moneyCents("-1")).toBe(-100);
+    expect(moneyCents("-1.005")).toBe(-101);
+    expect(moneyCents("1.005")).toBe(101);
+    expect(() => moneyCents("90071992547409.92")).toThrow("超出范围");
+  });
+  it("apportions signed totals with exact cents while preserving deduction periods", () => {
+    expect(splitInvoiceAmount("-100", [-1, -1, -1])).toEqual(["-33.34", "-33.33", "-33.33"]);
+    expect(splitInvoiceAmount("69.90", [100, -30])).toEqual(["99.86", "-29.96"]);
+    expect(splitInvoiceAmount("-69.90", [-100, 30])).toEqual(["-99.86", "29.96"]);
+    expect(() => splitInvoiceAmount("1", [100, -100])).toThrow("相抵为零");
+    expect(() => splitInvoiceAmount("10", [-100, 30])).toThrow("正负方向");
+    for (const weights of [[8, -3, 2], [-8, 3, -2], [-1, -2, -3], [1, 1, 1]]) {
+      for (const amount of [0, 0.01, 10.01, 123.45]) {
+        const target = amount * Math.sign(weights.reduce((a,b)=>a+b,0));
+        const shares = splitInvoiceAmount(target.toFixed(2), weights);
+        expect(shares.reduce((sum, share)=>sum+moneyCents(share),0)).toBe(moneyCents(target.toFixed(2)));
+        shares.forEach((share,i)=>expect(moneyCents(share)*weights[i]).toBeGreaterThanOrEqual(0));
+      }
+    }
+  });
+  it.each([
+    ["100.00", "-30.00", "72.03"],
+    ["-100.00", "-30.00", "-133.77"],
+    ["100.00", "-100.00", "0.00"],
+  ])("keeps signed service-fee amounts, taxes and summary lines: %s / %s", (first, second, total) => {
+    const sources = [first,second].map((net,i)=>({...source(`20260${i+1}`, net),sourceType: "service_fee" as const,sourceTaxRate:"2.9",sourceTax:(Number(net)*0.029).toFixed(2),sourceTotal:(Number(net)*1.029).toFixed(2)}));
+    const plan = suggestInvoiceAllocations(sources, "USD");
+    const totals = allocationTotals(plan.allocations);
+    expect(totals.amountIncludingTax).toBe(total);
+    expect(validateInvoiceAllocationPlan(plan,totals)).toBeNull();
+    const redistributed = suggestInvoiceAllocations(sources, "USD", totals);
+    expect(redistributed.allocations.map(row=>row.amountExcludingTax)).toEqual([first,second]);
+    expect(validateInvoiceAllocationPlan(redistributed,totals)).toBeNull();
+    plan.lineMode="summary"; plan.summaryCompatible=true;
+    expect(allocationInvoiceLines(plan)[0].amount).toBe(total);
+  });
+  it("converts negative periods and derives tax as rounded gross less net", () => {
+    const plan=suggestInvoiceAllocations([{...source("202608","-263293.0648"),sourceType:"service_fee",sourceCurrency:"CNY",sourceTaxRate:"2.9",sourceTax:"-7635.4988",sourceTotal:"-270928.5636"},
+      {...source("202609","49710.9329"),sourceType:"service_fee",sourceTaxRate:"2.9",sourceTax:"1441.6171",sourceTotal:"51152.55",suggestedRate:"6.8"}],"CNY");
+    expect(plan.allocations[0].amountIncludingTax).toBe("-270928.56");
+    expect(plan.allocations[1].amountIncludingTax).toBe("347837.34");
+    expect(allocationTotals(plan.allocations).amountIncludingTax).toBe("76908.78");
+    expect(validateInvoiceAllocationPlan(plan)).toBeNull();
+  });
+  it("matches recognized negative monthly lines without losing their signs", () => {
+    const sources=[source("202601","100"),source("202602","-30")].map(row=>({...row,sourceType:"service_fee" as const}));
+    const plan=suggestInvoiceAllocations(sources,"USD");
+    const totals={amountExcludingTax:"70",taxAmount:"0",amountIncludingTax:"70",taxRate:"0"};
+    const matched=applyRecognizedPeriodAmounts(plan,[{periodLabel:"202601",description:"服务费",amount:"100"},{periodLabel:"202602",description:"服务费",amount:"-30"}],totals);
+    expect(matched?.allocations.map(row=>row.amountIncludingTax)).toEqual(["100.00","-30.00"]);
+    expect(validateInvoiceAllocationPlan(suggestInvoiceAllocations([source("202601","-100")],"USD"))).toContain("暂不支持");
   });
   it("requires explicit FX and preserves original USD receivables", () => {
     const missing = suggestInvoiceAllocations([source("202601")], "CNY");

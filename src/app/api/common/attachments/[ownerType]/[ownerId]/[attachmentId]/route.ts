@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedUserEmail } from "@/lib/auth";
-import { executeRaw, queryRowsRaw } from "@/lib/db";
+import { executeRaw, queryRowsRaw, executeInTransaction } from "@/lib/db";
+import { withEditableProspectAttachment } from "@/lib/prospect-service";
 import { getPermissionStateForEmail } from "@/lib/permission-service";
 import { hasPermission } from "@/lib/permission-definitions";
 import { deleteFileObject, readFile } from "@/lib/file-storage-service";
 
 const OWNER_MODULES: Record<string, string> = {
+  prospects: "prospects",
   suppliers: "suppliers",
   customers: "customers",
   "undertaking-units": "undertaking-units",
@@ -55,6 +57,16 @@ export async function DELETE(request: NextRequest, context: { params: Promise<{ 
   try {
     const { ownerType, ownerId, attachmentId } = await context.params;
     await getAccess(request, ownerType, "delete");
+    if (ownerType === "prospects") {
+      await withEditableProspectAttachment(ownerId, async connection => {
+        const attachment = await findAttachment(ownerType, ownerId, attachmentId);
+        if (attachment) await deleteFileObject(attachment);
+        await executeInTransaction(connection,
+          "DELETE FROM merge_common_attachments WHERE attachmentId=:attachmentId AND ownerType=:ownerType AND ownerId=:ownerId",
+          { attachmentId, ownerType, ownerId });
+      });
+      return NextResponse.json({ ok: true });
+    }
     const attachment = await findAttachment(ownerType, ownerId, attachmentId);
     if (attachment) await deleteFileObject(attachment);
     await executeRaw(

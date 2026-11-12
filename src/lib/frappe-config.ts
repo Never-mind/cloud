@@ -47,6 +47,10 @@ export type FrappeEndpoint = {
   token: string;
 };
 
+export function resolveFrappeBaseUrl() {
+  return (firstConfigured(BASE_URL_ENV_KEYS) || DEFAULT_FRAPPE_BASE_URL).replace(/\/+$/, "");
+}
+
 /**
  * 远端地址与 API 密钥的唯一解析入口。
  *
@@ -59,7 +63,7 @@ export function resolveFrappeEndpoint(serviceLabel: string): FrappeEndpoint {
       `未配置 Frappe API 密钥（${TOKEN_ENV_KEYS[0]}，兼容旧名 ${TOKEN_ENV_KEYS[1]}），无法读取远端${serviceLabel}`,
     );
   }
-  const baseUrl = (firstConfigured(BASE_URL_ENV_KEYS) || DEFAULT_FRAPPE_BASE_URL).replace(/\/+$/, "");
+  const baseUrl = resolveFrappeBaseUrl();
   return { baseUrl, token };
 }
 

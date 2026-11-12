@@ -27,7 +27,8 @@ export async function loadAllocationSources(sourceType: AllocationSourceType, id
     return { sourceType, sourceId: text(cloud ? row.id : row.snapshotNo), sourceNo: cloud ? `${period} · ${text(row.account)}` : text(row.snapshotNo), period,
       customerId: text(row.businessCustomerId), customerName: text(row.customerLabel), undertakingUnitId: text(cloud ? row.undertakingUnitId : row.defaultUndertakingUnitId), account: text(cloud ? row.account : row.countryCode),
       sourceCurrency: cloud ? "USD" : text(row.serviceFeeCurrency).toUpperCase() || "USD", sourceNet: money(net), sourceTax: money(Number(total)-Number(net)), sourceTotal: money(total), sourceTaxRate: percent(cloud ? row.customerTaxRate : row.vatRate),
-      disabledReason: Number(total) <= 0 ? "账单应收金额不大于零" : "" };
+      disabledReason: !Number.isFinite(Number(total)) || !Number.isFinite(Number(net)) ? "账单应收金额无效"
+        : cloud && Number(total) <= 0 ? "账单应收金额不大于零" : "" };
   }).sort((a,b) => a.period.localeCompare(b.period) || a.sourceId.localeCompare(b.sourceId));
 }
 
@@ -115,15 +116,23 @@ export async function writeInvoiceAllocations(connection:PoolConnection,invoiceI
 }
 
 /** A finance-readable attachment preserves years, requested line layout and allocation amounts. */
-export async function invoiceAllocationAttachment(plan:InvoiceAllocationPlan) {
+export async function invoiceAllocationAttachment(plan:InvoiceAllocationPlan, invoiceLines?: Array<{description:string;amount:string;cfdiCode:string}>) {
   const ExcelJS=(await import("exceljs")).default;
   const workbook=new ExcelJS.Workbook(); const sheet=workbook.addWorksheet("合并开票说明");
-  sheet.addRow(["票面展示",plan.lineMode==="summary"?"合并为一行":"按账期分行"]);
-  sheet.addRow(["票面描述",plan.description]); sheet.addRow(["开票币种",plan.currency]);
+  sheet.addRow(["票面展示",invoiceLines ? `自定义 ${invoiceLines.length} 行（见开票明细页）` : plan.lineMode==="summary"?"合并为一行":"按账期分行"]);
+  sheet.addRow([invoiceLines ? "账期说明" : "票面描述",plan.description]); sheet.addRow(["开票币种",plan.currency]);
   sheet.addRow(["账期","账单/账号","账单币种","账单含税","汇率（原币→开票币）","开票未税","税率%","税金","开票含税"]);
   for(const row of plan.allocations) sheet.addRow([row.period,row.sourceNo,row.sourceCurrency,Number(row.sourceTotal),Number(row.exchangeRate),Number(row.amountExcludingTax),Number(row.taxRate),Number(row.taxAmount),Number(row.amountIncludingTax)]);
   const totals=allocationTotals(plan.allocations); sheet.addRow(["合计","","","","",Number(totals.amountExcludingTax),"",Number(totals.taxAmount),Number(totals.amountIncludingTax)]);
   sheet.columns.forEach(column=>{column.width=24;}); sheet.getColumn(2).width=48;
   sheet.getRow(4).font={bold:true};
+  if (invoiceLines) {
+    const details = workbook.addWorksheet("开票明细");
+    details.addRow(["序号", "开票内容", "含税金额", "币种", "CFDI 用途码"]);
+    invoiceLines.forEach((line,index) => details.addRow([index+1,line.description,Number(line.amount),plan.currency,line.cfdiCode]));
+    details.addRow(["合计","",Number(totals.amountIncludingTax),plan.currency]);
+    details.getRow(1).font={bold:true};
+    details.columns.forEach(column=>{column.width=24;}); details.getColumn(2).width=60;
+  }
   return {fileName:"合并开票说明.xlsx",bytes:Buffer.from(await workbook.xlsx.writeBuffer())};
 }

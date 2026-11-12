@@ -40,7 +40,7 @@ export function updateInvoiceReviewAmounts<T extends InvoiceReviewAmounts>(input
   return next;
 }
 
-export function validateInvoiceReview(input: InvoiceReviewAmounts & { invoiceNo?: unknown; invoiceDate?: unknown; currency?: unknown }, requireDetails = true) {
+export function validateInvoiceReview(input: InvoiceReviewAmounts & { invoiceNo?: unknown; invoiceDate?: unknown; currency?: unknown }, requireDetails = true, options: { allowNegative?: boolean } = {}) {
   if (requireDetails && !String(input.invoiceNo ?? "").trim()) return "请填写真实发票号码";
   const date = String(input.invoiceDate ?? "");
   if (requireDetails && (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(Date.parse(`${date}T00:00:00Z`)) || new Date(`${date}T00:00:00Z`).toISOString().slice(0, 10) !== date)) return "请填写有效开票日期";
@@ -50,5 +50,5 @@ export function validateInvoiceReview(input: InvoiceReviewAmounts & { invoiceNo?
   }
   const values = completeInvoiceReviewAmounts(input);
   if (requireDetails && (!values.amountExcludingTax || !values.taxAmount || !values.amountIncludingTax)) return "请补齐未税金额、税金和含税金额";
-  return validateInvoiceTaxAmounts({ netAmount: invoiceReviewNumber(values.amountExcludingTax), taxRate: invoiceReviewNumber(values.taxRate), taxAmount: invoiceReviewNumber(values.taxAmount), grossAmount: invoiceReviewNumber(values.amountIncludingTax) });
+  return validateInvoiceTaxAmounts({ netAmount: invoiceReviewNumber(values.amountExcludingTax), taxRate: invoiceReviewNumber(values.taxRate), taxAmount: invoiceReviewNumber(values.taxAmount), grossAmount: invoiceReviewNumber(values.amountIncludingTax) }, options);
 }

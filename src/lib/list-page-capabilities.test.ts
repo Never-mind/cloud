@@ -25,6 +25,7 @@ function isListPage(fileName: string, source: string) {
  * 往这里加条目等于"决定这个页面不做导出"，需要写清原因。
  */
 const EXPORT_EXEMPT: Record<string, string> = {
+  "prospects-page.tsx": "潜在客户主从页面通过专用接口维护跟进与转化，本次功能范围未包含导出，需单独实现",
   "billing-adjustments-page.tsx": "数据走专用接口 /api/billing/adjustments，导出需单独实现",
   "billing-available-page.tsx": "数据走专用接口 /api/billing/available，导出需单独实现",
   "prepayment-available-page.tsx": "数据走专用接口 /api/prepayments/available，导出需单独实现",

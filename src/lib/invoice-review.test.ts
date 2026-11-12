@@ -5,6 +5,13 @@ import { buildSupplierPaymentInvoicePatch } from "./supplier-payment-invoice-rec
 
 const original = { amountExcludingTax: "100", taxRate: "13", taxAmount: "12.99", amountIncludingTax: "112.99" };
 describe("invoice review", () => {
+  it("permits signed service-fee reviews only when explicitly enabled", () => {
+    const amounts={amountExcludingTax:"-100",taxRate:"2.9",taxAmount:"-2.9",amountIncludingTax:"-102.9"};
+    expect(validateInvoiceReview(amounts,false)).toContain("不能小于");
+    expect(validateInvoiceReview(amounts,false,{allowNegative:true})).toBe("");
+    expect(validateInvoiceReview({...amounts,amountIncludingTax:"-110"},false,{allowNegative:true})).toContain("不一致");
+    expect(updateInvoiceReviewAmounts(amounts,"amountExcludingTax","-150")).toMatchObject({taxAmount:"-4.35",amountIncludingTax:"-154.35"});
+  });
   it("preserves supplied tax instead of forcing rate multiplication", () => {
     expect(completeInvoiceReviewAmounts(original)).toEqual(original);
     expect(validateInvoiceReview({ ...original, invoiceNo: "TEST", invoiceDate: "2026-10-23", currency: "CNY" })).toBe("");

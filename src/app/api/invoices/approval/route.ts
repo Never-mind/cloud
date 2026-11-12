@@ -8,6 +8,7 @@ import { getPermissionStateForEmail } from "@/lib/permission-service";
 import { submitVatInvoiceApproval } from "@/lib/vat-invoice-approval-service";
 import type { VatDraft } from "@/lib/vat-invoice-approval";
 import type {InvoiceAllocationPlan} from "@/lib/invoice-allocation";
+import { parseMexicoInvoiceLines } from "@/lib/invoice-approval-lines";
 import { parseInvoiceAttachmentSelection, type InvoiceAttachmentSelection } from "@/lib/invoice-approval-attachments";
 
 /**
@@ -72,6 +73,7 @@ export async function POST(request: NextRequest) {
       paymentReceivedTime: text(body.paymentReceivedTime),
       paymentTermDays: body.paymentTermDays === undefined ? undefined : text(body.paymentTermDays),
       invoiceContent: text(body.invoiceContent) || undefined,
+      invoiceLines: body.invoiceLines === undefined ? undefined : parseMexicoInvoiceLines(body.invoiceLines),
       paymentMethodKey: text(body.paymentMethodKey) || undefined,
       cfdiCodeKey: text(body.cfdiCodeKey) || undefined,
       customerOverride: body.customerOverride && typeof body.customerOverride === "object"

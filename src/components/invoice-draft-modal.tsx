@@ -270,7 +270,7 @@ export function InvoiceDraftModal({
     if (mode === "external") {
       if (termsError) { notify(termsError, "error"); return; }
       if (!draft.customerId || !draft.undertakingUnitId) { notify("请选择客户抬头和开票主体", "error"); return; }
-      const error = validateInvoiceReview(draft);
+      const error = validateInvoiceReview(draft, true, { allowNegative: sourceType === "service_fee" });
       if (error) { notify(error, "error"); return; }
       const datesError = validateInvoicePaymentDates(draft);
       if (datesError) { notify(datesError, "error"); return; }
@@ -310,7 +310,7 @@ export function InvoiceDraftModal({
       saving.current = false;
       setBusy(false);
     }
-  }, [allocationIds, allocationPlan, draft, file, mode, onClose, onSaved, recognizing, recognition, loadingTerms, termsError, appendInvoices, manualRegistration]);
+  }, [allocationIds, allocationPlan, draft, file, mode, onClose, onSaved, recognizing, recognition, loadingTerms, termsError, appendInvoices, manualRegistration, sourceType]);
 
   if (!open) return null;
 

@@ -17,6 +17,21 @@ beforeEach(() => {
   mocks.cloudSubmit.mockResolvedValue({ instanceCode: "mock" });
 });
 describe("VAT API derives the starter on the server", () => {
+  it("normalizes confirmed MXN values and preserves per-account linkage at the API boundary",async()=>{
+    const invoiceLines=[{amountIncludingTax:"11,516.54000001",invoiceContent:"Service 1",cfdiCodeKey:"G03-key",allocationSourceId:"account-1"},{amountIncludingTax:"92376.1300000",invoiceContent:"Service 2",cfdiCodeKey:"G03-key",allocationSourceId:"account-2"}];
+    const response=await POST(new NextRequest("http://localhost/api/invoices/approval",{method:"POST",body:JSON.stringify({sourceType:"cloud_row",sourceId:"account-1",amountIncludingTax:103892.67,invoiceLines})}));
+    expect(response.status).toBe(200);
+    expect(mocks.cloudSubmit.mock.calls[0][0].invoiceLines.map((row:{amountIncludingTax:string;allocationSourceId:string})=>[row.amountIncludingTax,row.allocationSourceId])).toEqual([["11516.54","account-1"],["92376.13","account-2"]]);
+  });
+  it("passes each validated Cloud invoice row to the submission service", async () => {
+    const invoiceLines = ["9290.82","100002.00"].map(amountIncludingTax => ({amountIncludingTax,invoiceContent:"Service",cfdiCodeKey:"G03-key"}));
+    const response = await POST(new NextRequest("http://localhost/api/invoices/approval",{method:"POST",body:JSON.stringify({sourceType:"service_fee",sourceId:"source",amountIncludingTax:"109292.82",invoiceLines})}));
+    expect(response.status).toBe(200); expect(mocks.cloudSubmit.mock.calls[0][0].invoiceLines).toEqual(invoiceLines);
+  });
+  it.each([[], "bad", [{amountIncludingTax:"bad"}]])("rejects malformed Cloud details before the submission service", async invoiceLines => {
+    const response = await POST(new NextRequest("http://localhost/api/invoices/approval",{method:"POST",body:JSON.stringify({sourceType:"service_fee",sourceId:"source",invoiceLines})}));
+    expect(response.status).toBe(400); expect(mocks.cloudSubmit).not.toHaveBeenCalled();
+  });
   it("passes reviewed Cloud payment terms and explicit blank overrides without restoring archive values", async () => {
     const response = await POST(new NextRequest("http://localhost/api/invoices/approval", { method: "POST", body: JSON.stringify({ sourceType: "cloud_row", sourceId: "source", paymentTermDays: "45", customerOverride: { name: "Confirmed", address: "", taxId: "" } }) }));
     expect(response.status).toBe(200);

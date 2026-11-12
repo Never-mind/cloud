@@ -3,6 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "data:service-fee-finance-status": "tsx scripts/backfill-service-fee-finance-status.ts",
+    "schema:prospects": "tsx scripts/migrate-prospects.ts",
     "dev": "next build && next start",
     "dev:hot": "next dev --webpack",
     "build": "next build",

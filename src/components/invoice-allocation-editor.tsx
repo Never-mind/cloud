@@ -5,11 +5,15 @@ import {Modal} from "./modal";
 import {notify} from "./app-dialog";
 import {updateInvoiceReviewAmounts} from "@/lib/invoice-review";
 import {allocationTotals,servicePeriodLabel,suggestInvoiceAllocations,validateInvoiceAllocationPlan,applyRecognizedPeriodAmounts,moneyCents,type InvoiceAllocationPlan,type InvoiceAllocationSource,type AllocationTotals} from "@/lib/invoice-allocation";
+import { allocationWithConfirmedGross, invoiceAmountExchangeRate } from "@/lib/invoice-approval-allocation-amounts";
+import { normalizeInvoiceMoneyInput } from "@/lib/invoice-money-input";
 
-export function InvoiceAllocationEditor({sourceType,sourceId,currency,totals,value,onChange,onTotalsChange,disabled=false,invoiceId,lockSources=false,autoOpen=false,recognizedLines=[]}: {
+export function InvoiceAllocationEditor({sourceType,sourceId,currency,totals,value,onChange,onTotalsChange,disabled=false,invoiceId,lockSources=false,autoOpen=false,recognizedLines=[],showLineLayout=true,manualInvoiceAmounts=false}: {
   sourceType:string;sourceId:string;currency:string;totals:AllocationTotals;value:InvoiceAllocationPlan|null;
   onChange:(plan:InvoiceAllocationPlan)=>void;onTotalsChange?:(totals:AllocationTotals)=>void;disabled?:boolean;invoiceId?:string;lockSources?:boolean;
   autoOpen?:boolean;recognizedLines?:Array<{periodLabel:string;description:string;amount:string}>;
+  showLineLayout?:boolean;
+  manualInvoiceAmounts?:boolean;
 }) {
   const [open,setOpen]=useState(false),[loading,setLoading]=useState(false),[error,setError]=useState("");
   const [rows,setRows]=useState<InvoiceAllocationSource[]>([]),[selected,setSelected]=useState<string[]>([]);
@@ -60,23 +64,55 @@ export function InvoiceAllocationEditor({sourceType,sourceId,currency,totals,val
       if(!useInvoice&&onTotalsChange&&plan.allocations.every(row=>row.amountIncludingTax!==""))onTotalsChange(allocationTotals(plan.allocations));
     }catch(error){notify(error instanceof Error?error.message:"分摊失败","error");}finally{setLoading(false);}
   }
-  function edit(index:number,key:string,next:string) {
+  function edit(index:number,key:string,next:string,commit=false) {
     if(!value)return;
-    const allocations=value.allocations.map((row,i)=>i!==index?row:key==="exchangeRate"?{...row,exchangeRate:next}:updateInvoiceReviewAmounts(row,key as "amountExcludingTax"|"taxRate"|"taxAmount"|"amountIncludingTax",next));
+    const allocations=value.allocations.map((row,i)=>{
+      if(i!==index)return row;
+      if(key==="exchangeRate")return {...row,exchangeRate:next};
+      if(manualInvoiceAmounts&&key==="amountIncludingTax"){
+        try{return {...allocationWithConfirmedGross(row,value.currency,next),amountIncludingTax:commit?normalizeInvoiceMoneyInput(next):next,...(!commit?{exchangeRate:row.exchangeRate}:{})};}
+        catch{return {...row,amountIncludingTax:next};}
+      }
+      return updateInvoiceReviewAmounts(row,key as "amountExcludingTax"|"taxRate"|"taxAmount"|"amountIncludingTax",next);
+    });
     onChange({...value,allocations});
+    if(manualInvoiceAmounts&&key!=="exchangeRate"){
+      try{onTotalsChange?.(allocationTotals(allocations.map(row=>({...row,amountIncludingTax:normalizeInvoiceMoneyInput(row.amountIncludingTax)}))));}catch{/* Incomplete inputs stay editable. */}
+    }
+  }
+  function inferRates(){
+    if(!value)return;
+    try{onChange({...value,allocations:value.allocations.map(row=>({...row,exchangeRate:invoiceAmountExchangeRate(row,value.currency)}))});}
+    catch(error){notify(error instanceof Error?error.message:"无法反算汇率","error");}
+  }
+  function useAllocationTotals(){
+    if(!value||!onTotalsChange)return;
+    try{
+      if(value.currency!==currency)throw new Error("请先按开票币种核对账期分摊");
+      const error=validateInvoiceAllocationPlan(value);
+      if(error)throw new Error(error);
+      onTotalsChange(allocationTotals(value.allocations));
+      notify("已使用账期合计，保留各账号开票金额和税金", "success");
+    }catch(error){notify(error instanceof Error?error.message:"请核对账期金额","error");}
   }
   let sums:AllocationTotals|null=null;try{if(value)sums=allocationTotals(value.allocations);}catch{/* Incomplete values remain editable. */}
+  let differences:string[]=[];
+  if(sums){try{for(const [key,label] of [["amountExcludingTax","未税"],["taxAmount","税金"],["amountIncludingTax","含税"]] as const){if(moneyCents(sums[key])!==moneyCents(totals[key]))differences.push(`${label}：账期合计 ${String(sums[key])}，整单 ${String(totals[key])}`);}}catch{/* Missing amounts are reported by the validator. */}}
   return <section className="space-y-3 rounded border border-line-soft p-4" aria-label="关联账期及开票分摊">
     <div className="flex flex-wrap items-center justify-between gap-2"><div><b className="text-sm">关联账期及开票分摊</b><p className="mt-1 text-xs text-ink-3">{value?`已选 ${new Set(value.allocations.map(row=>row.period)).size} 个账期 / ${value.allocations.length} 条账单` : "当前账单，可选择多个账期共用一张发票"}</p></div>
       {!lockSources?<Button disabled={disabled||loading} onClick={()=>void choose()} size="sm">选择／调整账期</Button>:<span className="text-xs text-ink-3">关联账期按审批申请保留</span>}
     </div>
     {value?<fieldset disabled={disabled||loading} className="space-y-3">
-      <div className="flex flex-wrap items-center gap-3 text-sm"><span>票面明细</span><select aria-label="票面明细展示方式" className="rounded border border-line px-2 py-1" value={value.lineMode} onChange={event=>onChange({...value,lineMode:event.target.value as "period"|"summary"})}><option value="period">按账期分行</option><option value="summary">合并为一行</option></select><span className="text-xs text-ink-3">{servicePeriodLabel(value.allocations.map(row=>row.period))} · 开票币种 {value.currency}</span></div>
-      {value.lineMode==="summary"?<div className="space-y-2"><label className="block text-sm">票面服务描述<Input className="mt-1 w-full" maxLength={500} value={value.description} onChange={event=>onChange({...value,description:event.target.value})}/></label><label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={Boolean(value.summaryCompatible)} onChange={e=>onChange({...value,summaryCompatible:e.target.checked})}/>已确认服务内容及税收分类适合合并为一行；不同税率应分行。</label></div>:null}
+      {showLineLayout?<div className="flex flex-wrap items-center gap-3 text-sm"><span>票面明细</span><select aria-label="票面明细展示方式" className="rounded border border-line px-2 py-1" value={value.lineMode} onChange={event=>onChange({...value,lineMode:event.target.value as "period"|"summary"})}><option value="period">按账期分行</option><option value="summary">合并为一行</option></select><span className="text-xs text-ink-3">{servicePeriodLabel(value.allocations.map(row=>row.period))} · 开票币种 {value.currency}</span></div>:<p className="text-xs text-ink-3">各账期金额在此分摊，飞书开票明细可在下方“发票信息”中增删、编辑。</p>}
+      {showLineLayout&&value.lineMode==="summary"?<div className="space-y-2"><label className="block text-sm">票面服务描述<Input className="mt-1 w-full" maxLength={500} value={value.description} onChange={event=>onChange({...value,description:event.target.value})}/></label><label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={Boolean(value.summaryCompatible)} onChange={e=>onChange({...value,summaryCompatible:e.target.checked})}/>已确认服务内容及税收分类适合合并为一行；不同税率应分行。</label></div>:null}
       <div className="flex flex-wrap gap-2"><Button size="sm" onClick={()=>void recalculate(true)}>按当前票面总额分摊</Button>{onTotalsChange?<Button size="sm" onClick={()=>void recalculate(false)}>按账单及汇率填入金额</Button>:null}</div>
+      {onTotalsChange?<Button type="button" size="sm" disabled={value.currency!==currency||!sums} onClick={useAllocationTotals}>使用账期合计</Button>:null}
+      {manualInvoiceAmounts?<div className="flex flex-wrap items-center gap-2"><Button type="button" size="sm" onClick={inferRates}>按金额反算汇率</Button><p className="text-xs text-ink-3">以本期开票含税金额为准，填写后自动汇总；汇率仅作参考，留空时按金额反算。汇兑尾差不会改写开票金额。</p></div>:null}
+      {sourceType==="service_fee"&&value.allocations.some(row=>Number(row.sourceTotal)<0)?<p className="text-xs text-ink-3">包含负数账期，按正负金额抵扣合计；各账期保留独立分摊，汇率仍需大于零。</p>:null}
       {recognizedLines.length?<Button size="sm" onClick={()=>{const matched=applyRecognizedPeriodAmounts(value,recognizedLines,totals);if(matched)onChange(matched);else notify("票面逐月金额与所选账期或合计无法完整匹配，请核对后分摊","info");}}>按识别的逐月金额匹配</Button>:null}
-      <div className="overflow-x-auto"><table className="w-full whitespace-nowrap text-xs"><thead><tr>{["账期／账单","账单原币含税","汇率：1 原币 → 开票币","本期开票未税","税率 %","税金","本期开票含税"].map(label=><th key={label} className="border-b px-2 py-2 text-left">{label}</th>)}</tr></thead><tbody>{value.allocations.map((row,index)=><tr key={row.sourceId}><td className="border-b px-2 py-2">{row.period}<div className="text-ink-3">{row.account||row.sourceNo}</div></td><td className="border-b px-2 py-2">{row.sourceCurrency} {row.sourceTotal}</td>{(["exchangeRate","amountExcludingTax","taxRate","taxAmount","amountIncludingTax"] as const).map(key=><td key={key} className="border-b px-1 py-2"><Input aria-label={`${row.period} ${row.account||row.sourceId} ${key}`} className={key==="taxRate"?"w-20":"w-28"} type="number" min="0" step="any" disabled={key==="exchangeRate"&&row.sourceCurrency===value.currency} value={row[key]} onChange={event=>edit(index,key,event.target.value)}/></td>)}</tr>)}</tbody></table></div>
+      <div className="overflow-x-auto"><table className="w-full whitespace-nowrap text-xs"><thead><tr>{["账期／账单","账单原币含税","汇率：1 原币 → 开票币","本期开票未税","税率 %","税金","本期开票含税"].map(label=><th key={label} className="border-b px-2 py-2 text-left">{label}</th>)}</tr></thead><tbody>{value.allocations.map((row,index)=><tr key={row.sourceId}><td className="border-b px-2 py-2">{row.period}<div className="text-ink-3">{row.account||row.sourceNo}</div></td><td className="border-b px-2 py-2">{row.sourceCurrency} {row.sourceTotal}</td>{(["exchangeRate","amountExcludingTax","taxRate","taxAmount","amountIncludingTax"] as const).map(key=><td key={key} className="border-b px-1 py-2"><Input aria-label={`${row.period} ${row.account||row.sourceId} ${key}`} className={key==="taxRate"?"w-20":"w-28"} type="number" min={sourceType==="service_fee"&&key!=="exchangeRate"&&key!=="taxRate"?undefined:0} step="any" disabled={key==="exchangeRate"&&row.sourceCurrency===value.currency} value={row[key]} onChange={event=>edit(index,key,event.target.value)} onBlur={manualInvoiceAmounts&&key==="amountIncludingTax"?()=>edit(index,key,row[key],true):undefined}/></td>)}</tr>)}</tbody></table></div>
       {sums?<p className="text-xs">分摊合计：未税 {String(sums.amountExcludingTax)}，税金 {String(sums.taxAmount)}，含税 {String(sums.amountIncludingTax)} {value.currency}</p>:null}
+      {differences.length?<p className="text-xs text-warning-ink">{differences.join("；")}。{onTotalsChange?"各账号金额已确认时，点击“使用账期合计”同步整单。":"请核对整单与各账期金额。"}</p>:null}
       {value.currency!==currency?<p role="alert" className="text-sm text-danger">开票币种已变化，请重新按当前币种核对汇率并分摊。</p>:invalid?<p role="alert" className="text-sm text-warning-ink">{invalid}</p>:<p className="text-xs text-success">分摊合计与票面一致，各账期仅回填本期金额。</p>}
     </fieldset>:null}
     {open?<Modal title="选择关联账期" widthClass="max-w-5xl" onClose={()=>setOpen(false)} footer={<><span className="mr-auto text-xs">已选 {selected.length} 条账单</span><Button onClick={()=>setOpen(false)}>取消</Button><Button disabled={loading||!selected.length} tone="primary" onClick={apply}>确认关联账期</Button></>}>

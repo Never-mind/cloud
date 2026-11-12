@@ -2,7 +2,8 @@ import { randomUUID } from "node:crypto";
 import { executeRaw, queryRowsRaw, type Row } from "./db";
 import { executeRaw as executeOutsideTransaction, queryRowsRaw as queryOutsideTransaction, executeInTransaction, queryRowsInTransaction } from "./db";
 import type { PoolConnection } from "mysql2/promise";
-import { deleteFileObject, readFile, storeFile } from "./file-storage-service";
+import { deleteFileObject, storeFile } from "./file-storage-service";
+import { readInvoiceAttachmentFile } from "./invoice-attachment-download";
 import type { OperationActor } from "./operation-actor";
 
 /**
@@ -133,14 +134,15 @@ export async function readStatementAttachment(snapshotNo: string, attachmentId: 
     { attachmentId, snapshotNo },
   ))[0];
   if (!row) return null;
-  const file = await readFile({
+  const file = await readInvoiceAttachmentFile({
+    fileName: row.fileName,
     dataUrl: row.dataUrl,
     storageProvider: row.storageProvider,
     storageKey: row.storageKey,
     fileType: row.fileType,
   });
   if (!file) return null;
-  return { bytes: file.bytes, contentType: file.contentType, fileName: text(row.fileName) || "attachment" };
+  return file;
 }
 
 export async function deleteStatementAttachment(snapshotNo: string, attachmentId: string) {

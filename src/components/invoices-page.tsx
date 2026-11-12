@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Download, ExternalLink, Eye, FileCode2, FileUp, Plus, RefreshCw, Search, Trash2, XCircle } from "lucide-react";
+import { Download, ExternalLink, Eye, FileUp, Plus, RefreshCw, Search, Trash2, XCircle } from "lucide-react";
 import { Button, IconButton, IconLink, Input, Panel, Select } from "./ui";
 import { Modal } from "./modal";
 import { PaginationBar } from "./pagination-bar";
@@ -48,6 +48,42 @@ export function InvoicesPage() {
   const [modal, setModal] = useState<InvoiceDraftMode | null>(null);
   const [approvalsOpen, setApprovalsOpen] = useState(false);
   const [batchImportOpen, setBatchImportOpen] = useState(false);
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+
+  const downloadInvoice = useCallback(async (row: InvoiceRow) => {
+    const id = text(row.id);
+    setDownloadingId(id);
+    try {
+      const response = await fetch(`/api/invoices/${encodeURIComponent(id)}/file`, { cache: "no-store" });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || "发票下载失败，请重试");
+      }
+      const blob = await response.blob();
+      if (text(row.source) === "generated" && (await blob.slice(0, 5).text()) !== "%PDF-") {
+        throw new Error("服务器未返回有效PDF，请重试或联系管理员");
+      }
+      const disposition = response.headers.get("content-disposition") || "";
+      const encodedName = /filename\*=UTF-8''([^;]+)/i.exec(disposition)?.[1]
+        || /filename="([^"]+)"/i.exec(disposition)?.[1];
+      const fallback = text(row.source) === "generated" ? `${text(row.invoiceNo) || "invoice"}.pdf` : text(row.fileName) || "invoice";
+      let fileName = fallback;
+      try { if (encodedName) fileName = decodeURIComponent(encodedName); } catch { /* Use the known invoice name. */ }
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = fileName;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      notify(`已下载 ${fileName}`, "success");
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "发票下载失败", "error");
+    } finally {
+      setDownloadingId(null);
+    }
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -201,9 +237,8 @@ export function InvoicesPage() {
                     <td className="whitespace-nowrap border-b border-line-soft px-3 py-2">
                       <div className="flex items-center gap-1">
                         <IconButton icon={<Eye size={15} />} label="查看" onClick={() => void openDetail(text(row.id))} />
-                        <IconLink href={`/api/invoices/${encodeURIComponent(text(row.id))}/file?inline=1`} label="在新标签打开票面 PDF" rel="noreferrer" target="_blank"><ExternalLink size={15} /></IconLink>
-                        <IconLink href={`/api/invoices/${encodeURIComponent(text(row.id))}/file?format=html`} label="下载 HTML 版票面" rel="noreferrer"><FileCode2 size={15} /></IconLink>
-                        <IconLink download={text(row.fileName) || undefined} href={`/api/invoices/${encodeURIComponent(text(row.id))}/file`} label="下载票面 PDF" onClick={() => notify(`正在下载 ${text(row.fileName) || "票面"}…`, "info")}><Download size={15} /></IconLink>
+                        <IconLink href={`/api/invoices/${encodeURIComponent(text(row.id))}/file?inline=1`} label={text(row.source) === "generated" ? "在新标签打开票面 PDF" : "在新标签打开原文件"} rel="noreferrer" target="_blank"><ExternalLink size={15} /></IconLink>
+                        <IconButton icon={<Download size={15} />} disabled={downloadingId !== null} label={downloadingId === text(row.id) ? "正在准备文件…" : text(row.source) === "generated" ? "下载票面 PDF" : "下载原文件"} onClick={() => void downloadInvoice(row)} />
                         {text(row.source) === "generated" && text(row.status) !== "void" ? (
                           <IconButton icon={<RefreshCw size={15} />} label="重新生成票面" onClick={() => void regenerate(row)} />
                         ) : null}
@@ -241,14 +276,10 @@ export function InvoicesPage() {
           description={`${SOURCE_LABELS[text(detail.source)] ?? ""} · ${STATUS_LABELS[text(detail.status)] ?? ""}`}
           footer={<><Button onClick={() => setDetail(null)}>关闭</Button>
             <a className="inline-flex h-9 items-center rounded border border-line px-3 text-sm text-ink-2 hover:border-primary hover:text-primary" href={`/api/invoices/${encodeURIComponent(text(detail.id))}/file?inline=1`} rel="noreferrer" target="_blank">打开</a>
-            <a
-              className="inline-flex h-9 items-center rounded border border-line px-3 text-sm text-ink-2 hover:border-primary hover:text-primary"
-              download={text(detail.fileName) || undefined}
-              href={`/api/invoices/${encodeURIComponent(text(detail.id))}/file`}
-              onClick={() => notify(`正在下载 ${text(detail.fileName) || "票面"}…`, "info")}
-            >
-              下载文件
-            </a></>}
+            {text(detail.source) === "generated" ? <a className="text-sm text-ink-3" href={`/api/invoices/${encodeURIComponent(text(detail.id))}/file?format=html`}>下载HTML（打印用）</a> : null}
+            <Button disabled={downloadingId !== null} onClick={() => void downloadInvoice(detail)}>
+              {downloadingId === text(detail.id) ? "正在准备文件…" : text(detail.source) === "generated" ? "下载PDF" : "下载原文件"}
+            </Button></>}
           onClose={() => setDetail(null)}
           title={`发票 ${text(detail.invoiceNo)}`}
           widthClass="max-w-4xl"

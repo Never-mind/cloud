@@ -3,15 +3,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({ query: vi.fn(), transactionQuery: vi.fn(), execute: vi.fn(), prefill: vi.fn(), read: vi.fn() }));
 vi.mock("./db", () => ({
   queryRows: mocks.query,
-  getDb: () => ({ getConnection: async () => ({ release: vi.fn(), destroy: vi.fn() }) }),
-  queryRowsInTransaction: (_: unknown, sql: string) => mocks.transactionQuery(sql),
+  queryRowsRaw: mocks.query,
+  getDb: () => ({ getConnection: async () => ({ release: vi.fn(), destroy: vi.fn(), beginTransaction: vi.fn(), commit: vi.fn(), rollback: vi.fn() }) }),
+  queryRowsInTransaction: (_: unknown, sql: string, params: unknown) => mocks.transactionQuery(sql, params),
   executeInTransaction: (_: unknown, sql: string, params: unknown) => mocks.execute(sql, params),
   execute: vi.fn(),
 }));
 vi.mock("./invoice-service", () => ({ buildInvoicePrefill: mocks.prefill }));
 vi.mock("./file-storage-service", () => ({ readFile: mocks.read }));
 vi.mock("./feishu-message-service", () => ({ getFeishuTenantAccessToken: async () => "test-token" }));
-import { APPROVAL_FIELDS as F, CHILE_INVOICE_TYPE_OPTIONS, CHILE_NOTE2_OPTIONS, submitInvoiceApprovalFromSource } from "./feishu-approval-service";
+import { APPROVAL_FIELDS as F, CFDI_OPTIONS, CHILE_INVOICE_TYPE_OPTIONS, CHILE_NOTE2_OPTIONS, submitInvoiceApprovalFromSource } from "./feishu-approval-service";
+import { loadAllocationSources } from "./invoice-allocation-service";
+import { suggestInvoiceAllocations } from "./invoice-allocation";
+import { applyInvoiceLineAmounts } from "./invoice-approval-allocation-amounts";
 
 const source = { sourceType: "cloud_row" as const, sourceId: "row", starterOpenId: "ou_starter", paymentReceivedTime: "2026-11-25", amountCurrency: "USD" };
 const upload = { fileName: "new.pdf", dataUrl: "data:application/pdf;base64,cGRm", isCsf: true };
@@ -40,6 +44,40 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("Cloud approval material submission", () => {
+  it("submits the exact two confirmed MXN amounts and saves same-month account allocations despite reference FX differences",async()=>{
+    const dbRows=["row","row2"].map((id,i)=>({id,period:"202610",account:`account-${i+1}`,customerId:"customer",businessCustomerId:"customer",undertakingUnitId:"unit",customerReceivableNetAmount:i?5125.47:638.95,customerReceivableTotalAmount:i?5125.47:638.95,customerTaxRate:0.16}));
+    const originalQuery=mocks.query.getMockImplementation()!;
+    const originalTransaction=mocks.transactionQuery.getMockImplementation()!;
+    const cloudRows=(params:Record<string,unknown>)=>dbRows.filter(row=>params.id?row.id===params.id:Array.isArray(params.ids)?params.ids.includes(row.id):true);
+    mocks.query.mockImplementation(async(sql:string,params:Record<string,unknown>={})=>sql.includes("FROM merge_cloud_rows")?cloudRows(params):originalQuery(sql,params));
+    mocks.transactionQuery.mockImplementation(async(sql:string,params:Record<string,unknown>={})=>sql.includes("FROM merge_cloud_rows")?cloudRows(params):originalTransaction(sql,params));
+    const rows=await loadAllocationSources("cloud_row",["row","row2"]);
+    const invoiceLines=["11516.54","92376.13"].map((amountIncludingTax,index)=>({amountIncludingTax,invoiceContent:`Account ${index+1}`,cfdiCodeKey:CFDI_OPTIONS.G03.key,allocationSourceId:dbRows[index].id}));
+    const plan=applyInvoiceLineAmounts(suggestInvoiceAllocations(rows.map(row=>({...row,suggestedRate:"18.02"})),"MXN"),invoiceLines);
+    await submitInvoiceApprovalFromSource({...source,amountIncludingTax:103892.67,amountCurrency:"MXN",allocationPlan:plan,invoiceLines,attachments:[upload]});
+    const body=JSON.parse(remoteCalls("/instances")[0][1]!.body as string);
+    const values=JSON.parse(body.form).find((row:{id:string})=>row.id===F.invoiceInfo).value;
+    expect(values.map((row:Array<{id:string;value:unknown}>)=>row.find(field=>field.id===F.amountIncludingTax)!.value)).toEqual([11516.54,92376.13]);
+    const saved=mocks.execute.mock.calls.find(([sql])=>String(sql).includes("INSERT INTO merge_common_feishu_approvals"))![1];
+    expect(JSON.parse(saved.allocationPlanJson).allocations.map((row:{amountIncludingTax:string;exchangeRate:string})=>[row.amountIncludingTax,row.exchangeRate])).toEqual([["11516.54","18.02"],["92376.13","18.02"]]);
+  });
+  it("submits and persists two real invoice rows without overriding their content", async () => {
+    const invoiceLines = ["9290.82","100002.00"].map((amountIncludingTax,index) => ({amountIncludingTax,invoiceContent:`Service ${index+1}`,cfdiCodeKey:CFDI_OPTIONS.G03.key}));
+    await submitInvoiceApprovalFromSource({...source, amountIncludingTax:109292.82, amountCurrency:"MXN", invoiceLines, invoiceContent:"Legacy summary", attachments:[upload]});
+    const body = JSON.parse(remoteCalls("/instances")[0][1]!.body as string);
+    const form = JSON.parse(body.form);
+    const rows = form.find((field: {id:string}) => field.id === F.invoiceInfo).value;
+    expect(rows).toEqual(invoiceLines.map(line => [
+      {id:F.amountIncludingTax,type:"amount",value:Number(line.amountIncludingTax),currency:"MXN"},
+      {id:F.invoiceContent,type:"input",value:line.invoiceContent},
+      {id:F.cfdiCode,type:"radioV2",value:CFDI_OPTIONS.G03.key},
+    ]));
+    expect(JSON.parse(mocks.execute.mock.calls[0][1].formJson)).toEqual(form);
+  });
+  it.each(["105", "107"])("rejects detail total %s against invoice total 106 before uploading or submitting", async amountIncludingTax => {
+    await expect(submitInvoiceApprovalFromSource({...source,attachments:[upload],invoiceLines:[{amountIncludingTax,invoiceContent:"Service",cfdiCodeKey:CFDI_OPTIONS.G03.key}]})).rejects.toThrow("合计");
+    expect(remoteCalls("/file/upload")).toHaveLength(0); expect(remoteCalls("/instances")).toHaveLength(0); expect(mocks.execute).not.toHaveBeenCalled();
+  });
   it("deduplicates existing files, uploads all materials and persists the same form tokens", async () => {
     await submitInvoiceApprovalFromSource({ ...source, cfsAttachmentId: "stored", attachmentRefs: [{ source: "customer", attachmentId: "stored", isCsf: true }], attachments: [upload] });
     const uploads = remoteCalls("/file/upload");

@@ -2,6 +2,10 @@ import { describe, expect, it } from "vitest";
 import { invoiceApprovalStatusLabel } from "./invoice-approval-status";
 
 describe("invoice approval display", () => {
+  it("shows return errors and incomplete batches even after an invoice was registered", () => {
+    expect(invoiceApprovalStatusLabel("approved", "invoice", "issued", "登记失败")).toBe("审批通过，回票异常");
+    expect(invoiceApprovalStatusLabel("approved", "invoice", "issued", "", 1)).toBe("审批通过，回票待登记");
+  });
   it("shows the completed registration instead of waiting for an invoice", () => {
     expect(invoiceApprovalStatusLabel("approved", "invoice", "issued")).toBe("审批通过已开票");
   });

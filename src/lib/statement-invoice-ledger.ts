@@ -1,4 +1,5 @@
 import { readInvoiceAllocationPlan } from "./invoice-allocation";
+import { serviceFeeFinanceStatuses } from "./service-fee-finance-status";
 import { createHash } from "node:crypto";
 import type { PoolConnection } from "mysql2/promise";
 import { queryRowsRaw, queryRowsInTransaction, executeInTransaction, type Row } from "./db";
@@ -80,7 +81,7 @@ export async function refreshStatementInvoiceSummary(sourceType: StatementInvoic
       invoiceAmountIncludingTax=:total, invoiceVatRate=:taxRate, invoiceDate=:invoiceDate,
       receivableDate=:dueDate, invoiceReceivingUnitId=:unitId, invoicePayerCustomerId=:customerId,
       invoiceStatus=:invoiceStatus, updatedAt=NOW() WHERE snapshotNo=:sourceId`,
-    { sourceId, ...summary });
+    { sourceId, ...summary, invoiceStatus: serviceFeeFinanceStatuses({ serviceFeeTotal: source?.serviceFeeTotal, invoiceStatus: summary.invoiceStatus }).invoiceStatus });
 }
 
 export function aggregateInvoiceExchangeRate(entries: Row[]) {

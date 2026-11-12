@@ -14,7 +14,7 @@ export type InvoiceTaxAmounts = {
 };
 
 export function roundInvoiceAmount(value: number) {
-  return Math.round((Number(value) + Number.EPSILON) * 100) / 100;
+  return Math.sign(value) * Math.round((Math.abs(Number(value)) + Number.EPSILON) * 100) / 100;
 }
 
 export function roundInvoiceRate(value: number) {
@@ -64,14 +64,14 @@ export function deriveInvoiceTaxAmounts(input: InvoiceTaxAmounts): InvoiceTaxAmo
 }
 
 /** 返回空串表示通过；否则返回可直接展示给用户的中文错误。 */
-export function validateInvoiceTaxAmounts(input: InvoiceTaxAmounts) {
+export function validateInvoiceTaxAmounts(input: InvoiceTaxAmounts, options: { allowNegative?: boolean } = {}) {
   const values = deriveInvoiceTaxAmounts(input);
   for (const [value, label] of [
     [values.netAmount, "未税金额"],
     [values.taxAmount, "税金"],
     [values.grossAmount, "含税金额"],
   ] as const) {
-    if (value !== null && value < 0) return `${label}不能小于 0`;
+    if (!options.allowNegative && value !== null && value < 0) return `${label}不能小于 0`;
   }
   if (values.taxRate !== null && (values.taxRate < 0 || values.taxRate > 100)) {
     return "税率应在 0% 到 100% 之间";

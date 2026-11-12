@@ -34,6 +34,8 @@ import { attachApprovalFilesToSource } from "./approval-source-attachments";
 import { defaultInvoicePaymentTermDays, invoiceDueDate } from "./invoice-payment-terms";
 import { cloudAttachmentField, type InvoiceAttachmentSelection } from "./invoice-approval-attachments";
 import { listInvoiceApprovalAttachments, prepareInvoiceApprovalAttachments } from "./invoice-approval-attachment-service";
+import { validateMexicoInvoiceLines, type MexicoInvoiceLine } from "./invoice-approval-lines";
+import { validateInvoiceLineAllocations } from "./invoice-approval-allocation-amounts";
 
 /** 「Cloud invoicing process」的审批定义 code。可用 FEISHU_INVOICE_APPROVAL_CODE 覆盖。 */
 const DEFAULT_INVOICE_APPROVAL_CODE = "ABBC8240-2CA4-4A33-8E58-AC91FC8648F2";
@@ -169,6 +171,7 @@ export type InvoiceApprovalFormInput = {
     amountIncludingTax: number;
     invoiceContent: string;
     cfdiCodeKey: string;
+    lines?: MexicoInvoiceLine[];
     /** CSF 附件（已上传到飞书得到的 file_token） */
     cfsFileTokens: string[];
   };
@@ -202,6 +205,7 @@ export function buildInvoiceApprovalForm(input: InvoiceApprovalFormInput): Invoi
     const mexico = input.mexico;
     if (!mexico) throw new Error("墨西哥分支缺少客户开票信息");
     if (!mexico.cfsFileTokens.length) throw new Error("墨西哥分支必须上传客户 CSF 附件");
+    const lines = validateMexicoInvoiceLines(mexico.lines ?? [{ amountIncludingTax: String(mexico.amountIncludingTax), invoiceContent: mexico.invoiceContent, cfdiCodeKey: mexico.cfdiCodeKey }], mexico.amountIncludingTax);
     fields.push(
       {
         id: APPROVAL_FIELDS.customerInfo,
@@ -218,11 +222,11 @@ export function buildInvoiceApprovalForm(input: InvoiceApprovalFormInput): Invoi
       {
         id: APPROVAL_FIELDS.invoiceInfo,
         type: "fieldList",
-        value: [[
-          { id: APPROVAL_FIELDS.amountIncludingTax, type: "amount", value: mexico.amountIncludingTax, currency: input.amountCurrency },
-          { id: APPROVAL_FIELDS.invoiceContent, type: "input", value: mexico.invoiceContent },
-          { id: APPROVAL_FIELDS.cfdiCode, type: "radioV2", value: mexico.cfdiCodeKey },
-        ]],
+        value: lines.map(line => [
+          { id: APPROVAL_FIELDS.amountIncludingTax, type: "amount", value: Number(line.amountIncludingTax), currency: input.amountCurrency },
+          { id: APPROVAL_FIELDS.invoiceContent, type: "input", value: line.invoiceContent },
+          { id: APPROVAL_FIELDS.cfdiCode, type: "radioV2", value: line.cfdiCodeKey },
+        ]),
       },
       { id: APPROVAL_FIELDS.customerCfs, type: "attachmentV2", value: mexico.cfsFileTokens },
     );
@@ -1186,6 +1190,7 @@ export async function submitInvoiceApprovalFromSource(input: InvoiceAttachmentSe
   paymentReceivedTime: string;
   paymentTermDays?: string;
   invoiceContent?: string;
+  invoiceLines?: MexicoInvoiceLine[];
   paymentMethodKey?: string;
   cfdiCodeKey?: string;
   customerOverride?: { name?: string; taxId?: string; taxRegime?: string; address?: string; postCode?: string };
@@ -1229,11 +1234,14 @@ export async function submitInvoiceApprovalFromSource(input: InvoiceAttachmentSe
   // 金额与币种：弹层里允许人工覆盖（默认带账单口径）
   const amount = Number(input.amountIncludingTax ?? prefill.amountIncludingTax ?? 0);
   if (!Number.isFinite(amount) || amount <= 0) throw new Error("开票金额不正确，无法发起审批");
+  if (input.invoiceLines !== undefined && prefill.branch !== "mx") throw new Error("当前审批主体不支持墨西哥开票明细，请重新打开对应的开票表单");
+  const invoiceLines = input.invoiceLines === undefined ? undefined : validateMexicoInvoiceLines(input.invoiceLines, amount, prefill.options.cfdiCodes.map(option => option.value));
   const amountCurrency = resolveApprovalAmountCurrency(prefill.amountCurrencyOptions ?? [], input.amountCurrency ?? prefill.currency);
   let allocationPlan:InvoiceAllocationPlan|null=null;
   if(input.allocationPlan) {
     if(input.allocationPlan.sourceType!==input.sourceType||!input.allocationPlan.allocations.some(row=>row.sourceId===input.sourceId))throw new Error("关联账期与当前来源不一致");
     allocationPlan=await prepareInvoiceAllocationPlan(input.allocationPlan,{...allocationTotals(input.allocationPlan.allocations),amountIncludingTax:prefill.branch==="cl"?input.chile?.amountIncludingTax:amount});
+    if(invoiceLines) validateInvoiceLineAllocations(invoiceLines, allocationPlan);
     if(allocationPlan.currency!==amountCurrency)throw new Error("分摊币种与审批开票币种不一致");
     input.sourceIds=allocationPlan.allocations.map(row=>row.sourceId);
     await queryRows("SELECT allocationPlanJson FROM merge_common_feishu_approvals LIMIT 0");
@@ -1246,14 +1254,14 @@ export async function submitInvoiceApprovalFromSource(input: InvoiceAttachmentSe
   };
   if (!prefill.attachmentField && (selection.attachmentRefs.length || selection.attachments?.length)) throw new Error("Cloud 智利审批尚未配置附件栏，请联系飞书管理员");
   const files = await prepareInvoiceApprovalAttachments({ ...input, sourceCustomerId: prefill.sourceCustomerId, customerId: prefill.customer?.customerId ?? "" }, selection, prefill.branch === "mx");
-  if(allocationPlan&&prefill.attachmentField)files.push(await invoiceAllocationAttachment(allocationPlan));
+  if(allocationPlan&&prefill.attachmentField)files.push(await invoiceAllocationAttachment(allocationPlan, invoiceLines?.map(line => ({ description: line.invoiceContent, amount: line.amountIncludingTax, cfdiCode: prefill.options.cfdiCodes.find(option => option.value === line.cfdiCodeKey)?.label ?? line.cfdiCodeKey }))));
   if(files.length>10)throw new Error("合并开票说明占用一个附件，请将其他审批材料控制在 9 个以内");
   for (const file of files) cfsFileTokens.push(await uploadApprovalAttachment(file));
 
   const form = buildInvoiceApprovalForm({
     branch: prefill.branch,
     companyOptionKey: prefill.companyOptionKey,
-    purpose: (allocationPlan?`${servicePeriodLabel(allocationPlan.allocations.map(row=>row.period))} · ${allocationPlan.lineMode==="summary"?"合并一行":"按账期分行"} · ${input.purpose??prefill.suggestedPurpose}`:input.purpose??prefill.suggestedPurpose).slice(0,255),
+    purpose: (allocationPlan?`${servicePeriodLabel(allocationPlan.allocations.map(row=>row.period))} · ${invoiceLines ? `${invoiceLines.length} 行开票明细` : allocationPlan.lineMode==="summary"?"合并一行":"按账期分行"} · ${input.purpose??prefill.suggestedPurpose}`:input.purpose??prefill.suggestedPurpose).slice(0,255),
     paymentReceivedTime: input.paymentReceivedTime,
     amountCurrency,
     attachmentFieldId: prefill.attachmentField?.id,
@@ -1267,6 +1275,7 @@ export async function submitInvoiceApprovalFromSource(input: InvoiceAttachmentSe
         address: customer.address,
         postCode: customer.postCode,
         amountIncludingTax: amount,
+        lines: invoiceLines,
         invoiceContent: allocationPlan?.lineMode==="summary"?allocationPlan.description:input.invoiceContent ?? prefill.suggestedInvoiceContent,
         cfdiCodeKey: input.cfdiCodeKey ?? CFDI_OPTIONS.G03.key,
         cfsFileTokens,

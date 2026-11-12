@@ -1,7 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
 import { createConnection, type Connection, type RowDataPacket } from "mysql2/promise";
 import { buildDbConfig, executeRaw, getDb, queryRowsRaw, type Row } from "./db";
-import { resolveFrappeEndpoint, resolvePageSize, resolveTimeoutMs } from "./frappe-config";
+import { resolveFrappeBaseUrl, resolveFrappeEndpoint, resolvePageSize, resolveTimeoutMs } from "./frappe-config";
+import { canRefreshLegacyDemandBaseline, demandSourceFingerprint, newRemoteRequestItemId, sameDemandBinding, snapshotWithBindingHistory } from "./frappe-demand-identity";
 import type { OperationActor } from "./operation-actor";
 import {
   REMOTE_SHIPMENT_TIMELINE_FIELDS,
@@ -950,7 +951,7 @@ async function prepareLine(
   if (!undertakingUnitId || !customerId) return `国家 ${countryCode} 未维护默认承接单位或默认客户`;
   if (!Number.isFinite(item.quantity) || item.quantity <= 0) return `需求数量必须大于 0`;
   return {
-    sourceItem: item, requestNo, requestItemId: `F-${item.id}`.slice(0, 64), deviceCode: text(model.deviceCode), requestType: requestItemType(model.instanceType),
+    sourceItem: item, requestNo, requestItemId: newRemoteRequestItemId(), deviceCode: text(model.deviceCode), requestType: requestItemType(model.instanceType),
     supplierId: text(supplier.localEntityId), undertakingUnitId, customerId, countryCode, sourceHash: sourceHash(item, order),
   };
 }
@@ -980,6 +981,20 @@ function itemSnapshot(item: RemoteDemandItem, order: RemoteDemandOrder) {
       modified: order.modified,
     },
   };
+}
+
+function demandBinding(item: RemoteDemandItem, order: RemoteDemandOrder) {
+  return { sourceFingerprint: demandSourceFingerprint(resolveFrappeBaseUrl()), sourceOrderId: order.id,
+    sourceItemId: item.id, requestNo: localRequestNo(order.customerPoNo) };
+}
+
+async function readLedgerBinding(connection: Connection, sourceItemId: string) {
+  const [rows] = await connection.query<RowDataPacket[]>(
+    `SELECT i.sourceItemId,i.sourceOrderId,i.localRequestNo,i.localRequestItemId,i.status,i.sourceHash,i.sourceDataJson,
+            ri.requestNo AS linkedRequestNo
+       FROM ${ITEM_TABLE} i LEFT JOIN merge_power_requestitems ri ON ri.id = i.localRequestItemId
+      WHERE i.sourceItemId = ? LIMIT 1`, [sourceItemId]);
+  return rows[0];
 }
 
 const CHANGE_FIELD_LABELS: Record<string, string> = {
@@ -1035,6 +1050,11 @@ async function persistLedgerItem(
   },
 ) {
   const { item, order } = options;
+  const prior = await readLedgerBinding(connection, item.id);
+  const binding = demandBinding(item, order);
+  const snapshot = snapshotWithBindingHistory(prior, itemSnapshot(item, order), binding);
+  const linkedId = options.localRequestItemId === undefined && prior && (options.preserveBaseline || sameDemandBinding(prior, binding))
+    ? prior.localRequestItemId : options.localRequestItemId ?? null;
   const baselineAssignments = options.preserveBaseline
     ? ""
     : ", sourceModifiedAt=VALUES(sourceModifiedAt), sourceHash=VALUES(sourceHash), sourceDataJson=VALUES(sourceDataJson)";
@@ -1049,17 +1069,17 @@ async function persistLedgerItem(
        localRequestItemId=VALUES(localRequestItemId), status=VALUES(status), errorMessage=VALUES(errorMessage),
        changeJson=VALUES(changeJson), reasonCode=VALUES(reasonCode)${baselineAssignments}`,
     [
-      item.id, order.id, options.localRequestNo, options.localRequestItemId ?? null,
+      item.id, order.id, options.localRequestNo, linkedId,
       item.modified || order.modified || null, sourceHash(item, order),
       options.status, options.errorMessage ? options.errorMessage.slice(0, 1000) : null,
-      JSON.stringify(itemSnapshot(item, order)),
+      JSON.stringify(snapshot),
       options.changeJson && options.changeJson.length ? JSON.stringify(options.changeJson) : null,
       options.reasonCode ?? null,
     ],
   );
 }
 
-async function persistBlockedItem(item: RemoteDemandItem, order: RemoteDemandOrder, _hash: string, message: string) {
+async function persistBlockedItem(item: RemoteDemandItem, order: RemoteDemandOrder, _hash: string, message: string, reasonCode = "blocked_mapping") {
   const connection = await getDb().getConnection();
   try {
     /**
@@ -1073,7 +1093,7 @@ async function persistBlockedItem(item: RemoteDemandItem, order: RemoteDemandOrd
       localRequestNo: localRequestNo(order.customerPoNo) || null,
       status: "blocked",
       errorMessage: message,
-      reasonCode: "blocked_mapping",
+      reasonCode,
     });
   } finally {
     connection.release();
@@ -1108,20 +1128,28 @@ async function persistSkippedExistingItems(
     const code = text(row.deviceCode);
     candidatesByDeviceCode.set(code, [...(candidatesByDeviceCode.get(code) ?? []), text(row.id)]);
   }
-  const claimedCount = new Map<string, number>();
-
-  for (const line of lines) {
+  const priors = await Promise.all(lines.map((line) => readLedgerBinding(connection, line.sourceItem.id)));
+  const claimedIds = new Set<string>();
+  // Reserve valid existing links first; a new remote line must not steal a previously linked row.
+  const stableIds = lines.map((line, index) => {
+    const prior = priors[index];
+    const id = text(prior?.localRequestItemId);
+    if (!prior || !sameDemandBinding(prior, demandBinding(line.sourceItem, order)) || claimedIds.has(id)
+      || !(candidatesByDeviceCode.get(text(line.deviceCode)) ?? []).includes(id)) return null;
+    claimedIds.add(id);
+    return id;
+  });
+  for (const [index, line] of lines.entries()) {
     const code = text(line.deviceCode);
     const candidates = candidatesByDeviceCode.get(code) ?? [];
-    const index = claimedCount.get(code) ?? 0;
-    const claimed = candidates[index] ?? null;
-    if (claimed) claimedCount.set(code, index + 1);
+    const claimed = stableIds[index] ?? candidates.find((id) => !claimedIds.has(id)) ?? null;
+    if (claimed) claimedIds.add(claimed);
     const item = line.sourceItem;
-    // 跳过一律保留变更基线：基线只在"建档/重新拉取"时更新，
-    // 否则"远端已变更"的提示会被下一次跳过静默清掉。
+    // Only a baseline belonging to this demand can be preserved. Archive stale bindings on reuse.
+    const preserveBaseline = Boolean(priors[index] && sameDemandBinding(priors[index], demandBinding(item, order)));
     await persistLedgerItem(connection, {
       item, order, localRequestNo: requestNo, localRequestItemId: claimed, status: "skipped_existing",
-      errorMessage: message, preserveBaseline: true, reasonCode: "local_exists",
+      errorMessage: message, preserveBaseline, reasonCode: "local_exists",
     });
   }
 }
@@ -1146,17 +1174,23 @@ async function createRequestGroup(connection: Connection, order: RemoteDemandOrd
        VALUES (?,?,?,?,?,?,?,?,?)`,
       [line.requestItemId, requestNo, line.deviceCode, line.requestType, line.supplierId, line.undertakingUnitId, line.customerId, line.sourceItem.requestedDeliveryDate || null, line.sourceItem.quantity],
     );
-    await connection.execute(
-      `INSERT INTO ${ITEM_TABLE} (sourceItemId,sourceOrderId,localRequestNo,localRequestItemId,sourceModifiedAt,sourceHash,status,errorMessage,reasonCode)
-       VALUES (?,?,?,?,?,?,'synced',NULL,'created')
-       ON DUPLICATE KEY UPDATE localRequestNo=VALUES(localRequestNo), localRequestItemId=VALUES(localRequestItemId), sourceModifiedAt=VALUES(sourceModifiedAt), sourceHash=VALUES(sourceHash), status='synced', errorMessage=NULL, reasonCode='created'`,
-      [line.sourceItem.id, order.id, requestNo, line.requestItemId, line.sourceItem.modified || order.modified || null, line.sourceHash],
-    );
+    await persistLedgerItem(connection, {
+      item: line.sourceItem, order, localRequestNo: requestNo, localRequestItemId: line.requestItemId,
+      status: "synced", reasonCode: "created",
+    });
   }
   return "created" as const;
 }
 
-export async function runFrappeDemandSync({ triggerType = "manual", dryRun = false, actor = null, minimumIntervalSeconds = 0 }: { triggerType?: FrappeDemandSyncTrigger; dryRun?: boolean; actor?: OperationActor | null; minimumIntervalSeconds?: number } = {}) {
+export async function runFrappeDemandSync({ triggerType = "manual", dryRun = false, actor = null, minimumIntervalSeconds = 0,
+  sourceOrderIds, rebuild = false, expectedRequestNos,
+}: { triggerType?: FrappeDemandSyncTrigger; dryRun?: boolean; actor?: OperationActor | null; minimumIntervalSeconds?: number;
+  sourceOrderIds?: readonly string[]; rebuild?: boolean; expectedRequestNos?: Readonly<Record<string, string>>;
+} = {}) {
+  const selectedIds = sourceOrderIds ? [...new Set(sourceOrderIds.map(text).filter(Boolean))] : null;
+  if (selectedIds && !selectedIds.length) throw new Error("请至少选择一张需求单");
+  if (selectedIds && selectedIds.length > 100) throw new Error("单次最多重新拉取 100 张需求单");
+  if (rebuild && !selectedIds) throw new Error("重新拉取必须指定需求单");
   const runId = `FRAPPE-DEMAND-${new Date().toISOString().replace(/[-:.TZ]/g, "")}-${randomUUID().slice(0, 8)}`;
   // A sync holds its lock while other helpers use the pool; keep that pool available even at size 1.
   const config = buildDbConfig(process.env);
@@ -1182,13 +1216,27 @@ export async function runFrappeDemandSync({ triggerType = "manual", dryRun = fal
     }
     await connection.execute(`INSERT INTO ${RUN_TABLE} (syncRunId,triggerType,status,dryRun,startedAt) VALUES (?,?,'running',?,CURRENT_TIMESTAMP)`, [runId, triggerType, dryRun ? 1 : 0]);
     runCreated = true;
-    const snapshot = await loadRemoteSnapshot();
+    let snapshot = await loadRemoteSnapshot();
+    if (selectedIds) {
+      const selected = new Set(selectedIds);
+      const items = snapshot.items.filter((item) => selected.has(item.demandOrderId));
+      const supplierIds = new Set(items.map((item) => item.supplierId));
+      const materialIds = new Set(items.map((item) => item.materialId));
+      snapshot = { ...snapshot, items, orders: new Map([...snapshot.orders].filter(([id]) => selected.has(id))),
+        sources: snapshot.sources.filter((source) => (source.type === "supplier" ? supplierIds : materialIds).has(source.id)) };
+    }
+    // Operational retries can pin the expected PO to avoid creating a different demand if the source changed.
+    for (const [id, expected] of Object.entries(expectedRequestNos ?? {})) {
+      if (localRequestNo(snapshot.orders.get(id)?.customerPoNo) !== expected) throw new Error(`远端需求单 ${id} 的客户PO号与预期不一致，请重新核对`);
+    }
     await Promise.all(snapshot.sources.filter((source) => isSourceType(source.type)).map((source) => saveSourceMapping(source, actor)));
     // 远端履约状态回写到本地需求单（仅更新已存在的单，试运行不写）。
     if (!dryRun) await persistRequestRemoteStatus(snapshot);
     summary.fetchedItems = snapshot.items.length;
     const mappings = await loadFrappeMappings();
-    const existingRows = await queryRowsRaw<Row>(`SELECT sourceItemId, sourceHash, status, sourceDataJson FROM ${ITEM_TABLE}`);
+    const existingRows = await queryRowsRaw<Row>(`SELECT i.sourceItemId,i.sourceOrderId,i.localRequestNo,i.localRequestItemId,
+      i.sourceHash,i.status,i.sourceDataJson,ri.requestNo AS linkedRequestNo
+      FROM ${ITEM_TABLE} i LEFT JOIN merge_power_requestitems ri ON ri.id = i.localRequestItemId`);
     const existingById = new Map(existingRows.map((row) => [text(row.sourceItemId), row]));
     const groups = new Map<string, RemoteDemandItem[]>();
     for (const item of snapshot.items) {
@@ -1197,6 +1245,13 @@ export async function runFrappeDemandSync({ triggerType = "manual", dryRun = fal
       const group = groups.get(item.demandOrderId) ?? [];
       group.push(item);
       groups.set(item.demandOrderId, group);
+    }
+    for (const id of selectedIds ?? []) {
+      if (groups.has(id)) continue;
+      const reason = snapshot.orders.has(id) ? "该需求单没有可同步的明细（可能已取消或不在同步范围）" : "远端需求单不存在";
+      summary.results.push({ status: "blocked", sourceOrderId: id, localRequestNo: localRequestNo(snapshot.orders.get(id)?.customerPoNo) || null,
+        itemCount: 0, reason });
+      summary.errors.push({ sourceItemId: "", error: `${id}：${reason}` });
     }
     for (const [orderId, items] of groups) {
       const order = snapshot.orders.get(orderId);
@@ -1228,32 +1283,30 @@ export async function runFrappeDemandSync({ triggerType = "manual", dryRun = fal
       const changedItems: Array<{ item: RemoteDemandItem; changes: RemoteDemandChange[]; reason?: "local_missing" }> = [];
       for (let index = 0; index < items.length; index += 1) {
         const prior = existingById.get(items[index].id);
-        if (!prior) continue;
+        if (!prior || rebuild) continue;
         // reset：人工触发重新拉取留下的标记，等待本次按远端重建，不参与变更比对。
         if (text(prior.status) === "reset") continue;
         const tracked = (TRACKED_ITEM_STATUSES as readonly string[]).includes(text(prior.status));
-        if (tracked && text(prior.sourceHash) === hashes[index]) continue;
+        // Failed inserts and incomplete mappings are retryable, not accepted baselines.
+        if (!tracked) continue;
+        const sameBinding = sameDemandBinding(prior, demandBinding(items[index], order));
+        if (sameBinding && text(prior.sourceHash) === hashes[index]) continue;
+        if (!sameBinding && localExists && canRefreshLegacyDemandBaseline(prior, demandBinding(items[index], order), hashes[index])) {
+          if (!dryRun) await persistLedgerItem(connection, { item: items[index], order, localRequestNo: requestNo,
+            localRequestItemId: text(prior.localRequestItemId), status: "synced", reasonCode: "baseline_refreshed" });
+          continue;
+        }
         const changes = describeRemoteChanges(prior.sourceDataJson, itemSnapshot(items[index], order));
         /**
          * 逐字段比对后业务字段其实没变（只是远端 modified 时间戳变了，或者换了抓取环境
          * 导致历史基线的 hash 对不上），就当没变化：刷新基线并记回 synced，
          * 不再往台账里堆"远端已变化待核对"。本地需求单不存在的仍然提示，避免掩盖漏单。
          */
-        if (tracked && !changes.length) {
+        if (sameBinding && !changes.length) {
           if (localExists) {
             if (!dryRun) {
-              await connection.execute(
-                `UPDATE ${ITEM_TABLE}
-                    SET sourceHash = ?, sourceDataJson = ?, sourceModifiedAt = ?,
-                        status = 'synced', errorMessage = NULL, changeJson = NULL, reasonCode = 'baseline_refreshed'
-                  WHERE sourceItemId = ?`,
-                [
-                  hashes[index],
-                  JSON.stringify(itemSnapshot(items[index], order)),
-                  items[index].modified || order.modified || null,
-                  items[index].id,
-                ],
-              );
+              await persistLedgerItem(connection, { item: items[index], order, localRequestNo: requestNo,
+                status: "synced", reasonCode: "baseline_refreshed" });
             }
             continue;
           }
@@ -1304,7 +1357,7 @@ export async function runFrappeDemandSync({ triggerType = "manual", dryRun = fal
 
       const trackedItems = items.filter((item) => {
         const prior = existingById.get(item.id);
-        return prior && (TRACKED_ITEM_STATUSES as readonly string[]).includes(text(prior.status));
+        return !rebuild && prior && (TRACKED_ITEM_STATUSES as readonly string[]).includes(text(prior.status));
       });
       if (trackedItems.length) {
         const message = "远端需求此前已同步，本次不自动重新创建";
@@ -1361,7 +1414,7 @@ export async function runFrappeDemandSync({ triggerType = "manual", dryRun = fal
         for (const item of items) {
           summary.blockedItems += 1;
           summary.errors.push({ sourceItemId: item.id, error: message });
-          await persistBlockedItem(item, order, sourceHash(item, order), message);
+          await persistBlockedItem(item, order, sourceHash(item, order), message, "write_failed");
         }
       }
     }
@@ -1600,7 +1653,7 @@ export async function listFrappeDemandSyncLedger(params: URLSearchParams) {
               SUM(i.status = 'out_of_scope') AS outOfScopeCount,
               SUM(i.status = 'blocked') AS blockedCount,
               MAX(r.requestNo IS NOT NULL) AS localExists,
-              MAX(i.updatedAt) AS lastSyncedAt
+              CONCAT(DATE_FORMAT(MAX(i.updatedAt), '%Y-%m-%dT%H:%i:%s'), '+08:00') AS lastSyncedAt
        ${from}
        ORDER BY (SUM(i.status IN ('pending_change', 'blocked')) > 0) DESC, lastSyncedAt DESC
        LIMIT :limit OFFSET :offset`,
@@ -1636,7 +1689,8 @@ export async function listFrappeDemandSyncLedger(params: URLSearchParams) {
 export async function listFrappeDemandSyncLedgerItems(sourceOrderId: string) {
   const rows = await queryRowsRaw<Row>(
     `SELECT i.sourceItemId, i.localRequestNo, i.localRequestItemId, i.status, i.errorMessage, i.changeJson, i.reasonCode,
-            i.updatedAt, i.sourceDataJson, (r.requestNo IS NOT NULL) AS localRequestExists
+            CONCAT(DATE_FORMAT(i.updatedAt, '%Y-%m-%dT%H:%i:%s'), '+08:00') AS updatedAt,
+            i.sourceDataJson, (r.requestNo IS NOT NULL) AS localRequestExists
        FROM ${ITEM_TABLE} i
        LEFT JOIN merge_power_requests r ON r.requestNo = i.localRequestNo
       WHERE i.sourceOrderId = :sourceOrderId
@@ -1707,14 +1761,8 @@ async function rebuildOrders(sourceOrderIds: readonly string[], actor: Operation
   const ids = Array.from(new Set(sourceOrderIds.map(text).filter(Boolean)));
   if (!ids.length) throw new Error("请至少选择一张需求单");
   if (ids.length > 100) throw new Error("单次最多重新拉取 100 张需求单");
-  // 注意：executeRaw 走预处理语句，命名占位符传数组不会被展开成 IN 列表，这里逐条更新。
-  for (const sourceOrderId of ids) {
-    await executeRaw(
-      `UPDATE ${ITEM_TABLE} SET status = 'reset', errorMessage = '人工触发重新拉取', changeJson = NULL WHERE sourceOrderId = :sourceOrderId`,
-      { sourceOrderId },
-    );
-  }
-  const summary = await runFrappeDemandSync({ triggerType: "manual", actor });
+  // Selection and retry decisions are made inside the same global sync lock, with no pre-reset writes.
+  const summary = await runFrappeDemandSync({ triggerType: "manual", actor, sourceOrderIds: ids, rebuild: true });
   return {
     requested: ids,
     results: summary.results.filter((result) => ids.includes(result.sourceOrderId)),
@@ -1726,10 +1774,14 @@ async function rebuildOrders(sourceOrderIds: readonly string[], actor: Operation
 }
 
 export async function listFrappeDemandSyncRuns() {
+  // Audit DATETIME columns use database Beijing wall time. Format in SQL so mysql2
+  // cannot reinterpret them using a deployment server's local timezone.
   const rows = await queryRowsRaw<Row>(`
     SELECT syncRunId, triggerType, status, dryRun, fetchedItemCount, eligibleItemCount,
            createdRequestCount, createdItemCount, skippedExistingCount, blockedItemCount,
-           changedItemCount, resultJson, errorJson, startedAt, finishedAt
+           changedItemCount, resultJson, errorJson,
+           CONCAT(DATE_FORMAT(startedAt, '%Y-%m-%dT%H:%i:%s'), '+08:00') AS startedAt,
+           CONCAT(DATE_FORMAT(finishedAt, '%Y-%m-%dT%H:%i:%s'), '+08:00') AS finishedAt
       FROM ${RUN_TABLE}
      ORDER BY startedAt DESC
      LIMIT 20

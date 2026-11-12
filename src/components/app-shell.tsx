@@ -839,7 +839,7 @@ export function AppShell({
 }
 
 function getTopLevelTitle(pathname: string) {
-  if (pathname.startsWith("/suppliers") || pathname.startsWith("/customers") || pathname.startsWith("/undertaking-units")) return "业务伙伴";
+  if (pathname.startsWith("/suppliers") || pathname.startsWith("/customers") || pathname.startsWith("/prospects") || pathname.startsWith("/undertaking-units")) return "业务伙伴";
   if (pathname.startsWith("/system/users") || pathname.startsWith("/system/module-features")) return "用户管理";
   if (pathname.startsWith("/documents")) return "文档管理";
   if (pathname.startsWith("/cloud")) return "华为云业务";

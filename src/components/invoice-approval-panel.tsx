@@ -9,7 +9,7 @@
  *
  * 金额、账期、客户、开票主体都由服务端按来源账单现算，避免与账单不一致。
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertCircle, CheckCircle2, FileText, Info } from "lucide-react";
 import { Input, Select, Textarea } from "./ui";
 import { notify } from "./app-dialog";
@@ -20,6 +20,11 @@ import { usePartnerOptions } from "./use-invoice-partner-options";
 import {InvoiceAllocationEditor} from "./invoice-allocation-editor";
 import {allocationInvoiceLines,allocationTotals,validateInvoiceAllocationPlan,type InvoiceAllocationPlan} from "@/lib/invoice-allocation";
 import type { InvoiceAttachmentOption, InvoiceAttachmentSelection } from "@/lib/invoice-approval-attachments";
+import { parseMexicoInvoiceLines, validateMexicoInvoiceLines, type MexicoInvoiceLine } from "@/lib/invoice-approval-lines";
+import { applyInvoiceLineAmounts, invoiceLineAllocationCoverage, matchingInvoiceAllocationTotals, syncLinkedInvoiceLineAmounts, validateInvoiceLineAllocations } from "@/lib/invoice-approval-allocation-amounts";
+import { normalizeInvoiceMoneyInput } from "@/lib/invoice-money-input";
+import { updateInvoiceReviewAmounts } from "@/lib/invoice-review";
+import { InvoiceApprovalLinesEditor } from "./invoice-approval-lines-editor";
 
 type Option = { key: string; value: string; label: string };
 
@@ -99,6 +104,7 @@ export function InvoiceApprovalPanel({
   const [materials, setMaterials] = useState<InvoiceAttachmentSelection>({});
   const [readingAttachments, setReadingAttachments] = useState(false);
   const requestId = useRef(0), submitLock = useRef(false);
+  const loadedSourceRef = useRef("");
   const selectedPartiesRef=useRef<{customerId?:string;undertakingUnitId?:string}>({});
   const planRef=useRef(allocationPlan);planRef.current=allocationPlan;
   const ids = sourceIds.join(",");
@@ -106,6 +112,7 @@ export function InvoiceApprovalPanel({
   const unitOptions = usePartnerOptions("undertaking-units");
   const [parties, setParties] = useState<{ customerId?: string; undertakingUnitId?: string }>({});
   const [partnerError, setPartnerError] = useState("");
+  const [customInvoiceLines, setCustomInvoiceLines] = useState<MexicoInvoiceLine[] | null>(null);
   const [form, setForm] = useState({
     businessExchangeRate: "",
     purpose: "",
@@ -145,11 +152,15 @@ export function InvoiceApprovalPanel({
       if (id !== requestId.current) return;
       if (!response.ok) throw new Error(data.error ?? "审批预填失败");
       setPrefill(data);
+      const sourceKey = `${sourceType}:${sourceId}`;
+      const sameSource = loadedSourceRef.current === sourceKey;
+      if (!sameSource) setCustomInvoiceLines(null);
+      loadedSourceRef.current = sourceKey;
       setMaterials({}); setReadingAttachments(false);
       const selectedPlan=planRef.current;
       let plannedAmounts:ReturnType<typeof allocationTotals>|null=null;
       try{if(selectedPlan&&data.amountCurrencyOptions.includes(selectedPlan.currency))plannedAmounts=allocationTotals(selectedPlan.allocations);}catch{/* incomplete allocations remain editable */}
-      setForm({
+      setForm(current => ({
         businessExchangeRate: data.amountCurrencyOptions.includes(String(data.currency).toUpperCase()) ? "1" : "",
         purpose: data.suggestedPurpose,
         paymentReceivedTime: data.paymentReceivedTime,
@@ -175,9 +186,10 @@ export function InvoiceApprovalPanel({
         chileNote2Key: data.options.chileNote2[0]?.value ?? "",
         chileNote3: "",
         chileNote4: "",
-        ...(plannedAmounts&&selectedPlan?{amountCurrency:selectedPlan.currency,amountExcludingTax:String(plannedAmounts.amountExcludingTax),taxRate:plannedAmounts.taxRate,taxAmount:String(plannedAmounts.taxAmount),amountIncludingTax:String(plannedAmounts.amountIncludingTax),chileAmount:String(plannedAmounts.amountIncludingTax)}:{}),
+        ...(sameSource ? current : {}),
+        ...(selectedPlan&&data.amountCurrencyOptions.includes(selectedPlan.currency)?{amountCurrency:selectedPlan.currency,...(plannedAmounts?{amountExcludingTax:String(plannedAmounts.amountExcludingTax),taxRate:plannedAmounts.taxRate,taxAmount:String(plannedAmounts.taxAmount),amountIncludingTax:String(plannedAmounts.amountIncludingTax),chileAmount:String(plannedAmounts.amountIncludingTax)}:{amountExcludingTax:"",taxAmount:"",amountIncludingTax:"",chileAmount:""})}:{}),
         ...(sourceType === "prepayment_contract" && !data.amountCurrencyOptions.includes(String(data.currency).toUpperCase()) ? { amountExcludingTax:"", taxAmount:"", amountIncludingTax:"", chileAmount:"" } : {}),
-      });
+      }));
     } catch (error) {
       if (id !== requestId.current) return;
       notify(error instanceof Error ? error.message : "审批预填失败", "info");
@@ -238,9 +250,54 @@ export function InvoiceApprovalPanel({
     });
   }
 
+  // Invoice row layout is independent from the monthly accounting allocations.
+  const financialPlan = useMemo(() => allocationPlan && prefill?.branch === "mx" ? { ...allocationPlan, lineMode: "period" as const } : allocationPlan, [allocationPlan, prefill?.branch]);
+  const periodInvoiceLines = useMemo(() => {
+    if (!allocationPlan || allocationPlan.currency !== form.amountCurrency) return undefined;
+    return allocationPlan.allocations.map(row => ({ amountIncludingTax: row.amountIncludingTax, invoiceContent: `${row.period}服务费${row.account ? ` · ${row.account}` : ""}`, cfdiCodeKey: form.cfdiCodeKey, allocationSourceId: row.sourceId }));
+  }, [allocationPlan, form.amountCurrency, form.cfdiCodeKey]);
+  const mexicoInvoiceLines = useMemo(() => customInvoiceLines ?? (allocationPlan?.lineMode !== "summary" && periodInvoiceLines?.length ? periodInvoiceLines : [{ amountIncludingTax: form.amountIncludingTax, invoiceContent: allocationPlan?.lineMode === "summary" ? allocationPlan.description : form.invoiceContent, cfdiCodeKey: form.cfdiCodeKey }]), [customInvoiceLines, allocationPlan, periodInvoiceLines, form.amountIncludingTax, form.invoiceContent, form.cfdiCodeKey]);
+
+  function changeAllocationPlan(next: InvoiceAllocationPlan) {
+    if(prefill?.branch === "mx") setCustomInvoiceLines(current => current ? syncLinkedInvoiceLineAmounts(current, financialPlan, next) : null);
+    onAllocationChange?.(next);
+  }
+
+  function useInvoiceLineTotal(amount: string) {
+    try {
+      const lines = parseMexicoInvoiceLines(mexicoInvoiceLines);
+      if(financialPlan && financialPlan.currency !== form.amountCurrency) throw new Error("开票币种已变化，请先重新选择账期或按当前币种分摊");
+      if(financialPlan && invoiceLineAllocationCoverage(lines, financialPlan)) {
+        const next = applyInvoiceLineAmounts(financialPlan, lines);
+        onAllocationChange?.(next);
+        const totals = allocationTotals(next.allocations);
+        setForm(current => ({...current,amountExcludingTax:String(totals.amountExcludingTax),taxAmount:String(totals.taxAmount),amountIncludingTax:String(totals.amountIncludingTax),taxRate:String(totals.taxRate ?? "")}));
+        notify("已按明细金额更新对应账期和整单金额", "success");
+      } else {
+        const totals = matchingInvoiceAllocationTotals(financialPlan, form.amountCurrency, amount);
+        if (totals) {
+          setForm(current => ({...current,amountExcludingTax:String(totals.amountExcludingTax),taxAmount:String(totals.taxAmount),amountIncludingTax:String(totals.amountIncludingTax),taxRate:String(totals.taxRate ?? "")}));
+          notify("含税合计一致，已保留各账期的未税和税金合计", "success");
+        } else {
+          setForm(current => updateInvoiceReviewAmounts(current, "amountIncludingTax", amount));
+          if(financialPlan) notify("已更新整单金额；请核对上方各账期分摊，或为明细选择对应账单后再次使用明细合计", "info");
+        }
+      }
+      setCustomInvoiceLines(lines);
+    } catch(error) { notify(error instanceof Error ? error.message : "请核对开票金额", "error"); }
+  }
+
   const submit = useCallback(async () => {
     if (!prefill || loading || partnerError || readingAttachments || submitLock.current) return;
-    if(allocationPlan){const error=validateInvoiceAllocationPlan(allocationPlan,{...form,amountIncludingTax:prefill.branch==="cl"?form.chileAmount:form.amountIncludingTax});if(error||allocationPlan.currency!==form.amountCurrency){notify(error||"请核对分摊币种","error");return;}}
+    let normalizedLines: MexicoInvoiceLine[] | undefined;
+    if (prefill.branch === "mx") {
+      try {
+        normalizedLines = validateMexicoInvoiceLines(mexicoInvoiceLines, form.amountIncludingTax, prefill.options.cfdiCodes.map(option => option.value));
+        if(financialPlan) validateInvoiceLineAllocations(normalizedLines, financialPlan);
+      }
+      catch (error) { notify(error instanceof Error ? error.message : "请核对开票明细", "error"); return; }
+    }
+    if(financialPlan){const error=validateInvoiceAllocationPlan(financialPlan,{...form,amountIncludingTax:prefill.branch==="cl"?form.chileAmount:form.amountIncludingTax});if(error||financialPlan.currency!==form.amountCurrency){notify(error||"请核对分摊币种","error");return;}}
     submitLock.current = true;
     setSubmitting(true);
     try {
@@ -253,7 +310,8 @@ export function InvoiceApprovalPanel({
           customerId: parties.customerId ?? prefill.customer?.customerId,
           undertakingUnitId: parties.undertakingUnitId ?? prefill.undertakingUnitId,
           sourceIds: sourceIds.length ? sourceIds : undefined,
-          allocationPlan,
+          allocationPlan: financialPlan,
+          invoiceLines: normalizedLines,
           purpose: form.purpose,
           paymentReceivedTime: form.paymentReceivedTime,
           paymentTermDays: form.paymentTermDays,
@@ -261,7 +319,7 @@ export function InvoiceApprovalPanel({
           paymentMethodKey: form.paymentMethodKey,
           cfdiCodeKey: form.cfdiCodeKey,
           customerOverride: { name: form.customerName, taxId: form.taxId, taxRegime: form.taxRegime, address: form.address, postCode: form.postCode },
-          amountIncludingTax: Number(form.amountIncludingTax) || undefined,
+          amountIncludingTax: (prefill.branch === "mx" ? Number(normalizeInvoiceMoneyInput(form.amountIncludingTax)) : Number(form.amountIncludingTax)) || undefined,
           amountCurrency: form.amountCurrency || undefined,
           businessExchangeRate: form.businessExchangeRate,
           taxRate: form.taxRate,
@@ -289,7 +347,7 @@ export function InvoiceApprovalPanel({
       submitLock.current = false;
       setSubmitting(false);
     }
-  }, [form, allocationPlan, parties, partnerError, loading, materials, readingAttachments, onClose, onSubmitted, prefill, sourceId, sourceIds, sourceType]);
+  }, [form, allocationPlan, financialPlan, mexicoInvoiceLines, parties, partnerError, loading, materials, readingAttachments, onClose, onSubmitted, prefill, sourceId, sourceIds, sourceType]);
 
   const blocked = loading || Boolean(partnerError) || !prefill || prefill.blockers.length > 0 || prefill.branch === "br" || prefill.branch === null || Boolean(prefill.existingApproval) || !prefill.amountCurrencyOptions.includes(form.amountCurrency);
 
@@ -324,7 +382,7 @@ export function InvoiceApprovalPanel({
       {sourceType === "prepayment_contract" ? <label className="grid gap-1 text-sm">合同折算汇率（1 {form.amountCurrency} = N {prefill.currency}）<Input type="number" step="any" disabled={submitting || loading || form.amountCurrency === prefill.currency} value={form.amountCurrency === prefill.currency ? "1" : form.businessExchangeRate} onChange={e => setForm(current => ({ ...current, businessExchangeRate: e.target.value }))} /></label> : null}
       {loading ? <p className="text-sm text-ink-3">正在更新开票资料和审批主体…</p> : null}
       {partnerError ? <p role="alert" className="text-sm text-danger">{partnerError}</p> : null}
-      {onAllocationChange?<InvoiceAllocationEditor sourceType={sourceType} sourceId={sourceId} currency={form.amountCurrency} totals={{...form,amountIncludingTax:prefill.branch==="cl"?form.chileAmount:form.amountIncludingTax}} value={allocationPlan} onChange={onAllocationChange} disabled={submitting||loading||Boolean(prefill.existingApproval)} onTotalsChange={totals=>setForm(current=>({...current,amountExcludingTax:String(totals.amountExcludingTax),taxAmount:String(totals.taxAmount),taxRate:String(totals.taxRate??""),amountIncludingTax:String(totals.amountIncludingTax),chileAmount:String(totals.amountIncludingTax)}))}/>:null}
+      {onAllocationChange?<InvoiceAllocationEditor sourceType={sourceType} sourceId={sourceId} currency={form.amountCurrency} totals={{...form,amountIncludingTax:prefill.branch==="cl"?form.chileAmount:form.amountIncludingTax}} value={financialPlan} showLineLayout={prefill.branch!=="mx"} manualInvoiceAmounts={prefill.branch==="mx"} onChange={changeAllocationPlan} disabled={submitting||loading||Boolean(prefill.existingApproval)} onTotalsChange={totals=>setForm(current=>({...current,amountExcludingTax:String(totals.amountExcludingTax),taxAmount:String(totals.taxAmount),taxRate:String(totals.taxRate??""),amountIncludingTax:String(totals.amountIncludingTax),chileAmount:String(totals.amountIncludingTax)}))}/>:null}
       {prefill.existingApproval ? (
         <Notice tone="info">
           该账单已有一条审批：{invoiceApprovalStatusLabel(prefill.existingApproval.status, prefill.existingApproval.invoiceId, prefill.existingApproval.invoiceStatus)}
@@ -435,20 +493,14 @@ export function InvoiceApprovalPanel({
               <Field label="税金">
                 <Input inputMode="decimal" value={form.taxAmount} onChange={(event) => updateAmounts({ taxAmount: event.target.value })} />
               </Field>
-              <Field label="含税金额 Amount" required hint="飞书审批里的开票金额就是这一项">
+              <Field label="整单含税金额 Amount" required hint="须与下方各行含税金额合计一致">
                 <Input inputMode="decimal" value={form.amountIncludingTax} onChange={(event) => setForm({ ...form, amountIncludingTax: event.target.value })} />
               </Field>
-              <Field label="CFDI Code 用途码" required>
-                <Select value={form.cfdiCodeKey} onChange={(event) => setForm({ ...form, cfdiCodeKey: event.target.value })}>
-                  {prefill.options.cfdiCodes.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
-                </Select>
-              </Field>
-              <div className="md:col-span-3">
-                <Field label="Invoice Content 开票内容" required>
-                  <Input value={form.invoiceContent} onChange={(event) => setForm({ ...form, invoiceContent: event.target.value })} />
-                </Field>
-              </div>
             </div>
+            <InvoiceApprovalLinesEditor value={mexicoInvoiceLines} onChange={setCustomInvoiceLines} total={form.amountIncludingTax} currency={form.amountCurrency}
+              options={prefill.options.cfdiCodes} periodLines={periodInvoiceLines} allocationOptions={financialPlan?.allocations.map(row=>({value:row.sourceId,label:`${row.period} · ${row.account || row.sourceNo}`}))} mergeDescription={allocationPlan?.description || form.invoiceContent}
+              disabled={submitting || loading || Boolean(prefill.existingApproval)}
+              onUseTotal={useInvoiceLineTotal}/>
           </Section>
 
         </>
@@ -490,7 +542,7 @@ export function InvoiceApprovalPanel({
       /> : prefill.branch === "cl" ? <p role="status" className="text-sm text-warning-ink">飞书 Cloud 智利分支尚未配置附件栏，请管理员增加附件栏后重新打开申请。</p> : null}
 
       {allocationPlan&&prefill.attachmentField?<p className="text-xs text-ink-3">系统会自动附上合并开票说明，其他审批材料最多选择 9 个。</p>:null}
-      <Section index={linesIndex} title="票面明细" subtitle="Invoice Lines" hint="以下为申请的票面展示方式。财务回票并经核对确认后，各账期登记本期分摊金额。">
+      {prefill.branch !== "mx" ? <Section index={linesIndex} title="票面明细" subtitle="Invoice Lines" hint="以下为申请的票面展示方式。财务回票并经核对确认后，各账期登记本期分摊金额。">
         {invoiceLines.length ? (
           <div className="overflow-hidden rounded border border-line-soft">
             <table className="w-full border-collapse text-sm">
@@ -515,7 +567,7 @@ export function InvoiceApprovalPanel({
         ) : (
           <p className="rounded border border-dashed border-line bg-white px-3 py-4 text-sm text-ink-3">{allocationPlan?"请先补齐各期分摊金额，再核对票面明细。":"这张账单没有明细行，票面按金额开具。"}</p>
         )}
-      </Section>
+      </Section> : null}
 
       <div className="rounded border border-line-soft bg-surface-2 px-3 py-3 text-xs leading-relaxed text-ink-3">
         <div className="mb-2 flex items-center gap-1.5 text-ink-2">
@@ -528,7 +580,7 @@ export function InvoiceApprovalPanel({
           <span className="rounded bg-white px-2 py-0.5 font-medium text-success">核对登记</span>
         </div>
         提交后会以<b className="text-ink-2">当前登录人的飞书身份</b>发起 Cloud Invoice 审批。
-        审批通过后继续跟踪财务上传的发票，识别后在“审批进度与回票”中核对确认。
+        审批通过后继续跟踪财务上传的发票，正常回票自动登记，异常可在“审批进度与回票”中处理。
         登记时回填真实票号、开票日期和各期分摊金额，并将发票原件关联到各账单。
       </div>
     </div>

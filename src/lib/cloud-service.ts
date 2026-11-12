@@ -921,8 +921,8 @@ async function attachCloudRowApprovalStatus(rows: Row[]) {
     const ids = Array.from(new Set(rows.map((row) => String(row.id ?? "").trim()).filter(Boolean)));
     if (!ids.length) return rows;
     // 这里直接查审批台账，避免 cloud-service 与 feishu-approval-service 互相 import
-    const approvals = await queryRows<{ ownerId: string; allocationSourceIds?:string; status: string; serialNumber: string; instanceCode: string; submittedAt: string; invoiceId: string | null; invoiceStatus: string | null }>(
-      `SELECT a.ownerId, a.allocationSourceIds, a.status, a.serialNumber, a.instanceCode, a.invoiceId, i.status AS invoiceStatus, DATE_FORMAT(a.submittedAt, '%Y-%m-%d %H:%i') AS submittedAt
+    const approvals = await queryRows<{ ownerId: string; allocationSourceIds?:string; status: string; serialNumber: string; instanceCode: string; submittedAt: string; invoiceId: string | null; invoiceStatus: string | null; syncError?: string; invoiceParseJson?: string }>(
+      `SELECT a.ownerId, a.allocationSourceIds, a.status, a.serialNumber, a.instanceCode, a.invoiceId, a.syncError, a.invoiceParseJson, i.status AS invoiceStatus, DATE_FORMAT(a.submittedAt, '%Y-%m-%d %H:%i') AS submittedAt
          FROM merge_common_feishu_approvals a
          LEFT JOIN merge_common_invoices i ON i.id = a.invoiceId
         WHERE a.ownerType = 'cloud_row' AND (a.ownerId IN (:ids) OR a.allocationSourceIds IS NOT NULL) AND a.status IN ('pending', 'returned', 'approved')
@@ -939,6 +939,9 @@ async function attachCloudRowApprovalStatus(rows: Row[]) {
       row.invoiceApprovalAt = approval.submittedAt;
       row.invoiceApprovalInvoiceId = approval.invoiceId;
       row.invoiceApprovalInvoiceStatus = approval.invoiceStatus;
+      row.invoiceApprovalSyncError = approval.syncError || "";
+      try { row.invoiceApprovalPendingReturns = JSON.parse(approval.invoiceParseJson || "{}").pending || 0; }
+      catch { row.invoiceApprovalPendingReturns = 0; }
     }
   } catch (error) {
     // 审批状态只是展示附加信息，读不到不影响对账列表
@@ -1340,9 +1343,16 @@ export async function updateCloudSupplierPayment(id: string, body: Row, actor: O
   }
   if (target && text(body.invoiceSupplierId) === text(target.invoiceSupplierId) && text(target.invoiceSupplierName)) body.invoiceSupplierName = target.invoiceSupplierName;
   const merged = { ...(target ?? {}), ...body };
-  if ((fields.includes("invoiceNo") || fields.includes("invoiceSupplierId")) && text(merged.invoiceNo) && text(merged.invoiceSupplierId || merged.supplierId)) {
+  if (fields.some(key => key.startsWith("invoice")) && text(merged.invoiceNo) && text(merged.invoiceSupplierId || merged.supplierId)) {
     const duplicate = await queryRowsRaw("SELECT id FROM merge_cloud_supplier_payments WHERE COALESCE(NULLIF(invoiceSupplierId, ''), supplierId) = :supplierId AND invoiceNo = :invoiceNo AND id <> :id LIMIT 1", { supplierId: text(merged.invoiceSupplierId || merged.supplierId), invoiceNo: text(merged.invoiceNo), id: values.id });
-    if (duplicate.length) throw new Error("该供应商发票已在其他账期登记，请核对或分摊，不能重复登记整票金额");
+    const invoiceChanged = !target || fields.some(key => {
+      if (!key.startsWith("invoice") || key === "invoiceSupplierName") return false;
+      if (key === "invoiceSupplierId") return text(merged.invoiceSupplierId || merged.supplierId) !== text(target.invoiceSupplierId || target.supplierId);
+      if (/Amount$|Rate$/.test(key)) return Number(merged[key] ?? 0) !== Number(target[key] ?? 0);
+      if (key === "invoiceDate") return dateOnly(merged[key]) !== dateOnly(target[key]);
+      return text(merged[key]) !== text(target[key]);
+    });
+    if (duplicate.length && invoiceChanged) throw new Error("该供应商发票涉及多个账期，请勾选相关账期使用“发票跨账期分摊”统一登记或修改，不能重复登记整票金额");
   }
   const assignmentFields = new Set(fields);
   const assignments = fields.map((key) => `${key} = :${key}`);

@@ -12,7 +12,9 @@
  */
 import { randomUUID } from "node:crypto";
 import { COST_PAYMENT_PROJECT_LABELS, COST_PAYMENT_PROJECT_KEYS, COST_PAYMENT_LIST_WIDGETS, costPaymentProjectLabel } from "./cost-payment-project";
-import { execute, queryRows, type Row } from "./db";
+import { execute, queryRows, withTransaction, executeInTransaction, type Row } from "./db";
+import { applyCloudPaymentAllocation, prepareCloudPaymentPlan, withCloudPaymentSources } from "./cloud-payment-allocation-service";
+import { parseCloudPaymentPlan, type CloudPaymentAllocationPlan } from "./cloud-payment-allocation";
 import { FEISHU_API_BASE } from "./feishu-auth-config";
 import { getFeishuTenantAccessToken } from "./feishu-message-service";
 import {
@@ -229,6 +231,8 @@ export type CostPaymentEntryInput = {
   amount: number;
   currency: string;
   payee: string;
+  paymentTaxRate?: number;
+  paymentExchangeRate?: number;
   bankAccount: string;
   bankName: string;
   swiftCode: string;
@@ -373,12 +377,14 @@ async function uploadStoredFiles(rows: StoredFileRow[]) {
 }
 
 /** 把「已有附件引用」解析回原文件并上传到飞书审批。 */
-async function uploadAttachmentRefs(entry: CostPaymentEntryInput) {
+async function uploadAttachmentRefs(entry: CostPaymentEntryInput, sharedEntries?: CostPaymentEntryInput[], cache = new Map<string,string>()) {
   const refs = Array.from(
     new Map((entry.attachmentRefs ?? []).map((ref) => [`${ref.source}:${ref.attachmentId}`, ref])).values(),
   );
   const tokens: string[] = [];
   for (const ref of refs) {
+    const cacheKey = `${ref.source}:${ref.attachmentId}`;
+    if (cache.has(cacheKey)) { tokens.push(cache.get(cacheKey)!); continue; }
     let rows: Row[] = [];
     if (ref.source === "purchase_order") {
       rows = await queryRows<Row>(
@@ -399,7 +405,7 @@ async function uploadAttachmentRefs(entry: CostPaymentEntryInput) {
         { attachmentId: ref.attachmentId, projectId: String(entry.projectId ?? "") },
       );
     } else if (ref.source === "cloud_supplier_payment") {
-      const paymentOwnerIds = cloudPaymentAttachmentOwnerIds(entry);
+      const paymentOwnerIds = (sharedEntries ?? [entry]).flatMap(cloudPaymentAttachmentOwnerIds);
       rows = await queryRows<Row>(
         `SELECT * FROM merge_cloud_attachments
           WHERE id = :attachmentId AND ownerType = 'supplier_payment' AND ownerId IN (:paymentOwnerIds) LIMIT 1`,
@@ -410,10 +416,10 @@ async function uploadAttachmentRefs(entry: CostPaymentEntryInput) {
         `SELECT a.* FROM merge_cloud_attachments a
            INNER JOIN merge_cloud_rows r ON r.id = a.ownerId
           WHERE a.id = :attachmentId AND a.ownerType = 'invoice'
-            AND r.period = :period AND r.supplierId = :supplierId LIMIT 1`,
+            AND r.period IN (:periods) AND r.supplierId = :supplierId LIMIT 1`,
         {
           attachmentId: ref.attachmentId,
-          period: String(entry.period ?? ""),
+          periods: (sharedEntries ?? [entry]).map(row => String(row.period ?? "")),
           supplierId: String(entry.supplierId ?? ""),
         },
       );
@@ -421,10 +427,12 @@ async function uploadAttachmentRefs(entry: CostPaymentEntryInput) {
     if (!rows[0]) throw new Error(`附件不存在或不属于当前单据：${ref.attachmentId}`);
     const file = await readStoredFile(rows[0] as StoredFileRow);
     if (!file) throw new Error(`附件内容不存在：${String(rows[0].fileName ?? ref.attachmentId)}`);
-    tokens.push(await uploadApprovalAttachment({
+    const token = await uploadApprovalAttachment({
       bytes: file.bytes,
       fileName: String(rows[0].fileName ?? "attachment.pdf"),
-    }));
+    });
+    cache.set(cacheKey, token);
+    tokens.push(token);
   }
   return tokens;
 }
@@ -457,7 +465,7 @@ async function callFeishu<T>(path: string, init: RequestInit = {}, action = "调
 }
 
 /** 发起审批：上传附件 → 组装表单 → 提交 → 记台账 → 回写来源单据状态。 */
-export async function submitCostPaymentApproval(input: {
+type CostPaymentSubmission = {
   /** 来源入口：决定单据归属、附件及回写目标。 */
   branch: CostPaymentBranch;
   /** 本次飞书成本项目，旧调用未传时沿用来源默认。 */
@@ -465,7 +473,18 @@ export async function submitCostPaymentApproval(input: {
   reason: string;
   entries: CostPaymentEntryInput[];
   starter: { openId: string; userId?: string; displayName?: string };
-}) {
+};
+
+export async function submitCostPaymentApproval(input: CostPaymentSubmission) {
+  if (input.branch !== "huawei") return submitCostPaymentApprovalCore(input);
+  if (!input.entries.length || input.entries.some(entry => entry.ownerType !== "cloud_supplier_payment")) throw new Error("付款单据来源与业务入口不一致");
+  return withCloudPaymentSources(input.entries.map(entry => entry.ownerId), async rows => {
+    const { entries, plan } = await prepareCloudPaymentPlan(rows, input.entries);
+    return submitCostPaymentApprovalCore({ ...input, entries }, plan);
+  });
+}
+
+async function submitCostPaymentApprovalCore(input: CostPaymentSubmission, allocationPlan?: CloudPaymentAllocationPlan) {
   const openId = String(input.starter.openId ?? "").trim();
   if (!openId.startsWith("ou_")) throw new Error("当前账号没有绑定飞书 open_id，无法发起审批");
   const costProject = input.costProject ?? input.branch;
@@ -485,15 +504,20 @@ export async function submitCostPaymentApproval(input: {
     String(input.entries[0].companyKey ?? "").trim() || resolveCostPaymentCompanyKey(input.entries[0].undertakingUnitCode);
   const formEntries = [];
   const savedAttachments: Array<{ entry: CostPaymentEntryInput; fileName: string; dataUrl: string; fileType: string }> = [];
+  const sharedEntries = allocationPlan ? input.entries : undefined;
+  const sharedRefs = sharedEntries?.flatMap(entry => entry.attachmentRefs ?? []);
+  const sharedFiles = sharedEntries ? [...new Map(sharedEntries.flatMap(entry => entry.attachments ?? []).map(file => [file.dataUrl,file])).values()] : undefined;
+  const attachmentTokenCache = new Map<string,string>();
+  const sharedUploaded = sharedFiles ? await uploadInlineAttachments(sharedFiles) : undefined;
   for (const entry of input.entries) {
     const existing = !Array.isArray(entry.attachmentRefs) && entry.ownerType === "settlement_invoice_payment"
       ? await loadSettlementInvoiceAttachmentTokens(entry.ownerId)
       : [];
-    const referenced = await uploadAttachmentRefs(entry);
-    const uploaded = await uploadInlineAttachments(entry.attachments ?? []);
-    const tokens = [...existing, ...referenced, ...uploaded];
+    const referenced = await uploadAttachmentRefs(sharedRefs ? { ...entry,attachmentRefs:sharedRefs } : entry, sharedEntries, allocationPlan ? attachmentTokenCache : new Map());
+    const uploaded = sharedUploaded ?? await uploadInlineAttachments(entry.attachments ?? []);
+    const tokens = [...new Set([...existing, ...referenced, ...uploaded])];
     if (!tokens.length) throw new Error(`明细 ${entry.ownerNo ?? entry.ownerId} 缺少附件，付款申请必须带附件`);
-    for (const attachment of entry.attachments ?? []) {
+    for (const attachment of sharedFiles ?? entry.attachments ?? []) {
       const match = /^data:([^;,]+)?;base64,/.exec(String(attachment.dataUrl ?? ""));
       savedAttachments.push({
         entry,
@@ -532,13 +556,14 @@ export async function submitCostPaymentApproval(input: {
 
   const approvalId = randomUUID();
   const ownerIds = input.entries.map((entry) => entry.ownerId);
-  await execute(
+  const persist = async (write: typeof execute) => {
+  await write(
     `INSERT INTO merge_common_feishu_approvals
        (id, ownerType, ownerId, ownerNo, period, approvalCode, instanceCode, title, status,
-        starterOpenId, starterUserId, starterName, allocationSourceIds, formJson, submittedAt)
+        starterOpenId, starterUserId, starterName, allocationSourceIds, formJson, allocationPlanJson, submittedAt)
      VALUES
        (:id, :ownerType, :ownerId, :ownerNo, :period, :approvalCode, :instanceCode, :title, 'pending',
-        :starterOpenId, :starterUserId, :starterName, :allocationSourceIds, :formJson, CURRENT_TIMESTAMP)`,
+        :starterOpenId, :starterUserId, :starterName, :allocationSourceIds, :formJson, :allocationPlanJson, CURRENT_TIMESTAMP)`,
     {
       id: approvalId,
       ownerType: input.entries[0].ownerType,
@@ -551,12 +576,20 @@ export async function submitCostPaymentApproval(input: {
       starterOpenId: openId,
       starterUserId: input.starter.userId ?? null,
       starterName: input.starter.displayName ?? null,
-      allocationSourceIds: ownerIds.join(",").slice(0, 500),
+      allocationSourceIds: ownerIds.join(","),
       formJson: JSON.stringify(form),
+      allocationPlanJson: allocationPlan ? JSON.stringify(allocationPlan) : null,
     },
   );
-
-  await markCostPaymentPending(input.entries.map((entry) => ({ ownerType: entry.ownerType, ownerId: entry.ownerId })), approvalId);
+  if (allocationPlan) {
+    for (const entry of allocationPlan.entries) await write("UPDATE merge_cloud_supplier_payments SET paymentApprovalId=:approvalId WHERE id=:id",{ approvalId,id:entry.paymentRecordId });
+  }
+  };
+  if (allocationPlan) await withTransaction(connection => persist((sql,params) => executeInTransaction(connection,sql,params)));
+  else {
+    await persist(execute);
+    await markCostPaymentPending(input.entries.map((entry) => ({ ownerType: entry.ownerType, ownerId: entry.ownerId })), approvalId);
+  }
   // 无论选择哪个成本项目，新上传附件仍保存在原业务单据下。
   for (const attachment of savedAttachments) {
     await saveAttachmentForOwner(attachment.entry, attachment.fileName, attachment.fileType, attachment.dataUrl);
@@ -637,10 +670,11 @@ async function saveAttachmentForOwner(entry: CostPaymentEntryInput, fileName: st
 /** Only unfinished approvals or failed backfills; completed historical payments leave the queue. */
 export async function syncCostPaymentApprovals(limit = 30, dueOnly = false) {
   const batchLimit = Number.isFinite(limit) ? Math.max(1, Math.min(200, Math.floor(limit))) : 30;
-  const rows = await queryRows<{ id: string; instanceCode: string; status: string; syncError: string; ownerType: CostPaymentOwnerType; ownerId: string; allocationSourceIds: string | null }>(
-    `SELECT id, instanceCode, status, syncError, ownerType, ownerId, allocationSourceIds
+  const rows = await queryRows<{ id: string; instanceCode: string; status: string; syncError: string; ownerType: CostPaymentOwnerType; ownerId: string; allocationSourceIds: string | null; allocationPlanJson: string | null }>(
+    `SELECT id, instanceCode, status, syncError, ownerType, ownerId, allocationSourceIds, allocationPlanJson
        FROM merge_common_feishu_approvals
-      WHERE approvalCode = :approvalCode AND (status IN ('pending', 'returned') OR NULLIF(syncError, '') IS NOT NULL)
+      WHERE approvalCode = :approvalCode AND (status IN ('pending', 'returned') OR NULLIF(syncError, '') IS NOT NULL
+        OR (status='approved' AND allocationPlanJson IS NOT NULL AND paymentConfirmedAt IS NULL))
         ${dueOnly ? "AND (lastSyncedAt IS NULL OR lastSyncedAt <= TIMESTAMPADD(SECOND, -60, CURRENT_TIMESTAMP))" : ""}
       ORDER BY COALESCE(lastSyncedAt, submittedAt) ASC LIMIT ${batchLimit}`,
     { approvalCode: COST_PAYMENT_APPROVAL_CODE },
@@ -652,7 +686,11 @@ export async function syncCostPaymentApprovals(limit = 30, dueOnly = false) {
     const remote = await fetchInvoiceApprovalInstance(row.instanceCode);
     const changed = remote.status !== row.status;
     // Backfill before advancing the ledger to a terminal state, so a failed write remains retryable.
-    if (changed || remote.paymentConfirmedAt || row.syncError) await applyCostPaymentStatus(row.ownerType, approvalOwnerIds(row), remote.status, row.id, remote.paymentConfirmedAt);
+    const allocationPlan = row.ownerType === "cloud_supplier_payment" ? parseCloudPaymentPlan(row.allocationPlanJson) : null;
+    if (allocationPlan) {
+      // Approval alone is not evidence of transfer; wait for the finance confirmation node.
+      if (remote.paymentConfirmedAt) await applyCloudPaymentAllocation(row.id, toShanghaiDate(remote.paymentConfirmedAt));
+    } else if (changed || remote.paymentConfirmedAt || row.syncError) await applyCostPaymentStatus(row.ownerType, approvalOwnerIds(row), remote.status, row.id, remote.paymentConfirmedAt);
     await execute(
       `UPDATE merge_common_feishu_approvals
           SET status = :status, remoteStatus = :remoteStatus, serialNumber = :serialNumber,
@@ -754,9 +792,9 @@ async function applyCostPaymentStatus(
 /** 已通过但历史同步没记录到账节点的审批，按需回填一次。 */
 export async function backfillCostPaymentConfirmedAt(limit = 50) {
   const rows = await queryRows<{
-    id: string; instanceCode: string; ownerType: CostPaymentOwnerType; ownerId: string; allocationSourceIds: string | null;
+    id: string; instanceCode: string; ownerType: CostPaymentOwnerType; ownerId: string; allocationSourceIds: string | null; allocationPlanJson: string | null;
   }>(
-    `SELECT id, instanceCode, ownerType, ownerId, allocationSourceIds
+    `SELECT id, instanceCode, ownerType, ownerId, allocationSourceIds, allocationPlanJson
        FROM merge_common_feishu_approvals
       WHERE approvalCode = :approvalCode
         AND status = 'approved'
@@ -773,6 +811,8 @@ export async function backfillCostPaymentConfirmedAt(limit = 50) {
         result.skipped += 1;
         continue;
       }
+      if (row.ownerType === "cloud_supplier_payment" && parseCloudPaymentPlan(row.allocationPlanJson)) await applyCloudPaymentAllocation(row.id, toShanghaiDate(remote.paymentConfirmedAt));
+      else await applyCostPaymentStatus(row.ownerType, approvalOwnerIds(row), "approved", row.id, remote.paymentConfirmedAt);
       await execute(
         `UPDATE merge_common_feishu_approvals
             SET paymentConfirmedAt = :paymentConfirmedAt,
@@ -785,7 +825,6 @@ export async function backfillCostPaymentConfirmedAt(limit = 50) {
           instanceCode: row.instanceCode,
         },
       );
-      await applyCostPaymentStatus(row.ownerType, approvalOwnerIds(row), "approved", row.id, remote.paymentConfirmedAt);
       result.updated += 1;
     } catch (error) {
       result.errors.push({ instanceCode: row.instanceCode, error: error instanceof Error ? error.message : String(error) });
@@ -962,6 +1001,10 @@ export type CostPaymentPreviewRow = {
   undertakingUnitName: string;
   amount: number;
   currency: string;
+  payableAmount?: number;
+  payableCurrency?: string;
+  paymentTaxRate?: number;
+  paymentExchangeRate?: number;
   payee: string;
   bankName: string;
   bankAccount: string;
@@ -1008,7 +1051,9 @@ export async function loadCostPaymentPreview(branch: CostPaymentBranch, ownerIds
                   0
                 ) AS amount,
                 COALESCE(NULLIF(p.currency, ''), NULLIF(p.supplierPayableCurrency, ''), 'USD') AS currency,
-                p.receivableDate AS paymentDate, p.paid, p.invoiceNo,
+                p.receivableDate AS paymentDate, p.paid, p.invoiceNo, p.supplierPayableTotalAmount AS payableAmount,
+                p.supplierPayableCurrency AS payableCurrency, COALESCE(p.paymentTaxRate,p.supplierTaxRate,0) AS paymentTaxRate,
+                p.paymentExchangeRate,
                 (SELECT u.undertakingUnitCode FROM merge_common_undertaking_units u
                   WHERE u.undertakingUnitId = p.payerUnitId OR u.undertakingUnitCode = p.payerUnitName LIMIT 1) AS undertakingUnitCode,
                 COALESCE(
@@ -1306,6 +1351,7 @@ export async function loadCostPaymentPreview(branch: CostPaymentBranch, ownerIds
       undertakingUnitName: String(row.undertakingUnitName ?? ""),
       amount: Number(row.amount ?? 0),
       currency: String(row.currency ?? "").toUpperCase(),
+      ...(branch === "huawei" ? { payableAmount:Number(row.payableAmount ?? 0),payableCurrency:String(row.payableCurrency ?? "USD"),paymentTaxRate:Number(row.paymentTaxRate ?? 0),paymentExchangeRate:Number(row.paymentExchangeRate ?? 1) } : {}),
       payee: preferred?.accountName ?? "",
       bankName: preferred?.bankName ?? "",
       bankAccount: preferred?.bankAccount ?? "",

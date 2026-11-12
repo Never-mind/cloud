@@ -78,6 +78,26 @@ beforeEach(() => {
   db.sources = Object.fromEntries(["sf1", "sf2"].map((id, index) => [id, { id, snapshotNo: id, period: `20260${index + 1}`, customerReceivableNetAmount: "1000", customerReceivableTotalAmount: "1000", confirmed: 1, businessCustomerId: "buyer", countryCode: "BR", writeOffMonth: `2026-0${index + 1}-01`, serviceFeeTotal: "1000", serviceFeeTotalExcludingTax: "1000", serviceFeeCurrency: "USD", status: "已确认" }]));
 });
 
+describe("small service fee invoice status persistence", () => {
+  it("keeps 无需开票 when registering, appending and voiding invoices", async () => {
+    db.sources.sf1.serviceFeeTotal = "-0.0300";
+    db.sources.sf1.invoiceStatus = "无需开票";
+    await saveInvoice({ ...baseInput, sourceType: "service_fee" });
+    expect(db.sources.sf1.invoiceStatus).toBe("无需开票");
+    expect(db.invoices[0].status).toBe("issued");
+    await saveInvoice({ ...baseInput, sourceType: "service_fee", invoiceNo: "INV-B" });
+    expect(db.sources.sf1.invoiceStatus).toBe("无需开票");
+    expect(db.sources.sf1.invoiceAmountIncludingTax).toBe("200.20");
+    await voidInvoice(db.invoices[0].id, "test");
+    expect(db.sources.sf1.invoiceStatus).toBe("无需开票");
+    expect(db.sources.sf1.invoiceAmountIncludingTax).toBe("100.10");
+    await voidInvoice(db.invoices[1].id, "test");
+    expect(db.sources.sf1.invoiceStatus).toBe("无需开票");
+    expect(db.sources.sf1.invoiceAmountIncludingTax).toBeNull();
+    expect(db.sources.sf1.serviceFeeTotal).toBe("-0.0300");
+  });
+});
+
 describe.each(["service_fee", "cloud_row"] as const)("multiple invoices per %s month", sourceType => {
   const input = { ...baseInput, sourceType };
   const netKey = sourceType === "cloud_row" ? "invoiceNetAmount" : "invoiceAmountExcludingTax";

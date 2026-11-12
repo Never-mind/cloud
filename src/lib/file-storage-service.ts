@@ -230,6 +230,7 @@ export async function deleteFileObject(record: StoredFileRecord) {
 
 const CLOUD_ROW_OWNER_TYPES = new Set(["reconciliation", "collection", "invoice", "supplier_payment"]);
 const PARTY_OWNER_LABELS: Record<string, { table: string; idColumn: string; label: string; nameColumns: string[] }> = {
+  prospects: { table: "merge_common_prospects", idColumn: "id", label: "潜在客户", nameColumns: ["name"] },
   customers: { table: "merge_common_customers", idColumn: "customerId", label: "客户", nameColumns: ["shortName", "nameCn", "name", "customerCode"] },
   suppliers: { table: "merge_common_suppliers", idColumn: "supplierId", label: "供应商", nameColumns: ["shortName", "nameCn", "nameEn", "supplierCode"] },
   "undertaking-units": { table: "merge_common_undertaking_units", idColumn: "undertakingUnitId", label: "承接单位", nameColumns: ["shortName", "entityName", "name", "undertakingUnitCode"] },

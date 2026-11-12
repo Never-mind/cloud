@@ -16,6 +16,7 @@ import { Modal } from "./modal";
 import { notify } from "./app-dialog";
 import { formatDisplayValue } from "@/lib/display-format";
 import { paymentApprovalStatusLabel } from "@/lib/payment-approval-status";
+import { allocatePaymentAmount, paymentCents, paymentTaxAmounts } from "@/lib/cloud-payment-allocation";
 
 type Branch = "huawei" | "other" | "compute";
 type Option = { value: string; text: string };
@@ -54,6 +55,10 @@ type PreviewRow = {
   undertakingUnitName: string;
   amount: number;
   currency: string;
+  payableAmount?: number;
+  payableCurrency?: string;
+  paymentTaxRate?: number;
+  paymentExchangeRate?: number;
   payee: string;
   bankName: string;
   bankAccount: string;
@@ -157,6 +162,8 @@ export function CostPaymentApprovalModal({
   const [bindCode, setBindCode] = useState("");
   const [binding, setBinding] = useState(false);
   const [bindError, setBindError] = useState("");
+  const [allocationTotal,setAllocationTotal] = useState("");
+  const mergedCloud = branch === "huawei" && ownerIds.length > 1;
 
   useEffect(() => {
     let cancelled = false;
@@ -189,6 +196,14 @@ export function CostPaymentApprovalModal({
         setOptionsByProject(data.optionsByProject);
         setCompanies(nextCompanies);
         setRows(nextRows);
+        if (branch === "huawei") {
+          const total = Math.round(nextRows.reduce((sum,row)=>sum+Number(row.amount),0)*100)/100;
+          setAllocationTotal(total.toFixed(2));
+          if (nextRows.length > 1 && nextRows.every(row=>Number(row.payableAmount)>0)) {
+            const amounts=allocatePaymentAmount(total,nextRows.map(row=>row.payableAmount));
+            setRows(nextRows.map((row,index)=>({...row,amount:amounts[index]})));
+          }
+        }
         setWarnings(Array.isArray(data.warnings) ? data.warnings : []);
         setCompanyKey(
           previewRows[0]?.undertakingUnitCode
@@ -277,6 +292,11 @@ export function CostPaymentApprovalModal({
     setError("");
     try {
       if (!options?.available) throw new Error(options?.unavailableReason || "请先加载有效的付款成本项目");
+      if (branch === "huawei") {
+        if(rows.some(row=>row.paid))throw new Error("所选账期已经付款，请核对后重新选择");
+        if(new Set(rows.map(row=>row.currency)).size!==1 || new Set(rows.map(row=>row.bankAccount)).size!==1)throw new Error("合并付款的币种和收款账户必须一致");
+        if (mergedCloud && rows.reduce((sum,row)=>sum+paymentCents(row.amount),0)!==paymentCents(allocationTotal))throw new Error("各期付款金额合计必须等于本次付款总额");
+      }
       for (const [index, row] of rows.entries()) {
         const label = `第 ${index + 1} 行`;
         if (costProject === "compute" && !row.orderNo.trim()) throw new Error(`${label} 请补充订单号`);
@@ -300,6 +320,8 @@ export function CostPaymentApprovalModal({
             companyKey,
             amount: Number(row.amount),
             currency: row.currency,
+            paymentTaxRate: row.paymentTaxRate,
+            paymentExchangeRate: row.paymentExchangeRate,
             payee: row.payee,
             bankAccount: row.bankAccount,
             bankName: row.bankName,
@@ -369,7 +391,7 @@ export function CostPaymentApprovalModal({
   return (
     <>
     <Modal
-      description={`${BRANCH_TITLE[branch]} · 以你的飞书身份提交，审批通过后自动回写已付款`}
+      description={`${BRANCH_TITLE[branch]} · 以你的飞书身份提交，${branch === "huawei" ? "确认付款节点完成后自动回写各期实付金额及日期" : "审批通过后自动回写已付款"}`}
       footer={
         <div className="flex w-full items-center justify-between gap-3">
           <div className="min-w-0 truncate text-xs text-ink-3">
@@ -378,7 +400,7 @@ export function CostPaymentApprovalModal({
           </div>
           <div className="flex shrink-0 gap-2">
             <Button onClick={onClose} disabled={submitting}>取消</Button>
-            <Button disabled={loading || submitting || binding || !rows.length} onClick={() => setBindOpen(true)}>
+            <Button disabled={loading || submitting || binding || !rows.length || mergedCloud} title={mergedCloud ? "本次合并请使用新建审批；已有审批请单独核对后绑定" : undefined} onClick={() => setBindOpen(true)}>
               <Link2 size={15} />
               绑定已有审批
             </Button>
@@ -446,6 +468,11 @@ export function CostPaymentApprovalModal({
       </section>
 
       {/* 明细 */}
+      {mergedCloud && !loading && rows.length ? <section className="mt-4 rounded border border-line-soft bg-canvas p-3">
+        <div className="flex flex-wrap items-end gap-3"><label className="space-y-1 text-sm"><span>本次付款总额（{rows[0].currency}）</span><Input aria-label="本次付款总额" type="number" step="0.01" value={allocationTotal} disabled={submitting} onChange={event=>setAllocationTotal(event.target.value)}/></label><Button disabled={submitting} onClick={()=>{try{const amounts=allocatePaymentAmount(allocationTotal,rows.map(row=>row.payableAmount));setRows(current=>current.map((row,i)=>({...row,amount:amounts[i]})));setError("");}catch(error){setError(error instanceof Error?error.message:"分摊失败");}}}>按各期应付比例分摊</Button></div>
+        <div className="mt-3 overflow-x-auto"><table className="w-full text-sm"><thead><tr>{["账期","系统应付","本次付款","未税","税金"].map(label=><th key={label} className="px-2 py-1 text-left">{label}</th>)}</tr></thead><tbody>{rows.map(row=>{let amounts;try{amounts=paymentTaxAmounts(row.amount,row.paymentTaxRate);}catch{}return <tr key={row.ownerId}><td className="px-2 py-1">{row.period}</td><td className="px-2 py-1">{formatDisplayValue(row.payableAmount??0,"money")} {row.payableCurrency}</td><td className="px-2 py-1"><Input aria-label={`${row.period}本次付款金额`} disabled={submitting} type="number" step="0.01" className="w-32" value={row.amount} onChange={event=>patchRow(row.ownerId,{amount:Number(event.target.value)})}/></td><td className="px-2 py-1">{amounts?formatDisplayValue(amounts.netAmount,"money"):"—"}</td><td className="px-2 py-1">{amounts?formatDisplayValue(amounts.taxAmount,"money"):"—"}</td></tr>;})}</tbody></table></div>
+        <p className="mt-2 text-xs text-ink-3">合并为一张飞书审批，每期保留独立付款明细。下方任一账期选择或上传的附件会作为本次申请的共用材料。</p>
+      </section>:null}
       <div className="mt-4 space-y-3">
         {loading ? <div className="rounded border border-line-soft bg-white p-8 text-center text-sm text-ink-3">加载中…</div> : null}
         {!loading && !rows.length ? <div className="rounded border border-line-soft bg-white p-8 text-center text-sm text-ink-3">没有可发起的数据</div> : null}
@@ -494,6 +521,10 @@ export function CostPaymentApprovalModal({
                   ))}
                 </Select>
               </FormRow>
+              {branch === "huawei" ? <>
+                <FormRow label="实付税率（%）"><Input aria-label={`${row.period}实付税率`} type="number" step="0.01" value={Number(row.paymentTaxRate??0)*100} onChange={event=>patchRow(row.ownerId,{paymentTaxRate:Number(event.target.value)/100})}/></FormRow>
+                {row.currency !== row.payableCurrency ? <FormRow label="业务汇率" hint={`1 ${row.currency} 对应多少 ${row.payableCurrency}`}><Input aria-label={`${row.period}付款汇率`} type="number" step="0.000001" value={row.paymentExchangeRate??""} onChange={event=>patchRow(row.ownerId,{paymentExchangeRate:Number(event.target.value)})}/></FormRow>:null}
+              </>:null}
               <FormRow label="手续费">
                 <Select className="w-full" value={row.feeOptionKey} onChange={(event) => patchRow(row.ownerId, { feeOptionKey: event.target.value })}>
                   <option value="">请选择手续费</option>

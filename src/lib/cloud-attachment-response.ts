@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import type { Row } from "./db";
-import { readFile } from "./file-storage-service";
+import { readInvoiceAttachmentFile } from "./invoice-attachment-download";
 
 /**
  * 华为云附件的下载响应：附件内容以 base64 dataUrl 存在库里，这里还原成文件流。
@@ -10,12 +10,13 @@ import { readFile } from "./file-storage-service";
  */
 export async function cloudAttachmentResponse(attachment: Row) {
   // OBS 上的文件从对象存储取，老数据仍从 dataUrl 解出来（双读兼容）
-  const file = await readFile(attachment);
+  const file = await readInvoiceAttachmentFile(attachment);
   if (!file) return NextResponse.json({ error: "附件内容不存在" }, { status: 404 });
-  return new NextResponse(file.bytes, {
+  return new NextResponse(new Uint8Array(file.bytes), {
     headers: {
       "Content-Type": file.contentType || String(attachment.fileType || "application/octet-stream"),
-      "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(String(attachment.fileName).replace(/[\r\n"]/g, "_"))}`,
+      "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(file.fileName.replace(/[\r\n"]/g, "_"))}`,
+      "Cache-Control": "no-store",
     },
   });
 }

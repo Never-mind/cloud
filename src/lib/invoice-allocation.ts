@@ -18,26 +18,45 @@ export type AllocationTotals = { amountExcludingTax: unknown; taxAmount: unknown
 export function moneyCents(value: unknown): number {
   const raw = String(value ?? "").trim();
   if (!/^-?\d+(?:\.\d+)?$/.test(raw)) throw new Error("请填写有效金额");
-  const number = Number(raw);
-  const cents = Math.round((number + Math.sign(number) * Number.EPSILON) * 100);
-  if (!Number.isSafeInteger(cents) || cents < 0) throw new Error("开票金额不能为负数或超出范围");
-  return cents;
+  const negative = raw.startsWith("-");
+  const [whole, fraction = ""] = raw.replace(/^-/, "").split(".");
+  const absolute = BigInt(whole) * BigInt(100) + BigInt(fraction.padEnd(2, "0").slice(0, 2)) + BigInt(Number(fraction[2] ?? 0) >= 5 ? 1 : 0);
+  if (absolute > BigInt(Number.MAX_SAFE_INTEGER)) throw new Error("开票金额超出范围");
+  return Number(negative ? -absolute : absolute);
 }
 export const centsText = (cents: number) => (cents / 100).toFixed(2);
 
-/** Largest-remainder apportionment in integer cents; zero amounts are valid. */
+/** Signed proportional allocation in integer cents; negative periods remain deductions. */
 export function splitInvoiceAmount(value: unknown, weights: number[]): string[] {
   const cents = moneyCents(value);
-  if (!weights.length || weights.some(w => !Number.isFinite(w) || w < 0)) throw new Error("分摊依据不正确");
-  const normalized = weights.some(w => w > 0) ? weights : weights.map(() => 1);
+  if (!weights.length || weights.some(w => !Number.isFinite(w) || !Number.isSafeInteger(Math.round(w * 1000000)))) throw new Error("分摊依据不正确");
+  const normalized = weights.some(w => w !== 0) ? weights : weights.map(() => 1);
   const integers = normalized.map(w => BigInt(Math.round(w * 1000000)));
-  const sum = integers.reduce((a, b) => a + b, BigInt(0));
-  if (!sum) throw new Error("分摊依据金额过小");
-  const shares = integers.map((w, index) => ({ index, cents: Number(BigInt(cents) * w / sum), remainder: BigInt(cents) * w % sum }));
-  const remaining = cents - shares.reduce((total, row) => total + row.cents, 0);
+  const signedSum = integers.reduce((a, b) => a + b, BigInt(0));
+  if (!signedSum) throw new Error("账单正负金额相抵为零，无法按比例分摊，请按账单填入或手工调整");
+  if (weights.some(w => w < 0) && cents !== 0 && (cents < 0) !== (signedSum < BigInt(0))) throw new Error("票面总额与账单合计的正负方向不同，请手工核对分摊");
+  const sum = signedSum < BigInt(0) ? -signedSum : signedSum;
+  const absolute = BigInt(Math.abs(cents));
+  const shares = integers.map((weight, index) => {
+    const numerator = absolute * (signedSum < BigInt(0) ? -weight : weight);
+    let share = numerator / sum, remainder = numerator % sum;
+    if (remainder < BigInt(0)) { share--; remainder += sum; }
+    return { index, cents: share, remainder };
+  });
+  const remaining = Number(absolute - shares.reduce((total, row) => total + row.cents, BigInt(0)));
   const order = [...shares].sort((a, b) => a.remainder === b.remainder ? a.index - b.index : a.remainder > b.remainder ? -1 : 1);
   for (let index = 0; index < remaining; index++) order[index].cents++;
-  return shares.map(row => centsText(row.cents));
+  return shares.map(row => {
+    if (row.cents > BigInt(Number.MAX_SAFE_INTEGER) || row.cents < -BigInt(Number.MAX_SAFE_INTEGER)) throw new Error("分摊金额超出范围");
+    return centsText(Number(row.cents) * (cents < 0 ? -1 : 1));
+  });
+}
+
+/** Preserve exact monthly amounts, including a zero-total positive/negative offset. */
+function splitByAmounts(value: unknown, amounts: number[]): string[] {
+  const cents = amounts.map(amount => moneyCents(amount.toFixed(2)));
+  return cents.reduce((sum, amount) => sum + amount, 0) === moneyCents(value)
+    ? cents.map(centsText) : splitInvoiceAmount(value, amounts);
 }
 
 export function servicePeriodLabel(periods: string[]): string {
@@ -62,13 +81,13 @@ export function suggestInvoiceAllocations(sources: InvoiceAllocationSource[], cu
     const factor = Number(rate);
     return { ...source, exchangeRate: rate, taxRate: String(totals?.taxRate ?? "").trim() || source.sourceTaxRate,
       amountExcludingTax: factor > 0 ? (Number(source.sourceNet) * factor).toFixed(2) : "",
-      taxAmount: factor > 0 ? (Number(source.sourceTax) * factor).toFixed(2) : "",
+      taxAmount: factor > 0 ? centsText(moneyCents((Number(source.sourceTotal) * factor).toFixed(2)) - moneyCents((Number(source.sourceNet) * factor).toFixed(2))) : "",
       amountIncludingTax: factor > 0 ? (Number(source.sourceTotal) * factor).toFixed(2) : "" };
   });
   if (totals && sources.length && rows.every(row => Number(row.exchangeRate) > 0)) {
     const weights = rows.map(row => Number(row.sourceNet) * Number(row.exchangeRate));
-    const nets = splitInvoiceAmount(totals.amountExcludingTax, weights);
-    const taxes = splitInvoiceAmount(totals.taxAmount, rows.map((row,i)=>Number(nets[i])*Number(row.taxRate)));
+    const nets = splitByAmounts(totals.amountExcludingTax, weights);
+    const taxes = splitByAmounts(totals.taxAmount, rows.map((row,i)=>Number(nets[i])*Number(row.taxRate)/100));
     rows.forEach((row, i) => { row.amountExcludingTax = nets[i]; row.taxAmount = taxes[i]; row.amountIncludingTax = centsText(moneyCents(nets[i]) + moneyCents(taxes[i])); });
   }
   const defaultDescription=`${servicePeriodLabel(sources.map(row => row.period))}服务费`;
@@ -90,6 +109,7 @@ export function validateInvoiceAllocationPlan(plan: InvoiceAllocationPlan, expec
       if (!row.exchangeRate.trim() || !Number.isFinite(Number(row.exchangeRate)) || Number(row.exchangeRate) <= 0) return `${row.period} 请补齐有效汇率（1 ${row.sourceCurrency} 对应多少 ${plan.currency}）`;
       if (row.sourceCurrency === plan.currency && Number(row.exchangeRate) !== 1) return "同币种汇率必须为 1";
       const net = moneyCents(row.amountExcludingTax), tax = moneyCents(row.taxAmount), gross = moneyCents(row.amountIncludingTax);
+      if (plan.sourceType !== "service_fee" && [net, tax, gross].some(amount => amount < 0)) return "该业务来源暂不支持负数开票分摊";
       if (net + tax !== gross) return `${row.period} 未税金额加税金应等于含税金额`;
       const rate = Number(row.taxRate);
       if (!String(row.taxRate).trim() || !Number.isFinite(rate) || rate < 0 || rate > 100) return `${row.period} 请填写有效税率`;
@@ -131,8 +151,8 @@ export function applyRecognizedPeriodAmounts(plan:InvoiceAllocationPlan,lines:Ar
     if(!monthly.size||[...monthly.values()].reduce((a,b)=>a+b,0)!==moneyCents(totals.amountIncludingTax))return null;
     if([...monthly.keys()].some(period=>!plan.allocations.some(row=>row.period===period))||plan.allocations.some(row=>!monthly.has(row.period)))return null;
     const gross=new Map<string,string>();
-    for(const [period,cents] of monthly){const rows=plan.allocations.filter(row=>row.period===period);const amounts=splitInvoiceAmount(centsText(cents),rows.map(row=>Number(row.sourceTotal)*Number(row.exchangeRate)));rows.forEach((row,i)=>gross.set(row.sourceId,amounts[i]));}
-    const taxes=splitInvoiceAmount(totals.taxAmount,plan.allocations.map(row=>Number(gross.get(row.sourceId))));
+    for(const [period,cents] of monthly){const rows=plan.allocations.filter(row=>row.period===period);const amounts=splitByAmounts(centsText(cents),rows.map(row=>Number(row.sourceTotal)*Number(row.exchangeRate)));rows.forEach((row,i)=>gross.set(row.sourceId,amounts[i]));}
+    const taxes=splitByAmounts(totals.taxAmount,plan.allocations.map(row=>{const rate=Number(totals.taxRate??row.taxRate)/100;return Number(gross.get(row.sourceId))*rate/(1+rate);}));
     const next={...plan,allocations:plan.allocations.map((row,i)=>({...row,amountIncludingTax:gross.get(row.sourceId)!,taxAmount:taxes[i],amountExcludingTax:centsText(moneyCents(gross.get(row.sourceId))-moneyCents(taxes[i])),taxRate:String(totals.taxRate??row.taxRate)}))};
     return validateInvoiceAllocationPlan({...next,lineMode:"period"},totals)?null:next;
   }catch{return null;}

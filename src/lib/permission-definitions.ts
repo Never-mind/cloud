@@ -43,6 +43,7 @@ const MODULE_DOMAIN: Record<string, PermissionDefinition["domainKey"]> = {
   "notification-rules": "common",
   suppliers: "common",
   customers: "common",
+  prospects: "common",
   "undertaking-units": "common",
   "customer-pos": "po",
   "customer-po-items": "po",
@@ -134,6 +135,8 @@ const MODULE_GROUP: Record<string, string> = {
   "huawei-cloud-mappings": "华为云对账",
   "huawei-cloud-supplier-payments": "华为云对账",
   "demand-sync-mappings": "客户需求",
+  // Append new modules to preserve the compact tokens in existing permission cookies.
+  prospects: "潜在客户",
 };
 
 const DOMAIN_TITLES: Record<string, string> = {
@@ -145,6 +148,7 @@ const DOMAIN_TITLES: Record<string, string> = {
 const MODULE_ROOT: Record<string, string> = {
   suppliers: "domain:business-partners",
   customers: "domain:business-partners",
+  prospects: "domain:business-partners",
   "undertaking-units": "domain:business-partners",
   "customer-contacts": "domain:business-partners",
   "customer-bank-accounts": "domain:business-partners",
@@ -319,6 +323,7 @@ const ADMIN_ONLY_MODULES = new Set(["system-users", "system-module-features"]);
 type RoutePermissionRule = { prefix: string; moduleKey: string; action?: PermissionAction };
 
 const API_ROUTE_RULES: RoutePermissionRule[] = [
+  { prefix: "/api/prospects", moduleKey: "prospects" },
   { prefix: "/api/system/users", moduleKey: "system-users" },
   { prefix: "/api/system/module-features", moduleKey: "system-module-features" },
   { prefix: "/api/notifications", moduleKey: "notification-rules" },
@@ -375,6 +380,7 @@ const API_ROUTE_RULES: RoutePermissionRule[] = [
 ];
 
 const PAGE_ROUTE_RULES: RoutePermissionRule[] = [
+  { prefix: "/prospects", moduleKey: "prospects" },
   { prefix: "/system/users", moduleKey: "system-users" },
   { prefix: "/system/notifications", moduleKey: "notification-rules" },
   { prefix: "/system/module-features", moduleKey: "system-module-features" },
@@ -454,6 +460,12 @@ function getMethodAction(pathname: string, method: string): PermissionAction {
 
 export function getRoutePermission(pathname: string, method = "GET") {
   const normalizedPath = pathname.length > 1 ? pathname.replace(/\/$/, "") : pathname;
+  if (["/prospects/new", "/api/prospects/new"].includes(normalizedPath) && ["GET", "HEAD"].includes(method)) {
+    return { moduleKey: "prospects", action: "create" as PermissionAction };
+  }
+  if (normalizedPath.startsWith("/api/prospects/") && method === "POST") {
+    return { moduleKey: "prospects", action: (normalizedPath.endsWith("/convert") ? "confirm" : "update") as PermissionAction };
+  }
   if (normalizedPath.startsWith("/api/entities/")) {
     const entityKey = normalizedPath.slice("/api/entities/".length).split("/", 1)[0];
     return { moduleKey: entityKey, action: getMethodAction(normalizedPath, method) };

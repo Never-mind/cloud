@@ -1417,6 +1417,10 @@ async function assignCustomerPoItemLineNo(config: EntityConfig, body: Row) {
 function validateRequiredFields(config: EntityConfig, body: Row) {
   const missing = config.formFields.find((field) => field.required && String(body[field.key] ?? "").trim() === "");
   if (missing) throw new Error(`请填写${missing.label}`);
+  if (config.key === "customers" && String(body.paymentTermDays ?? "").trim() !== "") {
+    const days = Number(body.paymentTermDays);
+    if (!Number.isInteger(days) || days < 0 || days > 3650) throw new Error("默认开票账期须为0至3650天的整数");
+  }
   // 实例型号：Equipment 仍必须有中文名称；Component / Material 由远端同步建档，
   // 远端本身不维护中文名，因此这两类允许为空。
   if (config.key === "instance-models") {
@@ -1428,6 +1432,9 @@ function validateRequiredFields(config: EntityConfig, body: Row) {
 }
 
 function getPersistenceValue(config: EntityConfig, field: string, value: unknown) {
+  if (config.key === "customers" && field === "paymentTermDays") {
+    return String(value ?? "").trim() === "" ? null : Number(value);
+  }
   if (config.key === "customer-po-items") {
     if (field === "targetUnitPrice") return value === null || value === undefined || String(value).trim() === "" ? 0 : Number(value);
     if (field === "currency") return String(value ?? "").trim() || "USD";

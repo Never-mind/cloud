@@ -5,11 +5,12 @@ vi.mock("./db",()=>({queryRowsRaw:mock.query,queryRows:mock.query,executeRaw:moc
   executeInTransaction:(_c:unknown,sql:string,values:Record<string,unknown>)=>mock.execute(sql,values),
   withTransaction:async(cb:(c:object)=>Promise<unknown>)=>{try{const result=await cb({});mock.committed=true;return result;}catch(error){mock.rolledBack=true;throw error;}}}));
 vi.mock("./file-storage-service",()=>({storeFile:vi.fn(async(input:{fileName:string})=>({provider:"db",storageKey:null,fileName:input.fileName})),deleteFileObject:vi.fn(),readFile:vi.fn()}));
-vi.mock("./invoice-pdf",()=>({renderInvoicePdf:vi.fn()}));
+vi.mock("./invoice-pdf",()=>({renderInvoicePdf:vi.fn(async()=>Buffer.from("%PDF-1.7\nfixture"))}));
 import {saveInvoice,voidInvoice} from "./invoice-service";
-import {prepareInvoiceAllocationPlan,lockInvoiceAllocationSources,invoiceAllocationAttachment} from "./invoice-allocation-service";
+import {loadAllocationSources,prepareInvoiceAllocationPlan,lockInvoiceAllocationSources,invoiceAllocationAttachment} from "./invoice-allocation-service";
 import {readInvoiceAllocationEdit,replaceInvoiceAllocations} from "./invoice-allocation-edit-service";
 import {suggestInvoiceAllocations,allocationTotals,type InvoiceAllocationSource} from "./invoice-allocation";
+import {applyInvoiceLineAmounts} from "./invoice-approval-allocation-amounts";
 const periods=["202512","202601","202602","202603","202604","202605"];
 const rows=periods.map((period,index)=>({id:`row${index}`,snapshotNo:`row${index}`,period,writeOffMonth:`${period.slice(0,4)}-${period.slice(4)}-01`,account:`account${index}`,customerId:"business-A",businessCustomerId:"business-A",customerLabel:"Customer A",undertakingUnitId:"business-unit",defaultUndertakingUnitId:"business-unit",customerReceivableNetAmount:"100",customerReceivableTotalAmount:"100",customerTaxRate:0,serviceFeeTotalExcludingTax:"100",serviceFeeTotal:"100",serviceFeeCurrency:"USD",vatRate:0}));
 const sources:InvoiceAllocationSource[]=rows.map(row=>({sourceType:"cloud_row",sourceId:row.id,sourceNo:`${row.period} · ${row.account}`,period:row.period,customerId:"business-A",customerName:"Customer A",undertakingUnitId:"business-unit",account:row.account,sourceCurrency:"USD",sourceNet:"100.00",sourceTax:"0.00",sourceTotal:"100.00",sourceTaxRate:"0",suggestedRate:"7"}));
@@ -28,6 +29,95 @@ function query(sql:string,values:Record<string,unknown>={}){
 }
 beforeEach(()=>{vi.resetAllMocks();mock.writes=[];mock.committed=false;mock.rolledBack=false;mock.query.mockImplementation(async(sql,values)=>query(sql,values));mock.queryTx.mockImplementation(async(sql,values)=>query(sql,values));mock.execute.mockImplementation(async(sql,values)=>{mock.writes.push({sql,values});});});
 describe("multi-period persistence",()=>{
+  it.each(["cloud_row","service_fee"] as const)("registers two approval returns with independent allocations and completes %s only after both files",async sourceType=>{
+    const full=plan(sourceType);full.lineMode="period";
+    full.allocations=full.allocations.slice(0,2).map((row,i)=>({...row,amountExcludingTax:i?"200.00":"100.00",taxAmount:"0.00",amountIncludingTax:i?"200.00":"100.00"}));
+    const approval={instanceCode:"instance",status:"approved",invoiceId:null as string|null,ownerType:sourceType,ownerId:"row0",allocationSourceIds:"row0,row1",allocationPlanJson:JSON.stringify(full)};
+    const files=full.allocations.flatMap((row,i)=>["pdf","xml"].map(ext=>({id:`file${i}.${ext}`,fileName:`F${i}.${ext}`,invoiceIdentity:`identity${i}`,invoiceNo:`F${i}`,invoiceId:null as string|null,recognitionJson:JSON.stringify({facts:{invoiceNo:`F${i}`,invoiceDate:"2026-06-01",currency:"CNY",amountExcludingTax:row.amountExcludingTax,taxAmount:"0.00",taxRate:"0",amountIncludingTax:row.amountIncludingTax},matches:{issuerUnitId:"invoice-unit",receiverCustomerId:"invoice-buyer-B"}})})));
+    const respond=(sql:string,values:Record<string,unknown>)=>{
+      if(sql.includes("FROM merge_common_feishu_approvals"))return [approval];
+      if(sql.includes("FROM merge_common_invoice_approval_files"))return files.filter(file=>!values.id||file.id===values.id);
+      if(sql.includes("i.approvalInstanceCode=:code"))return mock.writes.filter(w=>w.sql.includes("INSERT INTO merge_common_invoices")&&w.values.sourceId===values.sourceId).map(w=>({id:w.values.id}));
+      if(sql.includes("COALESCE(a.sourceId, i.sourceId)"))return mock.writes.filter(w=>w.sql.includes("INSERT INTO merge_common_invoice_allocations")&&(values.ids as string[]).includes(String(w.values.sourceId))).map(w=>({...mock.writes.find(i=>i.sql.includes("INSERT INTO merge_common_invoices")&&i.values.id===w.values.invoiceId)?.values,...w.values,id:w.values.invoiceId}));
+      return query(sql,values);
+    };
+    mock.query.mockImplementation(async(sql,values)=>respond(sql,values));mock.queryTx.mockImplementation(async(sql,values)=>respond(sql,values));
+    mock.execute.mockImplementation(async(sql,values)=>{
+      mock.writes.push({sql,values});
+      if(sql.startsWith("UPDATE merge_common_invoice_approval_files"))for(const file of files)if(Object.entries(values).some(([key,id])=>key.startsWith("fileId")&&id===file.id))file.invoiceId=String(values.id);
+      if(sql.startsWith("UPDATE merge_common_feishu_approvals SET invoiceId"))approval.invoiceId=values.id as string|null;
+    });
+    for(const [index,row] of full.allocations.entries()){
+      const subset={...full,allocations:[row]};
+      await saveInvoice({source:"external",sourceType,sourceId:row.sourceId,invoiceNo:`F${index}`,customerId:"invoice-buyer-B",undertakingUnitId:"invoice-unit",currency:"CNY",invoiceDate:"2026-06-01",paymentTermDays:30,dueDate:"2026-07-01",amountExcludingTax:row.amountExcludingTax,taxAmount:row.taxAmount,taxRate:row.taxRate,amountIncludingTax:row.amountIncludingTax,allocationPlan:subset,file:{fileName:`F${index}.pdf`,fileType:"application/pdf",bytes:Buffer.from("fixture")}}, {}, {instanceCode:"instance",fileId:`file${index}.pdf`,relatedFileIds:[`file${index}.pdf`,`file${index}.xml`],mode:"automatic",allocationMode:"matched_return"});
+      if(index===0)expect(approval.invoiceId).toBeNull();
+    }
+    expect(mock.writes.filter(w=>w.sql.includes("INSERT INTO merge_common_invoices"))).toHaveLength(2);
+    const allocations=mock.writes.filter(w=>w.sql.includes("INSERT INTO merge_common_invoice_allocations"));
+    expect(allocations.map(w=>[w.values.sourceId,w.values.amountIncludingTax])).toEqual([["row0","100.00"],["row1","200.00"]]);
+    expect(approval.invoiceId).toBeTruthy();expect(files.every(file=>file.invoiceId)).toBe(true);
+    expect(files[0].invoiceId).toBe(files[1].invoiceId);expect(files[2].invoiceId).toBe(files[3].invoiceId);expect(files[0].invoiceId).not.toBe(files[2].invoiceId);
+    const backfills=mock.writes.filter(w=>w.sql.includes(sourceType==="cloud_row"?"UPDATE merge_cloud_rows":"UPDATE merge_power_servicefeesnapshots"));
+    expect(backfills.map(w=>w.values.total)).toEqual(["100.00","200.00"]);
+  });
+  it("registers two same-month accounts at confirmed MXN amounts without replacing them by FX products",async()=>{
+    const localRows=rows.slice(0,2).map((row,i)=>({...row,period:"202610",customerReceivableNetAmount:i?"5125.47":"638.95",customerReceivableTotalAmount:i?"5125.47":"638.95",customerTaxRate:0.16}));
+    const respond=(sql:string,values:Record<string,unknown>)=>sql.includes("FROM merge_cloud_rows")?localRows.filter(row=>values.id?row.id===values.id:Array.isArray(values.ids)?values.ids.includes(row.id):true):query(sql,values);
+    mock.query.mockImplementation(async(sql,values)=>respond(sql,values));mock.queryTx.mockImplementation(async(sql,values)=>respond(sql,values));
+    const loaded=await loadAllocationSources("cloud_row",localRows.map(row=>row.id));
+    const allocationPlan=applyInvoiceLineAmounts(suggestInvoiceAllocations(loaded.map(row=>({...row,suggestedRate:"18.02"})),"MXN"),["11516.54","92376.13"].map((amountIncludingTax,i)=>({amountIncludingTax,invoiceContent:"Service",cfdiCodeKey:"G03",allocationSourceId:localRows[i].id})));
+    await saveInvoice({source:"external",sourceType:"cloud_row",sourceId:"row0",invoiceNo:"MXN-CONFIRMED",customerId:"invoice-buyer-B",undertakingUnitId:"invoice-unit",currency:"MXN",invoiceDate:"2026-11-11",paymentTermDays:30,dueDate:"2026-12-11",...allocationTotals(allocationPlan.allocations) as {amountExcludingTax:string;taxAmount:string;amountIncludingTax:string;taxRate:string},allocationPlan,file:{fileName:"confirmed.pdf",fileType:"application/pdf",bytes:Buffer.from("fixture")}});
+    expect(mock.committed).toBe(true);
+    const allocations=mock.writes.filter(row=>row.sql.includes("INSERT INTO merge_common_invoice_allocations"));
+    expect(allocations.map(row=>[row.values.sourceId,row.values.period,row.values.amountIncludingTax])).toEqual([["row0","202610","11516.54"],["row1","202610","92376.13"]]);
+    const backfills=mock.writes.filter(row=>row.sql.includes("UPDATE merge_cloud_rows"));
+    expect(backfills.map(row=>row.values.total)).toEqual(["11516.54","92376.13"]);
+    expect(backfills.map(row=>row.sql).join("\n")).not.toMatch(/(?:SET|,)\s*customerReceivable\w*\s*=/);
+  });
+  it("keeps custom Feishu rows separate from six monthly allocations in the finance attachment",async()=>{
+    const file=await invoiceAllocationAttachment(plan(),[
+      {description:"Servicios relacionados con la Voice servicio",amount:"1000.01",cfdiCode:"G03 Gastos en general"},
+      {description:"Servicios de soporte",amount:"3199.99",cfdiCode:"G03 Gastos en general"},
+    ]);
+    const ExcelJS=(await import("exceljs")).default;
+    const workbook=new ExcelJS.Workbook();await workbook.xlsx.load(file.bytes as never);
+    const accounting=workbook.getWorksheet("合并开票说明")!;
+    expect(accounting.getCell("B1").value).toBe("自定义 2 行（见开票明细页）");
+    expect(periods.map((_,i)=>accounting.getCell(`A${i+5}`).value)).toEqual(periods);
+    expect(periods.map((_,i)=>accounting.getCell(`I${i+5}`).value)).toEqual(periods.map(()=>700));
+    const details=workbook.getWorksheet("开票明细")!;
+    expect(details.rowCount).toBe(4);
+    expect(details.getRow(2).values).toEqual([undefined,1,"Servicios relacionados con la Voice servicio",1000.01,"CNY","G03 Gastos en general"]);
+    expect(details.getCell("C3").value).toBe(3199.99);
+    expect(details.getCell("C4").value).toBe(4200);
+  });
+  it.each([
+    {kind:"generated" as const,nets:[100,-30],total:"72.03"},
+    {kind:"generated" as const,nets:[-100,-30],total:"-133.77"},
+    {kind:"generated" as const,nets:[100,-100],total:"0.00"},
+    {kind:"external" as const,nets:[-100,-30],total:"-133.77"},
+  ])("saves $kind signed service-fee periods with a $total total and independent backfills",async({kind,nets,total})=>{
+    const signedRows=rows.slice(0,2).map((row,index)=>({...row,serviceFeeTotalExcludingTax:String(nets[index]),serviceFeeTotal:(nets[index]*1.029).toFixed(2),vatRate:0.029}));
+    const respond=(sql:string,values:Record<string,unknown>={})=>sql.includes("FROM merge_power_servicefeesnapshots")
+      ?signedRows.filter(row=>values.id?row.id===values.id:Array.isArray(values.ids)?values.ids.includes(row.id):true):query(sql,values);
+    mock.query.mockImplementation(async(sql,values)=>respond(sql,values));mock.queryTx.mockImplementation(async(sql,values)=>respond(sql,values));
+    const loaded=await loadAllocationSources("service_fee",signedRows.map(row=>row.id));
+    expect(loaded.every(row=>!row.disabledReason)).toBe(true);
+    const allocationPlan=suggestInvoiceAllocations(loaded,"USD");allocationPlan.lineMode="summary";allocationPlan.summaryCompatible=true;
+    await saveInvoice({source:kind,sourceType:"service_fee",sourceId:"row0",invoiceNo:"SIGNED-PERIODS",period:"202512",customerId:"invoice-buyer-B",undertakingUnitId:"invoice-unit",currency:"USD",invoiceDate:"2026-06-01",paymentTermDays:30,dueDate:"2026-07-01",
+      sellerCountry:"HK",sellerAddress:"Seller address",customerAddress:"Buyer address",bankAccount:"123456",
+      ...allocationTotals(allocationPlan.allocations) as {amountExcludingTax:string;taxAmount:string;amountIncludingTax:string;taxRate:string},allocationPlan,
+      ...(kind==="external"?{file:{fileName:"negative.pdf",fileType:"application/pdf",bytes:Buffer.from("fixture")}}:{})});
+    expect(mock.committed).toBe(true);
+    expect(mock.writes.find(row=>row.sql.includes("INSERT INTO merge_common_invoices"))?.values.amountIncludingTax).toBe(total);
+    const lines=mock.writes.filter(row=>row.sql.includes("INSERT INTO merge_common_invoice_items"));expect(lines).toHaveLength(1);expect(lines[0].values.amount).toBe(total);
+    const allocations=mock.writes.filter(row=>row.sql.includes("INSERT INTO merge_common_invoice_allocations"));
+    expect(allocations.map(row=>row.values.amountIncludingTax)).toEqual(signedRows.map(row=>row.serviceFeeTotal));
+    const backfills=mock.writes.filter(row=>row.sql.includes("UPDATE merge_power_servicefeesnapshots"));
+    expect(backfills.map(row=>row.values.total)).toEqual(signedRows.map(row=>row.serviceFeeTotal));
+    expect(backfills.map(row=>row.values.net)).toEqual(nets.map(value=>value.toFixed(2)));
+    expect(backfills.map(row=>row.sql).join("\n")).not.toMatch(/(?:SET|,)\s*(?:serviceFeeTotal\w*|repayment\w*|status)\s*=/);
+  });
   it.each(["cloud_row","service_fee"] as const)("automatically registers a single-line approval return and backfills different monthly amounts for %s",async sourceType=>{
     const allocationPlan=plan(sourceType);
     allocationPlan.allocations=allocationPlan.allocations.map((row,index)=>({...row,taxRate:"6",amountExcludingTax:(700*(index+1)).toFixed(2),taxAmount:(42*(index+1)).toFixed(2),amountIncludingTax:(742*(index+1)).toFixed(2)}));

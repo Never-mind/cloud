@@ -14,6 +14,24 @@ beforeEach(() => {
 });
 
 describe("confirmed service fee statement", () => {
+  it.each([0, 0.9999, -0.03])("persists not-required statuses for %s even when an old client sends binary states", async serviceFeeTotal => {
+    db.query.mockResolvedValue([{ snapshotNo: "SF-CONFIRMED", serviceFeeTotal, bankSerialNo: "original-bank-ref" }]);
+    await updateServiceFeeRepayment("SF-CONFIRMED", { repaymentStatus: "已回款", repaymentAmount: 0, repaymentDate: "2026-01-31" });
+    expect(db.execute.mock.calls.at(-1)?.[1]).toMatchObject({ repaymentStatus: "无需回款", repaymentAmount: 0, repaymentDate: "2026-01-31", bankSerialNo: "original-bank-ref" });
+    await updateServiceFeeInvoiceStatus("SF-CONFIRMED", "已开票");
+    expect(db.execute.mock.calls.at(-1)?.[1]).toMatchObject({ invoiceStatus: "无需开票" });
+    await updateServiceFeeInvoiceStatus("SF-CONFIRMED", "未开票");
+    expect(db.execute.mock.calls.at(-1)?.[1]).toMatchObject({ invoiceStatus: "无需开票" });
+    await updateServiceFeeRepayment("SF-CONFIRMED", { repaymentStatus: "无需回款" });
+    expect(db.execute.mock.calls.at(-1)?.[1].repaymentStatus).toBe("无需回款");
+  });
+
+  it.each([1, -1, 100])("does not accept not-required status for %s", async serviceFeeTotal => {
+    db.query.mockResolvedValue([{ snapshotNo: "SF-CONFIRMED", serviceFeeTotal }]);
+    await expect(updateServiceFeeRepayment("SF-CONFIRMED", { repaymentStatus: "无需回款" })).rejects.toThrow("绝对值小于1");
+    await expect(updateServiceFeeInvoiceStatus("SF-CONFIRMED", "无需开票")).rejects.toThrow("绝对值小于1");
+    expect(db.execute).not.toHaveBeenCalled();
+  });
   it("keeps a bank reference on status updates and supports replacing and clearing it", async () => {
     db.query.mockResolvedValue([{ snapshotNo: "SF-CONFIRMED", status: "已确认", bankSerialNo: "001234567890123456789-USD" }]);
     await updateServiceFeeRepayment("SF-CONFIRMED", { repaymentStatus: "未回款" });

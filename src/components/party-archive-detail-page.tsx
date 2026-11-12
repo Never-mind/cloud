@@ -14,6 +14,7 @@ import { confirmDialog } from "./app-dialog";
 import { broadcastMasterDataChanged } from "@/lib/workspace-events";
 import { buildDetailRoute, getReturnTo } from "@/lib/client-list-navigation";
 import { getEmbeddedRoute } from "@/lib/tab-workspace";
+import { CustomerProspectSources } from "./customer-prospect-sources";
 
 type Row = Record<string, string | number | boolean | null>;
 
@@ -217,6 +218,7 @@ export function PartyArchiveDetailPage({ config, id, related }: { config: Entity
         <div id="bank-accounts">{related.filter((item) => item.title.includes("银行")).map((item) => <RelatedSection config={item} ownerId={id} editing={editing} enabled key={item.key} pendingRows={pendingRelatedRows[item.key] ?? []} persisted={!isCreate} onPendingRowsChange={(rows) => setPendingRelatedRows((current) => ({ ...current, [item.key]: rows }))} onError={setError} />)}</div>
         <div id="contacts">{related.filter((item) => item.title.includes("联系人")).map((item) => <RelatedSection config={item} ownerId={id} editing={editing} enabled key={item.key} pendingRows={pendingRelatedRows[item.key] ?? []} persisted={!isCreate} onPendingRowsChange={(rows) => setPendingRelatedRows((current) => ({ ...current, [item.key]: rows }))} onError={setError} />)}</div>
         <div id="attachments"><AttachmentsSection config={config} ownerId={id} attachments={attachments} editing={editing && !isCreate} onAttachmentsChange={setAttachments} onError={setError} /></div>
+        {config.key === "customers" && !isCreate ? <CustomerProspectSources customerId={id} /> : null}
       </Panel>
     </div>
   );

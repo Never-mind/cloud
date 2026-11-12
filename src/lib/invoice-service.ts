@@ -1,3 +1,4 @@
+import { serviceFeeFinanceStatusWriteSql } from "./service-fee-finance-status";
 import { randomUUID } from "node:crypto";
 import { prepaymentInvoicePrefill, linkPrepaymentInvoice, lockPrepaymentCapacity, voidPrepaymentInvoice } from "./prepayment-finance-service";
 import { readBusinessRequest, type PrepaymentBusinessRequest } from "./prepayment-finance";
@@ -7,9 +8,11 @@ import { executeRaw, queryRowsRaw, executeRaw as executeOutsideTransaction, quer
 import type { PoolConnection } from "mysql2/promise";
 import { allocationInvoiceLines, allocationTotals, readInvoiceAllocationPlan, servicePeriodLabel, type InvoiceAllocationPlan } from "./invoice-allocation";
 import { loadAllocationSources, prepareInvoiceAllocationPlan, lockInvoiceAllocationSources, writeInvoiceAllocations } from "./invoice-allocation-service";
+import { lockedReturnGroups, validateMatchedReturn } from "./invoice-approval-return-validation";
 import { deleteFileObject, readFile, storeFile } from "./file-storage-service";
 import { isStatementInvoiceSource, refreshStatementInvoiceSummary, removeStatementInvoiceAttachment, statementInvoiceAttachmentId, validateStatementInvoiceAppend } from "./statement-invoice-ledger";
 import { renderInvoicePdf } from "./invoice-pdf";
+import { invoicePdfFileName, isHtmlFile, isPdfFile } from "./invoice-file-format";
 import {
   collectMissingInvoiceFields,
   renderInvoice,
@@ -880,7 +883,7 @@ export async function previewGeneratedInvoice(input: InvoiceDraftInput) {
 }
 
 /** 生成/保存开票记录。source=generated 时渲染票面文件；external 时用传入的附件。 */
-export async function saveInvoice(input: InvoiceDraftInput, actor: InvoiceActor = {}, approvalReturn?: { fileId: string; instanceCode: string; relatedFileIds: string[]; mode?: "automatic" | "manual" }) {
+export async function saveInvoice(input: InvoiceDraftInput, actor: InvoiceActor = {}, approvalReturn?: { fileId: string; instanceCode: string; relatedFileIds: string[]; mode?: "automatic" | "manual"; allocationMode?: "matched_return" }) {
   if (input.sourceType === "prepayment_contract" && approvalReturn) {
     const [approval] = await queryRowsRaw<Row>("SELECT businessRequestJson FROM merge_common_feishu_approvals WHERE instanceCode=:code", { code: approvalReturn.instanceCode });
     const snapshot = readBusinessRequest(approval?.businessRequestJson);
@@ -924,7 +927,7 @@ export async function saveInvoice(input: InvoiceDraftInput, actor: InvoiceActor 
     if (allocationIds.length && !approvalReturn && !plannedAllocation) throw new Error("外部发票请先按实际账期分摊确认，不能用整票金额覆盖多条账单");
     const review = { invoiceNo: input.invoiceNo, invoiceDate: input.invoiceDate, currency: input.currency,
       amountExcludingTax: text(input.amountExcludingTax), taxRate: text(input.taxRate), taxAmount: text(input.taxAmount), amountIncludingTax: text(input.amountIncludingTax) };
-    const error = validateInvoiceReview(review);
+    const error = validateInvoiceReview(review, true, { allowNegative: input.sourceType === "service_fee" });
     if (error) throw new Error(error);
     if (!text(input.customerId) || !text(input.undertakingUnitId)) throw new Error("请选择客户和开票主体");
     if (text(input.exchangeRate) && (!Number.isFinite(Number(input.exchangeRate)) || Number(input.exchangeRate) <= 0)) throw new Error("汇率必须是大于 0 的有效数字");
@@ -994,18 +997,9 @@ export async function saveInvoice(input: InvoiceDraftInput, actor: InvoiceActor 
     const missing = collectMissingInvoiceFields(renderInput, resolved.template);
     if (missing.length) throw new Error(`开票资料不完整：${missing.join("、")}`);
     const html = renderInvoice(renderInput, { template: resolved.template });
-    // 有浏览器就用无头 Chrome 转成 PDF（业务要的是 PDF）；转不了就回落 HTML，功能不中断
-    const pdf = await renderInvoicePdf(html);
-    if (pdf) {
-      bytes = pdf;
-      fileName = `${resolved.invoiceNo}.pdf`;
-      fileType = "application/pdf";
-    } else {
-      bytes = Buffer.from(html, "utf8");
-      fileName = `${resolved.invoiceNo}.html`;
-      // 用不带参数的 MIME：readFile 解析 data URL 时只认 `type;base64,`
-      fileType = "text/html";
-    }
+    bytes = await renderInvoicePdf(html);
+    fileName = `${resolved.invoiceNo}.pdf`;
+    fileType = "application/pdf";
   } else {
     if (!input.file?.bytes?.length) {
       if (sourceTypeValue !== "prepayment_contract" || input.manualRegistration !== true) throw new Error("请先上传外部发票文件");
@@ -1040,9 +1034,11 @@ export async function saveInvoice(input: InvoiceDraftInput, actor: InvoiceActor 
     if (duplicate.length) throw new Error("该开票主体下已有相同发票号，不能重复登记");
   }
   if (approvalReturn) {
-    const [approval] = await queryRowsInTransaction<Row>(connection, "SELECT status, invoiceId, ownerType, ownerId, allocationSourceIds, businessRequestJson FROM merge_common_feishu_approvals WHERE instanceCode = :instanceCode FOR UPDATE", { instanceCode: approvalReturn.instanceCode });
+    const [approval] = await queryRowsInTransaction<Row>(connection, "SELECT status, invoiceId, ownerType, ownerId, allocationSourceIds, allocationPlanJson, businessRequestJson FROM merge_common_feishu_approvals WHERE instanceCode = :instanceCode FOR UPDATE", { instanceCode: approvalReturn.instanceCode });
     if (!approval || approval.status !== "approved") throw new Error("审批尚未通过或已撤回，不能登记回票");
-    if (approval.invoiceId) throw new Error("该审批已有正式发票，不能自动覆盖，请先核对已有记录");
+    const matchedReturn = approvalReturn.mode === "automatic" && approvalReturn.allocationMode === "matched_return" && isStatementInvoiceSource(sourceTypeValue);
+    if (matchedReturn) await validateMatchedReturn(connection, approval, input, plannedAllocation, approvalReturn);
+    else if (approval.invoiceId) throw new Error("该审批已有正式发票，不能自动覆盖，请先核对已有记录");
     if (sourceTypeValue === "prepayment_contract") {
       const approved = readBusinessRequest(approval.businessRequestJson);
       if (!approved || approved.currency !== resolved.currency || Math.abs(Number(approved.amountIncludingTax) - Number(resolved.amountIncludingTax)) > 0.02 || Number(approved.businessExchangeRate) !== Number(businessRequest.businessExchangeRate)) throw new Error("回票金额、币种或合同折算汇率与申请快照不同，请核对");
@@ -1051,7 +1047,7 @@ export async function saveInvoice(input: InvoiceDraftInput, actor: InvoiceActor 
     const sameSources = mergeRows.length || plannedAllocation
       ? approvedIds.join(",") === [...allocationIds].sort().join(",") && approvedIds.includes(sourceIdValue) && approvedIds.includes(text(approval.ownerId))
       : approval.ownerId === sourceIdValue && approvedIds.length <= 1;
-    if (approval.ownerType !== sourceTypeValue || !sameSources) throw new Error("回票与来源单据不一致");
+    if (approval.ownerType !== sourceTypeValue || (!matchedReturn && !sameSources)) throw new Error("回票与来源单据不一致");
     const [file] = await queryRowsInTransaction<Row>(connection, "SELECT id, invoiceId FROM merge_common_invoice_approval_files WHERE id = :id AND instanceCode = :instanceCode FOR UPDATE", { id: approvalReturn.fileId, instanceCode: approvalReturn.instanceCode });
     if (!file || file.invoiceId) throw new Error("回票已登记或不存在，请刷新");
     // Serialize invoice-number deduplication for this issuing entity across different source documents.
@@ -1272,7 +1268,6 @@ export async function saveInvoice(input: InvoiceDraftInput, actor: InvoiceActor 
   }
   if (approvalReturn) {
     await executeRaw("UPDATE merge_common_invoices SET approvalInstanceCode = :code, approvalStatus = 'approved' WHERE id = :id", { code: approvalReturn.instanceCode, id });
-    await executeRaw("UPDATE merge_common_feishu_approvals SET invoiceId = :id WHERE instanceCode = :code", { id, code: approvalReturn.instanceCode });
     // Prepared execute does not expand an array bound to one IN placeholder.
     const fileIds=Object.fromEntries(approvalReturn.relatedFileIds.map((fileId,index)=>[`fileId${index}`,fileId]));
     await executeRaw(`UPDATE merge_common_invoice_approval_files SET invoiceId = :id, confirmedJson = :confirmed, confirmedBy = :actor, confirmedAt = NOW() WHERE instanceCode = :code AND id IN (${Object.keys(fileIds).map(key=>`:${key}`).join(",")})`, {
@@ -1282,6 +1277,9 @@ export async function saveInvoice(input: InvoiceDraftInput, actor: InvoiceActor 
         amountExcludingTax: resolved.amountExcludingTax, taxAmount: resolved.taxAmount, taxRate: resolved.taxRate,
         amountIncludingTax: resolved.amountIncludingTax, dueDate: resolved.dueDate, paymentTermDays: resolved.paymentTermDays }),
     });
+    // Keep polling after a partial batch, even if the process exits before the sync summary is saved.
+    const complete = approvalReturn.allocationMode !== "matched_return" || (await lockedReturnGroups(connection, approvalReturn.instanceCode)).every(group => group.registered);
+    await executeRaw("UPDATE merge_common_feishu_approvals SET invoiceId = :id WHERE instanceCode = :code", { id: complete ? id : null, code: approvalReturn.instanceCode });
   }
   });
   } catch (error) {
@@ -1495,7 +1493,7 @@ export async function backfillInvoiceSourceFields(params: {
       `UPDATE merge_power_servicefeesnapshots
           SET invoiceNo = :invoiceNo, invoiceCurrency = :currency, invoiceReceivingUnitId = COALESCE(:unitId, invoiceReceivingUnitId),
               invoicePayerCustomerId = COALESCE(:customerId, invoicePayerCustomerId), invoiceAmountExcludingTax = :net, invoiceVatRate = :taxRate,
-              invoiceAmountIncludingTax = :total, invoiceDate = :invoiceDate, receivableDate = COALESCE(:dueDate, receivableDate), invoiceStatus = '已开票', updatedAt = NOW()
+              invoiceAmountIncludingTax = :total, invoiceDate = :invoiceDate, receivableDate = COALESCE(:dueDate, receivableDate), invoiceStatus = ${serviceFeeFinanceStatusWriteSql("invoiceStatus", "'已开票'")}, updatedAt = NOW()
         WHERE snapshotNo = :sourceId`,
       {
         invoiceNo, currency, net, taxRate, total, invoiceDate, sourceId, ...extra,
@@ -1731,7 +1729,7 @@ export async function voidInvoice(id: string, reason: string, actor: InvoiceActo
   } else if (sourceType === "service_fee" && sourceId) {
     await executeRaw(
       `UPDATE merge_power_servicefeesnapshots
-          SET invoiceStatus = '未开票', invoiceNo = IF(invoiceNo = :invoiceNo, NULL, invoiceNo), updatedAt = NOW()
+          SET invoiceStatus = ${serviceFeeFinanceStatusWriteSql("invoiceStatus", "'未开票'")}, invoiceNo = IF(invoiceNo = :invoiceNo, NULL, invoiceNo), updatedAt = NOW()
         WHERE snapshotNo = :sourceId`,
       { sourceId, invoiceNo: text(row.invoiceNo) },
     );
@@ -1784,7 +1782,7 @@ async function backfillRevert(sourceType: string, sourceId: string, invoiceNo: s
   } else if (sourceType === "service_fee") {
     await executeRaw(
       `UPDATE merge_power_servicefeesnapshots
-          SET invoiceStatus = '未开票', invoiceNo = NULL, invoiceAmountExcludingTax = NULL,
+          SET invoiceStatus = ${serviceFeeFinanceStatusWriteSql("invoiceStatus", "'未开票'")}, invoiceNo = NULL, invoiceAmountExcludingTax = NULL,
               invoiceAmountIncludingTax = NULL, invoiceVatRate = NULL, invoiceDate = NULL, updatedAt = NOW()
         WHERE snapshotNo = :sourceId AND invoiceNo = :invoiceNo`,
       { sourceId, invoiceNo },
@@ -1813,7 +1811,7 @@ export async function renderInvoiceHtmlById(id: string) {
 
 export async function readInvoiceFile(id: string) {
   const rows = await queryRowsRaw<Row>(
-    `SELECT fileName, fileType, fileProvider, storageKey, fileContent FROM ${INVOICE_TABLE} WHERE id = :id LIMIT 1`,
+    `SELECT source, invoiceNo, fileName, fileType, fileProvider, storageKey, fileContent FROM ${INVOICE_TABLE} WHERE id = :id LIMIT 1`,
     { id },
   );
   const row = rows[0];
@@ -1828,6 +1826,14 @@ export async function readInvoiceFile(id: string) {
     fileType: row.fileType,
   });
   if (!file) return null;
+  if (text(row.source) === "generated") {
+    const fileName = invoicePdfFileName(text(row.fileName), text(row.invoiceNo));
+    if (isPdfFile(file.bytes)) return { bytes: file.bytes, contentType: "application/pdf", fileName };
+    if (!isHtmlFile(file.bytes)) throw new Error("已保存的本地发票文件损坏，请核对后重新生成票面");
+    // Convert the archived HTML, never rebuild from today's partner data or change accounting records.
+    const bytes = await renderInvoicePdf(file.bytes.toString("utf8"));
+    return { bytes, contentType: "application/pdf", fileName };
+  }
   return { bytes: file.bytes, contentType: file.contentType, fileName: text(row.fileName) || "invoice.html" };
 }
 
@@ -1884,14 +1890,12 @@ export async function regenerateInvoiceFile(id: string, actor: InvoiceActor = {}
   const missing = collectMissingInvoiceFields(renderInput, resolved.template);
   if (missing.length) throw new Error(`开票资料不完整：${missing.join("、")}`);
   const html = renderInvoice(renderInput, { template: resolved.template });
-  // 和开票一致：优先存 PDF，转不了再落 HTML
-  const pdf = await renderInvoicePdf(html);
-  const bytes = pdf ?? Buffer.from(html, "utf8");
-  const fileType = pdf ? "application/pdf" : "text/html";
+  const bytes = await renderInvoicePdf(html);
+  const fileType = "application/pdf";
   const stored = await storeFile({
     context: { system: "invoice", period: text(invoice.period), invoiceNo: text(invoice.invoiceNo) },
     attachmentId: id,
-    fileName: `${text(invoice.invoiceNo)}${pdf ? ".pdf" : ".html"}`,
+    fileName: `${text(invoice.invoiceNo)}.pdf`,
     fileType,
     bytes,
     isInvoice: true,

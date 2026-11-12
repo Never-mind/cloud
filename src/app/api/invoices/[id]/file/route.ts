@@ -24,6 +24,7 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
         headers: {
           "content-type": "text/html; charset=utf-8",
           "content-disposition": `${inline ? "inline" : "attachment"}; filename="invoice.html"`,
+          "cache-control": "no-store",
         },
       });
     }
@@ -32,10 +33,12 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
     return new NextResponse(new Uint8Array(file.bytes), {
       headers: {
         "content-type": file.contentType || "application/octet-stream",
-        "content-disposition": `${inline ? "inline" : "attachment"}; filename="${encodeURIComponent(file.fileName)}"`,
+        "content-disposition": `${inline ? "inline" : "attachment"}; filename="${encodeURIComponent(file.fileName)}"; filename*=UTF-8''${encodeURIComponent(file.fileName)}`,
+        "cache-control": "no-store",
+        "x-content-type-options": "nosniff",
       },
     });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "下载失败" }, { status: 400 });
+    return NextResponse.json({ error: error instanceof Error ? error.message : "下载失败" }, { status: (error as { status?: number })?.status === 503 ? 503 : 400 });
   }
 }

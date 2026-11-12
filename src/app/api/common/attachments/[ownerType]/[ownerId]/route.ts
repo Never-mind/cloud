@@ -1,12 +1,14 @@
 import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedUserEmail } from "@/lib/auth";
-import { queryRowsRaw, executeRaw } from "@/lib/db";
+import { queryRowsRaw, executeRaw, executeInTransaction } from "@/lib/db";
+import { withEditableProspectAttachment } from "@/lib/prospect-service";
 import { getPermissionStateForEmail } from "@/lib/permission-service";
 import { hasPermission, type PermissionAction } from "@/lib/permission-definitions";
-import { planAttachmentPersistence, resolveCommonAttachmentContext, storeFile } from "@/lib/file-storage-service";
+import { deleteFileObject, planAttachmentPersistence, resolveCommonAttachmentContext, storeFile } from "@/lib/file-storage-service";
 
 const OWNER_MODULES: Record<string, string> = {
+  prospects: "prospects",
   suppliers: "suppliers",
   customers: "customers",
   "undertaking-units": "undertaking-units",
@@ -48,6 +50,11 @@ export async function POST(request: NextRequest, context: { params: Promise<{ ow
   try {
     const { ownerType, ownerId } = await context.params;
     await requireAccess(request, ownerType, "create");
+    if (ownerType === "prospects") {
+      const [owner] = await queryRowsRaw("SELECT status FROM merge_common_prospects WHERE id=:ownerId", { ownerId });
+      if (!owner) throw new Error("潜在客户不存在");
+      if (owner.status === "converted") throw new Error("已转化潜在客户的资料已归档");
+    }
     const formData = await request.formData();
     const file = formData.get("file");
     if (!(file instanceof File)) return NextResponse.json({ error: "请选择附件" }, { status: 400 });
@@ -116,12 +123,19 @@ export async function POST(request: NextRequest, context: { params: Promise<{ ow
       insertFields.push("uploadedByName");
       insertParams.uploadedByName = user?.displayName ?? null;
     }
-    await executeRaw(
-      `INSERT INTO merge_common_attachments
+    const insertSql = `INSERT INTO merge_common_attachments
         (${insertFields.join(", ")})
-       VALUES (${insertFields.map((field) => `:${field}`).join(", ")})`,
-      insertParams,
-    );
+       VALUES (${insertFields.map((field) => `:${field}`).join(", ")})`;
+    if (ownerType === "prospects") {
+      try {
+        await withEditableProspectAttachment(ownerId, connection => executeInTransaction(connection, insertSql, insertParams));
+      } catch (error) {
+        await deleteFileObject({ storageProvider: stored.provider, storageKey: stored.storageKey });
+        throw error;
+      }
+    } else {
+      await executeRaw(insertSql, insertParams);
+    }
     return NextResponse.json({ attachmentId }, { status: 201 });
   } catch (error) {
     const message = error instanceof Error ? error.message : "附件上传失败";

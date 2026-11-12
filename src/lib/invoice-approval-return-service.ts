@@ -8,6 +8,7 @@ import { buildInvoicePrefill, type InvoiceSourceType } from "./invoice-service";
 import { defaultInvoicePaymentTermDays } from "./invoice-payment-terms";
 import { VAT_APPROVAL_CODE, VAT_FIELDS } from "./vat-invoice-approval";
 import { readApprovalPartySnapshot } from "./invoice-approval-party-snapshot";
+import { readMexicoInvoiceExpectation } from "./invoice-approval-lines";
 import {readInvoiceAllocationPlan,allocationTotals,suggestInvoiceAllocations} from "./invoice-allocation";
 import {loadAllocationSources} from "./invoice-allocation-service";
 import {buildExchangeRateMap,lookupExchangeRate} from "./exchange-rate-service";
@@ -97,7 +98,7 @@ export async function syncReturnedInvoices(instanceCode: string, options: { auto
       const result = await autoRegisterReturnedInvoice(instanceCode);
       note = result.note;
       groups = groupReturnedInvoices(await listReturnedInvoiceFiles(instanceCode));
-      if (result.status === "registered" && groups.some(group => !group.registered)) note = "已登记发票；新增回票未覆盖原记录，请处理回票异常";
+      if (result.status === "registered" && groups.some(group => !group.registered)) errors.push("部分回票尚未登记，请处理回票异常");
     } catch (error) { errors.push("自动登记失败：" + (error instanceof Error ? error.message : "请处理回票异常")); }
   }
   if (errors.length) note = errors.join("；");
@@ -164,6 +165,7 @@ export async function returnedInvoiceReview(id: string) {
   const fileRecord = await queryRows<Row>("SELECT confirmedJson FROM merge_common_invoice_approval_files WHERE instanceCode = :code AND invoiceId IS NOT NULL AND id IN (:ids) LIMIT 1", { code: file.instanceCode, ids: group?.files.map(item => item.id) ?? [id] });
   const confirmed = fileRecord[0]?.confirmedJson ? JSON.parse(String(fileRecord[0].confirmedJson)) : null;
   let expectedInvoice: { currency: string; amountIncludingTax: string } | null = allocationPlan?{currency:allocationPlan.currency,amountIncludingTax:String(allocationTotals(allocationPlan.allocations).amountIncludingTax)}:null;
+  if (!expectedInvoice) expectedInvoice = readMexicoInvoiceExpectation(approval.formJson);
   if (approval.approvalCode === (process.env.FEISHU_VAT_INVOICE_APPROVAL_CODE?.trim() || VAT_APPROVAL_CODE)) {
     expectedInvoice = { currency: "CNY", amountIncludingTax: "" };
     try {
