@@ -17,7 +17,7 @@ FRAPPE_DEMAND_SYNC_ON_LOGIN=1
 FRAPPE_DEMAND_LOGIN_SYNC_COOLDOWN_SECONDS=300
 ```
 
-2026-11-12 地址更新为 `https://debaser.luzcorp.dev`；现有账号、密码及 API Token 保持不变。已部署服务修改 `.env.local` 的 `FRAPPE_API_BASE_URL` 并重启后，继续按原定时与登录触发规则同步，无需新增计划任务。
+2026-11-12 地址更新为 `https://debaser.luzcorp.dev`。网页登录账号密码与 API Key/Secret 需分别核对：2026-11-13 只读验证发现本机旧 Token 在旧站点可用、在正式站点返回 401。已部署服务应配置正式站点地址及在该站点有效的 API Token，核对进程环境并重启后，继续按原定时与登录触发规则同步，无需新增计划任务。`/api/system/config-status` 的 `configured: true` 仅表示 Token 非空，不代表认证成功。
 
 启动日志 `[frappe-demand-auto-sync] enabled; interval=1800s; login=true; loginCooldown=300s; firstRun=5s` 表示已启用。测试、构建、不配置 Frappe 密钥或显式关闭时不启动。需求同步映射页面“最近同步结果”显示定时/登录/手动来源及失败原因；原有映射、已存在跳过、删除抑制和变更待核对规则沿用。无需新增表字段或另外注册计划任务。旧的 Windows 注册脚本及 `npm run sync:frappe-demands` 作为外部调度/人工入口保留；启用内置同步时不必重复配置它们。
 

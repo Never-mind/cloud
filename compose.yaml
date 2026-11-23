@@ -1,0 +1,35 @@
+services:
+  cloud-power:
+    image: ${CLOUD_IMAGE:-cloud-power:local}
+    build:
+      context: .
+      dockerfile: Dockerfile
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 30s
+    ports:
+      - "127.0.0.1:${CLOUD_HTTP_PORT:-3000}:3000"
+    environment:
+      NODE_ENV: production
+      NEXT_DIST_DIR: .next
+      INVOICE_PDF_BROWSER: /usr/bin/chromium
+    volumes:
+      # Mount configuration as a file so Compose does not expand $ in credentials.
+      - type: bind
+        source: ./.env.local
+        target: /app/.env.local
+        read_only: true
+        bind:
+          create_host_path: false
+      # Keep legacy local invoice files across container replacement.
+      - type: bind
+        source: ./uploads
+        target: /app/uploads
+        bind:
+          create_host_path: false
+    shm_size: 256m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

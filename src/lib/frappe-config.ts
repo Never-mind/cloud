@@ -9,7 +9,7 @@
 /**
  * 代码内兜底地址：所有相关环境变量都没配时使用。
  *
- * 2026-11-12 公网入口更新为 debaser.luzcorp.dev，现有凭据继续使用。
+ * 2026-11-12 公网入口更新为 debaser.luzcorp.dev，API 凭据需在正式站点单独验证。
  * 显式配置的环境变量优先，已部署服务仍需更新地址并重启。
  */
 const DEFAULT_FRAPPE_BASE_URL = "https://debaser.luzcorp.dev";

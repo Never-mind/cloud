@@ -1,0 +1,21 @@
+# Only application build inputs enter the image context.
+# In particular .env*, database backups, invoices and local builds stay on the host.
+**
+!Dockerfile
+!.dockerignore
+!package.json
+!package-lock.json
+!next.config.ts
+!next-env.d.ts
+!tsconfig.json
+!postcss.config.mjs
+!src/
+!src/**
+!scripts/
+!scripts/check-invoice-pdf.ts
+!deploy/
+!deploy/docker-entrypoint.sh
+!deploy/healthcheck.cjs
+!deploy/pdf-check-tsconfig.json
+!public/
+!public/**

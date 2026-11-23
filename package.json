@@ -40,6 +40,7 @@
     "schema:invoice-review": "tsx scripts/migrate-invoice-review.ts",
     "schema:invoice-allocations": "tsx scripts/migrate-invoice-allocations.ts",
     "invoices:refresh": "tsx scripts/refresh-invoice-files.ts",
+    "invoices:check-pdf": "tsx scripts/check-invoice-pdf.ts",
     "schema:obs-storage": "tsx scripts/migrate-obs-storage.ts",
     "schema:requestitem-batch": "tsx scripts/migrate-requestitem-batch.ts",
     "schema:purchase-invoice-info": "tsx scripts/migrate-purchase-order-invoice-info.ts",
