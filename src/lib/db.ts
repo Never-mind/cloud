@@ -54,6 +54,7 @@ export const LOGICAL_TABLE_NAMES = [
   "internalservicefeeadjustments",
   "internalservicefeesnapshots",
   "internalservicefeesnapshotitems",
+  "internalservicespareaudits",
   "capexpricingversions",
   "capexpricingitems",
   "balancesettlements",

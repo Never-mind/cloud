@@ -3,6 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "schema:internal-fee-jc": "tsx scripts/migrate-internal-service-fee-jc.ts",
+    "schema:internal-fee-reporting": "tsx scripts/migrate-internal-service-fee-reporting.ts",
+    "schema:internal-fee-spares": "tsx scripts/migrate-internal-service-fee-spares.ts",
+    "internal-service-fees:reinitialize": "tsx scripts/reinitialize-internal-service-fees.ts",
     "data:service-fee-finance-status": "tsx scripts/backfill-service-fee-finance-status.ts",
     "schema:prospects": "tsx scripts/migrate-prospects.ts",
     "dev": "next build && next start",
@@ -69,6 +73,8 @@
     "schema:prepayment-finance": "tsx scripts/migrate-prepayment-finance.ts",
     "schema:invoice-batch-import": "tsx scripts/migrate-invoice-batch-import.ts",
     "verify:invoice-batch-import": "tsx scripts/verify-invoice-batch-import.ts",
+    "verify:internal-fee-spares": "tsx scripts/verify-internal-service-fee-spares.ts",
+    "grant:internal-fee-spares": "tsx scripts/grant-internal-service-fee-spares-access.ts",
     "verify:prepayment-finance": "tsx scripts/verify-prepayment-finance.ts"
   },
   "dependencies": {

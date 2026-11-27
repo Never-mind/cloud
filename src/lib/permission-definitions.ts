@@ -107,6 +107,7 @@ const MODULE_GROUP: Record<string, string> = {
   "balance-final-settlements": "财务管理",
   "non-instance-settlements": "财务管理",
   "internal-service-fee-available": "财务管理",
+  "internal-service-fee-spares": "财务管理",
   "internal-service-fees": "财务管理",
   "internal-service-fee-adjustments": "财务管理",
   "internal-service-fee-snapshots": "财务管理",
@@ -293,7 +294,7 @@ const PERMISSION_MODULE_ORDER: Record<string, string[]> = {
     "billing-available", "billing-ledgers", "monthly-billing-writeoffs", "billing-statements",
     "prepayment-available", "prepayment-contracts", "monthly-prepayment-writeoffs", "prepayment-writeoff-adjustments",
     "prepayment-contract-items", "write-off-items", "exchange-rates", "service-fees", "service-fee-snapshots", "service-fee-snapshot-items",
-    "internal-service-fee-available", "internal-service-fees", "internal-service-fee-adjustments", "internal-service-fee-snapshots",
+    "internal-service-fee-available", "internal-service-fee-spares", "internal-service-fees", "internal-service-fee-adjustments", "internal-service-fee-snapshots",
   ],
   "domain:power:基础信息": ["countries", "delivery-locations", "delivery-contacts", "datacenters", "instance-models"],
   "domain:power:数据工具": ["data-imports"],
@@ -367,7 +368,10 @@ const API_ROUTE_RULES: RoutePermissionRule[] = [
   { prefix: "/api/capex-pricing", moduleKey: "capex-pricing" },
   { prefix: "/api/balance-settlements/finals", moduleKey: "balance-final-settlements" },
   { prefix: "/api/balance-settlements", moduleKey: "balance-settlements" },
+  { prefix: "/api/internal-service-fees/adjustments/jc/rollback", moduleKey: "internal-service-fee-adjustments", action: "confirm" },
+  { prefix: "/api/internal-service-fees/adjustments/jc/preview", moduleKey: "internal-service-fee-adjustments", action: "view" },
   { prefix: "/api/internal-service-fees/adjustments", moduleKey: "internal-service-fee-adjustments" },
+  { prefix: "/api/internal-service-fees/spares", moduleKey: "internal-service-fee-spares" },
   { prefix: "/api/internal-service-fees/available", moduleKey: "internal-service-fee-available" },
   { prefix: "/api/internal-service-fees/snapshots", moduleKey: "internal-service-fee-snapshots" },
   { prefix: "/api/internal-service-fees", moduleKey: "internal-service-fees" },
@@ -422,6 +426,7 @@ const PAGE_ROUTE_RULES: RoutePermissionRule[] = [
   { prefix: "/finance/balance-final-settlements", moduleKey: "balance-final-settlements" },
   { prefix: "/finance/balance-settlements", moduleKey: "balance-settlements" },
   { prefix: "/finance/non-instance-settlements", moduleKey: "non-instance-settlements" },
+  { prefix: "/finance/internal-service-fee-spares", moduleKey: "internal-service-fee-spares" },
   { prefix: "/finance/internal-service-fee-available", moduleKey: "internal-service-fee-available" },
   { prefix: "/finance/internal-service-fees", moduleKey: "internal-service-fees" },
   { prefix: "/finance/internal-service-fee-adjustments", moduleKey: "internal-service-fee-adjustments" },
@@ -460,6 +465,9 @@ function getMethodAction(pathname: string, method: string): PermissionAction {
 
 export function getRoutePermission(pathname: string, method = "GET") {
   const normalizedPath = pathname.length > 1 ? pathname.replace(/\/$/, "") : pathname;
+  if (method === "POST" && /^\/api\/internal-service-fees\/adjustments\/[^/]+\/rollback$/.test(normalizedPath)) {
+    return {moduleKey:"internal-service-fee-adjustments",action:"confirm" as PermissionAction};
+  }
   if (["/prospects/new", "/api/prospects/new"].includes(normalizedPath) && ["GET", "HEAD"].includes(method)) {
     return { moduleKey: "prospects", action: "create" as PermissionAction };
   }

@@ -204,6 +204,7 @@ describe("module configuration", () => {
       "service-fee-snapshots",
       "service-fee-snapshot-items",
       "internal-service-fee-available",
+      "internal-service-fee-spares",
       "internal-service-fees",
       "internal-service-fee-adjustments",
       "internal-service-fee-snapshots",

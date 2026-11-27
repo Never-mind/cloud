@@ -2251,6 +2251,26 @@ entityConfigs.push({
   listFields: [],
   formFields: [],
 }, {
+  key: "internal-service-fee-spares",
+  title: "备件管理费",
+  table: "internalserviceledgers",
+  primaryKey: "ledgerId",
+  navGroup: "隐藏",
+  route: "/finance/internal-service-fee-spares",
+  description: "维护独立备件管理费台账，生成前24个月、后36个月共60个月的分摊计划。",
+  filters: [{ key: "keyword", label: "备件管理费", placeholder: "请输入批次、备件名称或编码" }],
+  listFields: [
+    { key: "countryCode", label: "国家" },
+    { key: "batchName", label: "批次" },
+    { key: "nameEn", label: "备件名称" },
+    { key: "deviceCode", label: "备件编码" },
+    { key: "quantity", label: "数量", type: "number" },
+    { key: "startMonth", label: "开始月份", type: "date" },
+    { key: "internalServiceFeeReportingTotal", label: "管理费总额（USD）", type: "money" },
+    { key: "status", label: "状态" },
+  ],
+  formFields: [],
+}, {
   key: "internal-service-fees",
   title: "管理费分摊",
   table: "monthlyinternalservicefees",
@@ -2339,7 +2359,7 @@ const financeChildren: NonNullable<NavGroup["children"]> = [
   {
     title: "管理费",
     items: getEntitiesByKeys([
-      "internal-service-fee-available", "internal-service-fees", "internal-service-fee-adjustments", "internal-service-fee-snapshots",
+      "internal-service-fee-available", "internal-service-fee-spares", "internal-service-fees", "internal-service-fee-adjustments", "internal-service-fee-snapshots",
     ]),
   },
 ];

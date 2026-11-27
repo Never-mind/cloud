@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { listInternalServiceFeeFilterOptions, listInternalServiceFees, syncInternalServiceLedgers } from "@/lib/internal-service-fee-service";
+import { getInternalServiceInitializationSummary, listInternalServiceFeeFilterOptions, listInternalServiceFees, syncInternalServiceLedgers } from "@/lib/internal-service-fee-service";
 
 export async function GET(request: NextRequest) {
   try {
     if (request.nextUrl.searchParams.get("field")) {
       return NextResponse.json(await listInternalServiceFeeFilterOptions(request.nextUrl.searchParams));
     }
-    return NextResponse.json(await listInternalServiceFees(request.nextUrl.searchParams));
+    const [data,initialization]=await Promise.all([listInternalServiceFees(request.nextUrl.searchParams),getInternalServiceInitializationSummary()]);
+    return NextResponse.json({...data,initialization});
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "管理费加载失败" }, { status: 500 });
   }

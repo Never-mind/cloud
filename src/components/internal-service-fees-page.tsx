@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { Archive, FileDown, RefreshCw, Search, SlidersHorizontal } from "lucide-react";
 import { formatDisplayValue } from "@/lib/display-format";
 import { DEFAULT_PAGE_SIZE } from "@/lib/pagination";
@@ -14,7 +15,7 @@ import { confirmDialog, notify } from "./app-dialog";
 import { TableStateContent } from "./table-state";
 
 type Row = Record<string, string | number | boolean | null>;
-type ListResponse = { rows: Row[]; total: number; totalAmount: number; page: number; pageSize: number; totalPages: number };
+type ListResponse = { rows: Row[]; total: number; totalAmount: number; page: number; pageSize: number; totalPages: number; initialization?:{initializedLedgers:number;pendingLedgers:number;monthlyRows:number} };
 
 const columns: Array<{ key: string; label: string; type?: string }> = [
   { key: "writeOffMonth", label: "核算月份", type: "date" },
@@ -31,9 +32,12 @@ const columns: Array<{ key: string; label: string; type?: string }> = [
   { key: "quantity", label: "数量", type: "number" },
   { key: "currency", label: "币种" },
   { key: "internalServiceFeeAmount", label: "管理费（未税）", type: "money" },
-  { key: "sourceType", label: "计算来源" },
+  { key: "reportingCurrency", label: "报告币种" },
+  { key: "exchangeRate", label: "折算汇率", type: "number" },
+  { key: "internalServiceFeeReportingAmount", label: "管理费（报告币种）", type: "money" },
+  { key: "sourceType", label: "计算来源", type: "sourceType" },
   { key: "adjustmentNo", label: "调整单号" },
-  { key: "archived", label: "对账状态" },
+  { key: "archived", label: "对账状态", type: "archived" },
   { key: "createdAt", label: "创建时间", type: "datetime" },
   { key: "updatedAt", label: "更新时间", type: "datetime" },
 ];
@@ -51,6 +55,7 @@ export function InternalServiceFeesPage() {
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [total, setTotal] = useState(0);
   const [totalAmount, setTotalAmount] = useState(0);
+  const [initialization,setInitialization]=useState<ListResponse['initialization']>();
   const [sortField, setSortField] = useState("");
   const [sortOrder, setSortOrder] = useState<TableSortOrder>("");
   const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({});
@@ -96,6 +101,7 @@ export function InternalServiceFeesPage() {
       setRows(data.rows ?? []);
       setTotal(Number(data.total ?? 0));
       setTotalAmount(Number(data.totalAmount ?? 0));
+      setInitialization(data.initialization);
       if (data.page !== nextPage) setPage(data.page);
     } catch (error) {
       if (!isCurrentRequest()) return;
@@ -208,7 +214,8 @@ export function InternalServiceFeesPage() {
     <div className="space-y-5">
       <div>
         <h1 className="text-xl font-medium text-ink">管理费分摊</h1>
-        <p className="mt-1 text-sm text-ink-3">独立按合同未税收入减设备采购总成本计算，不影响月账单、预付款及实际服务费核算。</p>
+        <p className="mt-1 text-sm text-ink-3">显示已初始化实例的月度管理费计划；自动分摊金额不代表已登记历史或已对账。同一批次中的其他实例可能仍待初始化。</p>
+        {initialization&&<p className="mt-2 text-sm text-ink-2">已初始化 {initialization.initializedLedgers} 条 · 待初始化 {initialization.pendingLedgers} 条 · 月度计划 {initialization.monthlyRows} 条</p>}
       </div>
       <Panel>
         <div className="flex flex-wrap items-center gap-2 border-b border-line-soft p-4">
@@ -220,18 +227,20 @@ export function InternalServiceFeesPage() {
           <Button tone="secondary" onClick={() => { setPage(1); void loadData(1, pageSizeRef.current); }}><Search size={15} />查询</Button>
           <Button onClick={() => void loadData()}><RefreshCw size={15} />刷新</Button>
           <Button tone="success" onClick={() => void syncLedgers()}><RefreshCw size={15} />生成/重算未对账</Button>
+          <Link className="rounded border border-line px-3 py-2 text-sm text-primary" href="/finance/internal-service-fee-spares">备件管理费</Link>
+          <Link className="rounded border border-line px-3 py-2 text-sm text-primary" href="/finance/internal-service-fee-adjustments">JC历史差额调整</Link>
           <Button className="ml-auto" tone="warning" onClick={() => void exportCsv()}><FileDown size={15} />导出</Button>
         </div>
         <div className="flex flex-wrap items-center gap-2 border-b border-line-soft bg-surface-2 px-4 py-3 text-sm text-ink-2">
-          <span>当前筛选 {total} 条，管理费合计 {formatValue(totalAmount, "money")}</span>
+          <span>当前筛选 {total} 条，报告币种管理费合计 {formatValue(totalAmount, "money")}</span>
           <Input className="ml-auto min-w-[150px]" type="month" value={archiveMonth} onChange={(event) => setArchiveMonth(event.target.value)} />
           <Button onClick={() => void archiveSelectedMonth()}><Archive size={15} />生成对账单</Button>
         </div>
         <StickyTable className="table-scroll table-viewport overflow-auto" tableKey="internal-service-fees">
-          <table className="w-full min-w-[1840px] border-collapse text-sm">
+          <table className="w-full min-w-[2160px] border-collapse text-sm">
             <thead className="bg-canvas text-ink"><tr>{tableColumns.map((column) => <th className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3 text-left font-medium" key={column.key}>{renderHeader(column)}</th>)}<th className="whitespace-nowrap sticky right-0 z-10 w-[236px] min-w-[236px] border-b border-line-soft bg-canvas px-3 py-3 text-left font-medium">操作</th></tr></thead>
             <tbody>
-              {rows.map((row) => <tr className="hover:bg-surface-2" key={String(row.id)}>{tableColumns.map((column) => <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3" key={column.key}>{formatValue(row[column.key], column.type)}</td>)}<td className="sticky right-0 z-10 w-[236px] min-w-[236px] whitespace-nowrap border-b border-line-soft bg-white px-3 py-3"><div className="flex flex-nowrap items-center gap-2"><Button className="shrink-0 whitespace-nowrap" disabled={Boolean(row.archived)} onClick={() => { setAdjustingRow(row); setAdjustmentStart(String(row.writeOffMonth ?? "")); setAdjustmentEnd(String(row.writeOffMonth ?? "")); setAdjustmentAmount(String(row.internalServiceFeeAmount ?? "")); setAdjustmentReason(""); }}><SlidersHorizontal size={15} />区间调整</Button>{String(row.adjustmentNo ?? "") && !Boolean(row.archived) ? <Button className="shrink-0 whitespace-nowrap" tone="danger" onClick={() => void cancelAdjustment(String(row.adjustmentNo))}>撤销调整</Button> : null}</div></td></tr>)}
+              {rows.map((row) => <tr className="hover:bg-surface-2" key={String(row.id)}>{tableColumns.map((column) => <td className="whitespace-nowrap border-b border-r border-line-soft px-3 py-3" key={column.key}>{formatValue(row[column.key], column.type)}</td>)}<td className="sticky right-0 z-10 w-[236px] min-w-[236px] whitespace-nowrap border-b border-line-soft bg-white px-3 py-3"><div className="flex flex-nowrap items-center gap-2"><Button className="shrink-0 whitespace-nowrap" disabled={Boolean(row.archived) || String(row.sourceType).startsWith("jc") || row.sourceType === "spare"} onClick={() => { setAdjustingRow(row); setAdjustmentStart(String(row.writeOffMonth ?? "").slice(0,7)); setAdjustmentEnd(String(row.writeOffMonth ?? "").slice(0,7)); setAdjustmentAmount(String(row.internalServiceFeeAmount ?? "")); setAdjustmentReason(""); }}><SlidersHorizontal size={15} />区间调整</Button>{String(row.adjustmentNo ?? "") && !Boolean(row.archived) && !String(row.sourceType).startsWith("jc") && row.sourceType !== "spare" ? <Button className="shrink-0 whitespace-nowrap" tone="danger" onClick={() => void cancelAdjustment(String(row.adjustmentNo))}>撤销调整</Button> : null}</div></td></tr>)}
               {!rows.length && <tr><td className="py-12 text-center text-ink-3" colSpan={columns.length + 1}><TableStateContent empty="暂无管理费明细，请先生成月账单合同后点击生成" loading={loading} /></td></tr>}
             </tbody>
           </table>
@@ -248,7 +257,7 @@ export function InternalServiceFeesPage() {
 }
 
 function formatValue(value: unknown, type?: string) {
-  if (type === "sourceType") return value === "manual" ? "人工区间调整" : "自动分摊";
+  if (type === "sourceType") return value === "jc_history" ? "JC历史登记" : value === "jc" ? "JC分摊" : value === "manual" ? "人工区间调整" : value === "spare" ? "备件" : "自动分摊";
   if (type === "archived") return value ? "已对账" : "未对账";
   return formatDisplayValue(value as string | number | boolean | null | undefined, type);
 }

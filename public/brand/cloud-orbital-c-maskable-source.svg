@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="Cloud业务系统 C-Orbit">
+  <defs>
+    <linearGradient id="background" x1="42" y1="32" x2="455" y2="480" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#102A43"/>
+      <stop offset="1" stop-color="#173F60"/>
+    </linearGradient>
+    <linearGradient id="orbit" x1="120" y1="116" x2="364" y2="352" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#56CCF2"/>
+      <stop offset="1" stop-color="#1890FF"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" fill="url(#background)"/>
+  <g transform="translate(102 102) scale(1.2)">
+    <path d="M170 68C154 54 132 48 108 52C71 58 48 91 54 126C60 161 92 184 128 178C144 176 158 169 169 159"
+      fill="none" stroke="url(#orbit)" stroke-width="24" stroke-linecap="round"/>
+    <circle cx="178" cy="78" r="13" fill="#FFFFFF"/>
+    <circle cx="183" cy="151" r="10" fill="#56CCF2"/>
+    <circle cx="92" cy="55" r="8" fill="#FFFFFF" fill-opacity=".92"/>
+    <circle cx="128" cy="128" r="7" fill="#FFFFFF" fill-opacity=".9"/>
+  </g>
+</svg>

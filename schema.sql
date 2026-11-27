@@ -1292,21 +1292,51 @@ CREATE TABLE IF NOT EXISTS `merge_power_internalserviceledgers` (
   `countryCode` VARCHAR(32) NULL, `batchName` VARCHAR(255) NULL, `requestNo` VARCHAR(128) NULL, `poNo` VARCHAR(128) NULL,
   `deviceCode` VARCHAR(64) NULL, `modelCode` VARCHAR(128) NULL, `nameEn` VARCHAR(255) NULL,
   `supplierId` VARCHAR(64) NULL, `undertakingUnitId` VARCHAR(64) NULL, `customerId` VARCHAR(64) NULL, `quantity` INT NULL, `currency` VARCHAR(16) NULL,
+  `reportingCurrency` VARCHAR(16) NULL, `exchangeRate` DECIMAL(18,10) NULL, `procurementCurrency` VARCHAR(16) NULL,
+  `procurementToContractRate` DECIMAL(18,10) NULL,
   `vatRate` DECIMAL(10,6) NULL, `procurementTaxExcludedUnitPrice` DECIMAL(18,4) NULL, `procurementTaxSurcharge` DECIMAL(18,4) NULL,
   `contractRevenueIncludingTax` DECIMAL(18,2) NULL, `contractRevenueExcludingTax` DECIMAL(18,2) NULL,
-  `procurementCost` DECIMAL(18,2) NULL, `internalServiceFeeTotal` DECIMAL(18,2) NULL, `archivedAmount` DECIMAL(18,2) NULL,
+  `procurementCost` DECIMAL(18,2) NULL, `internalServiceFeeTotal` DECIMAL(18,2) NULL,
+  `internalServiceFeeReportingTotal` DECIMAL(18,2) NULL, `archivedAmount` DECIMAL(18,2) NULL,
   `manualAmount` DECIMAL(18,2) NULL, `remainingAmount` DECIMAL(18,2) NULL, `unallocatedAmount` DECIMAL(18,2) NULL,
   `startMonth` DATE NULL, `status` VARCHAR(32) NOT NULL DEFAULT '已生成',
+  `ledgerType` VARCHAR(16) NOT NULL DEFAULT 'instance' COMMENT 'instance/spare',
+  `spareProcurementCost` DECIMAL(18,2) NULL COMMENT 'spare procurement cost USD',
+  `spareContractExcludingTax` DECIMAL(18,2) NULL COMMENT 'spare contract amount excluding tax USD',
+  `spareFirst24MonthlyAmount` DECIMAL(18,2) NULL COMMENT 'spare monthly management fee for first 24 months USD',
+  `spareNext36MonthlyAmount` DECIMAL(18,2) NULL COMMENT 'spare monthly management fee for next 36 months USD',
+  `spareBusinessKey` VARCHAR(255) NULL COMMENT 'spare deduplication key',
+  `notes` TEXT NULL COMMENT 'notes',
+  `voidedAt` DATETIME NULL COMMENT 'void timestamp',
+  `createdBy` VARCHAR(255) NULL COMMENT 'created by user email',
+  `updatedBy` VARCHAR(255) NULL COMMENT 'updated by user email',
   `createdAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, `updatedAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  PRIMARY KEY (`ledgerId`), KEY `idx_InternalServiceLedgers_country` (`countryCode`), KEY `idx_InternalServiceLedgers_request` (`requestNo`)
+  PRIMARY KEY (`ledgerId`), KEY `idx_InternalServiceLedgers_country` (`countryCode`), KEY `idx_InternalServiceLedgers_request` (`requestNo`),
+  KEY `idx_InternalServiceLedgers_type` (`ledgerType`), KEY `idx_InternalServiceLedgers_spare_key` (`spareBusinessKey`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='InternalServiceLedgers';
+
+CREATE TABLE IF NOT EXISTS `merge_power_internalservicespareaudits` (
+  `id` CHAR(36) NOT NULL,
+  `ledgerId` VARCHAR(96) NOT NULL COMMENT 'spare management fee ledger id',
+  `action` VARCHAR(32) NOT NULL COMMENT 'create/import/update/void',
+  `actor` VARCHAR(255) NOT NULL COMMENT 'operator',
+  `reason` TEXT NULL COMMENT 'change reason',
+  `beforeJson` LONGTEXT NULL COMMENT 'state before change',
+  `afterJson` LONGTEXT NULL COMMENT 'state after change',
+  `metadataJson` LONGTEXT NULL COMMENT 'supplementary metadata',
+  `createdAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_InternalServiceSpareAudits_ledger` (`ledgerId`, `createdAt`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='InternalServiceSpareAudits';
 
 CREATE TABLE IF NOT EXISTS `merge_power_monthlyinternalservicefees` (
   `id` VARCHAR(128) NOT NULL, `ledgerId` VARCHAR(96) NOT NULL, `writeOffMonth` DATE NOT NULL, `monthIndex` INT NOT NULL,
   `countryCode` VARCHAR(32) NULL, `batchName` VARCHAR(255) NULL, `requestNo` VARCHAR(128) NULL, `poNo` VARCHAR(128) NULL,
   `deviceCode` VARCHAR(64) NULL, `modelCode` VARCHAR(128) NULL, `nameEn` VARCHAR(255) NULL, `supplierId` VARCHAR(64) NULL,
   `undertakingUnitId` VARCHAR(64) NULL, `customerId` VARCHAR(64) NULL, `quantity` INT NULL, `currency` VARCHAR(16) NULL,
-  `internalServiceFeeAmount` DECIMAL(18,2) NOT NULL DEFAULT 0, `sourceType` VARCHAR(32) NOT NULL DEFAULT 'auto',
+  `internalServiceFeeAmount` DECIMAL(18,2) NOT NULL DEFAULT 0,
+  `reportingCurrency` VARCHAR(16) NULL, `exchangeRate` DECIMAL(18,10) NULL,
+  `internalServiceFeeReportingAmount` DECIMAL(18,2) NULL, `sourceType` VARCHAR(32) NOT NULL DEFAULT 'auto',
   `adjustmentNo` VARCHAR(128) NULL, `archived` BOOLEAN NOT NULL DEFAULT FALSE, `archiveSnapshotNo` VARCHAR(128) NULL, `archivedAt` DATETIME NULL,
   `createdAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, `updatedAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`), UNIQUE KEY `uk_MonthlyInternalServiceFees_ledger_month` (`ledgerId`, `writeOffMonth`),
@@ -1325,7 +1355,8 @@ CREATE TABLE IF NOT EXISTS `merge_power_internalservicefeeadjustments` (
 
 CREATE TABLE IF NOT EXISTS `merge_power_internalservicefeesnapshots` (
   `snapshotNo` VARCHAR(128) NOT NULL, `archiveMonth` DATE NOT NULL, `countryCode` VARCHAR(32) NULL,
-  `itemCount` INT NOT NULL DEFAULT 0, `totalAmount` DECIMAL(18,2) NOT NULL DEFAULT 0, `confirmedAt` DATETIME NULL,
+  `itemCount` INT NOT NULL DEFAULT 0, `totalAmount` DECIMAL(18,2) NOT NULL DEFAULT 0,
+  `reportingCurrency` VARCHAR(16) NULL, `totalReportingAmount` DECIMAL(18,2) NOT NULL DEFAULT 0, `confirmedAt` DATETIME NULL,
   `createdAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updatedAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`snapshotNo`), KEY `idx_InternalServiceFeeSnapshots_month` (`archiveMonth`)
@@ -1336,6 +1367,8 @@ CREATE TABLE IF NOT EXISTS `merge_power_internalservicefeesnapshotitems` (
   `writeOffMonth` DATE NOT NULL, `countryCode` VARCHAR(32) NULL, `batchName` VARCHAR(255) NULL, `requestNo` VARCHAR(128) NULL,
   `poNo` VARCHAR(128) NULL, `deviceCode` VARCHAR(64) NULL, `supplierId` VARCHAR(64) NULL, `undertakingUnitId` VARCHAR(64) NULL, `customerId` VARCHAR(64) NULL,
   `currency` VARCHAR(16) NULL, `internalServiceFeeAmount` DECIMAL(18,2) NOT NULL, `sourceType` VARCHAR(32) NULL,
+  `reportingCurrency` VARCHAR(16) NULL, `exchangeRate` DECIMAL(18,10) NULL,
+  `internalServiceFeeReportingAmount` DECIMAL(18,2) NULL,
   `adjustmentNo` VARCHAR(128) NULL, `createdAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updatedAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`), KEY `idx_InternalServiceFeeSnapshotItems_snapshot` (`snapshotNo`)
@@ -1387,4 +1420,33 @@ CREATE TABLE IF NOT EXISTS merge_common_invoice_import_rows (
  status VARCHAR(16) NOT NULL DEFAULT 'ready', invoiceId VARCHAR(64) NULL, message TEXT NULL, version INT NOT NULL DEFAULT 1,
  createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
  UNIQUE KEY uk_invoice_batch_row (batchId,rowNo), KEY idx_invoice_import_key (rowKey), KEY idx_invoice_import_invoice (invoiceId)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Additive only. No historical data is imported or confirmed by this migration.
+CREATE TABLE IF NOT EXISTS merge_power_internalservicejccomponents (
+ id VARCHAR(64) NOT NULL PRIMARY KEY, ledgerId VARCHAR(96) NOT NULL, itemId VARCHAR(160) NOT NULL, adjustmentNo VARCHAR(128) NOT NULL,
+ countryCode VARCHAR(32) NOT NULL, batchName VARCHAR(255) NOT NULL, deviceCode VARCHAR(64) NOT NULL, currency VARCHAR(16) NOT NULL,
+ reportingCurrency VARCHAR(16) NULL, exchangeRate DECIMAL(18,10) NULL,
+ effectiveMonth DATE NOT NULL, endMonth DATE NOT NULL, resumeMonth DATE NULL, postingMonth DATE NULL,
+ ruleTotal DECIMAL(18,2) NOT NULL, ruleTotalReporting DECIMAL(18,2) NULL,
+ baselineRuleTotal DECIMAL(18,2) NULL, approvedTotal DECIMAL(18,2) NULL,
+ approvedTotalReporting DECIMAL(18,2) NULL, fixedAdjustment DECIMAL(18,2) NOT NULL DEFAULT 0,
+ fixedAdjustmentReporting DECIMAL(18,2) NULL,
+ reason TEXT NULL, version INT NOT NULL DEFAULT 0, confirmedAt DATETIME NULL, confirmedBy VARCHAR(255) NULL,
+ createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+ UNIQUE KEY uk_jc_source(ledgerId,itemId), KEY idx_jc_adjustment(adjustmentNo)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+CREATE TABLE IF NOT EXISTS merge_power_internalservicejcmonths (
+ componentId VARCHAR(64) NOT NULL, month DATE NOT NULL, amount DECIMAL(18,2) NOT NULL,
+ reportingAmount DECIMAL(18,2) NULL,
+ source VARCHAR(32) NOT NULL DEFAULT 'auto', registered BOOLEAN NOT NULL DEFAULT FALSE, archived BOOLEAN NOT NULL DEFAULT FALSE,
+ snapshotNo VARCHAR(128) NULL, reason TEXT NULL, registeredBy VARCHAR(255) NULL,
+ createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+ PRIMARY KEY(componentId,month), KEY idx_jc_month(month)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+CREATE TABLE IF NOT EXISTS merge_power_internalservicejcaudit (
+ id VARCHAR(64) NOT NULL PRIMARY KEY, componentId VARCHAR(64) NOT NULL, action VARCHAR(32) NOT NULL,
+ actor VARCHAR(255) NOT NULL, reason TEXT NOT NULL, approvedTotal DECIMAL(18,2) NULL, baselineRuleTotal DECIMAL(18,2) NULL, fixedAdjustment DECIMAL(18,2) NOT NULL,
+ beforeState JSON NULL, afterState JSON NOT NULL, createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ KEY idx_jc_audit(componentId,createdAt)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

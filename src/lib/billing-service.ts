@@ -1,4 +1,6 @@
-import { execute, executeInTransaction, queryRows, withTransaction, type Row } from "./db";
+import { executeInTransaction, withTransaction, type Row } from "./db";
+import { feeExecute as execute, feeQuery as queryRows, withInternalFeeTransaction } from "./internal-service-fee-db";
+import { assertJcSourceMutable } from "./internal-service-fee-jc-service";
 import { attachPartyCodes } from "./party-display";
 import { assertUniqueLineIds, createLineId } from "./draft-line-ids";
 import { regenerateInternalServiceLedger } from "./internal-service-fee-service";
@@ -182,6 +184,10 @@ export async function getBillingAdjustment(adjustmentNo: string) {
 }
 
 export async function saveBillingAdjustmentDraft(payload: BillingAdjustmentDraft) {
+  return withInternalFeeTransaction(() => saveBillingAdjustmentDraftLocked(payload));
+}
+
+async function saveBillingAdjustmentDraftLocked(payload: BillingAdjustmentDraft) {
   const adjustmentNo = payload.adjustmentNo.trim();
   const instanceContractNo = payload.instanceContractNo.trim();
   if (!adjustmentNo) throw new Error("调整单号不能为空");
@@ -217,11 +223,10 @@ export async function saveBillingAdjustmentDraft(payload: BillingAdjustmentDraft
   );
 
   // 明细整体替换必须在一个事务里：否则中途失败会留下"删了一半、插了一半"的数据。
-  await withTransaction(async (connection) => {
-    await executeInTransaction(connection, "DELETE FROM billingadjustmentitems WHERE adjustmentNo = :adjustmentNo", { adjustmentNo });
+  {
+    await execute("DELETE FROM billingadjustmentitems WHERE adjustmentNo = :adjustmentNo", { adjustmentNo });
     for (const item of items) {
-      await executeInTransaction(
-        connection,
+      await execute(
         `
           INSERT INTO billingadjustmentitems
             (id, adjustmentNo, countryCode, batchName, requestNo, poNo, deviceCode, modelCode, nameEn,
@@ -233,12 +238,17 @@ export async function saveBillingAdjustmentDraft(payload: BillingAdjustmentDraft
         item,
       );
     }
-  });
+  }
 
   return getBillingAdjustment(adjustmentNo);
 }
 
 export async function deleteBillingAdjustmentDraft(adjustmentNo: string) {
+  return withInternalFeeTransaction(() => deleteBillingAdjustmentDraftLocked(adjustmentNo));
+}
+
+async function deleteBillingAdjustmentDraftLocked(adjustmentNo: string) {
+  await assertJcSourceMutable({adjustmentNo});
   const { adjustment } = await getBillingAdjustment(adjustmentNo);
   if (!adjustment) return;
   if (String(adjustment.status) === "已确认") throw new Error("已确认的调整单不可删除");
@@ -466,6 +476,13 @@ export async function updateBillingLedger(
   ledgerId: string,
   input: { instanceContractNo?: string | null; startMonth?: string | null },
 ) {
+  return withInternalFeeTransaction(async () => {
+    await assertJcSourceMutable({ledgerId});
+    return updateBillingLedgerLocked(ledgerId, input);
+  });
+}
+
+async function updateBillingLedgerLocked(ledgerId:string,input:{instanceContractNo?:string|null;startMonth?:string|null}) {
   const ledger = await getBillingLedgerDraft(ledgerId);
   if (!ledger) throw new Error("月账单合同不存在");
 
@@ -519,11 +536,14 @@ export async function updateBillingLedger(
 }
 
 export async function deleteBillingLedger(ledgerId: string) {
+  return withInternalFeeTransaction(async () => {
+  await assertJcSourceMutable({ledgerId});
   await execute("DELETE FROM internalservicefeeadjustments WHERE ledgerId = :ledgerId", { ledgerId });
   await execute("DELETE FROM monthlyinternalservicefees WHERE ledgerId = :ledgerId", { ledgerId });
   await execute("DELETE FROM internalserviceledgers WHERE ledgerId = :ledgerId", { ledgerId });
   await execute("DELETE FROM monthlybillingwriteoffs WHERE ledgerId = :ledgerId", { ledgerId });
   await execute("DELETE FROM billinginstanceledgers WHERE ledgerId = :ledgerId", { ledgerId });
+  });
 }
 
 export async function listMonthlyBillingWriteOffs(searchParams: URLSearchParams) {
@@ -875,6 +895,10 @@ async function listTableOptions(table: string, expressions: Record<string, strin
 }
 
 export async function confirmBillingAdjustment(adjustmentNo: string) {
+  return withInternalFeeTransaction(() => confirmBillingAdjustmentLocked(adjustmentNo));
+}
+
+async function confirmBillingAdjustmentLocked(adjustmentNo: string) {
   const { adjustment, items } = await getBillingAdjustment(adjustmentNo);
   if (!adjustment) throw new Error("调整单不存在");
   if (!items.length) throw new Error("调整单明细不能为空");
@@ -902,6 +926,13 @@ export async function confirmBillingAdjustment(adjustmentNo: string) {
  * 退回草稿：把调整单状态回退后，按"没有这张调整单"的口径重算受影响的月账单合同与管理费。
  */
 export async function rollbackBillingAdjustment(adjustmentNo: string) {
+  return withInternalFeeTransaction(async () => {
+    await assertJcSourceMutable({adjustmentNo});
+    return rollbackBillingAdjustmentLocked(adjustmentNo);
+  });
+}
+
+async function rollbackBillingAdjustmentLocked(adjustmentNo: string) {
   const { adjustment, items } = await getBillingAdjustment(adjustmentNo);
   if (!adjustment) throw new Error("调整单不存在");
   if (String(adjustment.status) !== "已确认") throw new Error("只有已确认的调整单可以退回草稿");
@@ -1039,6 +1070,16 @@ async function buildMonthlyBillingRowsWithConfirmedAdjustments(ledger: BillingLe
   const rows = buildMonthlyBillingRows(ledger);
   const adjustments = await listConfirmedBillingAdjustmentsForLedger(ledger);
   return applyBillingAdjustments(rows, adjustments);
+}
+
+export async function rebuildBillingMonthlyRows(ledgerId: string) {
+  return withInternalFeeTransaction(async () => {
+    const ledger = await getBillingLedgerDraft(ledgerId);
+    if (!ledger) throw new Error("月账单合同不存在");
+    const rows = await buildMonthlyBillingRowsWithConfirmedAdjustments(ledger);
+    await replaceMonthlyBillingRows(ledgerId, rows);
+    return { ledgerId, rowCount: rows.length };
+  });
 }
 
 async function listConfirmedBillingAdjustmentsForLedger(ledger: BillingLedgerDraft) {

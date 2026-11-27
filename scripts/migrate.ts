@@ -1,4 +1,6 @@
 import { createPasswordSalt, hashPassword, INITIAL_ADMIN_EMAIL, INITIAL_ADMIN_PASSWORD } from "../src/lib/auth";
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import {
   purchaseOrderPlanFieldSpecs,
   purchaseOrderSnFieldSpecs,
@@ -471,6 +473,7 @@ async function renameLegacyTables() {
 }
 
 async function main() {
+  for (const statement of (await readFile(resolve('scripts/internal-service-fee-jc.sql'), 'utf8')).split(';').filter((sql) => sql.trim())) await executeRaw(statement);
   await ensureMaterialSyncTable();
   await ensureFrappeDemandSyncTables();
   await ensureOperationLogTable();
@@ -2457,17 +2460,31 @@ async function main() {
         \`countryCode\` VARCHAR(32) NULL, \`batchName\` VARCHAR(255) NULL, \`requestNo\` VARCHAR(128) NULL,
         \`poNo\` VARCHAR(128) NULL, \`deviceCode\` VARCHAR(64) NULL, \`modelCode\` VARCHAR(128) NULL,
         \`nameEn\` VARCHAR(255) NULL, \`supplierId\` VARCHAR(64) NULL, \`undertakingUnitId\` VARCHAR(64) NULL,
-        \`quantity\` INT NULL, \`currency\` VARCHAR(16) NULL, \`vatRate\` DECIMAL(10,6) NULL,
+        \`quantity\` INT NULL, \`currency\` VARCHAR(16) NULL, \`reportingCurrency\` VARCHAR(16) NULL,
+        \`exchangeRate\` DECIMAL(18,10) NULL, \`procurementCurrency\` VARCHAR(16) NULL,
+        \`procurementToContractRate\` DECIMAL(18,10) NULL, \`vatRate\` DECIMAL(10,6) NULL,
         \`procurementTaxExcludedUnitPrice\` DECIMAL(18,4) NULL, \`procurementTaxSurcharge\` DECIMAL(18,4) NULL,
         \`contractRevenueIncludingTax\` DECIMAL(18,2) NULL, \`contractRevenueExcludingTax\` DECIMAL(18,2) NULL,
         \`procurementCost\` DECIMAL(18,2) NULL, \`internalServiceFeeTotal\` DECIMAL(18,2) NULL,
+        \`internalServiceFeeReportingTotal\` DECIMAL(18,2) NULL,
         \`archivedAmount\` DECIMAL(18,2) NULL, \`manualAmount\` DECIMAL(18,2) NULL,
         \`remainingAmount\` DECIMAL(18,2) NULL, \`unallocatedAmount\` DECIMAL(18,2) NULL,
         \`startMonth\` DATE NULL, \`status\` VARCHAR(32) NOT NULL DEFAULT '已生成',
+        \`ledgerType\` VARCHAR(16) NOT NULL DEFAULT 'instance' COMMENT 'instance/spare',
+        \`spareProcurementCost\` DECIMAL(18,2) NULL COMMENT 'spare procurement cost USD',
+        \`spareContractExcludingTax\` DECIMAL(18,2) NULL COMMENT 'spare contract amount excluding tax USD',
+        \`spareFirst24MonthlyAmount\` DECIMAL(18,2) NULL COMMENT 'spare monthly management fee for first 24 months USD',
+        \`spareNext36MonthlyAmount\` DECIMAL(18,2) NULL COMMENT 'spare monthly management fee for next 36 months USD',
+        \`spareBusinessKey\` VARCHAR(255) NULL COMMENT 'spare deduplication key',
+        \`notes\` TEXT NULL COMMENT 'notes',
+        \`voidedAt\` DATETIME NULL COMMENT 'void timestamp',
+        \`createdBy\` VARCHAR(255) NULL COMMENT 'created by user email',
+        \`updatedBy\` VARCHAR(255) NULL COMMENT 'updated by user email',
         \`createdAt\` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         \`updatedAt\` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         PRIMARY KEY (\`ledgerId\`), KEY \`idx_InternalServiceLedgers_country\` (\`countryCode\`),
-        KEY \`idx_InternalServiceLedgers_request\` (\`requestNo\`)
+        KEY \`idx_InternalServiceLedgers_request\` (\`requestNo\`), KEY \`idx_InternalServiceLedgers_type\` (\`ledgerType\`),
+        KEY \`idx_InternalServiceLedgers_spare_key\` (\`spareBusinessKey\`)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='InternalServiceLedgers'
     `,
   );
@@ -2480,7 +2497,9 @@ async function main() {
         \`requestNo\` VARCHAR(128) NULL, \`poNo\` VARCHAR(128) NULL, \`deviceCode\` VARCHAR(64) NULL,
         \`modelCode\` VARCHAR(128) NULL, \`nameEn\` VARCHAR(255) NULL, \`supplierId\` VARCHAR(64) NULL,
         \`undertakingUnitId\` VARCHAR(64) NULL, \`customerId\` VARCHAR(64) NULL, \`quantity\` INT NULL, \`currency\` VARCHAR(16) NULL,
-        \`internalServiceFeeAmount\` DECIMAL(18,2) NOT NULL DEFAULT 0, \`sourceType\` VARCHAR(32) NOT NULL DEFAULT 'auto',
+        \`internalServiceFeeAmount\` DECIMAL(18,2) NOT NULL DEFAULT 0, \`reportingCurrency\` VARCHAR(16) NULL,
+        \`exchangeRate\` DECIMAL(18,10) NULL, \`internalServiceFeeReportingAmount\` DECIMAL(18,2) NULL,
+        \`sourceType\` VARCHAR(32) NOT NULL DEFAULT 'auto',
         \`adjustmentNo\` VARCHAR(128) NULL, \`archived\` BOOLEAN NOT NULL DEFAULT FALSE,
         \`archiveSnapshotNo\` VARCHAR(128) NULL, \`archivedAt\` DATETIME NULL,
         \`createdAt\` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -2512,6 +2531,7 @@ async function main() {
       CREATE TABLE \`internalservicefeesnapshots\` (
         \`snapshotNo\` VARCHAR(128) NOT NULL, \`archiveMonth\` DATE NOT NULL, \`countryCode\` VARCHAR(32) NULL,
         \`itemCount\` INT NOT NULL DEFAULT 0, \`totalAmount\` DECIMAL(18,2) NOT NULL DEFAULT 0,
+        \`reportingCurrency\` VARCHAR(16) NULL, \`totalReportingAmount\` DECIMAL(18,2) NOT NULL DEFAULT 0,
         \`confirmedAt\` DATETIME NULL, \`createdAt\` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         \`updatedAt\` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         PRIMARY KEY (\`snapshotNo\`), KEY \`idx_InternalServiceFeeSnapshots_month\` (\`archiveMonth\`)
@@ -2527,12 +2547,106 @@ async function main() {
         \`batchName\` VARCHAR(255) NULL, \`requestNo\` VARCHAR(128) NULL, \`poNo\` VARCHAR(128) NULL,
         \`deviceCode\` VARCHAR(64) NULL, \`supplierId\` VARCHAR(64) NULL, \`undertakingUnitId\` VARCHAR(64) NULL, \`customerId\` VARCHAR(64) NULL,
         \`currency\` VARCHAR(16) NULL, \`internalServiceFeeAmount\` DECIMAL(18,2) NOT NULL,
+        \`reportingCurrency\` VARCHAR(16) NULL, \`exchangeRate\` DECIMAL(18,10) NULL,
+        \`internalServiceFeeReportingAmount\` DECIMAL(18,2) NULL,
         \`sourceType\` VARCHAR(32) NULL, \`adjustmentNo\` VARCHAR(128) NULL, \`createdAt\` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         \`updatedAt\` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         PRIMARY KEY (\`id\`), KEY \`idx_InternalServiceFeeSnapshotItems_snapshot\` (\`snapshotNo\`)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='InternalServiceFeeSnapshotItems'
     `,
   );
+  await createTableIfMissing(
+    "internalservicespareaudits",
+    `
+      CREATE TABLE \`internalservicespareaudits\` (
+        \`id\` CHAR(36) NOT NULL, \`ledgerId\` VARCHAR(96) NOT NULL COMMENT 'spare management fee ledger id',
+        \`action\` VARCHAR(32) NOT NULL COMMENT 'create/import/update/void', \`actor\` VARCHAR(255) NOT NULL COMMENT 'operator',
+        \`reason\` TEXT NULL COMMENT 'change reason', \`beforeJson\` LONGTEXT NULL COMMENT 'state before change',
+        \`afterJson\` LONGTEXT NULL COMMENT 'state after change', \`metadataJson\` LONGTEXT NULL COMMENT 'supplementary metadata',
+        \`createdAt\` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (\`id\`), KEY \`idx_InternalServiceSpareAudits_ledger\` (\`ledgerId\`, \`createdAt\`)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='InternalServiceSpareAudits'
+    `,
+  );
+  for (const [table, columns] of [
+    ["internalserviceledgers", [
+      ["reportingCurrency", "`reportingCurrency` VARCHAR(16) NULL COMMENT 'reporting currency'"],
+      ["exchangeRate", "`exchangeRate` DECIMAL(18,10) NULL COMMENT 'source currency units per reporting currency'"],
+      ["procurementCurrency", "`procurementCurrency` VARCHAR(16) NULL COMMENT 'procurement item currency'"],
+      ["procurementToContractRate", "`procurementToContractRate` DECIMAL(18,10) NULL COMMENT 'contract currency units per procurement currency'"],
+      ["internalServiceFeeReportingTotal", "`internalServiceFeeReportingTotal` DECIMAL(18,2) NULL COMMENT 'management fee total in reporting currency'"],
+      ["ledgerType", "`ledgerType` VARCHAR(16) NOT NULL DEFAULT 'instance' COMMENT 'instance/spare'"],
+      ["spareProcurementCost", "`spareProcurementCost` DECIMAL(18,2) NULL COMMENT 'spare procurement cost USD'"],
+      ["spareContractExcludingTax", "`spareContractExcludingTax` DECIMAL(18,2) NULL COMMENT 'spare contract amount excluding tax USD'"],
+      ["spareFirst24MonthlyAmount", "`spareFirst24MonthlyAmount` DECIMAL(18,2) NULL COMMENT 'spare monthly management fee for first 24 months USD'"],
+      ["spareNext36MonthlyAmount", "`spareNext36MonthlyAmount` DECIMAL(18,2) NULL COMMENT 'spare monthly management fee for next 36 months USD'"],
+      ["spareBusinessKey", "`spareBusinessKey` VARCHAR(255) NULL COMMENT 'spare deduplication key'"],
+      ["notes", "`notes` TEXT NULL COMMENT 'notes'"],
+      ["voidedAt", "`voidedAt` DATETIME NULL COMMENT 'void timestamp'"],
+      ["createdBy", "`createdBy` VARCHAR(255) NULL COMMENT 'created by user email'"],
+      ["updatedBy", "`updatedBy` VARCHAR(255) NULL COMMENT 'updated by user email'"],
+    ]],
+    ["monthlyinternalservicefees", [
+      ["reportingCurrency", "`reportingCurrency` VARCHAR(16) NULL COMMENT 'reporting currency'"],
+      ["exchangeRate", "`exchangeRate` DECIMAL(18,10) NULL COMMENT 'source currency units per reporting currency'"],
+      ["internalServiceFeeReportingAmount", "`internalServiceFeeReportingAmount` DECIMAL(18,2) NULL COMMENT 'management fee in reporting currency'"],
+    ]],
+    ["internalservicefeesnapshots", [
+      ["reportingCurrency", "`reportingCurrency` VARCHAR(16) NULL COMMENT 'reporting currency summary'"],
+      ["totalReportingAmount", "`totalReportingAmount` DECIMAL(18,2) NOT NULL DEFAULT 0 COMMENT 'management fee total in reporting currency'"],
+    ]],
+    ["internalservicefeesnapshotitems", [
+      ["reportingCurrency", "`reportingCurrency` VARCHAR(16) NULL COMMENT 'reporting currency'"],
+      ["exchangeRate", "`exchangeRate` DECIMAL(18,10) NULL COMMENT 'source currency units per reporting currency'"],
+      ["internalServiceFeeReportingAmount", "`internalServiceFeeReportingAmount` DECIMAL(18,2) NULL COMMENT 'management fee in reporting currency'"],
+    ]],
+  ] as const) {
+    for (const [column, ddl] of columns) await addColumnIfMissing(table, column, ddl);
+  }
+  await execute(`
+    UPDATE internalserviceledgers ledger
+    LEFT JOIN monthlyinternalservicefees firstMonth
+      ON firstMonth.ledgerId=ledger.ledgerId AND firstMonth.sourceType='spare' AND firstMonth.monthIndex=1
+    LEFT JOIN monthlyinternalservicefees nextMonth
+      ON nextMonth.ledgerId=ledger.ledgerId AND nextMonth.sourceType='spare' AND nextMonth.monthIndex=25
+    SET ledger.ledgerType='spare',
+        ledger.status=CASE WHEN ledger.status='附件导入' THEN '启用' ELSE ledger.status END,
+        ledger.spareProcurementCost=COALESCE(ledger.spareProcurementCost, ledger.procurementCost),
+        ledger.spareContractExcludingTax=COALESCE(ledger.spareContractExcludingTax, ledger.contractRevenueExcludingTax),
+        ledger.spareFirst24MonthlyAmount=COALESCE(ledger.spareFirst24MonthlyAmount, firstMonth.internalServiceFeeAmount),
+        ledger.spareNext36MonthlyAmount=COALESCE(ledger.spareNext36MonthlyAmount, nextMonth.internalServiceFeeAmount),
+        ledger.spareBusinessKey=COALESCE(
+          ledger.spareBusinessKey,
+          CONCAT(
+            'spare|', UPPER(COALESCE(ledger.countryCode,'')), '|',
+            UPPER(COALESCE(ledger.batchName,'')), '|',
+            UPPER(COALESCE(NULLIF(ledger.deviceCode,''), NULLIF(ledger.nameEn,''), ledger.ledgerId)), '|',
+            DATE_FORMAT(ledger.startMonth,'%Y-%m')
+          )
+        )
+    WHERE ledger.ledgerId LIKE 'ISF-SPARE-%'
+       OR ledger.status='附件导入'
+       OR EXISTS (
+         SELECT 1 FROM monthlyinternalservicefees spareFee
+         WHERE spareFee.ledgerId=ledger.ledgerId AND spareFee.sourceType='spare'
+       )
+  `);
+  for (const [table, columns] of [
+    ["merge_power_internalservicejccomponents", [
+      ["reportingCurrency", "`reportingCurrency` VARCHAR(16) NULL COMMENT 'reporting currency'"],
+      ["exchangeRate", "`exchangeRate` DECIMAL(18,10) NULL COMMENT 'source currency units per reporting currency'"],
+      ["ruleTotalReporting", "`ruleTotalReporting` DECIMAL(18,2) NULL COMMENT 'rule total in reporting currency'"],
+      ["approvedTotalReporting", "`approvedTotalReporting` DECIMAL(18,2) NULL COMMENT 'approved total in reporting currency'"],
+      ["fixedAdjustmentReporting", "`fixedAdjustmentReporting` DECIMAL(18,2) NULL COMMENT 'fixed adjustment in reporting currency'"],
+    ]],
+    ["merge_power_internalservicejcmonths", [
+      ["reportingAmount", "`reportingAmount` DECIMAL(18,2) NULL COMMENT 'JC amount in reporting currency'"],
+    ]],
+  ] as const) {
+    if (await tableExists(physicalTableName(table))) {
+      for (const [column, ddl] of columns) await addColumnIfMissing(table, column, ddl);
+    }
+  }
   for (const tableName of [
     "prepaymentcontractitems",
     "monthlyprepaymentwriteoffs",

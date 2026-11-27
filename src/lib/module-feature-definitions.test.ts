@@ -23,6 +23,8 @@ describe("module feature domains", () => {
     const state = getDefaultModuleFeatureState();
     expect(isModuleDisabledByDefault("internal-service-fees")).toBe(true);
     expect(state["internal-service-fees"]).toBe(false);
+    expect(isModuleDisabledByDefault("internal-service-fee-spares")).toBe(true);
+    expect(state["internal-service-fee-spares"]).toBe(false);
     expect(state["system-module-features"]).toBeUndefined();
   });
 

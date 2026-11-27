@@ -24,6 +24,18 @@ function flattenNavItems(groups: NavGroup[]): Array<{ key: string; title: string
 }
 
 describe("permission definitions", () => {
+  it("requires management-fee confirmation permission for confirm and return", () => {
+    const base = "/api/internal-service-fees/adjustments";
+    for (const target of ["jc", "IFS-123"]) {
+      for (const action of ["confirm", "rollback"]) {
+        expect(getRoutePermission(`${base}/${target}/${action}`, "POST")).toEqual({ moduleKey: "internal-service-fee-adjustments", action: "confirm" });
+      }
+    }
+    expect(getRoutePermission(`${base}/jc/preview`, "POST")).toEqual({ moduleKey: "internal-service-fee-adjustments", action: "view" });
+    const viewer = { role: "user", grants: { "internal-service-fee-adjustments": permissionMask({canView:true}) } };
+    expect(hasPermission(viewer, "internal-service-fee-adjustments", "confirm")).toBe(false);
+  });
+
   it("maps API methods to module actions", () => {
     expect(getRoutePermission("/api/entities/customers", "GET")).toEqual({ moduleKey: "customers", action: "view" });
     expect(getRoutePermission("/api/entities/customers/1", "PUT")).toEqual({ moduleKey: "customers", action: "update" });
@@ -32,6 +44,8 @@ describe("permission definitions", () => {
     expect(getRoutePermission("/api/integrations/frappe-demand-sync/mappings", "GET")).toEqual({ moduleKey: "demand-sync-mappings", action: "view" });
     expect(getRoutePermission("/api/integrations/frappe-demand-sync", "POST")).toEqual({ moduleKey: "demand-sync-mappings", action: "create" });
     expect(getRoutePermission("/api/cloud/supplier-payments/1", "PATCH")).toEqual({ moduleKey: "huawei-cloud-supplier-payments", action: "update" });
+    expect(getRoutePermission("/api/internal-service-fees/spares", "POST")).toEqual({ moduleKey: "internal-service-fee-spares", action: "create" });
+    expect(getRoutePermission("/api/internal-service-fees/spares/ISF-1", "PUT")).toEqual({ moduleKey: "internal-service-fee-spares", action: "update" });
     expect(getRoutePermission("/api/po/quotations/1/confirm", "POST")).toEqual({ moduleKey: "quotations", action: "confirm" });
     // 按钮在需求单列表、接口挂在 /api/procurement 前缀：必须按"需求单-确认"鉴权，而不是采购订单-新增。
     expect(getRoutePermission("/api/procurement/from-request", "POST")).toEqual({ moduleKey: "requests", action: "confirm" });

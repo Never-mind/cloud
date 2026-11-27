@@ -33,6 +33,7 @@ const MODULE_FEATURE_ROUTES: ModuleFeatureRoute[] = [
   { key: "non-instance-settlements", routePrefix: "/finance/non-instance-settlements" },
   { key: "balance-final-settlements", routePrefix: "/finance/balance-final-settlements" },
   { key: "internal-service-fee-available", routePrefix: "/finance/internal-service-fee-available" },
+  { key: "internal-service-fee-spares", routePrefix: "/finance/internal-service-fee-spares" },
   { key: "internal-service-fees", routePrefix: "/finance/internal-service-fees" },
   { key: "internal-service-fee-adjustments", routePrefix: "/finance/internal-service-fee-adjustments" },
   { key: "internal-service-fee-snapshots", routePrefix: "/finance/internal-service-fee-snapshots" },
@@ -42,6 +43,7 @@ const MODULE_FEATURE_API_ROUTES: ModuleFeatureRoute[] = [
   { key: "b6-type-configs", routePrefix: "/api/capex-pricing/b6-types" },
   { key: "capex-pricing", routePrefix: "/api/capex-pricing" },
   { key: "balance-settlements", routePrefix: "/api/balance-settlements" },
+  { key: "internal-service-fee-spares", routePrefix: "/api/internal-service-fees/spares" },
   { key: "internal-service-fees", routePrefix: "/api/internal-service-fees" },
 ];
 
@@ -52,6 +54,7 @@ const DISABLED_BY_DEFAULT = new Set([
   "non-instance-settlements",
   "balance-final-settlements",
   "internal-service-fee-available",
+  "internal-service-fee-spares",
   "internal-service-fees",
   "internal-service-fee-adjustments",
   "internal-service-fee-snapshots",

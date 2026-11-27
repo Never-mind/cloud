@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
@@ -17,6 +17,23 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "Cloud业务系统",
   description: "客户需求、采购、物流、财务一体化后台",
+  applicationName: "Cloud业务系统",
+  manifest: "/manifest.webmanifest",
+  icons: {
+    icon: [
+      { url: "/favicon.ico?v=20261127", sizes: "any" },
+      { url: "/icon.svg?v=20261127", type: "image/svg+xml" },
+      { url: "/icons/icon-16.png?v=20261127", sizes: "16x16", type: "image/png" },
+      { url: "/icons/icon-32.png?v=20261127", sizes: "32x32", type: "image/png" },
+      { url: "/icons/icon-48.png?v=20261127", sizes: "48x48", type: "image/png" },
+    ],
+    shortcut: "/favicon.ico?v=20261127",
+    apple: [{ url: "/icons/apple-touch-icon.png", sizes: "180x180", type: "image/png" }],
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#102A43",
 };
 
 export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

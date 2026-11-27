@@ -22,6 +22,14 @@ const ledger = {
 };
 
 describe("internal service fee workflow", () => {
+  it("does not overwrite unusual archived amounts and reconciles the open balance", () => {
+    const billingMonthlyAmounts = [...Array(24).fill(580), ...Array(36).fill(58)];
+    const existingRows = buildInternalServiceFeeSchedule({ledger,billingMonthlyAmounts}).rows;
+    existingRows[0] = {...existingRows[0],archived:true,internalServiceFeeAmount:-100,sourceType:'manual',adjustmentNo:'historic'};
+    const result = buildInternalServiceFeeSchedule({ledger,billingMonthlyAmounts,existingRows});
+    expect(result.rows[0]).toMatchObject({internalServiceFeeAmount:-100,sourceType:'manual',adjustmentNo:'historic',archived:true});
+    expect(result.rows.reduce((sum,row)=>sum+row.internalServiceFeeAmount,0)).toBeCloseTo(result.internalServiceFeeTotal,2);
+  });
   it("allocates half of the initial total into each contract stage", () => {
     const result = buildInternalServiceFeeSchedule({
       ledger,
@@ -66,5 +74,29 @@ describe("internal service fee workflow", () => {
     expect(result.rows[0].internalServiceFeeAmount).toBe(120.83);
     expect(result.rows[1].internalServiceFeeAmount).toBe(120.83);
     expect(result.rows[2].internalServiceFeeAmount).toBeGreaterThan(120.83);
+  });
+
+  it("normalizes procurement currency and reports the management fee in USD", () => {
+    const result = buildInternalServiceFeeSchedule({
+      ledger: {
+        ...ledger,
+        quantity: 32,
+        currency: "CNY",
+        reportingCurrency: "USD",
+        exchangeRate: 7.2,
+        procurementCurrency: "USD",
+        procurementToContractRate: 7.2,
+        vatRate: 0.029,
+        procurementTaxExcludedUnitPrice: 17058.98,
+        procurementTaxSurcharge: 12997.44,
+      },
+      billingMonthlyAmounts: [...Array(24).fill(9688.62 * 32), ...Array(36).fill(35.4 * 32)],
+    });
+
+    expect(result.procurementCost).toBeCloseTo(6924999.17, 2);
+    expect(result.internalServiceFeeTotal).toBeCloseTo(345788.93, 2);
+    expect(result.rows[0].internalServiceFeeAmount).toBeCloseTo(7203.94, 2);
+    expect(result.rows[0].internalServiceFeeReportingAmount).toBeCloseTo(1000.55, 2);
+    expect(result.internalServiceFeeReportingTotal).toBeCloseTo(48026.24, 2);
   });
 });

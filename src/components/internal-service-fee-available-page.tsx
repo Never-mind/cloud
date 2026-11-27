@@ -41,6 +41,7 @@ export function InternalServiceFeeAvailablePage() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [total, setTotal] = useState(0);
+  const [initialization,setInitialization]=useState<{totalLedgers:number;initializedLedgers:number;pendingLedgers:number}|null>(null);
   const pageSizeRef = useRef(pageSize);
   const [sortField, setSortField] = useState("");
   const [sortOrder, setSortOrder] = useState<TableSortOrder>("");
@@ -61,6 +62,7 @@ export function InternalServiceFeeAvailablePage() {
       if (!isCurrentRequest()) return;
       setRows(data.rows ?? []);
       setTotal(Number(data.total ?? 0));
+      setInitialization(data.initialization??null);
       setPage(Number(data.page ?? nextPage));
     } catch (error) {
       if (!isCurrentRequest()) return;
@@ -120,7 +122,8 @@ export function InternalServiceFeeAvailablePage() {
     <div className="space-y-5">
       <div>
         <h1 className="text-xl font-medium text-ink">待初始化管理费实例</h1>
-        <p className="mt-1 text-sm text-ink-3">展示已有月账单合同但尚未生成管理费的实例，确认后自动建立 60 个月管理费计划。</p>
+        <p className="mt-1 text-sm text-ink-3">按合同实例逐条初始化，同一批次可能包含已初始化和待初始化的不同实例。已初始化实例的月度计划在“管理费分摊”中查看。</p>
+        {initialization&&<p className="mt-2 text-sm text-ink-2">全部合同实例 {initialization.totalLedgers} 条 · 已初始化 {initialization.initializedLedgers} 条 · 待初始化 {initialization.pendingLedgers} 条</p>}
       </div>
       <Panel>
         <div className="flex flex-wrap items-center gap-2 border-b border-line-soft p-4">

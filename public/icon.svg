@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img" aria-label="Cloud业务系统">
+  <defs>
+    <linearGradient id="background" x1="24" y1="18" x2="225" y2="238" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#102A43"/>
+      <stop offset="1" stop-color="#173F60"/>
+    </linearGradient>
+    <linearGradient id="orbit" x1="56" y1="52" x2="183" y2="181" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#56CCF2"/>
+      <stop offset="1" stop-color="#1890FF"/>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="8" width="240" height="240" rx="56" fill="url(#background)"/>
+  <path d="M170 68C154 54 132 48 108 52C71 58 48 91 54 126C60 161 92 184 128 178C144 176 158 169 169 159"
+    fill="none" stroke="url(#orbit)" stroke-width="24" stroke-linecap="round"/>
+  <circle cx="178" cy="78" r="13" fill="#FFFFFF"/>
+  <circle cx="183" cy="151" r="10" fill="#56CCF2"/>
+  <circle cx="92" cy="55" r="8" fill="#FFFFFF" fill-opacity=".92"/>
+  <circle cx="128" cy="128" r="7" fill="#FFFFFF" fill-opacity=".9"/>
+</svg>

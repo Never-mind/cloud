@@ -8,7 +8,7 @@ export async function POST(request: NextRequest) {
       ledgerId: String(body.ledgerId ?? ""),
       startMonth: String(body.startMonth ?? ""),
       endMonth: String(body.endMonth ?? ""),
-      monthlyAmount: Number(body.monthlyAmount),
+      monthlyAmount: body.monthlyAmount,
       reason: String(body.reason ?? ""),
     }), { status: 201 });
   } catch (error) {

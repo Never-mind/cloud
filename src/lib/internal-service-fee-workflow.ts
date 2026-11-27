@@ -12,6 +12,10 @@ export type InternalServiceLedgerInput = {
   customerId: string;
   quantity: number;
   currency: string;
+  reportingCurrency?: string;
+  exchangeRate?: number;
+  procurementCurrency?: string;
+  procurementToContractRate?: number;
   vatRate: number;
   procurementTaxExcludedUnitPrice: number;
   procurementTaxSurcharge: number;
@@ -23,6 +27,7 @@ export type InternalServiceMonthlyRow = InternalServiceLedgerInput & {
   writeOffMonth: string;
   monthIndex: number;
   internalServiceFeeAmount: number;
+  internalServiceFeeReportingAmount: number;
   sourceType: "auto" | "manual";
   adjustmentNo: string;
   archived: boolean;
@@ -48,6 +53,7 @@ type InternalServiceCalculation = {
   contractRevenueExcludingTax: number;
   procurementCost: number;
   internalServiceFeeTotal: number;
+  internalServiceFeeReportingTotal: number;
   archivedAmount: number;
   manualAmount: number;
   remainingAmount: number;
@@ -72,8 +78,16 @@ export function buildInternalServiceFeeSchedule({
 }): InternalServiceCalculation {
   const vatRate = Number(ledger.vatRate ?? 0);
   const quantity = Number(ledger.quantity ?? 0);
+  const reportingCurrency = String(ledger.reportingCurrency ?? ledger.currency ?? "").toUpperCase();
+  const sourceCurrency = String(ledger.currency ?? "").toUpperCase();
+  const exchangeRate = normalizeRate(ledger.exchangeRate, sourceCurrency === reportingCurrency ? 1 : null);
+  const procurementToContractRate = normalizeRate(ledger.procurementToContractRate, 1) ?? 1;
   const normalizedBilling = Array.from({ length: TOTAL_MONTHS }, (_, index) => Number(billingMonthlyAmounts[index] ?? 0));
-  const procurementCost = roundMoney(quantity * (Number(ledger.procurementTaxExcludedUnitPrice ?? 0) + Number(ledger.procurementTaxSurcharge ?? 0)));
+  const procurementCost = roundMoney(
+    quantity
+      * (Number(ledger.procurementTaxExcludedUnitPrice ?? 0) + Number(ledger.procurementTaxSurcharge ?? 0))
+      * procurementToContractRate,
+  );
   const existingByMonth = new Map(existingRows.map((row) => [row.writeOffMonth, row]));
 
   const rows = Array.from({ length: TOTAL_MONTHS }, (_, index) => {
@@ -86,6 +100,7 @@ export function buildInternalServiceFeeSchedule({
       writeOffMonth,
       monthIndex,
       internalServiceFeeAmount: existing?.archived ? Number(existing.internalServiceFeeAmount ?? 0) : 0,
+      internalServiceFeeReportingAmount: 0,
       sourceType: existing?.archived ? existing.sourceType : "auto",
       adjustmentNo: existing?.archived ? existing.adjustmentNo : "",
       archived: Boolean(existing?.archived),
@@ -95,6 +110,14 @@ export function buildInternalServiceFeeSchedule({
   const initialRevenueExcludingTax = roundMoney(normalizedBilling.reduce((total, amount) => total + amount, 0) / (1 + vatRate));
   const initialInternalServiceFeeTotal = roundMoney(initialRevenueExcludingTax - procurementCost);
   allocateInitialTwoStage(rows, initialInternalServiceFeeTotal);
+  // Allocation must never rewrite a registered snapshot, including rounding tails.
+  for (const row of rows) {
+    const existing = existingByMonth.get(row.writeOffMonth);
+    if (existing?.archived) Object.assign(row, {
+      internalServiceFeeAmount: Number(existing.internalServiceFeeAmount),
+      sourceType: existing.sourceType, adjustmentNo: existing.adjustmentNo,
+    });
+  }
 
   const manualByMonth = new Map<string, InternalServiceAdjustment>();
   for (const adjustment of [...adjustments].sort(compareAdjustment)) {
@@ -114,7 +137,12 @@ export function buildInternalServiceFeeSchedule({
   }
 
   const currentRevenuePlan = [...normalizedBilling];
-  for (const adjustment of pricingAdjustments.sort((left, right) => left.effectiveMonth.localeCompare(right.effectiveMonth))) {
+  if (!pricingAdjustments.length && roundMoney(rows.reduce((sum, row) => sum + row.internalServiceFeeAmount, 0)) !== initialInternalServiceFeeTotal) {
+    const fixed = rows.filter((row) => row.archived || manualByMonth.has(row.writeOffMonth));
+    allocateRows(rows.filter((row) => !row.archived && !manualByMonth.has(row.writeOffMonth)),
+      roundMoney(initialInternalServiceFeeTotal - fixed.reduce((total, row) => total + row.internalServiceFeeAmount, 0)));
+  }
+  for (const adjustment of [...pricingAdjustments].sort((left, right) => left.effectiveMonth.localeCompare(right.effectiveMonth))) {
     const effectiveMonth = firstDayOfMonth(adjustment.effectiveMonth);
     const firstAffectedIndex = rows.findIndex((row) => row.writeOffMonth >= effectiveMonth);
     if (firstAffectedIndex < 0) continue;
@@ -137,18 +165,34 @@ export function buildInternalServiceFeeSchedule({
   const manualAmount = roundMoney(rows.filter((row) => !row.archived && manualByMonth.has(row.writeOffMonth)).reduce((total, row) => total + row.internalServiceFeeAmount, 0));
   const unarchivedAmount = roundMoney(rows.filter((row) => !row.archived).reduce((total, row) => total + row.internalServiceFeeAmount, 0));
   const remainingAmount = roundMoney(internalServiceFeeTotal - archivedAmount);
+  for (const row of rows) {
+    row.internalServiceFeeReportingAmount = toReportingAmount(row.internalServiceFeeAmount, exchangeRate);
+  }
+  const internalServiceFeeReportingTotal = toReportingAmount(internalServiceFeeTotal, exchangeRate);
 
   return {
     contractRevenueIncludingTax,
     contractRevenueExcludingTax,
     procurementCost,
     internalServiceFeeTotal,
+    internalServiceFeeReportingTotal,
     archivedAmount,
     manualAmount,
     remainingAmount,
     unallocatedAmount: roundMoney(internalServiceFeeTotal - archivedAmount - unarchivedAmount),
     rows,
   };
+}
+
+function normalizeRate(value: unknown, fallback: number | null) {
+  if (value == null || value === "") return fallback;
+  const rate = Number(value);
+  return Number.isFinite(rate) && rate > 0 ? rate : fallback;
+}
+
+function toReportingAmount(sourceAmount: number, exchangeRate: number | null) {
+  if (exchangeRate == null || !Number.isFinite(exchangeRate) || exchangeRate <= 0) return 0;
+  return roundMoney(sourceAmount / exchangeRate);
 }
 
 function allocateInitialTwoStage(rows: InternalServiceMonthlyRow[], total: number) {
